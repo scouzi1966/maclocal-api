@@ -90,8 +90,19 @@ struct ChatCompletionsController: RouteCollection {
     }
     
     private func estimateTokens(for text: String) -> Int {
-        let words = text.split(separator: " ")
-        return Int(Double(words.count) * 1.3)
+        // GPT-Style estimation based on OpenAI's rough estimates:
+        // - 1 token ≈ 4 characters of English text
+        // - 1 token ≈ ¾ words
+        // - 100 tokens ≈ 75 words
+        
+        let wordCount = text.components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }.count
+        
+        // Use the more conservative estimate
+        let charBasedTokens = Double(text.count) / 4.0
+        let wordBasedTokens = Double(wordCount) / 0.75
+        
+        return Int(max(charBasedTokens, wordBasedTokens))
     }
     
     private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, foundationService: FoundationModelService) async throws -> Response {
@@ -108,12 +119,19 @@ struct ChatCompletionsController: RouteCollection {
         httpResponse.body = .init(asyncStream: { writer in
             do {
                 let encoder = JSONEncoder()
-                let stream = try await foundationService.generateStreamingResponse(for: chatRequest.messages)
                 
+                // Get response with proper timing measurement
+                let (content, promptTime) = try await foundationService.generateStreamingResponseWithTiming(for: chatRequest.messages)
+                
+                // Start streaming timing
+                let completionStartTime = Date()
                 var isFirst = true
+                var completionTokens = 0
                 
-                // Stream content chunks
-                for try await chunk in stream {
+                // Split response into words and stream them
+                let words = content.components(separatedBy: " ")
+                for (index, word) in words.enumerated() {
+                    let chunk = index == words.count - 1 ? word : "\(word) "
                     let streamChunk = ChatCompletionStreamResponse(
                         id: streamId,
                         model: chatRequest.model,
@@ -121,19 +139,35 @@ struct ChatCompletionsController: RouteCollection {
                         isFirst: isFirst
                     )
                     isFirst = false
+                    completionTokens += estimateTokens(for: chunk)
                     
                     let chunkData = try encoder.encode(streamChunk)
                     if let jsonString = String(data: chunkData, encoding: .utf8) {
                         try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                     }
+                    
+                    // Small delay to simulate streaming
+                    try await Task.sleep(nanoseconds: 50_000_000) // 50ms
                 }
                 
-                // Send final chunk
+                // Calculate timing metrics
+                let completionTime = Date().timeIntervalSince(completionStartTime)
+                let promptTokens = estimateTokens(for: chatRequest.messages)
+                
+                let usage = StreamUsage(
+                    promptTokens: promptTokens,
+                    completionTokens: completionTokens,
+                    completionTime: completionTime,
+                    promptTime: promptTime
+                )
+                
+                // Send final chunk with metrics
                 let finalChunk = ChatCompletionStreamResponse(
                     id: streamId,
                     model: chatRequest.model,
                     content: "",
-                    isFinished: true
+                    isFinished: true,
+                    usage: usage
                 )
                 let finalData = try encoder.encode(finalChunk)
                 if let jsonString = String(data: finalData, encoding: .utf8) {

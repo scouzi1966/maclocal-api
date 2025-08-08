@@ -58,6 +58,32 @@ class FoundationModelService {
         #endif
     }
     
+    func generateStreamingResponseWithTiming(for messages: [Message]) async throws -> (content: String, promptTime: Double) {
+        #if canImport(FoundationModels)
+        guard let session = session else {
+            throw FoundationModelError.sessionCreationFailed
+        }
+        
+        let prompt = formatMessagesAsPrompt(messages)
+        
+        // Measure actual Foundation Model processing time
+        let promptStartTime = Date()
+        let response = try await session.respond(to: prompt)
+        let promptTime = Date().timeIntervalSince(promptStartTime)
+        
+        let content = response.content
+        
+        // Handle empty or nil content
+        guard !content.isEmpty else {
+            return (content: "I'm unable to generate a response at the moment.", promptTime: promptTime)
+        }
+        
+        return (content: content, promptTime: promptTime)
+        #else
+        throw FoundationModelError.notAvailable
+        #endif
+    }
+    
     func generateStreamingResponse(for messages: [Message]) async throws -> AsyncThrowingStream<String, Error> {
         #if canImport(FoundationModels)
         guard let session = session else {
