@@ -1,0 +1,89 @@
+import Vapor
+import Foundation
+
+class Server {
+    private let app: Application
+    private let port: Int
+    private let verbose: Bool
+    
+    init(port: Int, verbose: Bool) throws {
+        self.port = port
+        self.verbose = verbose
+        
+        // Create environment without command line arguments to prevent Vapor from parsing them
+        var env = Environment(name: "development", arguments: ["MacLocalAPI"])
+        try LoggingSystem.bootstrap(from: &env)
+        
+        self.app = Application(env)
+        
+        if verbose {
+            app.logger.logLevel = .debug
+        }
+        
+        try configure()
+    }
+    
+    private func configure() throws {
+        app.http.server.configuration.port = port
+        app.http.server.configuration.hostname = "0.0.0.0"
+        
+        try routes()
+    }
+    
+    private func routes() throws {
+        app.get("health") { req async -> HealthResponse in
+            return HealthResponse(
+                status: "healthy",
+                timestamp: Date().timeIntervalSince1970,
+                version: "1.0.0"
+            )
+        }
+        
+        app.get("v1", "models") { req in
+            return ModelsResponse(
+                object: "list",
+                data: [
+                    ModelInfo(
+                        id: "foundation",
+                        object: "model",
+                        created: Int(Date().timeIntervalSince1970),
+                        ownedBy: "apple"
+                    )
+                ]
+            )
+        }
+        
+        let chatController = ChatCompletionsController()
+        try app.register(collection: chatController)
+    }
+    
+    func start() async throws {
+        print("🚀 MacLocalAPI server starting on http://localhost:\(port)")
+        print("📱 Using Apple Foundation Models (requires macOS 26+ with Apple Intelligence)")
+        print("🔗 OpenAI API compatible endpoints:")
+        print("   POST http://localhost:\(port)/v1/chat/completions")
+        print("   GET  http://localhost:\(port)/v1/models")
+        print("   GET  http://localhost:\(port)/health")
+        print("Press Ctrl+C to stop the server")
+        
+        try await app.execute()
+    }
+}
+
+struct ModelsResponse: Content {
+    let object: String
+    let data: [ModelInfo]
+}
+
+struct ModelInfo: Content {
+    let id: String
+    let object: String
+    let created: Int
+    let ownedBy: String
+}
+
+struct HealthResponse: Content {
+    let status: String
+    let timestamp: Double
+    let version: String
+}
