@@ -58,6 +58,51 @@ class FoundationModelService {
         #endif
     }
     
+    func generateStreamingResponse(for messages: [Message]) async throws -> AsyncThrowingStream<String, Error> {
+        #if canImport(FoundationModels)
+        guard let session = session else {
+            throw FoundationModelError.sessionCreationFailed
+        }
+        
+        let prompt = formatMessagesAsPrompt(messages)
+        
+        return AsyncThrowingStream<String, Error> { continuation in
+            Task {
+                do {
+                    // Since FoundationModels may not have streaming support yet,
+                    // we'll simulate streaming by chunking the complete response
+                    let response = try await session.respond(to: prompt)
+                    let content = response.content
+                    
+                    // Handle empty or nil content
+                    guard !content.isEmpty else {
+                        continuation.yield("I'm unable to generate a response at the moment.")
+                        continuation.finish()
+                        return
+                    }
+                    
+                    // Split response into words and stream them
+                    let words = content.components(separatedBy: " ")
+                    for (index, word) in words.enumerated() {
+                        let chunk = index == words.count - 1 ? word : "\(word) "
+                        continuation.yield(chunk)
+                        // Small delay to simulate streaming
+                        try await Task.sleep(nanoseconds: 50_000_000) // 50ms
+                    }
+                    
+                    continuation.finish()
+                } catch {
+                    // Log the error and provide a fallback response
+                    print("FoundationModel error: \(error)")
+                    continuation.finish(throwing: FoundationModelError.responseGenerationFailed(error.localizedDescription))
+                }
+            }
+        }
+        #else
+        throw FoundationModelError.notAvailable
+        #endif
+    }
+    
     private func formatMessagesAsPrompt(_ messages: [Message]) -> String {
         var prompt = ""
         

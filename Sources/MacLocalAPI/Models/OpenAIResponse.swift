@@ -70,6 +70,69 @@ struct Usage: Content {
     }
 }
 
+struct ChatCompletionStreamResponse: Content {
+    let id: String
+    let object: String
+    let created: Int
+    let model: String
+    let choices: [StreamChoice]
+    
+    init(id: String = UUID().uuidString, model: String, content: String, isFinished: Bool = false, isFirst: Bool = false) {
+        self.id = "chatcmpl-\(id.prefix(8))"
+        self.object = "chat.completion.chunk"
+        self.created = Int(Date().timeIntervalSince1970)
+        self.model = model
+        
+        if isFinished {
+            self.choices = [
+                StreamChoice(
+                    index: 0,
+                    delta: StreamDelta(content: nil),
+                    finishReason: "stop"
+                )
+            ]
+        } else if isFirst {
+            self.choices = [
+                StreamChoice(
+                    index: 0,
+                    delta: StreamDelta(role: "assistant", content: content),
+                    finishReason: nil
+                )
+            ]
+        } else {
+            self.choices = [
+                StreamChoice(
+                    index: 0,
+                    delta: StreamDelta(content: content),
+                    finishReason: nil
+                )
+            ]
+        }
+    }
+}
+
+struct StreamChoice: Content {
+    let index: Int
+    let delta: StreamDelta
+    let finishReason: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case index
+        case delta
+        case finishReason = "finish_reason"
+    }
+}
+
+struct StreamDelta: Content {
+    let role: String?
+    let content: String?
+    
+    init(role: String? = nil, content: String?) {
+        self.role = role
+        self.content = content
+    }
+}
+
 struct OpenAIError: Content, Error {
     let error: ErrorDetail
     
