@@ -3,9 +3,9 @@
 # Default port
 PORT=${1:-8080}
 
-echo "Testing streaming metrics functionality..."
+echo "Testing afm streaming metrics functionality..."
 echo "Port: $PORT"
-echo "============================================"
+echo "================================================"
 echo ""
 
 # Test streaming functionality with focus on final metrics chunk

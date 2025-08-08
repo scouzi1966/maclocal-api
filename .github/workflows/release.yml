@@ -1,0 +1,54 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Swift
+      uses: swift-actions/setup-swift@v1
+      with:
+        swift-version: "5.9"
+    
+    - name: Build Release Binary
+      run: swift build --configuration release
+    
+    - name: Create Release Package
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/v}
+        mkdir -p release-package
+        
+        # Copy binary with new name
+        cp .build/arm64-apple-macosx/release/afm release-package/
+        
+        # Copy scripts and docs
+        cp test-streaming.sh test-metrics.sh release-package/
+        cp README.md LICENSE release-package/ || true
+        
+        # Create install guide
+        cat > release-package/INSTALL.md << EOF
+        # afm (Apple Foundation Models API) v$VERSION - Installation Guide
+        ## Quick Start
+        1. Extract and run: \`chmod +x afm && ./afm\`
+        2. Test: \`./test-streaming.sh\`
+        ## Requirements
+        - macOS 26+ with Apple Intelligence enabled
+        EOF
+        
+        # Create archive
+        tar -czf afm-v$VERSION-arm64.tar.gz -C release-package .
+    
+    - name: Upload to Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: afm-v*-arm64.tar.gz
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

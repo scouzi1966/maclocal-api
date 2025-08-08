@@ -3,9 +3,9 @@
 # Default port
 PORT=${1:-8080}
 
-echo "Testing streaming functionality..."
+echo "Testing afm streaming functionality..."
 echo "Port: $PORT"
-echo "=================================="
+echo "====================================="
 
 # Test streaming functionality with verbose output
 curl -X POST http://localhost:$PORT/v1/chat/completions \

@@ -8,7 +8,7 @@ let package = Package(
     ],
     products: [
         .executable(
-            name: "MacLocalAPI",
+            name: "afm",
             targets: ["MacLocalAPI"]
         )
     ],
