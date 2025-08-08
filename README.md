@@ -39,13 +39,13 @@ swift build -c release
 
 ```bash
 # Start server on default port 9999
-./.build/release/MacLocalAPI
+./.build/release/afm
 
 # Custom port with verbose logging
-./.build/release/MacLocalAPI --port 8080 --verbose
+./.build/release/afm --port 8080 --verbose
 
 # Show help
-./.build/release/MacLocalAPI --help
+./.build/release/afm --help
 ```
 
 ## 📡 API Endpoints
@@ -171,7 +171,7 @@ MacLocalAPI/
 ### Command Line Options
 
 ```bash
-USAGE: MacLocalAPI [--port <port>] [--verbose]
+USAGE: afm [--port <port>] [--verbose]
 
 OPTIONS:
   -p, --port <port>       Port to run the server on (default: 9999)

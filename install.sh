@@ -5,7 +5,7 @@
 
 set -e
 
-echo "🚀 MacLocalAPI v0.1 Installation Script"
+echo "🚀 MacLocalAPI Installation Script"
 echo "======================================="
 echo
 
@@ -27,7 +27,7 @@ echo "✅ System requirements met"
 echo
 
 # Build the project
-echo "🔨 Building MacLocalAPI..."
+echo "🔨 Building afm..."
 swift build -c release
 
 if [[ $? -eq 0 ]]; then
@@ -36,7 +36,7 @@ if [[ $? -eq 0 ]]; then
     echo "📦 Installation complete!"
     echo
     echo "🚀 To start the server:"
-    echo "   ./.build/release/MacLocalAPI --port 9999"
+    echo "   ./.build/release/afm --port 9999"
     echo
     echo "📖 For usage examples, see:"
     echo "   https://github.com/scouzi1966/maclocal-api#-usage-examples"
