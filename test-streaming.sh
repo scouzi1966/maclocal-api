@@ -1,13 +1,17 @@
 #!/bin/bash
 
+# Default port
+PORT=${1:-8080}
+
 echo "Testing streaming functionality..."
+echo "Port: $PORT"
 echo "=================================="
 
 # Test streaming functionality with verbose output
-curl -X POST http://localhost:9999/v1/chat/completions \
+curl -X POST http://localhost:$PORT/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-3.5-turbo",
+    "model": "foundation",
     "messages": [{"role": "user", "content": "Say hello world"}],
     "stream": true
   }' \
