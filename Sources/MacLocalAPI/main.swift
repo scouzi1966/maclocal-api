@@ -1,6 +1,17 @@
 import ArgumentParser
 import Foundation
 
+// Global references for signal handling
+private var globalServer: Server?
+private var shouldKeepRunning = true
+
+// Signal handler function
+func handleShutdown(_ signal: Int32) {
+    print("\n🛑 Received shutdown signal, shutting down...")
+    globalServer?.shutdown()
+    shouldKeepRunning = false
+}
+
 struct MacLocalAPI: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "MacLocalAPI",
@@ -14,28 +25,39 @@ struct MacLocalAPI: ParsableCommand {
     @Flag(name: .shortAndLong, help: "Enable verbose logging")
     var verbose: Bool = false
     
+    @Flag(name: .long, help: "Disable streaming responses (streaming is enabled by default)")
+    var noStreaming: Bool = false
+    
     func run() throws {
         if verbose {
             print("Starting MacLocalAPI server with verbose logging enabled...")
         }
         
-        let server = try Server(port: port, verbose: verbose)
+        // Use RunLoop to handle the server lifecycle properly
+        let runLoop = RunLoop.current
         
-        if #available(macOS 10.15, *) {
-            let semaphore = DispatchSemaphore(value: 0)
-            Task {
-                do {
-                    try await server.start()
-                } catch {
-                    print("Error starting server: \(error)")
-                }
-                semaphore.signal()
+        // Set up signal handling for graceful shutdown
+        signal(SIGINT, handleShutdown)
+        signal(SIGTERM, handleShutdown)
+        
+        // Start server in async context
+        _ = Task {
+            do {
+                let server = try await Server(port: port, verbose: verbose, streamingEnabled: !noStreaming)
+                globalServer = server
+                try await server.start()
+            } catch {
+                print("Error starting server: \(error)")
+                shouldKeepRunning = false
             }
-            semaphore.wait()
-        } else {
-            print("This application requires macOS 10.15 or later")
-            throw ExitCode.failure
         }
+        
+        // Keep the main thread alive until shutdown
+        while shouldKeepRunning && runLoop.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) {
+            // Keep running until shutdown signal
+        }
+        
+        print("Server shutdown complete.")
     }
 }
 

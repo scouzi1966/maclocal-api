@@ -1,20 +1,27 @@
 import Vapor
 import Foundation
 
+// Storage key for the continuation
+struct ContinuationKey: StorageKey {
+    typealias Value = CheckedContinuation<Void, Error>
+}
+
 class Server {
     private let app: Application
     private let port: Int
     private let verbose: Bool
+    private let streamingEnabled: Bool
     
-    init(port: Int, verbose: Bool) throws {
+    init(port: Int, verbose: Bool, streamingEnabled: Bool) async throws {
         self.port = port
         self.verbose = verbose
+        self.streamingEnabled = streamingEnabled
         
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["MacLocalAPI"])
         try LoggingSystem.bootstrap(from: &env)
         
-        self.app = Application(env)
+        self.app = try await Application.make(env)
         
         if verbose {
             app.logger.logLevel = .debug
@@ -53,7 +60,7 @@ class Server {
             )
         }
         
-        let chatController = ChatCompletionsController()
+        let chatController = ChatCompletionsController(streamingEnabled: streamingEnabled)
         try app.register(collection: chatController)
     }
     
@@ -66,7 +73,30 @@ class Server {
         print("   GET  http://localhost:\(port)/health")
         print("Press Ctrl+C to stop the server")
         
-        try await app.execute()
+        // Start the server
+        try await app.server.start(address: .hostname("0.0.0.0", port: port))
+        
+        // Wait indefinitely (until shutdown is called)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            // Store continuation for later use in shutdown
+            app.storage[ContinuationKey.self] = continuation
+        }
+    }
+    
+    func shutdown() {
+        print("🛑 Shutting down server...")
+        
+        // Shutdown the server first
+        Task {
+            await app.server.shutdown()
+            print("Server shutdown complete")
+            
+            // Resume the continuation to exit the wait
+            if let continuation = app.storage[ContinuationKey.self] {
+                continuation.resume()
+                app.storage[ContinuationKey.self] = nil
+            }
+        }
     }
 }
 
