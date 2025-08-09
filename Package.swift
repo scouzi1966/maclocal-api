@@ -22,6 +22,17 @@ let package = Package(
             dependencies: [
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
+            ],
+            swiftSettings: [
+                // Enable optimizations for release builds
+                .unsafeFlags(["-cross-module-optimization"], .when(configuration: .release)),
+                .unsafeFlags(["-O"], .when(configuration: .release))
+            ],
+            linkerSettings: [
+                // Create a more portable executable
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path"], .when(configuration: .release)),
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "/usr/lib/swift"], .when(configuration: .release)),
+                .unsafeFlags(["-Xlinker", "-dead_strip"], .when(configuration: .release))
             ]
         )
     ]
