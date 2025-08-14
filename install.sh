@@ -12,6 +12,61 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Validate Swift version requirements
+validate_swift_version() {
+    echo -e "${BLUE}🔍 Validating Swift version requirements...${NC}"
+    
+    if ! command -v swift &> /dev/null; then
+        echo -e "${RED}❌ Error: Swift compiler not found. Please install Xcode or Swift toolchain.${NC}"
+        exit 1
+    fi
+    
+    # Get Swift version info
+    SWIFT_VERSION_OUTPUT=$(swift --version 2>&1)
+    
+    # Extract version numbers
+    SWIFT_VERSION=$(echo "$SWIFT_VERSION_OUTPUT" | grep -E "Apple Swift version" | sed -E 's/.*Apple Swift version ([0-9]+\.[0-9]+).*/\1/')
+    DRIVER_VERSION=$(echo "$SWIFT_VERSION_OUTPUT" | grep -E "swift-driver version:" | sed -E 's/swift-driver version: ([0-9.]+).*/\1/')
+    TARGET_OS=$(echo "$SWIFT_VERSION_OUTPUT" | grep -E "Target:" | sed -E 's/.*Target: ([a-z0-9]+-[a-z]+-[a-z]+)([0-9]+\.[0-9]+).*/\2/')
+    
+    echo -e "${BLUE}Current Swift configuration:${NC}"
+    echo "  Swift version: $SWIFT_VERSION"
+    echo "  Driver version: $DRIVER_VERSION" 
+    echo "  Target OS: $TARGET_OS"
+    
+    # Validate minimum requirements
+    REQUIRED_SWIFT="6.2"
+    REQUIRED_DRIVER="1.127.11.2"
+    REQUIRED_OS="26.0"
+    
+    # Check Swift version (6.2+)
+    if [[ "$(printf '%s\n%s\n' "$REQUIRED_SWIFT" "$SWIFT_VERSION" | sort -V | tail -n1)" != "$SWIFT_VERSION" ]]; then
+        echo -e "${RED}❌ Error: Swift version $SWIFT_VERSION is below minimum required $REQUIRED_SWIFT${NC}"
+        echo -e "${RED}Required: swift-driver version: $REQUIRED_DRIVER+ Apple Swift version $REQUIRED_SWIFT+ (swiftlang-6.2.0.16.14 clang-1700.3.16.4)${NC}"
+        echo -e "${RED}Required: Target: arm64-apple-macosx$REQUIRED_OS+${NC}"
+        exit 1
+    fi
+    
+    # Check driver version (1.127.11.2+)
+    if [[ "$(printf '%s\n%s\n' "$REQUIRED_DRIVER" "$DRIVER_VERSION" | sort -V | tail -n1)" != "$DRIVER_VERSION" ]]; then
+        echo -e "${RED}❌ Error: swift-driver version $DRIVER_VERSION is below minimum required $REQUIRED_DRIVER${NC}"
+        echo -e "${RED}Required: swift-driver version: $REQUIRED_DRIVER+ Apple Swift version $REQUIRED_SWIFT+ (swiftlang-6.2.0.16.14 clang-1700.3.16.4)${NC}"
+        echo -e "${RED}Required: Target: arm64-apple-macosx$REQUIRED_OS+${NC}"
+        exit 1
+    fi
+    
+    # Check target OS version (26.0+)
+    if [[ "$(printf '%s\n%s\n' "$REQUIRED_OS" "$TARGET_OS" | sort -V | tail -n1)" != "$TARGET_OS" ]]; then
+        echo -e "${RED}❌ Error: Target OS version $TARGET_OS is below minimum required $REQUIRED_OS${NC}"
+        echo -e "${RED}Required: swift-driver version: $REQUIRED_DRIVER+ Apple Swift version $REQUIRED_SWIFT+ (swiftlang-6.2.0.16.14 clang-1700.3.16.4)${NC}"
+        echo -e "${RED}Required: Target: arm64-apple-macosx$REQUIRED_OS+${NC}"
+        exit 1
+    fi
+    
+    echo -e "${GREEN}✅ Swift version validation passed${NC}"
+    echo ""
+}
+
 echo -e "${BLUE}🚀 Apple Foundation Models API (AFM) Installer${NC}"
 echo -e "${BLUE}=================================================${NC}"
 echo ""
@@ -40,11 +95,8 @@ if [[ ! -f ".build/release/afm" ]]; then
     echo -e "${YELLOW}⚠️  Release binary not found. Building now...${NC}"
     echo ""
     
-    # Check if we have Swift
-    if ! command -v swift &> /dev/null; then
-        echo -e "${RED}❌ Error: Swift compiler not found. Please install Xcode or Swift toolchain.${NC}"
-        exit 1
-    fi
+    # Validate Swift version requirements
+    validate_swift_version
     
     echo -e "${BLUE}🔨 Building AFM in release mode...${NC}"
     if swift build -c release; then
