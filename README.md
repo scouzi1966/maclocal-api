@@ -171,13 +171,21 @@ MacLocalAPI/
 ### Command Line Options
 
 ```bash
-USAGE: afm [--port <port>] [--verbose]
+OVERVIEW: macOS server that exposes Apple's Foundation Models through OpenAI-compatible API
+
+USAGE: afm [--port <port>] [--verbose] [--no-streaming] [--instructions <instructions>] [--single-prompt <single-prompt>]
 
 OPTIONS:
   -p, --port <port>       Port to run the server on (default: 9999)
   -v, --verbose           Enable verbose logging
-  --version               Show the version
-  -h, --help              Show help information
+  --no-streaming          Disable streaming responses (streaming is enabled by default)
+  -i, --instructions <instructions>
+                          Custom instructions for the AI assistant (default: You are a helpful assistant)
+  -s, --single-prompt <single-prompt>
+                          Run a single prompt without starting the server
+  --version               Show the version.
+  -h, --help              Show help information.
+
 ```
 
 ### Environment Variables
