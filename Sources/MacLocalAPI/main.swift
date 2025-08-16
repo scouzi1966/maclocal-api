@@ -22,6 +22,7 @@ struct MacLocalAPI: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "afm",
         abstract: "macOS server that exposes Apple's Foundation Models through OpenAI-compatible API",
+        discussion: "GitHub: https://github.com/scouzi1966/maclocal-api",
         version: buildVersion
     )
     
