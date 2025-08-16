@@ -1,6 +1,6 @@
 # MacLocalAPI
 
-[![Swift](https://img.shields.io/badge/Swift-5.9+-orange.svg)](https://swift.org)
+[![Swift](https://img.shields.io/badge/Swift-6.2+-orange.svg)](https://swift.org)
 [![macOS](https://img.shields.io/badge/macOS-26+-blue.svg)](https://developer.apple.com/macos/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
