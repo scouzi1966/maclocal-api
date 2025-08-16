@@ -55,7 +55,24 @@ validate_swift_version() {
     echo ""
 }
 
-VERSION=${1:-"0.2.0"}
+# Generate version from git
+get_version() {
+    # Try git describe first (handles both exact tags and tags with distance)
+    if git describe --tags --always --dirty 2>/dev/null; then
+        return
+    else
+        # Fallback if no tags exist
+        echo "0.0.0-$(git rev-parse --short HEAD)-$(date +%Y%m%d)"
+    fi
+}
+
+# Use provided version or auto-generate from git
+if [ -n "$1" ]; then
+    VERSION="$1"
+else
+    VERSION=$(get_version | tr -d '\n')
+fi
+
 ARCH="arm64"
 
 echo "Building afm (Apple Foundation Models API) v$VERSION for $ARCH..."
@@ -65,7 +82,18 @@ validate_swift_version
 
 # Clean previous builds
 rm -rf release-v$VERSION
-rm -f maclocal-api-v$VERSION-$ARCH.tar.gz
+rm -f afm-v$VERSION-$ARCH.tar.gz
+
+# Generate BuildInfo.swift with version
+echo "Generating version file..."
+cat > Sources/MacLocalAPI/BuildInfo.swift << EOF
+// BuildInfo.swift
+// Auto-generated build information - DO NOT EDIT MANUALLY
+
+struct BuildInfo {
+    static let version: String? = "$VERSION"
+}
+EOF
 
 # Build release binary
 echo "Building release binary..."

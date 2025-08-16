@@ -1,5 +1,6 @@
 // swift-tools-version: 5.9
 import PackageDescription
+import Foundation
 
 let package = Package(
     name: "MacLocalAPI",

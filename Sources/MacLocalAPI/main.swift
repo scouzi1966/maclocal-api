@@ -13,10 +13,15 @@ func handleShutdown(_ signal: Int32) {
 }
 
 struct MacLocalAPI: ParsableCommand {
+    static let buildVersion: String = {
+        // Check if BuildVersion.swift exists with generated version
+        return BuildInfo.version ?? "dev-build"
+    }()
+    
     static let configuration = CommandConfiguration(
         commandName: "afm",
         abstract: "macOS server that exposes Apple's Foundation Models through OpenAI-compatible API",
-        version: "1.0.0"
+        version: buildVersion
     )
     
     @Option(name: .shortAndLong, help: "Port to run the server on")
@@ -58,7 +63,7 @@ struct MacLocalAPI: ParsableCommand {
                 globalServer = server
                 try await server.start()
             } catch {
-                print("Error starting server: \(error)")
+                print("Error starting server. CTRL-C to stop: \(error)")
                 shouldKeepRunning = false
             }
         }

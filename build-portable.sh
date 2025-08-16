@@ -74,6 +74,32 @@ echo ""
 # Validate Swift version before building
 validate_swift_version
 
+# Generate version from git
+get_version() {
+    # Try git describe first (handles both exact tags and tags with distance)
+    if git describe --tags --always --dirty 2>/dev/null; then
+        return
+    else
+        # Fallback if no tags exist
+        echo "0.0.0-$(git rev-parse --short HEAD)-$(date +%Y%m%d)"
+    fi
+}
+
+BUILD_VERSION=$(get_version | tr -d '\n')
+echo -e "${BLUE}📋 Build version: $BUILD_VERSION${NC}"
+echo ""
+
+# Generate BuildInfo.swift with version
+echo -e "${BLUE}📝 Generating version file...${NC}"
+cat > Sources/MacLocalAPI/BuildInfo.swift << EOF
+// BuildInfo.swift
+// Auto-generated build information - DO NOT EDIT MANUALLY
+
+struct BuildInfo {
+    static let version: String? = "$BUILD_VERSION"
+}
+EOF
+
 # Clean previous builds
 echo -e "${BLUE}🧹 Cleaning previous builds...${NC}"
 swift package clean
