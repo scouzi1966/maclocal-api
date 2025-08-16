@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import Darwin
 
 // Global references for signal handling
 private var globalServer: Server?
@@ -45,6 +46,11 @@ struct MacLocalAPI: ParsableCommand {
             return try runSinglePrompt(prompt)
         }
         
+        // Check for piped input
+        if let stdinContent = try readFromStdin() {
+            return try runSinglePrompt(stdinContent)
+        }
+        
         if verbose {
             print("Starting afm server with verbose logging enabled...")
         }
@@ -74,6 +80,49 @@ struct MacLocalAPI: ParsableCommand {
         }
         
         print("Server shutdown complete.")
+    }
+    
+    private func readFromStdin() throws -> String? {
+        // Check if stdin is connected to a terminal (not piped)
+        guard isatty(STDIN_FILENO) == 0 else {
+            return nil
+        }
+        
+        let stdin = FileHandle.standardInput
+        let maxInputSize = 1024 * 1024 // 1MB limit
+        var inputData = Data()
+        
+        // Read all available data from stdin
+        while true {
+            let chunk = stdin.availableData
+            if chunk.isEmpty {
+                break
+            }
+            
+            inputData.append(chunk)
+            
+            // Prevent excessive memory usage
+            if inputData.count > maxInputSize {
+                print("Error: Input too large (max 1MB)")
+                throw ExitCode.failure
+            }
+        }
+        
+        // Convert to string and validate
+        guard let content = String(data: inputData, encoding: .utf8) else {
+            print("Error: Invalid UTF-8 input. Binary data not supported.")
+            throw ExitCode.failure
+        }
+        
+        let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Check for empty input
+        guard !trimmedContent.isEmpty else {
+            print("Error: Empty input received from pipe")
+            throw ExitCode.failure
+        }
+        
+        return trimmedContent
     }
     
     private func runSinglePrompt(_ prompt: String) throws {

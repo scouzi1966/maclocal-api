@@ -149,6 +149,21 @@ curl -X POST http://localhost:9999/v1/chat/completions \
   }'
 ```
 
+### Single Prompt & Pipe Examples
+
+```bash
+# Single prompt mode
+./.build/release/afm -s "Explain quantum computing"
+
+# Piped input from other commands
+echo "What is the meaning of life?" | ./.build/release/afm
+cat file.txt | ./.build/release/afm
+git log --oneline | head -5 | ./.build/release/afm
+
+# Custom instructions with pipe
+echo "Review this code" | ./.build/release/afm -i "You are a senior software engineer"
+```
+
 ## 🏗️ Architecture
 
 ```
@@ -185,6 +200,8 @@ OPTIONS:
                           Run a single prompt without starting the server
   --version               Show the version.
   -h, --help              Show help information.
+
+Note: afm also accepts piped input from other commands, equivalent to using -s with the piped content as the prompt.
 
 ```
 
