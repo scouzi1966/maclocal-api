@@ -20,7 +20,7 @@ class Server {
         self.instructions = instructions
         
         // Create environment without command line arguments to prevent Vapor from parsing them
-        var env = Environment(name: "development", arguments: ["MacLocalAPI"])
+        var env = Environment(name: "development", arguments: ["afm"])
         try LoggingSystem.bootstrap(from: &env)
         
         self.app = try await Application.make(env)
@@ -67,7 +67,7 @@ class Server {
     }
     
     func start() async throws {
-        print("🚀 MacLocalAPI server starting on http://localhost:\(port)")
+        print("🚀 afm server starting on http://localhost:\(port)")
         print("📱 Using Apple Foundation Models (requires macOS 26+ with Apple Intelligence)")
         print("🔗 OpenAI API compatible endpoints:")
         print("   POST http://localhost:\(port)/v1/chat/completions")
