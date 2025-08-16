@@ -31,9 +31,11 @@ class FoundationModelService {
     private var session: LanguageModelSession?
     #endif
     
-    init() async throws {
+    init(instructions: String = "You are a helpful assistant") async throws {
         #if canImport(FoundationModels)
-        self.session = LanguageModelSession()
+        self.session = LanguageModelSession {
+            instructions
+        }
         #else
         throw FoundationModelError.notAvailable
         #endif

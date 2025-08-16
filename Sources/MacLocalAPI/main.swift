@@ -28,6 +28,9 @@ struct MacLocalAPI: ParsableCommand {
     @Flag(name: .long, help: "Disable streaming responses (streaming is enabled by default)")
     var noStreaming: Bool = false
     
+    @Option(name: [.short, .long], help: "Custom instructions for the AI assistant")
+    var instructions: String = "You are a helpful assistant"
+    
     func run() throws {
         if verbose {
             print("Starting MacLocalAPI server with verbose logging enabled...")
@@ -43,7 +46,7 @@ struct MacLocalAPI: ParsableCommand {
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: port, verbose: verbose, streamingEnabled: !noStreaming)
+                let server = try await Server(port: port, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions)
                 globalServer = server
                 try await server.start()
             } catch {
