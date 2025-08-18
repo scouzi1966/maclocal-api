@@ -26,6 +26,21 @@ A macOS server application that exposes Apple's Foundation Models through OpenAI
 
 ### Installation
 
+#### Option 1: Homebrew (Recommended)
+
+```bash
+# Add the tap
+brew tap scouzi1966/afm
+
+# Install AFM
+brew install afm
+
+# Verify installation
+afm --version
+```
+
+#### Option 2: Build from Source
+
 ```bash
 # Clone the repository
 git clone https://github.com/scouzi1966/maclocal-api.git
@@ -38,14 +53,17 @@ swift build -c release
 ### Running the Server
 
 ```bash
-# Start server on default port 9999
+# Start server on default port 9999 (Homebrew install)
+afm
+
+# Or if built from source
 ./.build/release/afm
 
 # Custom port with verbose logging
-./.build/release/afm --port 8080 --verbose
+afm --port 8080 --verbose
 
 # Show help
-./.build/release/afm --help
+afm --help
 ```
 
 ## 📡 API Endpoints
@@ -153,15 +171,15 @@ curl -X POST http://localhost:9999/v1/chat/completions \
 
 ```bash
 # Single prompt mode
-./.build/release/afm -s "Explain quantum computing"
+afm -s "Explain quantum computing"
 
 # Piped input from other commands
-echo "What is the meaning of life?" | ./.build/release/afm
-cat file.txt | ./.build/release/afm
-git log --oneline | head -5 | ./.build/release/afm
+echo "What is the meaning of life?" | afm
+cat file.txt | afm
+git log --oneline | head -5 | afm
 
 # Custom instructions with pipe
-echo "Review this code" | ./.build/release/afm -i "You are a senior software engineer"
+echo "Review this code" | afm -i "You are a senior software engineer"
 ```
 
 ## 🏗️ Architecture
