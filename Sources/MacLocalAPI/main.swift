@@ -13,17 +13,11 @@ func handleShutdown(_ signal: Int32) {
     shouldKeepRunning = false
 }
 
-struct MacLocalAPI: ParsableCommand {
-    static let buildVersion: String = {
-        // Check if BuildVersion.swift exists with generated version
-        return BuildInfo.version ?? "dev-build"
-    }()
-    
+struct ServeCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "afm",
-        abstract: "macOS server that exposes Apple's Foundation Models through OpenAI-compatible API",
-        discussion: "GitHub: https://github.com/scouzi1966/maclocal-api",
-        version: buildVersion
+        commandName: "serve",
+        abstract: "Start the AFM server (default command)",
+        discussion: "Starts the macOS server that exposes Apple's Foundation Models through OpenAI-compatible API"
     )
     
     @Option(name: .shortAndLong, help: "Port to run the server on")
@@ -38,20 +32,7 @@ struct MacLocalAPI: ParsableCommand {
     @Option(name: [.short, .long], help: "Custom instructions for the AI assistant")
     var instructions: String = "You are a helpful assistant"
     
-    @Option(name: [.customShort("s"), .long], help: "Run a single prompt without starting the server")
-    var singlePrompt: String?
-    
     func run() throws {
-        // Handle single-prompt mode
-        if let prompt = singlePrompt {
-            return try runSinglePrompt(prompt)
-        }
-        
-        // Check for piped input
-        if let stdinContent = try readFromStdin() {
-            return try runSinglePrompt(stdinContent)
-        }
-        
         if verbose {
             print("Starting afm server with verbose logging enabled...")
         }
@@ -82,7 +63,80 @@ struct MacLocalAPI: ParsableCommand {
         
         print("Server shutdown complete.")
     }
+}
+
+struct MacLocalAPI: ParsableCommand {
+    static let buildVersion: String = {
+        // Check if BuildVersion.swift exists with generated version
+        return BuildInfo.version ?? "dev-build"
+    }()
     
+    static let configuration = CommandConfiguration(
+        commandName: "afm",
+        abstract: "macOS server that exposes Apple's Foundation Models through OpenAI-compatible API",
+        discussion: "GitHub: https://github.com/scouzi1966/maclocal-api",
+        version: buildVersion,
+        subcommands: [ServeCommand.self, VisionCommand.self],
+        defaultSubcommand: ServeCommand.self
+    )
+}
+
+struct RootCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "afm",
+        abstract: "macOS server that exposes Apple's Foundation Models through OpenAI-compatible API",
+        discussion: "GitHub: https://github.com/scouzi1966/maclocal-api",
+        version: MacLocalAPI.buildVersion
+    )
+    
+    @Option(name: [.customShort("s"), .long], help: "Run a single prompt without starting the server")
+    var singlePrompt: String?
+    
+    @Option(name: [.short, .long], help: "Custom instructions for the AI assistant")
+    var instructions: String = "You are a helpful assistant"
+    
+    @Flag(name: .shortAndLong, help: "Enable verbose logging")
+    var verbose: Bool = false
+    
+    @Flag(name: .long, help: "Disable streaming responses (streaming is enabled by default)")
+    var noStreaming: Bool = false
+    
+    @Option(name: .shortAndLong, help: "Port to run the server on")
+    var port: Int = 9999
+    
+    func run() throws {
+        // Handle single-prompt mode for backward compatibility
+        if let prompt = singlePrompt {
+            return try runSinglePrompt(prompt)
+        }
+        
+        // Check for piped input for backward compatibility
+        if let stdinContent = try readFromStdin() {
+            return try runSinglePrompt(stdinContent)
+        }
+        
+        // If no subcommand specified and no single prompt, run server
+        var serveCommand = ServeCommand()
+        serveCommand.port = port
+        serveCommand.verbose = verbose
+        serveCommand.noStreaming = noStreaming
+        serveCommand.instructions = instructions
+        try serveCommand.run()
+    }
+}
+
+// Parse command line arguments manually to handle backward compatibility
+let arguments = CommandLine.arguments
+
+// Check for vision subcommand first
+if arguments.count > 1 && arguments[1] == "vision" {
+    MacLocalAPI.main()
+} else {
+    // Use RootCommand for backward compatibility with single prompt mode
+    RootCommand.main()
+}
+
+extension RootCommand {
     private func readFromStdin() throws -> String? {
         // Check if stdin is connected to a terminal (not piped)
         guard isatty(STDIN_FILENO) == 0 else {
@@ -165,5 +219,3 @@ struct MacLocalAPI: ParsableCommand {
         }
     }
 }
-
-MacLocalAPI.main()
