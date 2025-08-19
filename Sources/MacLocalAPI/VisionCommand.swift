@@ -11,9 +11,10 @@ struct VisionCommand: ParsableCommand {
         Supported formats: PNG, JPG, JPEG, HEIC, PDF
         
         Examples:
-          afm vision -f image.png
-          afm vision --file /path/to/document.pdf
-          afm vision -f screenshot.jpg
+          afm vision -f image.png                    # Extract all text
+          afm vision --file /path/to/document.pdf    # Extract text from PDF
+          afm vision -f report.png --table           # Extract tables as CSV
+          afm vision -f invoice.pdf -t --verbose     # Extract tables with details
         """
     )
     
@@ -22,6 +23,12 @@ struct VisionCommand: ParsableCommand {
     
     @Flag(name: .long, help: "Show detailed output with confidence scores and bounding boxes")
     var verbose: Bool = false
+    
+    @Flag(name: [.customShort("t"), .long], help: "Extract tables and output as CSV format")
+    var table: Bool = false
+    
+    @Flag(name: [.customShort("D")], help: .hidden)
+    var debug: Bool = false
     
     func run() throws {
         // Validate that the file path was provided
@@ -44,7 +51,39 @@ struct VisionCommand: ParsableCommand {
                 if #available(macOS 26.0, *) {
                     let visionService = VisionService()
                     
-                    if verbose {
+                    if debug {
+                        // Debug mode: output raw Vision framework detection
+                        let debugResult = try await visionService.debugRawDetection(from: resolvedPath)
+                        result = .success(debugResult)
+                    } else if table {
+                        // Table extraction mode
+                        let tableResults = try await visionService.extractTables(from: resolvedPath)
+                        
+                        if verbose {
+                            var output = "📄 File: \(resolvedPath)\n"
+                            output += "🗂️  Found \(tableResults.count) table(s)\n\n"
+                            
+                            for (index, table) in tableResults.enumerated() {
+                                output += "📊 Table \(index + 1):\n"
+                                output += "Rows: \(table.rows.count), Columns: \(table.columnCount)\n"
+                                output += "Confidence: \(String(format: "%.2f", table.averageConfidence))\n\n"
+                                output += table.csvData
+                                if index < tableResults.count - 1 {
+                                    output += "\n" + String(repeating: "-", count: 50) + "\n\n"
+                                }
+                            }
+                            
+                            result = .success(output)
+                        } else {
+                            // Simple CSV output with table headers
+                            let csvSections = tableResults.enumerated().map { (index, table) in
+                                let tableHeader = "Detected Table \(index + 1)"
+                                return tableHeader + "\n" + table.csvData
+                            }
+                            let csvOutput = csvSections.joined(separator: "\n")
+                            result = .success(csvOutput.isEmpty ? "No tables found in the document." : csvOutput)
+                        }
+                    } else if verbose {
                         // Get detailed results with confidence scores
                         let visionResult = try await visionService.extractTextWithDetails(from: resolvedPath)
                         var output = "📄 File: \(visionResult.filePath)\n"
