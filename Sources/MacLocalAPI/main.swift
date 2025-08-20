@@ -13,17 +13,11 @@ func handleShutdown(_ signal: Int32) {
     shouldKeepRunning = false
 }
 
-struct MacLocalAPI: ParsableCommand {
-    static let buildVersion: String = {
-        // Check if BuildVersion.swift exists with generated version
-        return BuildInfo.version ?? "dev-build"
-    }()
-    
+struct ServeCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "afm",
-        abstract: "macOS server that exposes Apple's Foundation Models through OpenAI-compatible API",
-        discussion: "GitHub: https://github.com/scouzi1966/maclocal-api",
-        version: buildVersion
+        commandName: "serve",
+        abstract: "Start the AFM server (default command)",
+        discussion: "Starts the macOS server that exposes Apple's Foundation Models through OpenAI-compatible API"
     )
     
     @Option(name: .shortAndLong, help: "Port to run the server on")
@@ -38,20 +32,7 @@ struct MacLocalAPI: ParsableCommand {
     @Option(name: [.short, .long], help: "Custom instructions for the AI assistant")
     var instructions: String = "You are a helpful assistant"
     
-    @Option(name: [.customShort("s"), .long], help: "Run a single prompt without starting the server")
-    var singlePrompt: String?
-    
     func run() throws {
-        // Handle single-prompt mode
-        if let prompt = singlePrompt {
-            return try runSinglePrompt(prompt)
-        }
-        
-        // Check for piped input
-        if let stdinContent = try readFromStdin() {
-            return try runSinglePrompt(stdinContent)
-        }
-        
         if verbose {
             print("Starting afm server with verbose logging enabled...")
         }
@@ -81,6 +62,78 @@ struct MacLocalAPI: ParsableCommand {
         }
         
         print("Server shutdown complete.")
+    }
+}
+
+struct MacLocalAPI: ParsableCommand {
+    static let buildVersion: String = {
+        // Check if BuildVersion.swift exists with generated version
+        return BuildInfo.version ?? "dev-build"
+    }()
+    
+    static let configuration = CommandConfiguration(
+        commandName: "afm",
+        abstract: "macOS server that exposes Apple's Foundation Models through OpenAI-compatible API",
+        discussion: "GitHub: https://github.com/scouzi1966/maclocal-api",
+        version: buildVersion,
+        subcommands: [ServeCommand.self, VisionCommand.self],
+        defaultSubcommand: ServeCommand.self
+    )
+    
+    // Add support for single prompt mode at the root level
+    @Option(name: [.customShort("s"), .long], help: "Run a single prompt without starting the server")
+    var singlePrompt: String?
+    
+    @Option(name: [.short, .long], help: "Custom instructions for the AI assistant")
+    var instructions: String = "You are a helpful assistant"
+    
+    @Flag(name: .shortAndLong, help: "Enable verbose logging")
+    var verbose: Bool = false
+    
+    @Flag(name: .long, help: "Disable streaming responses (streaming is enabled by default)")
+    var noStreaming: Bool = false
+    
+    @Option(name: .shortAndLong, help: "Port to run the server on")
+    var port: Int = 9999
+    
+    func run() async throws {
+        // Handle single-prompt mode for backward compatibility
+        if let prompt = singlePrompt {
+            return try await runSinglePrompt(prompt)
+        }
+        
+        // Check for piped input for backward compatibility
+        if let stdinContent = try readFromStdin() {
+            return try await runSinglePrompt(stdinContent)
+        }
+        
+        // If no subcommand specified and no single prompt, run server
+        var serveCommand = ServeCommand()
+        serveCommand.port = port
+        serveCommand.verbose = verbose
+        serveCommand.noStreaming = noStreaming
+        serveCommand.instructions = instructions
+        try serveCommand.run()
+    }
+    
+    private func runSinglePrompt(_ prompt: String) async throws {
+        do {
+            if #available(macOS 26.0, *) {
+                let foundationService = try await FoundationModelService(instructions: instructions)
+                let message = Message(role: "user", content: prompt)
+                let response = try await foundationService.generateResponse(for: [message])
+                print(response)
+            } else {
+                throw FoundationModelError.notAvailable
+            }
+        } catch {
+            if let foundationError = error as? FoundationModelError {
+                print("Error: \(foundationError.localizedDescription)")
+            } else {
+                print("Error: \(error.localizedDescription)")
+            }
+            throw ExitCode.failure
+        }
     }
     
     private func readFromStdin() throws -> String? {
@@ -125,45 +178,8 @@ struct MacLocalAPI: ParsableCommand {
         
         return trimmedContent
     }
-    
-    private func runSinglePrompt(_ prompt: String) throws {
-        let group = DispatchGroup()
-        var result: Result<String, Error>?
-        
-        group.enter()
-        Task {
-            do {
-                if #available(macOS 26.0, *) {
-                    let foundationService = try await FoundationModelService(instructions: instructions)
-                    let message = Message(role: "user", content: prompt)
-                    let response = try await foundationService.generateResponse(for: [message])
-                    result = .success(response)
-                } else {
-                    result = .failure(FoundationModelError.notAvailable)
-                }
-            } catch {
-                result = .failure(error)
-            }
-            group.leave()
-        }
-        
-        group.wait()
-        
-        switch result {
-        case .success(let response):
-            print(response)
-        case .failure(let error):
-            if let foundationError = error as? FoundationModelError {
-                print("Error: \(foundationError.localizedDescription)")
-            } else {
-                print("Error: \(error.localizedDescription)")
-            }
-            throw ExitCode.failure
-        case .none:
-            print("Error: Unexpected error occurred")
-            throw ExitCode.failure
-        }
-    }
 }
 
+// Let ArgumentParser handle subcommand dispatch naturally
 MacLocalAPI.main()
+
