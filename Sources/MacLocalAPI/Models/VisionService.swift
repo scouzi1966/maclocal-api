@@ -40,34 +40,8 @@ class VisionService {
     private let supportedExtensions = ["png", "jpg", "jpeg", "heic", "pdf"]
     
     func extractText(from filePath: String) async throws -> String {
-        // Validate file existence
-        let url = URL(fileURLWithPath: filePath)
-        guard FileManager.default.fileExists(atPath: filePath) else {
-            throw VisionError.fileNotFound
-        }
-        
-        // Validate file extension
-        let fileExtension = url.pathExtension.lowercased()
-        guard supportedExtensions.contains(fileExtension) else {
-            throw VisionError.unsupportedFormat
-        }
-        
-        // Create request handler based on file type
-        let requestHandler: VNImageRequestHandler
-        
-        if fileExtension == "pdf" {
-            // Handle PDF files
-            requestHandler = try createPDFRequestHandler(from: url)
-        } else {
-            // Handle image files
-            let imageData: Data
-            do {
-                imageData = try Data(contentsOf: url)
-            } catch {
-                throw VisionError.imageLoadingFailed
-            }
-            requestHandler = VNImageRequestHandler(data: imageData)
-        }
+        let (url, fileExtension) = try validateFile(at: filePath)
+        let requestHandler = try createRequestHandler(from: url, fileExtension: fileExtension)
         
         // Create vision request
         let request = VNRecognizeTextRequest()
@@ -98,34 +72,8 @@ class VisionService {
     }
     
     func extractTextWithDetails(from filePath: String) async throws -> VisionResult {
-        // Validate file existence
-        let url = URL(fileURLWithPath: filePath)
-        guard FileManager.default.fileExists(atPath: filePath) else {
-            throw VisionError.fileNotFound
-        }
-        
-        // Validate file extension
-        let fileExtension = url.pathExtension.lowercased()
-        guard supportedExtensions.contains(fileExtension) else {
-            throw VisionError.unsupportedFormat
-        }
-        
-        // Create request handler based on file type
-        let requestHandler: VNImageRequestHandler
-        
-        if fileExtension == "pdf" {
-            // Handle PDF files
-            requestHandler = try createPDFRequestHandler(from: url)
-        } else {
-            // Handle image files
-            let imageData: Data
-            do {
-                imageData = try Data(contentsOf: url)
-            } catch {
-                throw VisionError.imageLoadingFailed
-            }
-            requestHandler = VNImageRequestHandler(data: imageData)
-        }
+        let (url, fileExtension) = try validateFile(at: filePath)
+        let requestHandler = try createRequestHandler(from: url, fileExtension: fileExtension)
         
         // Create vision request
         let request = VNRecognizeTextRequest()
@@ -168,34 +116,8 @@ class VisionService {
     }
     
     func extractTables(from filePath: String) async throws -> [TableResult] {
-        // Validate file existence
-        let url = URL(fileURLWithPath: filePath)
-        guard FileManager.default.fileExists(atPath: filePath) else {
-            throw VisionError.fileNotFound
-        }
-        
-        // Validate file extension
-        let fileExtension = url.pathExtension.lowercased()
-        guard supportedExtensions.contains(fileExtension) else {
-            throw VisionError.unsupportedFormat
-        }
-        
-        // Create request handler based on file type
-        let requestHandler: VNImageRequestHandler
-        
-        if fileExtension == "pdf" {
-            // Handle PDF files
-            requestHandler = try createPDFRequestHandler(from: url)
-        } else {
-            // Handle image files
-            let imageData: Data
-            do {
-                imageData = try Data(contentsOf: url)
-            } catch {
-                throw VisionError.imageLoadingFailed
-            }
-            requestHandler = VNImageRequestHandler(data: imageData)
-        }
+        let (url, fileExtension) = try validateFile(at: filePath)
+        let requestHandler = try createRequestHandler(from: url, fileExtension: fileExtension)
         
         // First, try document segmentation to identify potential table regions
         let segmentationRequest = VNDetectDocumentSegmentationRequest()
@@ -244,34 +166,8 @@ class VisionService {
     }
     
     func debugRawDetection(from filePath: String) async throws -> String {
-        // Validate file existence
-        let url = URL(fileURLWithPath: filePath)
-        guard FileManager.default.fileExists(atPath: filePath) else {
-            throw VisionError.fileNotFound
-        }
-        
-        // Validate file extension
-        let fileExtension = url.pathExtension.lowercased()
-        guard supportedExtensions.contains(fileExtension) else {
-            throw VisionError.unsupportedFormat
-        }
-        
-        // Create request handler based on file type
-        let requestHandler: VNImageRequestHandler
-        
-        if fileExtension == "pdf" {
-            // Handle PDF files
-            requestHandler = try createPDFRequestHandler(from: url)
-        } else {
-            // Handle image files
-            let imageData: Data
-            do {
-                imageData = try Data(contentsOf: url)
-            } catch {
-                throw VisionError.imageLoadingFailed
-            }
-            requestHandler = VNImageRequestHandler(data: imageData)
-        }
+        let (url, fileExtension) = try validateFile(at: filePath)
+        let requestHandler = try createRequestHandler(from: url, fileExtension: fileExtension)
         
         // Get text recognition for the entire document
         let textRequest = VNRecognizeTextRequest()
@@ -363,6 +259,36 @@ class VisionService {
         }
         
         return VNImageRequestHandler(cgImage: cgImage)
+    }
+    
+    private func validateFile(at filePath: String) throws -> (URL, String) {
+        let url = URL(fileURLWithPath: filePath)
+        guard FileManager.default.fileExists(atPath: filePath) else {
+            throw VisionError.fileNotFound
+        }
+        
+        let fileExtension = url.pathExtension.lowercased()
+        guard supportedExtensions.contains(fileExtension) else {
+            throw VisionError.unsupportedFormat
+        }
+        
+        return (url, fileExtension)
+    }
+    
+    private func createRequestHandler(from url: URL, fileExtension: String) throws -> VNImageRequestHandler {
+        if fileExtension == "pdf" {
+            // Handle PDF files
+            return try createPDFRequestHandler(from: url)
+        } else {
+            // Handle image files
+            let imageData: Data
+            do {
+                imageData = try Data(contentsOf: url)
+            } catch {
+                throw VisionError.imageLoadingFailed
+            }
+            return VNImageRequestHandler(data: imageData)
+        }
     }
 }
 
