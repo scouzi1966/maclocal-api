@@ -76,11 +76,25 @@ struct MacLocalAPI: ParsableCommand {
         abstract: "macOS server that exposes Apple's Foundation Models through OpenAI-compatible API",
         discussion: "GitHub: https://github.com/scouzi1966/maclocal-api",
         version: buildVersion,
-        subcommands: [ServeCommand.self, VisionCommand.self],
-        defaultSubcommand: ServeCommand.self
+        subcommands: [VisionCommand.self]
+    )
+}
+
+struct RootCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "afm",
+        abstract: "macOS server that exposes Apple's Foundation Models through OpenAI-compatible API",
+        discussion: """
+        GitHub: https://github.com/scouzi1966/maclocal-api
+        
+        Additional subcommands:
+          vision                  Extract text from images using Apple's Vision framework
+          
+        Use 'afm vision --help' for vision-specific options.
+        """,
+        version: MacLocalAPI.buildVersion
     )
     
-    // Add support for single prompt mode at the root level
     @Option(name: [.customShort("s"), .long], help: "Run a single prompt without starting the server")
     var singlePrompt: String?
     
@@ -96,15 +110,15 @@ struct MacLocalAPI: ParsableCommand {
     @Option(name: .shortAndLong, help: "Port to run the server on")
     var port: Int = 9999
     
-    func run() async throws {
+    func run() throws {
         // Handle single-prompt mode for backward compatibility
         if let prompt = singlePrompt {
-            return try await runSinglePrompt(prompt)
+            return try runSinglePrompt(prompt)
         }
         
         // Check for piped input for backward compatibility
         if let stdinContent = try readFromStdin() {
-            return try await runSinglePrompt(stdinContent)
+            return try runSinglePrompt(stdinContent)
         }
         
         // If no subcommand specified and no single prompt, run server
@@ -115,27 +129,21 @@ struct MacLocalAPI: ParsableCommand {
         serveCommand.instructions = instructions
         try serveCommand.run()
     }
-    
-    private func runSinglePrompt(_ prompt: String) async throws {
-        do {
-            if #available(macOS 26.0, *) {
-                let foundationService = try await FoundationModelService(instructions: instructions)
-                let message = Message(role: "user", content: prompt)
-                let response = try await foundationService.generateResponse(for: [message])
-                print(response)
-            } else {
-                throw FoundationModelError.notAvailable
-            }
-        } catch {
-            if let foundationError = error as? FoundationModelError {
-                print("Error: \(foundationError.localizedDescription)")
-            } else {
-                print("Error: \(error.localizedDescription)")
-            }
-            throw ExitCode.failure
-        }
-    }
-    
+}
+
+// Parse command line arguments manually to handle backward compatibility
+let arguments = CommandLine.arguments
+
+// Check for vision subcommand first
+if arguments.count > 1 && arguments[1] == "vision" {
+    MacLocalAPI.main()
+} else {
+    // Use RootCommand for backward compatibility with single prompt mode
+    // This handles: afm -s, afm --help, afm -p, etc.
+    RootCommand.main()
+}
+
+extension RootCommand {
     private func readFromStdin() throws -> String? {
         // Check if stdin is connected to a terminal (not piped)
         guard isatty(STDIN_FILENO) == 0 else {
@@ -178,8 +186,43 @@ struct MacLocalAPI: ParsableCommand {
         
         return trimmedContent
     }
+    
+    private func runSinglePrompt(_ prompt: String) throws {
+        let group = DispatchGroup()
+        var result: Result<String, Error>?
+        
+        group.enter()
+        Task {
+            do {
+                if #available(macOS 26.0, *) {
+                    let foundationService = try await FoundationModelService(instructions: instructions)
+                    let message = Message(role: "user", content: prompt)
+                    let response = try await foundationService.generateResponse(for: [message])
+                    result = .success(response)
+                } else {
+                    result = .failure(FoundationModelError.notAvailable)
+                }
+            } catch {
+                result = .failure(error)
+            }
+            group.leave()
+        }
+        
+        group.wait()
+        
+        switch result {
+        case .success(let response):
+            print(response)
+        case .failure(let error):
+            if let foundationError = error as? FoundationModelError {
+                print("Error: \(foundationError.localizedDescription)")
+            } else {
+                print("Error: \(error.localizedDescription)")
+            }
+            throw ExitCode.failure
+        case .none:
+            print("Error: Unexpected error occurred")
+            throw ExitCode.failure
+        }
+    }
 }
-
-// Let ArgumentParser handle subcommand dispatch naturally
-MacLocalAPI.main()
-
