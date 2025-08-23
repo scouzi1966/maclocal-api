@@ -32,6 +32,9 @@ struct ServeCommand: ParsableCommand {
     @Option(name: [.short, .long], help: "Custom instructions for the AI assistant")
     var instructions: String = "You are a helpful assistant"
     
+    @Option(name: [.customShort("a"), .long], help: "Path to a .fmadapter file for LoRA adapter fine-tuning")
+    var adapter: String?
+    
     func run() throws {
         if verbose {
             print("Starting afm server with verbose logging enabled...")
@@ -47,7 +50,7 @@ struct ServeCommand: ParsableCommand {
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: port, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions)
+                let server = try await Server(port: port, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -107,18 +110,21 @@ struct RootCommand: ParsableCommand {
     @Flag(name: .long, help: "Disable streaming responses (streaming is enabled by default)")
     var noStreaming: Bool = false
     
+    @Option(name: [.customShort("a"), .long], help: "Path to a .fmadapter file for LoRA adapter fine-tuning")
+    var adapter: String?
+    
     @Option(name: .shortAndLong, help: "Port to run the server on")
     var port: Int = 9999
     
     func run() throws {
         // Handle single-prompt mode for backward compatibility
         if let prompt = singlePrompt {
-            return try runSinglePrompt(prompt)
+            return try runSinglePrompt(prompt, adapter: adapter)
         }
         
         // Check for piped input for backward compatibility
         if let stdinContent = try readFromStdin() {
-            return try runSinglePrompt(stdinContent)
+            return try runSinglePrompt(stdinContent, adapter: adapter)
         }
         
         // If no subcommand specified and no single prompt, run server
@@ -127,6 +133,7 @@ struct RootCommand: ParsableCommand {
         serveCommand.verbose = verbose
         serveCommand.noStreaming = noStreaming
         serveCommand.instructions = instructions
+        serveCommand.adapter = adapter
         try serveCommand.run()
     }
 }
@@ -187,7 +194,7 @@ extension RootCommand {
         return trimmedContent
     }
     
-    private func runSinglePrompt(_ prompt: String) throws {
+    private func runSinglePrompt(_ prompt: String, adapter: String?) throws {
         let group = DispatchGroup()
         var result: Result<String, Error>?
         
@@ -195,7 +202,7 @@ extension RootCommand {
         Task {
             do {
                 if #available(macOS 26.0, *) {
-                    let foundationService = try await FoundationModelService(instructions: instructions)
+                    let foundationService = try await FoundationModelService(instructions: instructions, adapter: adapter)
                     let message = Message(role: "user", content: prompt)
                     let response = try await foundationService.generateResponse(for: [message])
                     result = .success(response)

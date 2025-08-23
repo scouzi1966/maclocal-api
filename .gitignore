@@ -59,3 +59,7 @@ xcuserdata/
 test-curl-commands.md
 test-table.png
 test.pdf
+
+# LoRA adapter files for testing
+*.fmadapter
+test_lora.fmadapter

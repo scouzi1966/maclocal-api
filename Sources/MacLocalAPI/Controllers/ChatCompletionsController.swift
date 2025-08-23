@@ -4,10 +4,12 @@ import Foundation
 struct ChatCompletionsController: RouteCollection {
     private let streamingEnabled: Bool
     private let instructions: String
+    private let adapter: String?
     
-    init(streamingEnabled: Bool = true, instructions: String = "You are a helpful assistant") {
+    init(streamingEnabled: Bool = true, instructions: String = "You are a helpful assistant", adapter: String? = nil) {
         self.streamingEnabled = streamingEnabled
         self.instructions = instructions
+        self.adapter = adapter
     }
     func boot(routes: RoutesBuilder) throws {
         let v1 = routes.grouped("v1")
@@ -34,7 +36,7 @@ struct ChatCompletionsController: RouteCollection {
             
             let foundationService: FoundationModelService
             if #available(macOS 26.0, *) {
-                foundationService = try await FoundationModelService(instructions: instructions)
+                foundationService = try await FoundationModelService(instructions: instructions, adapter: adapter)
             } else {
                 throw FoundationModelError.notAvailable
             }
