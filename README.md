@@ -9,6 +9,7 @@ A macOS server application that exposes Apple's Foundation Models through OpenAI
 ## 🌟 Features
 
 - **🔗 OpenAI API Compatible** - Works with existing OpenAI client libraries and applications
+- **⚡ LoRA adapater support** - Supports fine-tuning with LoRA adapaters using Apple's tuning Toolkit
 - **📱 Apple Foundation Models** - Uses Apple's on-device 3B parameter language model
 - **🔒 Privacy-First** - All processing happens locally on your device
 - **⚡ Fast & Lightweight** - No network calls, no API keys required
