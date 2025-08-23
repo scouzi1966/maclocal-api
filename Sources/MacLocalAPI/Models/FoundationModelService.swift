@@ -31,10 +31,56 @@ class FoundationModelService {
     private var session: LanguageModelSession?
     #endif
     
-    init(instructions: String = "You are a helpful assistant") async throws {
+    init(instructions: String = "You are a helpful assistant", adapter: String? = nil) async throws {
         #if canImport(FoundationModels)
-        self.session = LanguageModelSession {
-            instructions
+        // Check if adapter path is provided
+        if let adapterPath = adapter {
+            do {
+                // Expand tilde and resolve relative paths
+                let expandedPath = NSString(string: adapterPath).expandingTildeInPath
+                let adapterURL = URL(fileURLWithPath: expandedPath)
+                
+                // Validate adapter file exists and has correct extension
+                guard FileManager.default.fileExists(atPath: adapterURL.path) else {
+                    print("Warning: Adapter file not found at '\(adapterPath)', falling back to default model")
+                    self.session = LanguageModelSession {
+                        instructions
+                    }
+                    return
+                }
+                
+                guard adapterURL.pathExtension.lowercased() == "fmadapter" else {
+                    print("Warning: Adapter file must have .fmadapter extension, falling back to default model")
+                    self.session = LanguageModelSession {
+                        instructions
+                    }
+                    return
+                }
+                
+                // Try to load the adapter
+                let adapter = try SystemLanguageModel.Adapter(fileURL: adapterURL)
+                let customModel = SystemLanguageModel(adapter: adapter)
+                
+                self.session = LanguageModelSession(model: customModel) {
+                    instructions
+                }
+                
+                print("✅ Successfully loaded LoRA adapter: \(adapterURL.lastPathComponent)")
+                
+            } catch {
+                print("Warning: Failed to load adapter '\(adapterPath)': \(error.localizedDescription)")
+                print("Falling back to default model")
+                
+                // Fallback to default model
+                self.session = LanguageModelSession {
+                    instructions
+                }
+            }
+        } else {
+            // No adapter specified, use default model
+            self.session = LanguageModelSession {
+                instructions
+            }
         }
         #else
         throw FoundationModelError.notAvailable

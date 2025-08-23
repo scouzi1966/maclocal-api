@@ -12,12 +12,14 @@ class Server {
     private let verbose: Bool
     private let streamingEnabled: Bool
     private let instructions: String
+    private let adapter: String?
     
-    init(port: Int, verbose: Bool, streamingEnabled: Bool, instructions: String) async throws {
+    init(port: Int, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil) async throws {
         self.port = port
         self.verbose = verbose
         self.streamingEnabled = streamingEnabled
         self.instructions = instructions
+        self.adapter = adapter
         
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
@@ -62,7 +64,7 @@ class Server {
             )
         }
         
-        let chatController = ChatCompletionsController(streamingEnabled: streamingEnabled, instructions: instructions)
+        let chatController = ChatCompletionsController(streamingEnabled: streamingEnabled, instructions: instructions, adapter: adapter)
         try app.register(collection: chatController)
     }
     
