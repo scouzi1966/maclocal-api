@@ -31,6 +31,9 @@ class FoundationModelService {
     private var session: LanguageModelSession?
     #endif
     
+    // Shared singleton instance
+    static var shared: FoundationModelService?
+    
     init(instructions: String = "You are a helpful assistant", adapter: String? = nil) async throws {
         #if canImport(FoundationModels)
         // Check if adapter path is provided
@@ -406,6 +409,19 @@ class FoundationModelService {
         #else
         return false
         #endif
+    }
+    
+    // Initialize the shared instance once at server startup
+    static func initialize(instructions: String = "You are a helpful assistant", adapter: String? = nil) async throws {
+        shared = try await FoundationModelService(instructions: instructions, adapter: adapter)
+    }
+    
+    // Get the shared instance
+    static func getShared() throws -> FoundationModelService {
+        guard let shared = shared else {
+            throw FoundationModelError.sessionCreationFailed
+        }
+        return shared
     }
 }
 
