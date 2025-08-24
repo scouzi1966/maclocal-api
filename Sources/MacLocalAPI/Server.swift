@@ -71,6 +71,12 @@ class Server {
     func start() async throws {
         print("🚀 afm server starting on http://localhost:\(port)")
         print("📱 Using Apple Foundation Models (requires macOS 26+ with Apple Intelligence)")
+        
+        // Initialize the Foundation Model Service once at startup
+        if #available(macOS 26.0, *) {
+            try await FoundationModelService.initialize(instructions: instructions, adapter: adapter)
+        }
+        
         print("🔗 OpenAI API compatible endpoints:")
         print("   POST http://localhost:\(port)/v1/chat/completions")
         print("   GET  http://localhost:\(port)/v1/models")

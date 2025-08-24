@@ -31,6 +31,13 @@ class FoundationModelService {
     private var session: LanguageModelSession?
     #endif
     
+    // Shared singleton instance
+    static var shared: FoundationModelService?
+    
+    // Shared adapter for reuse across instances
+    static var sharedAdapter: SystemLanguageModel.Adapter?
+    static var sharedAdapterPath: String?
+    
     init(instructions: String = "You are a helpful assistant", adapter: String? = nil) async throws {
         #if canImport(FoundationModels)
         // Check if adapter path is provided
@@ -61,6 +68,12 @@ class FoundationModelService {
                 let adapter = try SystemLanguageModel.Adapter(fileURL: adapterURL)
                 let customModel = SystemLanguageModel(adapter: adapter)
                 
+                // Store adapter for reuse if this is the first time loading
+                if Self.sharedAdapter == nil {
+                    Self.sharedAdapter = adapter
+                    Self.sharedAdapterPath = adapterPath
+                }
+                
                 self.session = LanguageModelSession(model: customModel) {
                     instructions
                 }
@@ -78,6 +91,26 @@ class FoundationModelService {
             }
         } else {
             // No adapter specified, use default model
+            self.session = LanguageModelSession {
+                instructions
+            }
+        }
+        #else
+        throw FoundationModelError.notAvailable
+        #endif
+    }
+    
+    // Private initializer for creating instances with shared adapter
+    private init(instructions: String, useSharedAdapter: Bool) async throws {
+        #if canImport(FoundationModels)
+        if useSharedAdapter, let sharedAdapter = Self.sharedAdapter {
+            // Use the shared adapter
+            let customModel = SystemLanguageModel(adapter: sharedAdapter)
+            self.session = LanguageModelSession(model: customModel) {
+                instructions
+            }
+        } else {
+            // No shared adapter available, use default model
             self.session = LanguageModelSession {
                 instructions
             }
@@ -406,6 +439,24 @@ class FoundationModelService {
         #else
         return false
         #endif
+    }
+    
+    // Initialize the shared instance once at server startup
+    static func initialize(instructions: String = "You are a helpful assistant", adapter: String? = nil) async throws {
+        shared = try await FoundationModelService(instructions: instructions, adapter: adapter)
+    }
+    
+    // Get the shared instance
+    static func getShared() throws -> FoundationModelService {
+        guard let shared = shared else {
+            throw FoundationModelError.sessionCreationFailed
+        }
+        return shared
+    }
+    
+    // Create a new instance that reuses the shared adapter (for per-request use)
+    static func createWithSharedAdapter(instructions: String = "You are a helpful assistant") async throws -> FoundationModelService {
+        return try await FoundationModelService(instructions: instructions, useSharedAdapter: true)
     }
 }
 
