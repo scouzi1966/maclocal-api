@@ -36,7 +36,7 @@ struct ChatCompletionsController: RouteCollection {
             
             let foundationService: FoundationModelService
             if #available(macOS 26.0, *) {
-                foundationService = try FoundationModelService.getShared()
+                foundationService = try await FoundationModelService.createWithSharedAdapter(instructions: instructions)
             } else {
                 throw FoundationModelError.notAvailable
             }
