@@ -36,7 +36,7 @@ class Server {
     
     private func configure() throws {
         app.http.server.configuration.port = port
-        app.http.server.configuration.hostname = "0.0.0.0"
+        app.http.server.configuration.hostname = "127.0.0.1"
         
         try routes()
     }
@@ -84,7 +84,7 @@ class Server {
         print("Press Ctrl+C to stop the server")
         
         // Start the server
-        try await app.server.start(address: .hostname("0.0.0.0", port: port))
+        try await app.server.start(address: .hostname("127.0.0.1", port: port))
         
         // Wait indefinitely (until shutdown is called)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
