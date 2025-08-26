@@ -39,8 +39,21 @@ brew install afm
 # Verify installation
 afm --version
 ```
+#### Option 2: Install from tarball
 
-#### Option 2: Build from Source
+```bash
+# Download the release
+curl -L -o afm-v0.5.5-arm64.tar.gz https://github.com/scouzi1966/maclocal-api/releases/download/v0.5.5/afm-v0.5.5-arm64.tar.gz
+
+# Extract and install
+tar -xzf afm-v0.5.5-arm64.tar.gz
+sudo cp afm /usr/local/bin/
+
+# Verify installation
+afm --version  # Should show v0.5.5
+```
+
+#### Option 3: Build from Source
 
 ```bash
 # Clone the repository
