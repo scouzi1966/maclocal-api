@@ -1,6 +1,6 @@
 import Foundation
 
-#if canImport(FoundationModels)
+#if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS && !DISABLE_FOUNDATION_MODELS
 import FoundationModels
 #endif
 
@@ -27,7 +27,7 @@ enum FoundationModelError: Error, LocalizedError {
 @available(macOS 26.0, *)
 class FoundationModelService {
     
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
     private var session: LanguageModelSession?
     #endif
     
@@ -35,11 +35,15 @@ class FoundationModelService {
     static var shared: FoundationModelService?
     
     // Shared adapter for reuse across instances
+    #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS && !DISABLE_FOUNDATION_MODELS
     static var sharedAdapter: SystemLanguageModel.Adapter?
+    #else
+    static var sharedAdapter: Any?
+    #endif
     static var sharedAdapterPath: String?
     
     init(instructions: String = "You are a helpful assistant", adapter: String? = nil) async throws {
-        #if canImport(FoundationModels)
+        #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS && !DISABLE_FOUNDATION_MODELS
         // Check if adapter path is provided
         if let adapterPath = adapter {
             do {
@@ -102,7 +106,7 @@ class FoundationModelService {
     
     // Private initializer for creating instances with shared adapter
     private init(instructions: String, useSharedAdapter: Bool) async throws {
-        #if canImport(FoundationModels)
+        #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         if useSharedAdapter, let sharedAdapter = Self.sharedAdapter {
             // Use the shared adapter
             let customModel = SystemLanguageModel(adapter: sharedAdapter)
@@ -121,7 +125,7 @@ class FoundationModelService {
     }
     
     func generateResponse(for messages: [Message]) async throws -> String {
-        #if canImport(FoundationModels)
+        #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
         }
@@ -140,7 +144,7 @@ class FoundationModelService {
     }
     
     func generateStreamingResponseWithTiming(for messages: [Message]) async throws -> (content: String, promptTime: Double) {
-        #if canImport(FoundationModels)
+        #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
         }
@@ -166,7 +170,7 @@ class FoundationModelService {
     }
     
     func generateStreamingResponse(for messages: [Message]) async throws -> AsyncThrowingStream<String, Error> {
-        #if canImport(FoundationModels)
+        #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
         }
@@ -434,7 +438,7 @@ class FoundationModelService {
     }
     
     static func isAvailable() -> Bool {
-        #if canImport(FoundationModels)
+        #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         return true
         #else
         return false
