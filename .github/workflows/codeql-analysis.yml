@@ -10,38 +10,45 @@ on:
 
 jobs:
   analyze:
-    name: Analyze
+    name: Analyze Swift
     runs-on: macos-latest
     permissions:
       actions: read
       contents: read
       security-events: write
 
-    strategy:
-      fail-fast: false
-      matrix:
-        language: [ 'swift' ]
-
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
     - name: Set up Swift
-      uses: swift-actions/setup-swift@v1
+      uses: swift-actions/setup-swift@cdbe0f7f4c77929b6580e71983e8606e55ffe7e4
       with:
-        swift-version: "5.9"
+        swift-version: "6.0"
+
+    - name: Cache Swift build directory
+      uses: actions/cache@v4
+      with:
+        path: .build
+        key: ${{ runner.os }}-swift-build-${{ hashFiles('Package.swift', 'Package.resolved') }}
+        restore-keys: |
+          ${{ runner.os }}-swift-build-
 
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v3
       with:
-        languages: ${{ matrix.language }}
+        languages: swift
         queries: security-and-quality
+
+    - name: Resolve dependencies
+      run: |
+        swift package resolve
 
     - name: Manual Build
       run: |
-        swift build --configuration release
+        swift build --configuration release --arch arm64
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
       with:
-        category: "/language:${{matrix.language}}"
+        category: "language:swift"
