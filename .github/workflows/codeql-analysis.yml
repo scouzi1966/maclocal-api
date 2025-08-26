@@ -46,7 +46,8 @@ jobs:
 
     - name: Manual Build
       run: |
-        swift build --configuration release
+        # Build without Foundation Models for CI compatibility
+        swift build --configuration release -Xswiftc -DDISABLE_FOUNDATION_MODELS
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
