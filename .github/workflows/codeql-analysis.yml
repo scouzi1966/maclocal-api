@@ -21,10 +21,10 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Set up Swift
-      uses: swift-actions/setup-swift@cdbe0f7f4c77929b6580e71983e8606e55ffe7e4
-      with:
-        swift-version: "6.0"
+    - name: Check Swift version
+      run: |
+        swift --version
+        xcode-select --print-path
 
     - name: Cache Swift build directory
       uses: actions/cache@v4
@@ -46,7 +46,7 @@ jobs:
 
     - name: Manual Build
       run: |
-        swift build --configuration release --arch arm64
+        swift build --configuration release
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
