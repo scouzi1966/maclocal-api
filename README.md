@@ -32,13 +32,19 @@ afm -s "Write a story about Einstein" -a ./my_adapater.fmadapter
 
 # Use in pipe mode
 ls -ltr | afm -i "list the files only of ls output"
+
+# Experimental with Apple Vision Framework - extract text
+afm vision -f file.jpg or pdf
+
+# Experimental with Apple Vision Framework - detect and extract tables in csv. Can be handwritten text and it will use OCR
+afm vision -t -f file.jpg or pdf 
 ```
 
 A very simple to use macOS server application that exposes Apple's Foundation Models through OpenAI-compatible API endpoints. Run Apple Intelligence locally with full OpenAI API compatibility. For use with Python, JS or even open-webui (https://github.com/open-webui/open-webui).
 
 With the same command, it also supports single mode to interact the model without starting the server. In this mode, you can pipe with any other command line based utilities. 
 
-As a bonus, both modes allows the use of using a LoRA adapter, trained with Apple's toolkit. This allows to quickly test them without the having to integrate them in your app or involve xCode.
+As a bonus, both modes allows the use of using a LoRA adapter, trained with Apple's toolkit. This allows to quickly test them without having to integrate them in your app or involve xCode.
 
 The magic command is afm
 
