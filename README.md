@@ -17,6 +17,21 @@ brew upgrade afm
 
 # Verify installation
 afm --version  # Should show v0.5.5
+
+# Start the OPenAPI compatible  API server on port 9999
+afm
+
+# Start the OPenAPI compatible  API server on port 9999 with trained adapter
+afm -a ./my_adapater.fmadapter
+
+# Use in single mode
+afm -i "you are a pirate, you only answer in pirate jargon" -s "Write a story about Einstein"
+
+# Use in single mode with adapater
+afm -s "Write a story about Einstein" -a ./my_adapater.fmadapter
+
+# Use in pipe mode
+ls -ltr | afm -i "list the files only of ls output"
 ```
 
 A very simple to use macOS server application that exposes Apple's Foundation Models through OpenAI-compatible API endpoints. Run Apple Intelligence locally with full OpenAI API compatibility. For use with Python, JS or even open-webui (https://github.com/open-webui/open-webui).
