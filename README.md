@@ -4,6 +4,21 @@
 [![macOS](https://img.shields.io/badge/macOS-26+-blue.svg)](https://developer.apple.com/macos/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+The TLDR quick installation on MacOS 26+ Beta:
+
+```bash
+# Add the tap (first time only)
+brew tap scouzi1966/afm
+
+# Install or upgrade AFM
+brew install afm
+# OR upgrade existing:
+brew upgrade afm
+
+# Verify installation
+afm --version  # Should show v0.5.5
+```
+
 A very simple to use macOS server application that exposes Apple's Foundation Models through OpenAI-compatible API endpoints. Run Apple Intelligence locally with full OpenAI API compatibility. For use with Python, JS or even open-webui (https://github.com/open-webui/open-webui).
 
 With the same command, it also supports single mode to interact the model without starting the server. In this mode, you can pipe with any other command line based utilities. 
