@@ -10,6 +10,8 @@ With the same command, it also supports single mode to interact the model withou
 
 As a bonus, both modes allows the use of using a LoRA adapter, trained with Apple's toolkit. This allows to quickly test them without the having to integrate them in your app or involve xCode.
 
+The magic command is afm
+
 ## 🌟 Features
 
 - **🔗 OpenAI API Compatible** - Works with existing OpenAI client libraries and applications
