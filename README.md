@@ -18,11 +18,11 @@ brew upgrade afm
 # Verify installation
 afm --version  # Should show v0.5.5
 
-# Start the OPenAPI compatible  API server on port 9999
+# Start the OPenAPI compatible  API server on DEFAULT port 9999
 afm
 
-# Start the OPenAPI compatible  API server on port 9999 with trained adapter
-afm -a ./my_adapater.fmadapter
+# Start the OPenAPI compatible  API server on port 9998 with trained adapter
+afm -a ./my_adapater.fmadapter -p 9998
 
 # Use in single mode
 afm -i "you are a pirate, you only answer in pirate jargon" -s "Write a story about Einstein"
