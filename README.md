@@ -18,7 +18,7 @@ brew upgrade afm
 # Verify installation
 afm --version  # Should show latest release
 
-# Start the OPenAPI compatible  API server on DEFAULT port 9999
+# Start the OpenAI compatible API server on DEFAULT port 9999
 afm
 
 # Start the OPenAPI compatible  API server on port 9998 with trained adapter
