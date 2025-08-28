@@ -17,6 +17,10 @@ brew upgrade afm
 
 # Verify installation
 afm --version  # Should show latest release
+```
+
+**HOW TO USE afm:**
+```bash
 
 # Start the OpenAI compatible API server on DEFAULT port 9999
 afm
