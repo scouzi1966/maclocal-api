@@ -16,7 +16,7 @@ brew install afm
 brew upgrade afm
 
 # Verify installation
-afm --version  # Should show v0.5.5
+afm --version  # Should show latest release
 
 # Start the OPenAPI compatible  API server on DEFAULT port 9999
 afm
