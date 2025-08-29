@@ -4,7 +4,7 @@
 [![macOS](https://img.shields.io/badge/macOS-26+-blue.svg)](https://developer.apple.com/macos/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Note: afm commands supports trained adapaters using Apple's Toolkit: https://developer.apple.com/apple-intelligence/foundation-models-adapter/
+Note: afm command supports trained adapaters using Apple's Toolkit: https://developer.apple.com/apple-intelligence/foundation-models-adapter/
 
 I have also created a wrapper tool to make the training easier.
 
