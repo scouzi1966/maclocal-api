@@ -1,8 +1,14 @@
-# MacLocalAPI
+# MacLocalAPI is the repo for the afm command on MacOs 26
 
 [![Swift](https://img.shields.io/badge/Swift-6.2+-orange.svg)](https://swift.org)
 [![macOS](https://img.shields.io/badge/macOS-26+-blue.svg)](https://developer.apple.com/macos/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+Note: afm commands supports trained adapaters using Apple's Toolkit: https://developer.apple.com/apple-intelligence/foundation-models-adapter/
+
+I have also created a wrapper tool to make the training easier.
+
+Get it here: https://github.com/scouzi1966/AFMTrainer
 
 The TLDR quick installation on MacOS 26+ Beta:
 
