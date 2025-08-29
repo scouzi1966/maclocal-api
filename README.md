@@ -6,7 +6,7 @@
 
 Note: afm command supports trained adapaters using Apple's Toolkit: https://developer.apple.com/apple-intelligence/foundation-models-adapter/
 
-I have also created a wrapper tool to make the training easier.
+I have also created a wrapper tool to make the training easier on both Macs M series and Linux with CUDA
 
 Get it here: https://github.com/scouzi1966/AFMTrainer
 
