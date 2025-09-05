@@ -9,13 +9,15 @@ struct ContinuationKey: StorageKey {
 class Server {
     private let app: Application
     private let port: Int
+    private let hostname: String
     private let verbose: Bool
     private let streamingEnabled: Bool
     private let instructions: String
     private let adapter: String?
     
-    init(port: Int, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil) async throws {
+    init(port: Int, hostname: String, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil) async throws {
         self.port = port
+        self.hostname = hostname
         self.verbose = verbose
         self.streamingEnabled = streamingEnabled
         self.instructions = instructions
@@ -36,7 +38,7 @@ class Server {
     
     private func configure() throws {
         app.http.server.configuration.port = port
-        app.http.server.configuration.hostname = "127.0.0.1"
+        app.http.server.configuration.hostname = hostname
         
         try routes()
     }
@@ -69,7 +71,7 @@ class Server {
     }
     
     func start() async throws {
-        print("🚀 afm server starting on http://localhost:\(port)")
+        print("🚀 afm server starting on http://\(hostname):\(port)")
         print("📱 Using Apple Foundation Models (requires macOS 26+ with Apple Intelligence)")
         
         // Initialize the Foundation Model Service once at startup
@@ -78,13 +80,13 @@ class Server {
         }
         
         print("🔗 OpenAI API compatible endpoints:")
-        print("   POST http://localhost:\(port)/v1/chat/completions")
-        print("   GET  http://localhost:\(port)/v1/models")
-        print("   GET  http://localhost:\(port)/health")
+        print("   POST http://\(hostname):\(port)/v1/chat/completions")
+        print("   GET  http://\(hostname):\(port)/v1/models")
+        print("   GET  http://\(hostname):\(port)/health")
         print("Press Ctrl+C to stop the server")
         
         // Start the server
-        try await app.server.start(address: .hostname("127.0.0.1", port: port))
+        try await app.server.start(address: .hostname(hostname, port: port))
         
         // Wait indefinitely (until shutdown is called)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in

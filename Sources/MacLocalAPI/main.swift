@@ -23,6 +23,9 @@ struct ServeCommand: ParsableCommand {
     @Option(name: .shortAndLong, help: "Port to run the server on")
     var port: Int = 9999
     
+    @Option(name: [.customShort("H"), .long], help: "Hostname to bind server to")
+    var hostname: String = "127.0.0.1"
+    
     @Flag(name: .shortAndLong, help: "Enable verbose logging")
     var verbose: Bool = false
     
@@ -50,7 +53,7 @@ struct ServeCommand: ParsableCommand {
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: port, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter)
+                let server = try await Server(port: port, hostname: hostname, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -116,6 +119,9 @@ struct RootCommand: ParsableCommand {
     @Option(name: .shortAndLong, help: "Port to run the server on")
     var port: Int = 9999
     
+    @Option(name: [.customShort("H"), .long], help: "Hostname to bind server to")
+    var hostname: String = "127.0.0.1"
+    
     func run() throws {
         // Handle single-prompt mode for backward compatibility
         if let prompt = singlePrompt {
@@ -130,6 +136,7 @@ struct RootCommand: ParsableCommand {
         // If no subcommand specified and no single prompt, run server
         var serveCommand = ServeCommand()
         serveCommand.port = port
+        serveCommand.hostname = hostname
         serveCommand.verbose = verbose
         serveCommand.noStreaming = noStreaming
         serveCommand.instructions = instructions
