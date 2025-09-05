@@ -23,6 +23,14 @@ brew upgrade afm
 
 # Verify installation
 afm --version  # Should show latest release
+
+# Brew workaround If you are having issues upgrading, Try the following:
+
+brew uninstall afm
+
+brew untap scouzi1966/afm
+
+Try again
 ```
 
 **HOW TO USE afm:**
