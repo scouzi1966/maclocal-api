@@ -10,6 +10,8 @@ I have also created a wrapper tool to make the training easier on both Macs M se
 
 Get it here: https://github.com/scouzi1966/AFMTrainer
 
+You can also explore a pure and private MacOS chat experience (non-cli) here: https://github.com/scouzi1966/vesta-mac-dist
+
 The TLDR quick installation on MacOS 26+ Beta:
 
 ```bash
