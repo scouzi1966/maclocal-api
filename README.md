@@ -12,7 +12,7 @@ Get it here: https://github.com/scouzi1966/AFMTrainer
 
 You can also explore a pure and private MacOS chat experience (non-cli) here: https://github.com/scouzi1966/vesta-mac-dist
 
-# The TLDR quick installation of the afm command on MacOS 26+ Beta:
+# The TLDR quick installation of the afm command on MacOS 26 Tahoe:
 
 ```bash
 # Add the tap (first time only)
