@@ -1,4 +1,4 @@
-# MacLocalAPI is the repo for the afm command on MacOs 26. The afm command (cli) allows one to access the on-device Apple LLM Foundation model from the command line. It allows to intergrate with other OS command line tools using standard Unix pipes.
+# MacLocalAPI is the repo for the afm command on MacOs 26. The afm command (cli) allows one to access the on-device Apple LLM Foundation model from the command line. It allows integration with other OS command line tools using standard Unix pipes.
 
 [![Swift](https://img.shields.io/badge/Swift-6.2+-orange.svg)](https://swift.org)
 [![macOS](https://img.shields.io/badge/macOS-26+-blue.svg)](https://developer.apple.com/macos/)
