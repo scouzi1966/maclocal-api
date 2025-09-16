@@ -80,10 +80,10 @@ The magic command is afm
 
 ## 📋 Requirements
 
-- **macOS 26 (Tahoe) Beta 5** or later
+- **macOS 26 (Tahoe) or later
 - **Apple Silicon Mac** (M1/M2/M3/M4 series)
 - **Apple Intelligence enabled** in System Settings
-- **Xcode 26 beta 5** or later (for building from source)
+- **Xcode 26 (for building from source)
 
 ## 🚀 Quick Start
 
@@ -315,7 +315,7 @@ The server respects standard logging environment variables:
 ## 🔍 Troubleshooting
 
 ### "Foundation Models framework is not available"
-1. Ensure you're running **macOS 26 Beta 5** or later
+1. Ensure you're running **macOS 26 or later
 2. Enable **Apple Intelligence** in System Settings → Apple Intelligence & Siri
 3. Verify you're on an **Apple Silicon Mac**
 4. Restart the application after enabling Apple Intelligence
@@ -326,7 +326,7 @@ The server respects standard logging environment variables:
 3. Enable verbose logging: `./MacLocalAPI --verbose`
 
 ### Build Issues
-1. Ensure you have **Xcode 26 beta 5** installed
+1. Ensure you have **Xcode 26 installed
 2. Update Swift toolchain: `xcode-select --install`
 3. Clean and rebuild: `swift package clean && swift build -c release`
 
