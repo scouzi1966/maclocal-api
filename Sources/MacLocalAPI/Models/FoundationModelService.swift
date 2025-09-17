@@ -4,6 +4,13 @@ import Foundation
 import FoundationModels
 #endif
 
+// Debug logging utility
+private func debugLog(_ message: String) {
+    if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" {
+        print("DEBUG: \(message)")
+    }
+}
+
 enum FoundationModelError: Error, LocalizedError {
     case notAvailable
     case sessionCreationFailed
@@ -442,7 +449,7 @@ class FoundationModelService {
 
     #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
     private func createGenerationOptions(temperature: Double?, randomness: String?) -> GenerationOptions {
-        print("DEBUG: createGenerationOptions called with temperature: \(temperature?.description ?? "nil"), randomness: \(randomness ?? "nil")")
+        debugLog("createGenerationOptions called with temperature: \(temperature?.description ?? "nil"), randomness: \(randomness ?? "nil")")
 
         if randomness == "greedy" {
             return GenerationOptions(
