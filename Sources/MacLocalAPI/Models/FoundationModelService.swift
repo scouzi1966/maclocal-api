@@ -42,7 +42,7 @@ class FoundationModelService {
     #endif
     static var sharedAdapterPath: String?
     
-    init(instructions: String = "You are a helpful assistant", adapter: String? = nil) async throws {
+    init(instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil) async throws {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS && !DISABLE_FOUNDATION_MODELS
         // Check if adapter path is provided
         if let adapterPath = adapter {
@@ -105,7 +105,7 @@ class FoundationModelService {
     }
     
     // Private initializer for creating instances with shared adapter
-    private init(instructions: String, useSharedAdapter: Bool) async throws {
+    private init(instructions: String, useSharedAdapter: Bool, temperature: Double? = nil, randomness: String? = nil) async throws {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         if useSharedAdapter, let sharedAdapter = Self.sharedAdapter {
             // Use the shared adapter
@@ -124,7 +124,7 @@ class FoundationModelService {
         #endif
     }
     
-    func generateResponse(for messages: [Message]) async throws -> String {
+    func generateResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil) async throws -> String {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
@@ -133,7 +133,8 @@ class FoundationModelService {
         let prompt = formatMessagesAsPrompt(messages)
         
         do {
-            let response = try await session.respond(to: prompt)
+            let options = createGenerationOptions(temperature: temperature, randomness: randomness)
+            let response = try await session.respond(to: prompt, options: options)
             return response.content
         } catch {
             throw FoundationModelError.responseGenerationFailed(error.localizedDescription)
@@ -143,7 +144,7 @@ class FoundationModelService {
         #endif
     }
     
-    func generateStreamingResponseWithTiming(for messages: [Message]) async throws -> (content: String, promptTime: Double) {
+    func generateStreamingResponseWithTiming(for messages: [Message], temperature: Double? = nil, randomness: String? = nil) async throws -> (content: String, promptTime: Double) {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
@@ -153,7 +154,8 @@ class FoundationModelService {
         
         // Measure actual Foundation Model processing time
         let promptStartTime = Date()
-        let response = try await session.respond(to: prompt)
+        let options = createGenerationOptions(temperature: temperature, randomness: randomness)
+        let response = try await session.respond(to: prompt, options: options)
         let promptTime = Date().timeIntervalSince(promptStartTime)
         
         let content = response.content
@@ -169,7 +171,7 @@ class FoundationModelService {
         #endif
     }
     
-    func generateStreamingResponse(for messages: [Message]) async throws -> AsyncThrowingStream<String, Error> {
+    func generateStreamingResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil) async throws -> AsyncThrowingStream<String, Error> {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
@@ -182,7 +184,8 @@ class FoundationModelService {
                 do {
                     // Since FoundationModels may not have streaming support yet,
                     // we'll simulate streaming by chunking the complete response
-                    let response = try await session.respond(to: prompt)
+                    let options = self.createGenerationOptions(temperature: temperature, randomness: randomness)
+                    let response = try await session.respond(to: prompt, options: options)
                     let content = response.content
                     
                     // Handle empty or nil content
@@ -436,6 +439,23 @@ class FoundationModelService {
         
         return chunks.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
+
+    #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
+    private func createGenerationOptions(temperature: Double?, randomness: String?) -> GenerationOptions {
+        print("DEBUG: createGenerationOptions called with temperature: \(temperature?.description ?? "nil"), randomness: \(randomness ?? "nil")")
+
+        if randomness == "greedy" {
+            return GenerationOptions(
+                sampling: .greedy,
+                temperature: temperature
+            )
+        } else {
+            return GenerationOptions(
+                temperature: temperature
+            )
+        }
+    }
+    #endif
     
     static func isAvailable() -> Bool {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
@@ -446,8 +466,8 @@ class FoundationModelService {
     }
     
     // Initialize the shared instance once at server startup
-    static func initialize(instructions: String = "You are a helpful assistant", adapter: String? = nil) async throws {
-        shared = try await FoundationModelService(instructions: instructions, adapter: adapter)
+    static func initialize(instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil) async throws {
+        shared = try await FoundationModelService(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness)
     }
     
     // Get the shared instance
@@ -459,8 +479,8 @@ class FoundationModelService {
     }
     
     // Create a new instance that reuses the shared adapter (for per-request use)
-    static func createWithSharedAdapter(instructions: String = "You are a helpful assistant") async throws -> FoundationModelService {
-        return try await FoundationModelService(instructions: instructions, useSharedAdapter: true)
+    static func createWithSharedAdapter(instructions: String = "You are a helpful assistant", temperature: Double? = nil, randomness: String? = nil) async throws -> FoundationModelService {
+        return try await FoundationModelService(instructions: instructions, useSharedAdapter: true, temperature: temperature, randomness: randomness)
     }
 }
 

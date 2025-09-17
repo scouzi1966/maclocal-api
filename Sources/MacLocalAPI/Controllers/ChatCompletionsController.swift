@@ -5,11 +5,15 @@ struct ChatCompletionsController: RouteCollection {
     private let streamingEnabled: Bool
     private let instructions: String
     private let adapter: String?
+    private let temperature: Double?
+    private let randomness: String?
     
-    init(streamingEnabled: Bool = true, instructions: String = "You are a helpful assistant", adapter: String? = nil) {
+    init(streamingEnabled: Bool = true, instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil) {
         self.streamingEnabled = streamingEnabled
         self.instructions = instructions
         self.adapter = adapter
+        self.temperature = temperature
+        self.randomness = randomness
     }
     func boot(routes: RoutesBuilder) throws {
         let v1 = routes.grouped("v1")
@@ -36,7 +40,7 @@ struct ChatCompletionsController: RouteCollection {
             
             let foundationService: FoundationModelService
             if #available(macOS 26.0, *) {
-                foundationService = try await FoundationModelService.createWithSharedAdapter(instructions: instructions)
+                foundationService = try await FoundationModelService.createWithSharedAdapter(instructions: instructions, temperature: temperature, randomness: randomness)
             } else {
                 throw FoundationModelError.notAvailable
             }
@@ -46,7 +50,11 @@ struct ChatCompletionsController: RouteCollection {
                 return try await createStreamingResponse(req: req, chatRequest: chatRequest, foundationService: foundationService)
             }
             
-            let content = try await foundationService.generateResponse(for: chatRequest.messages)
+            // Use temperature from API request if provided, otherwise use CLI parameter
+            let effectiveTemperature = chatRequest.temperature ?? temperature
+            let effectiveRandomness = randomness
+
+            let content = try await foundationService.generateResponse(for: chatRequest.messages, temperature: effectiveTemperature, randomness: effectiveRandomness)
             
             let promptTokens = estimateTokens(for: chatRequest.messages)
             let completionTokens = estimateTokens(for: content)
@@ -129,8 +137,12 @@ struct ChatCompletionsController: RouteCollection {
             do {
                 let encoder = JSONEncoder()
                 
+                // Use temperature from API request if provided, otherwise use CLI parameter
+                let effectiveTemperature = chatRequest.temperature ?? self.temperature
+                let effectiveRandomness = self.randomness
+
                 // Get response with proper timing measurement
-                let (content, promptTime) = try await foundationService.generateStreamingResponseWithTiming(for: chatRequest.messages)
+                let (content, promptTime) = try await foundationService.generateStreamingResponseWithTiming(for: chatRequest.messages, temperature: effectiveTemperature, randomness: effectiveRandomness)
                 
                 // Start streaming timing
                 let completionStartTime = Date()

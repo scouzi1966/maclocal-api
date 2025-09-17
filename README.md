@@ -282,7 +282,7 @@ MacLocalAPI/
 ```bash
 OVERVIEW: macOS server that exposes Apple's Foundation Models through OpenAI-compatible API
 
-USAGE: afm [--port <port>] [--verbose] [--no-streaming] [--instructions <instructions>] [--single-prompt <single-prompt>]
+USAGE: afm [--single-prompt <single-prompt>] [--instructions <instructions>] [--verbose] [--no-streaming] [--adapter <adapter>] [--port <port>] [--hostname <hostname>] [--temperature <temperature>] [--randomness <randomness>]
 
 OPTIONS:
   -p, --port <port>       Port to run the server on (default: 9999)
@@ -292,6 +292,13 @@ OPTIONS:
                           Custom instructions for the AI assistant (default: You are a helpful assistant)
   -s, --single-prompt <single-prompt>
                           Run a single prompt without starting the server
+  -a, --adapter <adapter> Path to a .fmadapter file for LoRA adapter fine-tuning
+  -H, --hostname <hostname>
+                          Hostname to bind server to (default: 127.0.0.1)
+  -t, --temperature <temperature>
+                          Temperature for response generation (0.0-2.0, Apple default when not specified)
+  -r, --randomness <randomness>
+                          Randomness mode: 'greedy' or 'random' (Apple default when not specified)
   --version               Show the version.
   -h, --help              Show help information.
 

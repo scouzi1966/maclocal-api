@@ -14,14 +14,18 @@ class Server {
     private let streamingEnabled: Bool
     private let instructions: String
     private let adapter: String?
+    private let temperature: Double?
+    private let randomness: String?
     
-    init(port: Int, hostname: String, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil) async throws {
+    init(port: Int, hostname: String, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
         self.streamingEnabled = streamingEnabled
         self.instructions = instructions
         self.adapter = adapter
+        self.temperature = temperature
+        self.randomness = randomness
         
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
@@ -66,7 +70,7 @@ class Server {
             )
         }
         
-        let chatController = ChatCompletionsController(streamingEnabled: streamingEnabled, instructions: instructions, adapter: adapter)
+        let chatController = ChatCompletionsController(streamingEnabled: streamingEnabled, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness)
         try app.register(collection: chatController)
     }
     
@@ -76,7 +80,7 @@ class Server {
         
         // Initialize the Foundation Model Service once at startup
         if #available(macOS 26.0, *) {
-            try await FoundationModelService.initialize(instructions: instructions, adapter: adapter)
+            try await FoundationModelService.initialize(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness)
         }
         
         print("🔗 OpenAI API compatible endpoints:")
