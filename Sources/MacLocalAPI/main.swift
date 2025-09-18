@@ -45,7 +45,7 @@ struct ServeCommand: ParsableCommand {
     @Option(name: [.customShort("a"), .long], help: "Path to a .fmadapter file for LoRA adapter fine-tuning")
     var adapter: String?
 
-    @Option(name: [.short, .long], help: "Temperature for response generation (0.0-2.0)")
+    @Option(name: [.short, .long], help: "Temperature for response generation (0.0-1.0)")
     var temperature: Double?
 
     @Option(name: [.short, .long], help: "Randomness mode: 'greedy' or 'random'")
@@ -54,8 +54,8 @@ struct ServeCommand: ParsableCommand {
     func run() throws {
         // Validate temperature parameter
         if let temp = temperature {
-            guard temp >= 0.0 && temp <= 2.0 else {
-                throw ValidationError("Temperature must be between 0.0 and 2.0")
+            guard temp >= 0.0 && temp <= 1.0 else {
+                throw ValidationError("Temperature must be between 0.0 and 1.0")
             }
         }
 
@@ -149,7 +149,7 @@ struct RootCommand: ParsableCommand {
     @Option(name: [.customShort("H"), .long], help: "Hostname to bind server to")
     var hostname: String = "127.0.0.1"
 
-    @Option(name: [.short, .long], help: "Temperature for response generation (0.0-2.0)")
+    @Option(name: [.short, .long], help: "Temperature for response generation (0.0-1.0)")
     var temperature: Double?
 
     @Option(name: [.short, .long], help: "Randomness mode: 'greedy' or 'random'")
@@ -158,8 +158,8 @@ struct RootCommand: ParsableCommand {
     func run() throws {
         // Validate temperature parameter
         if let temp = temperature {
-            guard temp >= 0.0 && temp <= 2.0 else {
-                throw ValidationError("Temperature must be between 0.0 and 2.0")
+            guard temp >= 0.0 && temp <= 1.0 else {
+                throw ValidationError("Temperature must be between 0.0 and 1.0")
             }
         }
 

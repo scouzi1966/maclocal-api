@@ -12,7 +12,7 @@ This documentation covers:
 - Usage examples and best practices
 
 ### Implementation Notes
-- Temperature: Controls randomness/creativity in responses (0.0 = deterministic, 2.0 = highly creative)
+- Temperature: Controls randomness/creativity in responses (0.0 = deterministic, 1.0 = highly creative)
 - Randomness: "greedy" for deterministic output, "random" for varied output
 - Apple defaults are used when parameters are not specified
 - All parameters are optional and validated at CLI parsing level
@@ -61,7 +61,7 @@ Debug logging shows:
 ./afm -t 0.5 -r greedy -s "test prompt"
 
 # Test validation (should fail)
-./afm -t 3.0 -s "test prompt"  # Temperature out of range
+./afm -t 1.5 -s "test prompt"  # Temperature out of range
 ./afm -r invalid -s "test prompt"  # Invalid randomness value
 
 # Test with debug logging

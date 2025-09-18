@@ -296,7 +296,7 @@ OPTIONS:
   -H, --hostname <hostname>
                           Hostname to bind server to (default: 127.0.0.1)
   -t, --temperature <temperature>
-                          Temperature for response generation (0.0-2.0, Apple default when not specified)
+                          Temperature for response generation (0.0-1.0, Apple default when not specified)
   -r, --randomness <randomness>
                           Randomness mode: 'greedy' or 'random' (Apple default when not specified)
   --version               Show the version.
