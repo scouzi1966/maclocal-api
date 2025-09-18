@@ -6,10 +6,28 @@
 - [Apple Developer Documentation - GenerationOptions](https://developer.apple.com/documentation/foundationmodels/generationoptions)
 
 This documentation covers:
-- Temperature parameter (0.0-2.0 range for controlling response creativity)
+- Temperature parameter (0.0-1.0 range for controlling response creativity)
 - Sampling options (greedy vs random sampling methods)
 - Maximum response tokens configuration
 - Usage examples and best practices
+
+### Future Implementation Roadmap
+
+The following advanced sampling parameters will be implemented in future versions:
+
+#### Top-P Sampling (Nucleus Sampling)
+- [random(probabilityThreshold:seed:)](https://developer.apple.com/documentation/foundationmodels/generationoptions/samplingmode/random(probabilitythreshold:seed:))
+- Controls diversity by only considering tokens whose cumulative probability is below the threshold
+- Planned parameter: `--top-p <value>` (0.0-1.0 range)
+- More dynamic than top-k as it adapts to the confidence distribution
+
+#### Top-K Sampling
+- [random(top:seed:)](https://developer.apple.com/documentation/foundationmodels/generationoptions/samplingmode/random(top:seed:))
+- Limits token selection to the K most likely tokens
+- Planned parameter: `--top-k <value>` (integer value)
+- Provides consistent limitation regardless of probability distribution
+
+These will extend the current `--randomness` parameter to provide more granular control over the sampling behavior.
 
 ### Implementation Notes
 - Temperature: Controls randomness/creativity in responses (0.0 = deterministic, 1.0 = highly creative)
