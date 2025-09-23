@@ -2,5 +2,5 @@
 // Auto-generated build information - DO NOT EDIT MANUALLY
 
 struct BuildInfo {
-    static let version: String? = "v0.6.0"
+    static let version: String? = "v0.7.0"
 }
