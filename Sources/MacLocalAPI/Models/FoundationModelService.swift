@@ -4,12 +4,109 @@ import Foundation
 import FoundationModels
 #endif
 
+// Parsed randomness parameter structure
+//
+// This structure represents the randomness configuration for Apple Foundation Models generation.
+// It supports the sampling modes available in Apple's GenerationOptions API:
+//
+// Design Constraints (per Apple Foundation Models API):
+// - Only ONE sampling method can be active at a time (greedy, random, top-p, OR top-k)
+// - top-p and top-k cannot be combined in a single request
+// - Seeds are optional and can be combined with any sampling method for reproducibility
+//
+// Supported Formats:
+// - "greedy" - Deterministic sampling (always selects most likely token)
+// - "random" - Apple's default random sampling
+// - "random:top-p=<0.0-1.0>" - Nucleus sampling with probability threshold
+// - "random:top-k=<int>" - Top-k sampling limiting to K most likely tokens
+// - "random:seed=<int>" - Random sampling with specific seed
+// - "random:top-p=0.9:seed=42" - Nucleus sampling with seed (combining is allowed)
+// - "random:top-k=50:seed=42" - Top-k sampling with seed (combining is allowed)
+//
+// Invalid Combinations:
+// - "random:top-p=0.9:top-k=50" - REJECTED: Cannot mix sampling methods
+struct RandomnessConfig {
+    enum SamplingMode {
+        case greedy
+        case random
+        case topP(Double)  // Nucleus sampling: 0.0-1.0 probability threshold
+        case topK(Int)     // Top-k sampling: positive integer for k value
+    }
+
+    let mode: SamplingMode
+    let seed: UInt64?
+
+    static func parse(_ randomnessString: String) throws -> RandomnessConfig {
+        let trimmed = randomnessString.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Handle simple cases (backward compatibility)
+        if trimmed == "greedy" {
+            return RandomnessConfig(mode: .greedy, seed: nil)
+        }
+        if trimmed == "random" {
+            return RandomnessConfig(mode: .random, seed: nil)
+        }
+
+        // Parse structured format: "random:top-p=0.9:seed=42"
+        let components = trimmed.components(separatedBy: ":")
+        guard components.count >= 1, components[0] == "random" else {
+            throw FoundationModelError.invalidRandomnessParameter("Randomness must start with 'greedy', 'random', or 'random:...'")
+        }
+
+        var mode: SamplingMode = .random
+        var seed: UInt64? = nil
+        var hasSamplingParameter = false
+
+        // Parse additional parameters
+        // NOTE: Apple Foundation Models API does not support combining top-p and top-k simultaneously
+        for i in 1..<components.count {
+            let param = components[i]
+            if param.hasPrefix("top-p=") {
+                // Check for conflicting sampling parameters
+                if hasSamplingParameter {
+                    throw FoundationModelError.invalidRandomnessParameter("Cannot combine top-p and top-k sampling parameters. Apple Foundation Models API supports only one sampling method at a time.")
+                }
+
+                let valueStr = String(param.dropFirst(6))
+                guard let value = Double(valueStr), value >= 0.0, value <= 1.0 else {
+                    throw FoundationModelError.invalidRandomnessParameter("top-p must be between 0.0 and 1.0")
+                }
+                mode = .topP(value)
+                hasSamplingParameter = true
+            } else if param.hasPrefix("top-k=") {
+                // Check for conflicting sampling parameters
+                if hasSamplingParameter {
+                    throw FoundationModelError.invalidRandomnessParameter("Cannot combine top-p and top-k sampling parameters. Apple Foundation Models API supports only one sampling method at a time.")
+                }
+
+                let valueStr = String(param.dropFirst(6))
+                guard let value = Int(valueStr), value > 0 else {
+                    throw FoundationModelError.invalidRandomnessParameter("top-k must be a positive integer")
+                }
+                mode = .topK(value)
+                hasSamplingParameter = true
+            } else if param.hasPrefix("seed=") {
+                let valueStr = String(param.dropFirst(5))
+                guard let value = UInt64(valueStr) else {
+                    throw FoundationModelError.invalidRandomnessParameter("seed must be a non-negative integer")
+                }
+                seed = value
+            } else {
+                throw FoundationModelError.invalidRandomnessParameter("Unknown parameter: \(param)")
+            }
+        }
+
+        return RandomnessConfig(mode: mode, seed: seed)
+    }
+}
+
 enum FoundationModelError: Error, LocalizedError {
     case notAvailable
     case sessionCreationFailed
     case responseGenerationFailed(String)
     case invalidInput
-    
+    case invalidRandomnessParameter(String)
+
     var errorDescription: String? {
         switch self {
         case .notAvailable:
@@ -20,6 +117,8 @@ enum FoundationModelError: Error, LocalizedError {
             return "Failed to generate response: \(message)"
         case .invalidInput:
             return "Invalid input provided to Foundation Models"
+        case .invalidRandomnessParameter(let message):
+            return "Invalid randomness parameter: \(message)"
         }
     }
 }
@@ -42,7 +141,7 @@ class FoundationModelService {
     #endif
     static var sharedAdapterPath: String?
     
-    init(instructions: String = "You are a helpful assistant", adapter: String? = nil) async throws {
+    init(instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil) async throws {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS && !DISABLE_FOUNDATION_MODELS
         // Check if adapter path is provided
         if let adapterPath = adapter {
@@ -105,7 +204,7 @@ class FoundationModelService {
     }
     
     // Private initializer for creating instances with shared adapter
-    private init(instructions: String, useSharedAdapter: Bool) async throws {
+    private init(instructions: String, useSharedAdapter: Bool, temperature: Double? = nil, randomness: String? = nil) async throws {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         if useSharedAdapter, let sharedAdapter = Self.sharedAdapter {
             // Use the shared adapter
@@ -124,7 +223,7 @@ class FoundationModelService {
         #endif
     }
     
-    func generateResponse(for messages: [Message]) async throws -> String {
+    func generateResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil) async throws -> String {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
@@ -133,7 +232,8 @@ class FoundationModelService {
         let prompt = formatMessagesAsPrompt(messages)
         
         do {
-            let response = try await session.respond(to: prompt)
+            let options = try createGenerationOptions(temperature: temperature, randomness: randomness)
+            let response = try await session.respond(to: prompt, options: options)
             return response.content
         } catch {
             throw FoundationModelError.responseGenerationFailed(error.localizedDescription)
@@ -143,7 +243,7 @@ class FoundationModelService {
         #endif
     }
     
-    func generateStreamingResponseWithTiming(for messages: [Message]) async throws -> (content: String, promptTime: Double) {
+    func generateStreamingResponseWithTiming(for messages: [Message], temperature: Double? = nil, randomness: String? = nil) async throws -> (content: String, promptTime: Double) {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
@@ -153,7 +253,8 @@ class FoundationModelService {
         
         // Measure actual Foundation Model processing time
         let promptStartTime = Date()
-        let response = try await session.respond(to: prompt)
+        let options = try createGenerationOptions(temperature: temperature, randomness: randomness)
+        let response = try await session.respond(to: prompt, options: options)
         let promptTime = Date().timeIntervalSince(promptStartTime)
         
         let content = response.content
@@ -169,7 +270,7 @@ class FoundationModelService {
         #endif
     }
     
-    func generateStreamingResponse(for messages: [Message]) async throws -> AsyncThrowingStream<String, Error> {
+    func generateStreamingResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil) async throws -> AsyncThrowingStream<String, Error> {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
@@ -182,7 +283,8 @@ class FoundationModelService {
                 do {
                     // Since FoundationModels may not have streaming support yet,
                     // we'll simulate streaming by chunking the complete response
-                    let response = try await session.respond(to: prompt)
+                    let options = try self.createGenerationOptions(temperature: temperature, randomness: randomness)
+                    let response = try await session.respond(to: prompt, options: options)
                     let content = response.content
                     
                     // Handle empty or nil content
@@ -436,6 +538,65 @@ class FoundationModelService {
         
         return chunks.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
+
+    #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
+    private func createGenerationOptions(temperature: Double?, randomness: String?) throws -> GenerationOptions {
+        DebugLogger.log("createGenerationOptions called with temperature: \(temperature?.description ?? "nil"), randomness: \(randomness ?? "nil")")
+
+        guard let randomnessString = randomness else {
+            // Default behavior when randomness is not specified
+            return GenerationOptions(temperature: temperature)
+        }
+
+        let config = try RandomnessConfig.parse(randomnessString)
+        DebugLogger.log("Parsed randomness config: mode=\(config.mode), seed=\(config.seed?.description ?? "nil")")
+
+        switch config.mode {
+        case .greedy:
+            return GenerationOptions(
+                sampling: .greedy,
+                temperature: temperature
+            )
+        case .random:
+            // Apple's default random sampling doesn't support seed directly
+            // For seeded random, we need to use a high probability threshold (near 1.0)
+            if let seed = config.seed {
+                return GenerationOptions(
+                    sampling: .random(probabilityThreshold: 1.0, seed: seed),
+                    temperature: temperature
+                )
+            } else {
+                return GenerationOptions(
+                    temperature: temperature
+                )
+            }
+        case .topP(let threshold):
+            if let seed = config.seed {
+                return GenerationOptions(
+                    sampling: .random(probabilityThreshold: threshold, seed: seed),
+                    temperature: temperature
+                )
+            } else {
+                return GenerationOptions(
+                    sampling: .random(probabilityThreshold: threshold),
+                    temperature: temperature
+                )
+            }
+        case .topK(let k):
+            if let seed = config.seed {
+                return GenerationOptions(
+                    sampling: .random(top: k, seed: seed),
+                    temperature: temperature
+                )
+            } else {
+                return GenerationOptions(
+                    sampling: .random(top: k),
+                    temperature: temperature
+                )
+            }
+        }
+    }
+    #endif
     
     static func isAvailable() -> Bool {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
@@ -446,8 +607,8 @@ class FoundationModelService {
     }
     
     // Initialize the shared instance once at server startup
-    static func initialize(instructions: String = "You are a helpful assistant", adapter: String? = nil) async throws {
-        shared = try await FoundationModelService(instructions: instructions, adapter: adapter)
+    static func initialize(instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil) async throws {
+        shared = try await FoundationModelService(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness)
     }
     
     // Get the shared instance
@@ -459,8 +620,8 @@ class FoundationModelService {
     }
     
     // Create a new instance that reuses the shared adapter (for per-request use)
-    static func createWithSharedAdapter(instructions: String = "You are a helpful assistant") async throws -> FoundationModelService {
-        return try await FoundationModelService(instructions: instructions, useSharedAdapter: true)
+    static func createWithSharedAdapter(instructions: String = "You are a helpful assistant", temperature: Double? = nil, randomness: String? = nil) async throws -> FoundationModelService {
+        return try await FoundationModelService(instructions: instructions, useSharedAdapter: true, temperature: temperature, randomness: randomness)
     }
 }
 

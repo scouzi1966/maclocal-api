@@ -37,8 +37,32 @@ struct ServeCommand: ParsableCommand {
     
     @Option(name: [.customShort("a"), .long], help: "Path to a .fmadapter file for LoRA adapter fine-tuning")
     var adapter: String?
-    
+
+    @Option(name: [.short, .long], help: "Temperature for response generation (0.0-1.0)")
+    var temperature: Double?
+
+    @Option(name: [.short, .long], help: "Sampling mode: 'greedy', 'random', 'random:top-p=<0.0-1.0>', 'random:top-k=<int>', with optional ':seed=<int>'")
+    var randomness: String?
+
     func run() throws {
+        // Validate temperature parameter
+        if let temp = temperature {
+            guard temp >= 0.0 && temp <= 1.0 else {
+                throw ValidationError("Temperature must be between 0.0 and 1.0")
+            }
+        }
+
+        // Validate randomness parameter
+        if let rand = randomness {
+            do {
+                _ = try RandomnessConfig.parse(rand)
+            } catch let error as FoundationModelError {
+                throw ValidationError(error.localizedDescription)
+            } catch {
+                throw ValidationError("Invalid randomness parameter format")
+            }
+        }
+
         if verbose {
             print("Starting afm server with verbose logging enabled...")
         }
@@ -53,7 +77,7 @@ struct ServeCommand: ParsableCommand {
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: port, hostname: hostname, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter)
+                let server = try await Server(port: port, hostname: hostname, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -121,13 +145,37 @@ struct RootCommand: ParsableCommand {
     
     @Option(name: [.customShort("H"), .long], help: "Hostname to bind server to")
     var hostname: String = "127.0.0.1"
-    
+
+    @Option(name: [.short, .long], help: "Temperature for response generation (0.0-1.0)")
+    var temperature: Double?
+
+    @Option(name: [.short, .long], help: "Sampling mode: 'greedy', 'random', 'random:top-p=<0.0-1.0>', 'random:top-k=<int>', with optional ':seed=<int>'")
+    var randomness: String?
+
     func run() throws {
+        // Validate temperature parameter
+        if let temp = temperature {
+            guard temp >= 0.0 && temp <= 1.0 else {
+                throw ValidationError("Temperature must be between 0.0 and 1.0")
+            }
+        }
+
+        // Validate randomness parameter
+        if let rand = randomness {
+            do {
+                _ = try RandomnessConfig.parse(rand)
+            } catch let error as FoundationModelError {
+                throw ValidationError(error.localizedDescription)
+            } catch {
+                throw ValidationError("Invalid randomness parameter format")
+            }
+        }
+
         // Handle single-prompt mode for backward compatibility
         if let prompt = singlePrompt {
             return try runSinglePrompt(prompt, adapter: adapter)
         }
-        
+
         // Check for piped input for backward compatibility
         if let stdinContent = try readFromStdin() {
             return try runSinglePrompt(stdinContent, adapter: adapter)
@@ -141,6 +189,8 @@ struct RootCommand: ParsableCommand {
         serveCommand.noStreaming = noStreaming
         serveCommand.instructions = instructions
         serveCommand.adapter = adapter
+        serveCommand.temperature = temperature
+        serveCommand.randomness = randomness
         try serveCommand.run()
     }
 }
@@ -202,21 +252,30 @@ extension RootCommand {
     }
     
     private func runSinglePrompt(_ prompt: String, adapter: String?) throws {
+        DebugLogger.log("Starting single prompt mode with prompt: '\(prompt)'")
+        DebugLogger.log("Temperature: \(temperature?.description ?? "nil"), Randomness: \(randomness ?? "nil")")
+
         let group = DispatchGroup()
         var result: Result<String, Error>?
-        
+
         group.enter()
         Task {
             do {
                 if #available(macOS 26.0, *) {
-                    let foundationService = try await FoundationModelService(instructions: instructions, adapter: adapter)
+                    DebugLogger.log("macOS 26+ detected, initializing FoundationModelService...")
+                    let foundationService = try await FoundationModelService(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness)
+                    DebugLogger.log("FoundationModelService initialized successfully")
                     let message = Message(role: "user", content: prompt)
-                    let response = try await foundationService.generateResponse(for: [message])
+                    DebugLogger.log("Generating response...")
+                    let response = try await foundationService.generateResponse(for: [message], temperature: temperature, randomness: randomness)
+                    DebugLogger.log("Response generated successfully")
                     result = .success(response)
                 } else {
+                    DebugLogger.log("macOS 26+ not available")
                     result = .failure(FoundationModelError.notAvailable)
                 }
             } catch {
+                DebugLogger.log("Error occurred: \(error)")
                 result = .failure(error)
             }
             group.leave()
