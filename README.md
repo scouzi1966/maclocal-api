@@ -10,7 +10,7 @@
 
 Note: afm command supports trained adapters using Apple's Toolkit: https://developer.apple.com/apple-intelligence/foundation-models-adapter/
 
-I have also created a wrapper tool to make the training easier on both Macs M series and Linux with CUDA
+I have also created a wrapper tool to make the fine-tuning AFM easier on both Macs M series and Linux with CUDA using Apple's provided LoRA toolkit.
 
 Get it here: https://github.com/scouzi1966/AFMTrainer
 
