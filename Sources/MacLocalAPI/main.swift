@@ -48,7 +48,7 @@ struct ServeCommand: ParsableCommand {
     @Option(name: [.short, .long], help: "Temperature for response generation (0.0-1.0)")
     var temperature: Double?
 
-    @Option(name: [.short, .long], help: "Randomness mode: 'greedy' or 'random'")
+    @Option(name: [.short, .long], help: "Sampling mode: 'greedy', 'random', 'random:top-p=<0.0-1.0>', 'random:top-k=<int>', with optional ':seed=<int>'")
     var randomness: String?
 
     func run() throws {
@@ -61,8 +61,12 @@ struct ServeCommand: ParsableCommand {
 
         // Validate randomness parameter
         if let rand = randomness {
-            guard rand == "greedy" || rand == "random" else {
-                throw ValidationError("Randomness must be either 'greedy' or 'random'")
+            do {
+                _ = try RandomnessConfig.parse(rand)
+            } catch let error as FoundationModelError {
+                throw ValidationError(error.localizedDescription)
+            } catch {
+                throw ValidationError("Invalid randomness parameter format")
             }
         }
 
@@ -152,7 +156,7 @@ struct RootCommand: ParsableCommand {
     @Option(name: [.short, .long], help: "Temperature for response generation (0.0-1.0)")
     var temperature: Double?
 
-    @Option(name: [.short, .long], help: "Randomness mode: 'greedy' or 'random'")
+    @Option(name: [.short, .long], help: "Sampling mode: 'greedy', 'random', 'random:top-p=<0.0-1.0>', 'random:top-k=<int>', with optional ':seed=<int>'")
     var randomness: String?
 
     func run() throws {
@@ -165,8 +169,12 @@ struct RootCommand: ParsableCommand {
 
         // Validate randomness parameter
         if let rand = randomness {
-            guard rand == "greedy" || rand == "random" else {
-                throw ValidationError("Randomness must be either 'greedy' or 'random'")
+            do {
+                _ = try RandomnessConfig.parse(rand)
+            } catch let error as FoundationModelError {
+                throw ValidationError(error.localizedDescription)
+            } catch {
+                throw ValidationError("Invalid randomness parameter format")
             }
         }
 

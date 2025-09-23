@@ -11,12 +11,75 @@ private func debugLog(_ message: String) {
     }
 }
 
+// Parsed randomness parameter structure
+struct RandomnessConfig {
+    enum SamplingMode {
+        case greedy
+        case random
+        case topP(Double)
+        case topK(Int)
+    }
+
+    let mode: SamplingMode
+    let seed: UInt64?
+
+    static func parse(_ randomnessString: String) throws -> RandomnessConfig {
+        let trimmed = randomnessString.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Handle simple cases (backward compatibility)
+        if trimmed == "greedy" {
+            return RandomnessConfig(mode: .greedy, seed: nil)
+        }
+        if trimmed == "random" {
+            return RandomnessConfig(mode: .random, seed: nil)
+        }
+
+        // Parse structured format: "random:top-p=0.9:seed=42"
+        let components = trimmed.components(separatedBy: ":")
+        guard components.count >= 1, components[0] == "random" else {
+            throw FoundationModelError.invalidRandomnessParameter("Randomness must start with 'greedy', 'random', or 'random:...'")
+        }
+
+        var mode: SamplingMode = .random
+        var seed: UInt64? = nil
+
+        // Parse additional parameters
+        for i in 1..<components.count {
+            let param = components[i]
+            if param.hasPrefix("top-p=") {
+                let valueStr = String(param.dropFirst(6))
+                guard let value = Double(valueStr), value >= 0.0, value <= 1.0 else {
+                    throw FoundationModelError.invalidRandomnessParameter("top-p must be between 0.0 and 1.0")
+                }
+                mode = .topP(value)
+            } else if param.hasPrefix("top-k=") {
+                let valueStr = String(param.dropFirst(6))
+                guard let value = Int(valueStr), value > 0 else {
+                    throw FoundationModelError.invalidRandomnessParameter("top-k must be a positive integer")
+                }
+                mode = .topK(value)
+            } else if param.hasPrefix("seed=") {
+                let valueStr = String(param.dropFirst(5))
+                guard let value = UInt64(valueStr) else {
+                    throw FoundationModelError.invalidRandomnessParameter("seed must be a non-negative integer")
+                }
+                seed = value
+            } else {
+                throw FoundationModelError.invalidRandomnessParameter("Unknown parameter: \(param)")
+            }
+        }
+
+        return RandomnessConfig(mode: mode, seed: seed)
+    }
+}
+
 enum FoundationModelError: Error, LocalizedError {
     case notAvailable
     case sessionCreationFailed
     case responseGenerationFailed(String)
     case invalidInput
-    
+    case invalidRandomnessParameter(String)
+
     var errorDescription: String? {
         switch self {
         case .notAvailable:
@@ -27,6 +90,8 @@ enum FoundationModelError: Error, LocalizedError {
             return "Failed to generate response: \(message)"
         case .invalidInput:
             return "Invalid input provided to Foundation Models"
+        case .invalidRandomnessParameter(let message):
+            return "Invalid randomness parameter: \(message)"
         }
     }
 }
@@ -140,7 +205,7 @@ class FoundationModelService {
         let prompt = formatMessagesAsPrompt(messages)
         
         do {
-            let options = createGenerationOptions(temperature: temperature, randomness: randomness)
+            let options = try createGenerationOptions(temperature: temperature, randomness: randomness)
             let response = try await session.respond(to: prompt, options: options)
             return response.content
         } catch {
@@ -161,7 +226,7 @@ class FoundationModelService {
         
         // Measure actual Foundation Model processing time
         let promptStartTime = Date()
-        let options = createGenerationOptions(temperature: temperature, randomness: randomness)
+        let options = try createGenerationOptions(temperature: temperature, randomness: randomness)
         let response = try await session.respond(to: prompt, options: options)
         let promptTime = Date().timeIntervalSince(promptStartTime)
         
@@ -191,7 +256,7 @@ class FoundationModelService {
                 do {
                     // Since FoundationModels may not have streaming support yet,
                     // we'll simulate streaming by chunking the complete response
-                    let options = self.createGenerationOptions(temperature: temperature, randomness: randomness)
+                    let options = try self.createGenerationOptions(temperature: temperature, randomness: randomness)
                     let response = try await session.respond(to: prompt, options: options)
                     let content = response.content
                     
@@ -448,18 +513,60 @@ class FoundationModelService {
     }
 
     #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
-    private func createGenerationOptions(temperature: Double?, randomness: String?) -> GenerationOptions {
+    private func createGenerationOptions(temperature: Double?, randomness: String?) throws -> GenerationOptions {
         debugLog("createGenerationOptions called with temperature: \(temperature?.description ?? "nil"), randomness: \(randomness ?? "nil")")
 
-        if randomness == "greedy" {
+        guard let randomnessString = randomness else {
+            // Default behavior when randomness is not specified
+            return GenerationOptions(temperature: temperature)
+        }
+
+        let config = try RandomnessConfig.parse(randomnessString)
+        debugLog("Parsed randomness config: mode=\(config.mode), seed=\(config.seed?.description ?? "nil")")
+
+        switch config.mode {
+        case .greedy:
             return GenerationOptions(
                 sampling: .greedy,
                 temperature: temperature
             )
-        } else {
-            return GenerationOptions(
-                temperature: temperature
-            )
+        case .random:
+            // Apple's default random sampling doesn't support seed directly
+            // For seeded random, we need to use a high probability threshold (near 1.0)
+            if let seed = config.seed {
+                return GenerationOptions(
+                    sampling: .random(probabilityThreshold: 1.0, seed: seed),
+                    temperature: temperature
+                )
+            } else {
+                return GenerationOptions(
+                    temperature: temperature
+                )
+            }
+        case .topP(let threshold):
+            if let seed = config.seed {
+                return GenerationOptions(
+                    sampling: .random(probabilityThreshold: threshold, seed: seed),
+                    temperature: temperature
+                )
+            } else {
+                return GenerationOptions(
+                    sampling: .random(probabilityThreshold: threshold),
+                    temperature: temperature
+                )
+            }
+        case .topK(let k):
+            if let seed = config.seed {
+                return GenerationOptions(
+                    sampling: .random(top: k, seed: seed),
+                    temperature: temperature
+                )
+            } else {
+                return GenerationOptions(
+                    sampling: .random(top: k),
+                    temperature: temperature
+                )
+            }
         }
     }
     #endif
