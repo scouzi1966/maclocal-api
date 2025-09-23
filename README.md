@@ -1,10 +1,10 @@
-# MacLocalAPI is the repo for the afm command on MacOs 26 Tahoe. The afm command (cli) allows one to access the on-device Apple LLM Foundation model from the command line in a single prompt or in API mode. It allows integration with other OS command line tools using standard Unix pipes.
+# MacLocalAPI is the repo for the afm command on macOS 26 Tahoe. The afm command (cli) allows one to access the on-device Apple LLM Foundation model from the command line in a single prompt or in API mode. It allows integration with other OS command line tools using standard Unix pipes.
 
 [![Swift](https://img.shields.io/badge/Swift-6.2+-orange.svg)](https://swift.org)
 [![macOS](https://img.shields.io/badge/macOS-26+-blue.svg)](https://developer.apple.com/macos/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Note: afm command supports trained adapaters using Apple's Toolkit: https://developer.apple.com/apple-intelligence/foundation-models-adapter/
+Note: afm command supports trained adapters using Apple's Toolkit: https://developer.apple.com/apple-intelligence/foundation-models-adapter/
 
 I have also created a wrapper tool to make the training easier on both Macs M series and Linux with CUDA
 
@@ -41,14 +41,14 @@ Try again
 # Start the OpenAI compatible API server on DEFAULT port 9999
 afm
 
-# Start the OPenAPI compatible  API server on port 9998 with trained adapter
-afm -a ./my_adapater.fmadapter -p 9998
+# Start the OpenAI compatible  API server on port 9998 with trained adapter
+afm -a ./my_adapter.fmadapter -p 9998
 
 # Use in single mode
 afm -i "you are a pirate, you only answer in pirate jargon" -s "Write a story about Einstein"
 
-# Use in single mode with adapater
-afm -s "Write a story about Einstein" -a ./my_adapater.fmadapter
+# Use in single mode with adapter
+afm -s "Write a story about Einstein" -a ./my_adapter.fmadapter
 
 # Use in pipe mode
 ls -ltr | afm -i "list the files only of ls output"
@@ -71,7 +71,7 @@ The magic command is afm
 ## 🌟 Features
 
 - **🔗 OpenAI API Compatible** - Works with existing OpenAI client libraries and applications
-- **⚡ LoRA adapater support** - Supports fine-tuning with LoRA adapaters using Apple's tuning Toolkit
+- **⚡ LoRA adapter support** - Supports fine-tuning with LoRA adapters using Apple's tuning Toolkit
 - **📱 Apple Foundation Models** - Uses Apple's on-device 3B parameter language model
 - **🔒 Privacy-First** - All processing happens locally on your device
 - **⚡ Fast & Lightweight** - No network calls, no API keys required

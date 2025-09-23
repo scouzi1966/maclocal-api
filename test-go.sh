@@ -252,6 +252,13 @@ run_test "Invalid seed" "random:seed=abc" false
 run_test "Unknown parameter" "random:unknown=123" false
 run_test "Wrong prefix" "greedy:top-p=0.9" false
 
+# Test conflicting sampling parameter combinations (should fail)
+run_test "Conflicting top-p and top-k (p first)" "random:top-p=0.9:top-k=50" false
+run_test "Conflicting top-k and top-p (k first)" "random:top-k=50:top-p=0.9" false
+run_test "Conflicting with seed (p and k)" "random:top-p=0.8:top-k=40:seed=42" false
+run_test "Multiple top-p parameters" "random:top-p=0.5:top-p=0.9" false
+run_test "Multiple top-k parameters" "random:top-k=20:top-k=50" false
+
 echo -e "${BLUE}=== TEMPERATURE COMBINATION TESTS ===${NC}"
 log_file_only "=== TEMPERATURE COMBINATION TESTS ===
 

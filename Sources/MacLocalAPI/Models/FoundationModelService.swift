@@ -4,20 +4,33 @@ import Foundation
 import FoundationModels
 #endif
 
-// Debug logging utility
-private func debugLog(_ message: String) {
-    if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" {
-        print("DEBUG: \(message)")
-    }
-}
-
 // Parsed randomness parameter structure
+//
+// This structure represents the randomness configuration for Apple Foundation Models generation.
+// It supports the sampling modes available in Apple's GenerationOptions API:
+//
+// Design Constraints (per Apple Foundation Models API):
+// - Only ONE sampling method can be active at a time (greedy, random, top-p, OR top-k)
+// - top-p and top-k cannot be combined in a single request
+// - Seeds are optional and can be combined with any sampling method for reproducibility
+//
+// Supported Formats:
+// - "greedy" - Deterministic sampling (always selects most likely token)
+// - "random" - Apple's default random sampling
+// - "random:top-p=<0.0-1.0>" - Nucleus sampling with probability threshold
+// - "random:top-k=<int>" - Top-k sampling limiting to K most likely tokens
+// - "random:seed=<int>" - Random sampling with specific seed
+// - "random:top-p=0.9:seed=42" - Nucleus sampling with seed (combining is allowed)
+// - "random:top-k=50:seed=42" - Top-k sampling with seed (combining is allowed)
+//
+// Invalid Combinations:
+// - "random:top-p=0.9:top-k=50" - REJECTED: Cannot mix sampling methods
 struct RandomnessConfig {
     enum SamplingMode {
         case greedy
         case random
-        case topP(Double)
-        case topK(Int)
+        case topP(Double)  // Nucleus sampling: 0.0-1.0 probability threshold
+        case topK(Int)     // Top-k sampling: positive integer for k value
     }
 
     let mode: SamplingMode
@@ -42,22 +55,36 @@ struct RandomnessConfig {
 
         var mode: SamplingMode = .random
         var seed: UInt64? = nil
+        var hasSamplingParameter = false
 
         // Parse additional parameters
+        // NOTE: Apple Foundation Models API does not support combining top-p and top-k simultaneously
         for i in 1..<components.count {
             let param = components[i]
             if param.hasPrefix("top-p=") {
+                // Check for conflicting sampling parameters
+                if hasSamplingParameter {
+                    throw FoundationModelError.invalidRandomnessParameter("Cannot combine top-p and top-k sampling parameters. Apple Foundation Models API supports only one sampling method at a time.")
+                }
+
                 let valueStr = String(param.dropFirst(6))
                 guard let value = Double(valueStr), value >= 0.0, value <= 1.0 else {
                     throw FoundationModelError.invalidRandomnessParameter("top-p must be between 0.0 and 1.0")
                 }
                 mode = .topP(value)
+                hasSamplingParameter = true
             } else if param.hasPrefix("top-k=") {
+                // Check for conflicting sampling parameters
+                if hasSamplingParameter {
+                    throw FoundationModelError.invalidRandomnessParameter("Cannot combine top-p and top-k sampling parameters. Apple Foundation Models API supports only one sampling method at a time.")
+                }
+
                 let valueStr = String(param.dropFirst(6))
                 guard let value = Int(valueStr), value > 0 else {
                     throw FoundationModelError.invalidRandomnessParameter("top-k must be a positive integer")
                 }
                 mode = .topK(value)
+                hasSamplingParameter = true
             } else if param.hasPrefix("seed=") {
                 let valueStr = String(param.dropFirst(5))
                 guard let value = UInt64(valueStr) else {
@@ -514,7 +541,7 @@ class FoundationModelService {
 
     #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
     private func createGenerationOptions(temperature: Double?, randomness: String?) throws -> GenerationOptions {
-        debugLog("createGenerationOptions called with temperature: \(temperature?.description ?? "nil"), randomness: \(randomness ?? "nil")")
+        DebugLogger.log("createGenerationOptions called with temperature: \(temperature?.description ?? "nil"), randomness: \(randomness ?? "nil")")
 
         guard let randomnessString = randomness else {
             // Default behavior when randomness is not specified
@@ -522,7 +549,7 @@ class FoundationModelService {
         }
 
         let config = try RandomnessConfig.parse(randomnessString)
-        debugLog("Parsed randomness config: mode=\(config.mode), seed=\(config.seed?.description ?? "nil")")
+        DebugLogger.log("Parsed randomness config: mode=\(config.mode), seed=\(config.seed?.description ?? "nil")")
 
         switch config.mode {
         case .greedy:

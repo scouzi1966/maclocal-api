@@ -2,13 +2,6 @@ import ArgumentParser
 import Foundation
 import Darwin
 
-// Debug logging utility
-private func debugLog(_ message: String) {
-    if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" {
-        print("DEBUG: \(message)")
-    }
-}
-
 // Global references for signal handling
 private var globalServer: Server?
 private var shouldKeepRunning = true
@@ -259,8 +252,8 @@ extension RootCommand {
     }
     
     private func runSinglePrompt(_ prompt: String, adapter: String?) throws {
-        debugLog("Starting single prompt mode with prompt: '\(prompt)'")
-        debugLog("Temperature: \(temperature?.description ?? "nil"), Randomness: \(randomness ?? "nil")")
+        DebugLogger.log("Starting single prompt mode with prompt: '\(prompt)'")
+        DebugLogger.log("Temperature: \(temperature?.description ?? "nil"), Randomness: \(randomness ?? "nil")")
 
         let group = DispatchGroup()
         var result: Result<String, Error>?
@@ -269,20 +262,20 @@ extension RootCommand {
         Task {
             do {
                 if #available(macOS 26.0, *) {
-                    debugLog("macOS 26+ detected, initializing FoundationModelService...")
+                    DebugLogger.log("macOS 26+ detected, initializing FoundationModelService...")
                     let foundationService = try await FoundationModelService(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness)
-                    debugLog("FoundationModelService initialized successfully")
+                    DebugLogger.log("FoundationModelService initialized successfully")
                     let message = Message(role: "user", content: prompt)
-                    debugLog("Generating response...")
+                    DebugLogger.log("Generating response...")
                     let response = try await foundationService.generateResponse(for: [message], temperature: temperature, randomness: randomness)
-                    debugLog("Response generated successfully")
+                    DebugLogger.log("Response generated successfully")
                     result = .success(response)
                 } else {
-                    debugLog("macOS 26+ not available")
+                    DebugLogger.log("macOS 26+ not available")
                     result = .failure(FoundationModelError.notAvailable)
                 }
             } catch {
-                debugLog("Error occurred: \(error)")
+                DebugLogger.log("Error occurred: \(error)")
                 result = .failure(error)
             }
             group.leave()
