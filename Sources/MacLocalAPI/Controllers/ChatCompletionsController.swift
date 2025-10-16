@@ -7,13 +7,15 @@ struct ChatCompletionsController: RouteCollection {
     private let adapter: String?
     private let temperature: Double?
     private let randomness: String?
+    private let permissiveGuardrails: Bool
     
-    init(streamingEnabled: Bool = true, instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil) {
+    init(streamingEnabled: Bool = true, instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) {
         self.streamingEnabled = streamingEnabled
         self.instructions = instructions
         self.adapter = adapter
         self.temperature = temperature
         self.randomness = randomness
+        self.permissiveGuardrails = permissiveGuardrails
     }
     func boot(routes: RoutesBuilder) throws {
         let v1 = routes.grouped("v1")
@@ -40,7 +42,7 @@ struct ChatCompletionsController: RouteCollection {
             
             let foundationService: FoundationModelService
             if #available(macOS 26.0, *) {
-                foundationService = try await FoundationModelService.createWithSharedAdapter(instructions: instructions, temperature: temperature, randomness: randomness)
+                foundationService = try await FoundationModelService.createWithSharedAdapter(instructions: instructions, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
             } else {
                 throw FoundationModelError.notAvailable
             }
