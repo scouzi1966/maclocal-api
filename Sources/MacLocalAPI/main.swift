@@ -43,6 +43,9 @@ struct ServeCommand: ParsableCommand {
 
     @Option(name: [.short, .long], help: "Sampling mode: 'greedy', 'random', 'random:top-p=<0.0-1.0>', 'random:top-k=<int>', with optional ':seed=<int>'")
     var randomness: String?
+    
+    @Flag(name: [.customShort("P"), .long], help: "Permissive guardrails for unsafe or inappropriate responses")
+    var permissiveGuardrails: Bool = false
 
     func run() throws {
         // Validate temperature parameter
@@ -77,7 +80,7 @@ struct ServeCommand: ParsableCommand {
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: port, hostname: hostname, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness)
+                let server = try await Server(port: port, hostname: hostname, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -151,6 +154,9 @@ struct RootCommand: ParsableCommand {
 
     @Option(name: [.short, .long], help: "Sampling mode: 'greedy', 'random', 'random:top-p=<0.0-1.0>', 'random:top-k=<int>', with optional ':seed=<int>'")
     var randomness: String?
+    
+    @Flag(name: [.customShort("P"), .long], help: "Permissive guardrails for unsafe or inappropriate responses")
+    var permissiveGuardrails: Bool = false
 
     func run() throws {
         // Validate temperature parameter
@@ -263,7 +269,7 @@ extension RootCommand {
             do {
                 if #available(macOS 26.0, *) {
                     DebugLogger.log("macOS 26+ detected, initializing FoundationModelService...")
-                    let foundationService = try await FoundationModelService(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness)
+                    let foundationService = try await FoundationModelService(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
                     DebugLogger.log("FoundationModelService initialized successfully")
                     let message = Message(role: "user", content: prompt)
                     DebugLogger.log("Generating response...")

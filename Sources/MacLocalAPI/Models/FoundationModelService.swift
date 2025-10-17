@@ -141,7 +141,7 @@ class FoundationModelService {
     #endif
     static var sharedAdapterPath: String?
     
-    init(instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil) async throws {
+    init(instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) async throws {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS && !DISABLE_FOUNDATION_MODELS
         // Check if adapter path is provided
         if let adapterPath = adapter {
@@ -153,7 +153,8 @@ class FoundationModelService {
                 // Validate adapter file exists and has correct extension
                 guard FileManager.default.fileExists(atPath: adapterURL.path) else {
                     print("Warning: Adapter file not found at '\(adapterPath)', falling back to default model")
-                    self.session = LanguageModelSession {
+                    let model = SystemLanguageModel(guardrails: permissiveGuardrails ? .permissiveContentTransformations : .default)
+                    self.session = LanguageModelSession(model: model) {
                         instructions
                     }
                     return
@@ -161,7 +162,8 @@ class FoundationModelService {
                 
                 guard adapterURL.pathExtension.lowercased() == "fmadapter" else {
                     print("Warning: Adapter file must have .fmadapter extension, falling back to default model")
-                    self.session = LanguageModelSession {
+                    let model = SystemLanguageModel(guardrails: permissiveGuardrails ? .permissiveContentTransformations : .default)
+                    self.session = LanguageModelSession(model: model) {
                         instructions
                     }
                     return
@@ -169,7 +171,7 @@ class FoundationModelService {
                 
                 // Try to load the adapter
                 let adapter = try SystemLanguageModel.Adapter(fileURL: adapterURL)
-                let customModel = SystemLanguageModel(adapter: adapter)
+                let customModel = SystemLanguageModel(adapter: adapter, guardrails: permissiveGuardrails ? .permissiveContentTransformations : .default)
                 
                 // Store adapter for reuse if this is the first time loading
                 if Self.sharedAdapter == nil {
@@ -188,13 +190,15 @@ class FoundationModelService {
                 print("Falling back to default model")
                 
                 // Fallback to default model
-                self.session = LanguageModelSession {
+                let model = SystemLanguageModel(guardrails: permissiveGuardrails ? .permissiveContentTransformations : .default)
+                self.session = LanguageModelSession(model: model) {
                     instructions
                 }
             }
         } else {
             // No adapter specified, use default model
-            self.session = LanguageModelSession {
+            let model = SystemLanguageModel(guardrails: permissiveGuardrails ? .permissiveContentTransformations : .default)
+            self.session = LanguageModelSession(model: model) {
                 instructions
             }
         }
@@ -204,17 +208,18 @@ class FoundationModelService {
     }
     
     // Private initializer for creating instances with shared adapter
-    private init(instructions: String, useSharedAdapter: Bool, temperature: Double? = nil, randomness: String? = nil) async throws {
+    private init(instructions: String, useSharedAdapter: Bool, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) async throws {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         if useSharedAdapter, let sharedAdapter = Self.sharedAdapter {
             // Use the shared adapter
-            let customModel = SystemLanguageModel(adapter: sharedAdapter)
+            let customModel = SystemLanguageModel(adapter: sharedAdapter, guardrails: permissiveGuardrails ? .permissiveContentTransformations : .default)
             self.session = LanguageModelSession(model: customModel) {
                 instructions
             }
         } else {
             // No shared adapter available, use default model
-            self.session = LanguageModelSession {
+            let model = SystemLanguageModel(guardrails: permissiveGuardrails ? .permissiveContentTransformations : .default)
+            self.session = LanguageModelSession(model: model) {
                 instructions
             }
         }
@@ -607,8 +612,8 @@ class FoundationModelService {
     }
     
     // Initialize the shared instance once at server startup
-    static func initialize(instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil) async throws {
-        shared = try await FoundationModelService(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness)
+    static func initialize(instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) async throws {
+        shared = try await FoundationModelService(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
     }
     
     // Get the shared instance
@@ -620,8 +625,8 @@ class FoundationModelService {
     }
     
     // Create a new instance that reuses the shared adapter (for per-request use)
-    static func createWithSharedAdapter(instructions: String = "You are a helpful assistant", temperature: Double? = nil, randomness: String? = nil) async throws -> FoundationModelService {
-        return try await FoundationModelService(instructions: instructions, useSharedAdapter: true, temperature: temperature, randomness: randomness)
+    static func createWithSharedAdapter(instructions: String = "You are a helpful assistant", temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) async throws -> FoundationModelService {
+        return try await FoundationModelService(instructions: instructions, useSharedAdapter: true, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
     }
 }
 

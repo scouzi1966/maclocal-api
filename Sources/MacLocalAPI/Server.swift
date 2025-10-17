@@ -16,8 +16,9 @@ class Server {
     private let adapter: String?
     private let temperature: Double?
     private let randomness: String?
+    private let permissiveGuardrails: Bool
     
-    init(port: Int, hostname: String, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil) async throws {
+    init(port: Int, hostname: String, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -26,6 +27,7 @@ class Server {
         self.adapter = adapter
         self.temperature = temperature
         self.randomness = randomness
+        self.permissiveGuardrails = permissiveGuardrails
         
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
@@ -70,7 +72,7 @@ class Server {
             )
         }
         
-        let chatController = ChatCompletionsController(streamingEnabled: streamingEnabled, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness)
+        let chatController = ChatCompletionsController(streamingEnabled: streamingEnabled, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
         try app.register(collection: chatController)
     }
     
@@ -80,7 +82,7 @@ class Server {
         
         // Initialize the Foundation Model Service once at startup
         if #available(macOS 26.0, *) {
-            try await FoundationModelService.initialize(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness)
+            try await FoundationModelService.initialize(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
         }
         
         print("🔗 OpenAI API compatible endpoints:")
