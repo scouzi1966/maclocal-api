@@ -197,6 +197,7 @@ struct RootCommand: ParsableCommand {
         serveCommand.adapter = adapter
         serveCommand.temperature = temperature
         serveCommand.randomness = randomness
+        serveCommand.permissiveGuardrails = permissiveGuardrails
         try serveCommand.run()
     }
 }
@@ -219,41 +220,47 @@ extension RootCommand {
         guard isatty(STDIN_FILENO) == 0 else {
             return nil
         }
-        
+
         let stdin = FileHandle.standardInput
         let maxInputSize = 1024 * 1024 // 1MB limit
         var inputData = Data()
-        
+
         // Read all available data from stdin
         while true {
             let chunk = stdin.availableData
             if chunk.isEmpty {
                 break
             }
-            
+
             inputData.append(chunk)
-            
+
             // Prevent excessive memory usage
             if inputData.count > maxInputSize {
                 print("Error: Input too large (max 1MB)")
                 throw ExitCode.failure
             }
         }
-        
+
+        // If no data was read, stdin was likely /dev/null or similar, not a real pipe
+        // Return nil to proceed to server mode
+        guard !inputData.isEmpty else {
+            return nil
+        }
+
         // Convert to string and validate
         guard let content = String(data: inputData, encoding: .utf8) else {
             print("Error: Invalid UTF-8 input. Binary data not supported.")
             throw ExitCode.failure
         }
-        
+
         let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        
+
         // Check for empty input
         guard !trimmedContent.isEmpty else {
             print("Error: Empty input received from pipe")
             throw ExitCode.failure
         }
-        
+
         return trimmedContent
     }
     

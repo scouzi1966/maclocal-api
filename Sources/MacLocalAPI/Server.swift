@@ -18,7 +18,7 @@ class Server {
     private let randomness: String?
     private let permissiveGuardrails: Bool
     
-    init(port: Int, hostname: String, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) async throws {
+    init(port: Int, hostname: String, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
