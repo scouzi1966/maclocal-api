@@ -77,19 +77,75 @@ class Server {
     }
     
     func start() async throws {
-        print("🚀 afm server starting on http://\(hostname):\(port)")
-        print("📱 Using Apple Foundation Models (requires macOS 26+ with Apple Intelligence)")
-        
+        // Print ASCII art splash screen
+        let version = BuildInfo.version ?? "dev-build"
+
+        // ANSI color codes - Apple Intelligence inspired gradient
+        let cyan = "\u{001B}[36m"
+        let blue = "\u{001B}[34m"
+        let magenta = "\u{001B}[35m"
+        let brightCyan = "\u{001B}[96m"
+        let brightBlue = "\u{001B}[94m"
+        let brightMagenta = "\u{001B}[95m"
+        let white = "\u{001B}[97m"
+        let gray = "\u{001B}[90m"
+        let reset = "\u{001B}[0m"
+        let bold = "\u{001B}[1m"
+
+        // Center the version string properly (box content width is 68 chars)
+        let boxContentWidth = 68
+        let versionTextPadding = (boxContentWidth - version.count) / 2
+        let versionLeftPad = String(repeating: " ", count: versionTextPadding)
+        let versionRightPad = String(repeating: " ", count: boxContentWidth - version.count - versionTextPadding)
+
+        print("")
+        print("  \(brightCyan)╔════════════════════════════════════════════════════════════════════╗\(reset)")
+        print("  \(brightCyan)║\(reset)                                                                    \(brightCyan)║\(reset)")
+        print("  \(brightCyan)║\(reset)                    \(brightMagenta)█████╗\(reset) \(brightBlue)███████╗\(reset)\(brightCyan)███╗   ███╗\(reset)                      \(brightCyan)║\(reset)")
+        print("  \(brightCyan)║\(reset)                   \(brightMagenta)██╔══██╗\(reset)\(brightBlue)██╔════╝\(reset)\(brightCyan)████╗ ████║\(reset)                      \(brightCyan)║\(reset)")
+        print("  \(brightCyan)║\(reset)                   \(brightMagenta)███████║\(reset)\(brightBlue)█████╗\(reset)  \(brightCyan)██╔████╔██║\(reset)                      \(brightCyan)║\(reset)")
+        print("  \(brightCyan)║\(reset)                   \(brightMagenta)██╔══██║\(reset)\(brightBlue)██╔══╝\(reset)  \(brightCyan)██║╚██╔╝██║\(reset)                      \(brightCyan)║\(reset)")
+        print("  \(brightCyan)║\(reset)                   \(brightMagenta)██║  ██║\(reset)\(brightBlue)██║\(reset)     \(brightCyan)██║ ╚═╝ ██║\(reset)                      \(brightCyan)║\(reset)")
+        print("  \(brightCyan)║\(reset)                   \(gray)╚═╝  ╚═╝╚═╝     ╚═╝     ╚═╝\(reset)                      \(brightCyan)║\(reset)")
+        print("  \(brightCyan)║\(reset)                                                                    \(brightCyan)║\(reset)")
+        print("  \(brightCyan)║\(reset)           \(white)Apple Foundation Models - OpenAI Compatible API\(reset)          \(brightCyan)║\(reset)")
+        print("  \(brightCyan)║\(reset)\(versionLeftPad)\(bold)\(brightBlue)\(version)\(reset)\(versionRightPad)\(brightCyan)║\(reset)")
+        print("  \(brightCyan)║\(reset)                                                                    \(brightCyan)║\(reset)")
+        print("  \(brightCyan)╚════════════════════════════════════════════════════════════════════╝\(reset)")
+        print("")
+
         // Initialize the Foundation Model Service once at startup
         if #available(macOS 26.0, *) {
             try await FoundationModelService.initialize(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
         }
-        
-        print("🔗 OpenAI API compatible endpoints:")
-        print("   POST http://\(hostname):\(port)/v1/chat/completions")
-        print("   GET  http://\(hostname):\(port)/v1/models")
-        print("   GET  http://\(hostname):\(port)/health")
-        print("Press Ctrl+C to stop the server")
+
+        print("  🚀 Server: http://\(hostname):\(port)")
+        print("")
+        print("  📡 Endpoints:")
+        print("     • POST   /v1/chat/completions    - Chat completion (streaming supported)")
+        print("     • GET    /v1/models              - List available models")
+        print("     • GET    /health                 - Health check")
+        print("")
+        print("  ⚙️  Configuration:")
+        print("     • Streaming:          \(streamingEnabled ? "✓ enabled" : "✗ disabled")")
+        if let temp = temperature {
+            print("     • Temperature:        \(String(format: "%.1f", temp))")
+        }
+        if let rand = randomness {
+            print("     • Randomness:         \(rand)")
+        }
+        if permissiveGuardrails {
+            print("     • Guardrails:         ⚠️  permissive mode")
+        }
+        if let adapterPath = adapter {
+            print("     • Adapter:            \(adapterPath)")
+        }
+        print("")
+        print("  ℹ️  Requires macOS 26+ with Apple Intelligence")
+        print("  💡 Press Ctrl+C to stop the server")
+        print("")
+        print("  ─────────────────────────────────────────────────────────────────────────")
+        print("")
         
         // Start the server
         try await app.server.start(address: .hostname(hostname, port: port))
