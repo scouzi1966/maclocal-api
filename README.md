@@ -1,4 +1,4 @@
-## Latest app release --> https://github.com/scouzi1966/maclocal-api/releases/tag/v0.7.0
+## Latest app release --> https://github.com/scouzi1966/maclocal-api/releases/tag/v0.8.0
 
 # MacLocalAPI is the repo for the afm command on macOS 26 Tahoe. The afm command (cli) allows one to access the on-device Apple LLM Foundation model from the command line in a single prompt or in API mode. It allows integration with other OS command line tools using standard Unix pipes.
 
