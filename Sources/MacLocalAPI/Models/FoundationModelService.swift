@@ -228,18 +228,18 @@ class FoundationModelService {
         #endif
     }
     
-    func generateResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil) async throws -> String {
+    func generateResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil, stop: [String]? = nil) async throws -> String {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
         }
-        
+
         let prompt = formatMessagesAsPrompt(messages)
-        
+
         do {
             let options = try createGenerationOptions(temperature: temperature, randomness: randomness)
             let response = try await session.respond(to: prompt, options: options)
-            return response.content
+            return applyStopSequences(to: response.content, stopSequences: stop)
         } catch {
             throw FoundationModelError.responseGenerationFailed(error.localizedDescription)
         }
@@ -248,21 +248,21 @@ class FoundationModelService {
         #endif
     }
     
-    func generateStreamingResponseWithTiming(for messages: [Message], temperature: Double? = nil, randomness: String? = nil) async throws -> (content: String, promptTime: Double) {
+    func generateStreamingResponseWithTiming(for messages: [Message], temperature: Double? = nil, randomness: String? = nil, stop: [String]? = nil) async throws -> (content: String, promptTime: Double) {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
         }
-        
+
         let prompt = formatMessagesAsPrompt(messages)
-        
+
         // Measure actual Foundation Model processing time
         let promptStartTime = Date()
         let options = try createGenerationOptions(temperature: temperature, randomness: randomness)
         let response = try await session.respond(to: prompt, options: options)
         let promptTime = Date().timeIntervalSince(promptStartTime)
-        
-        let content = response.content
+
+        let content = applyStopSequences(to: response.content, stopSequences: stop)
         
         // Handle empty or nil content
         guard !content.isEmpty else {
@@ -602,7 +602,33 @@ class FoundationModelService {
         }
     }
     #endif
-    
+
+    private func applyStopSequences(to content: String, stopSequences: [String]?) -> String {
+        guard let stopSequences = stopSequences, !stopSequences.isEmpty else {
+            return content
+        }
+
+        var shortestStopIndex: String.Index? = nil
+        var foundStop = false
+
+        // Find the earliest occurrence of any stop sequence
+        for stopSeq in stopSequences {
+            if let range = content.range(of: stopSeq) {
+                foundStop = true
+                if shortestStopIndex == nil || range.lowerBound < shortestStopIndex! {
+                    shortestStopIndex = range.lowerBound
+                }
+            }
+        }
+
+        // If a stop sequence was found, truncate the content
+        if foundStop, let stopIndex = shortestStopIndex {
+            return String(content[..<stopIndex])
+        }
+
+        return content
+    }
+
     static func isAvailable() -> Bool {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         return true

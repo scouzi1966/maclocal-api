@@ -17,8 +17,9 @@ class Server {
     private let temperature: Double?
     private let randomness: String?
     private let permissiveGuardrails: Bool
-    
-    init(port: Int, hostname: String, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false) async throws {
+    private let stop: String?
+
+    init(port: Int, hostname: String, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -28,7 +29,8 @@ class Server {
         self.temperature = temperature
         self.randomness = randomness
         self.permissiveGuardrails = permissiveGuardrails
-        
+        self.stop = stop
+
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
         try LoggingSystem.bootstrap(from: &env)
@@ -72,7 +74,7 @@ class Server {
             )
         }
         
-        let chatController = ChatCompletionsController(streamingEnabled: streamingEnabled, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
+        let chatController = ChatCompletionsController(streamingEnabled: streamingEnabled, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop)
         try app.register(collection: chatController)
     }
     
