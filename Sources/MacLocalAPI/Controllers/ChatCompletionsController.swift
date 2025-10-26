@@ -8,14 +8,16 @@ struct ChatCompletionsController: RouteCollection {
     private let temperature: Double?
     private let randomness: String?
     private let permissiveGuardrails: Bool
-    
-    init(streamingEnabled: Bool = true, instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) {
+    private let stop: String?
+
+    init(streamingEnabled: Bool = true, instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool, stop: String? = nil) {
         self.streamingEnabled = streamingEnabled
         self.instructions = instructions
         self.adapter = adapter
         self.temperature = temperature
         self.randomness = randomness
         self.permissiveGuardrails = permissiveGuardrails
+        self.stop = stop
     }
     func boot(routes: RoutesBuilder) throws {
         let v1 = routes.grouped("v1")
@@ -55,8 +57,9 @@ struct ChatCompletionsController: RouteCollection {
             // Use temperature from API request if provided, otherwise use CLI parameter
             let effectiveTemperature = chatRequest.temperature ?? temperature
             let effectiveRandomness = randomness
+            let effectiveStop = mergeStopSequences(cliStop: stop, apiStop: chatRequest.stop)
 
-            let content = try await foundationService.generateResponse(for: chatRequest.messages, temperature: effectiveTemperature, randomness: effectiveRandomness)
+            let content = try await foundationService.generateResponse(for: chatRequest.messages, temperature: effectiveTemperature, randomness: effectiveRandomness, stop: effectiveStop)
             
             let promptTokens = estimateTokens(for: chatRequest.messages)
             let completionTokens = estimateTokens(for: content)
@@ -123,7 +126,31 @@ struct ChatCompletionsController: RouteCollection {
         
         return Int(max(charBasedTokens, wordBasedTokens))
     }
-    
+
+    private func mergeStopSequences(cliStop: String?, apiStop: [String]?) -> [String]? {
+        var mergedStop: [String] = []
+
+        // Parse CLI stop parameter (comma-separated)
+        if let cliStopString = cliStop {
+            let cliStopArray = cliStopString.split(separator: ",").map { String($0.trimmingCharacters(in: .whitespaces)) }
+            mergedStop.append(contentsOf: cliStopArray)
+        }
+
+        // Add API stop sequences
+        if let apiStopArray = apiStop {
+            mergedStop.append(contentsOf: apiStopArray)
+        }
+
+        // Return nil if empty, otherwise return unique sequences
+        if mergedStop.isEmpty {
+            return nil
+        }
+
+        // Remove duplicates while preserving order
+        var seen = Set<String>()
+        return mergedStop.filter { seen.insert($0).inserted }
+    }
+
     private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, foundationService: FoundationModelService) async throws -> Response {
         let httpResponse = Response(status: .ok)
         httpResponse.headers.add(name: .contentType, value: "text/event-stream")
@@ -142,9 +169,10 @@ struct ChatCompletionsController: RouteCollection {
                 // Use temperature from API request if provided, otherwise use CLI parameter
                 let effectiveTemperature = chatRequest.temperature ?? self.temperature
                 let effectiveRandomness = self.randomness
+                let effectiveStop = self.mergeStopSequences(cliStop: self.stop, apiStop: chatRequest.stop)
 
                 // Get response with proper timing measurement
-                let (content, promptTime) = try await foundationService.generateStreamingResponseWithTiming(for: chatRequest.messages, temperature: effectiveTemperature, randomness: effectiveRandomness)
+                let (content, promptTime) = try await foundationService.generateStreamingResponseWithTiming(for: chatRequest.messages, temperature: effectiveTemperature, randomness: effectiveRandomness, stop: effectiveStop)
                 
                 // Start streaming timing
                 let completionStartTime = Date()

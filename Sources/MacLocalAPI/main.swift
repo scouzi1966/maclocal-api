@@ -43,9 +43,12 @@ struct ServeCommand: ParsableCommand {
 
     @Option(name: [.short, .long], help: "Sampling mode: 'greedy', 'random', 'random:top-p=<0.0-1.0>', 'random:top-k=<int>', with optional ':seed=<int>'")
     var randomness: String?
-    
+
     @Flag(name: [.customShort("P"), .long], help: "Permissive guardrails for unsafe or inappropriate responses")
     var permissiveGuardrails: Bool = false
+
+    @Option(name: .long, help: "Stop sequences - comma-separated strings where generation should stop (e.g., '###,END')")
+    var stop: String?
 
     func run() throws {
         // Validate temperature parameter
@@ -80,7 +83,7 @@ struct ServeCommand: ParsableCommand {
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: port, hostname: hostname, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
+                let server = try await Server(port: port, hostname: hostname, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -154,9 +157,12 @@ struct RootCommand: ParsableCommand {
 
     @Option(name: [.short, .long], help: "Sampling mode: 'greedy', 'random', 'random:top-p=<0.0-1.0>', 'random:top-k=<int>', with optional ':seed=<int>'")
     var randomness: String?
-    
+
     @Flag(name: [.customShort("P"), .long], help: "Permissive guardrails for unsafe or inappropriate responses")
     var permissiveGuardrails: Bool = false
+
+    @Option(name: .long, help: "Stop sequences - comma-separated strings where generation should stop (e.g., '###,END')")
+    var stop: String?
 
     func run() throws {
         // Validate temperature parameter
@@ -198,6 +204,7 @@ struct RootCommand: ParsableCommand {
         serveCommand.temperature = temperature
         serveCommand.randomness = randomness
         serveCommand.permissiveGuardrails = permissiveGuardrails
+        serveCommand.stop = stop
         try serveCommand.run()
     }
 }
@@ -266,7 +273,7 @@ extension RootCommand {
     
     private func runSinglePrompt(_ prompt: String, adapter: String?) throws {
         DebugLogger.log("Starting single prompt mode with prompt: '\(prompt)'")
-        DebugLogger.log("Temperature: \(temperature?.description ?? "nil"), Randomness: \(randomness ?? "nil")")
+        DebugLogger.log("Temperature: \(temperature?.description ?? "nil"), Randomness: \(randomness ?? "nil"), Stop: \(stop ?? "nil")")
 
         let group = DispatchGroup()
         var result: Result<String, Error>?
@@ -280,7 +287,8 @@ extension RootCommand {
                     DebugLogger.log("FoundationModelService initialized successfully")
                     let message = Message(role: "user", content: prompt)
                     DebugLogger.log("Generating response...")
-                    let response = try await foundationService.generateResponse(for: [message], temperature: temperature, randomness: randomness)
+                    let stopSequences = stop?.split(separator: ",").map { String($0.trimmingCharacters(in: .whitespaces)) }
+                    let response = try await foundationService.generateResponse(for: [message], temperature: temperature, randomness: randomness, stop: stopSequences)
                     DebugLogger.log("Response generated successfully")
                     result = .success(response)
                 } else {
