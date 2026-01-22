@@ -62,7 +62,7 @@ struct ChatCompletionsController: RouteCollection {
             let completionTokens = estimateTokens(for: content)
             
             let response = ChatCompletionResponse(
-                model: chatRequest.model,
+                model: chatRequest.model ?? "foundation",
                 content: content,
                 promptTokens: promptTokens,
                 completionTokens: completionTokens
@@ -155,7 +155,7 @@ struct ChatCompletionsController: RouteCollection {
                 try await streamContentSmoothly(
                     content: content,
                     streamId: streamId,
-                    model: chatRequest.model,
+                    model: chatRequest.model ?? "foundation",
                     encoder: encoder,
                     writer: writer,
                     isFirst: &isFirst,
@@ -176,7 +176,7 @@ struct ChatCompletionsController: RouteCollection {
                 // Send final chunk with metrics
                 let finalChunk = ChatCompletionStreamResponse(
                     id: streamId,
-                    model: chatRequest.model,
+                    model: chatRequest.model ?? "foundation",
                     content: "",
                     isFinished: true,
                     usage: usage

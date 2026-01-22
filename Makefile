@@ -1,7 +1,7 @@
 # AFM - Apple Foundation Models API
 # Makefile for building and distributing the portable CLI
 
-.PHONY: build clean install uninstall portable dist test help
+.PHONY: build clean install uninstall portable dist test help submodules webui build-with-webui
 
 # Default target
 all: build
@@ -21,6 +21,28 @@ build:
 # Build with enhanced portability optimizations
 portable:
 	@./build-portable.sh
+
+# Initialize/update git submodules
+submodules:
+	@echo "📦 Initializing git submodules..."
+	@git submodule update --init --recursive
+	@echo "✅ Submodules initialized"
+
+# Build the webui from llama.cpp
+webui: submodules
+	@echo "🌐 Building webui..."
+	@if [ ! -d "vendor/llama.cpp/tools/server/webui" ]; then \
+		echo "❌ Error: webui source not found. Run 'make submodules' first."; \
+		exit 1; \
+	fi
+	@cd vendor/llama.cpp/tools/server/webui && npm install && npm run build
+	@mkdir -p Resources/webui
+	@cp vendor/llama.cpp/tools/server/public/index.html.gz Resources/webui/
+	@echo "✅ WebUI built: Resources/webui/index.html.gz"
+
+# Build with webui included
+build-with-webui: webui build
+	@echo "✅ Build with webui complete"
 
 # Clean build artifacts
 clean:
@@ -73,19 +95,23 @@ help:
 	@echo "=================================="
 	@echo ""
 	@echo "Available targets:"
-	@echo "  build     - Build release binary (default, portable)"
-	@echo "  portable  - Build with enhanced portability"
-	@echo "  clean     - Clean build artifacts"
-	@echo "  install   - Install to /usr/local/bin (requires sudo)"
-	@echo "  uninstall - Remove from /usr/local/bin"
-	@echo "  dist      - Create distribution package"
-	@echo "  test      - Test the binary and portability"
-	@echo "  debug     - Build debug version"
-	@echo "  run       - Build and run debug server"
-	@echo "  help      - Show this help"
+	@echo "  build           - Build release binary (default, portable)"
+	@echo "  portable        - Build with enhanced portability"
+	@echo "  clean           - Clean build artifacts"
+	@echo "  install         - Install to /usr/local/bin (requires sudo)"
+	@echo "  uninstall       - Remove from /usr/local/bin"
+	@echo "  dist            - Create distribution package"
+	@echo "  test            - Test the binary and portability"
+	@echo "  debug           - Build debug version"
+	@echo "  run             - Build and run debug server"
+	@echo "  submodules      - Initialize git submodules"
+	@echo "  webui           - Build webui from llama.cpp (requires Node.js)"
+	@echo "  build-with-webui - Build with webui included"
+	@echo "  help            - Show this help"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make build              # Build portable executable"
+	@echo "  make build-with-webui   # Build with webui support"
 	@echo "  make install            # Build and install to system"
 	@echo "  make dist               # Create distribution package"
 	@echo "  make test               # Test binary works"
