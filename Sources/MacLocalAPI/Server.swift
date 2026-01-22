@@ -304,6 +304,12 @@ class Server {
             "\(executableDir)/../../Resources/webui/index.html.gz",
             // Three levels up for deeper nesting
             "\(executableDir)/../../../Resources/webui/index.html.gz",
+            // Homebrew: share directory relative to bin (Apple Silicon)
+            "\(executableDir)/../share/afm/webui/index.html.gz",
+            // Homebrew: share directory relative to bin (Intel)
+            "/usr/local/share/afm/webui/index.html.gz",
+            // Homebrew: Apple Silicon path
+            "/opt/homebrew/share/afm/webui/index.html.gz",
             // Development: Resources folder in current working directory
             "\(cwd)/Resources/webui/index.html.gz",
             // Development: llama.cpp submodule public folder

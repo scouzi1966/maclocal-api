@@ -42,6 +42,17 @@ mkdir -p "$DIST_DIR"
 echo -e "${BLUE}📋 Copying binary...${NC}"
 cp .build/release/afm "$DIST_DIR/"
 
+# Copy webui resources if available
+if [[ -f "Resources/webui/index.html.gz" ]]; then
+    echo -e "${BLUE}🌐 Copying webui resources...${NC}"
+    mkdir -p "$DIST_DIR/share/afm/webui"
+    cp Resources/webui/index.html.gz "$DIST_DIR/share/afm/webui/"
+    WEBUI_INCLUDED=true
+else
+    echo -e "${YELLOW}ℹ️  WebUI not found (run 'make webui' to build it)${NC}"
+    WEBUI_INCLUDED=false
+fi
+
 # Create portable install script
 echo -e "${BLUE}📝 Creating portable install script...${NC}"
 cat > "$DIST_DIR/install.sh" << 'EOF'
@@ -54,6 +65,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="/usr/local/bin"
+SHARE_DIR="/usr/local/share/afm"
 
 echo "🚀 Installing AFM from portable package..."
 echo ""
@@ -80,12 +92,22 @@ else
     sudo chmod +x "$INSTALL_DIR/afm"
 fi
 
+# Install webui if included
+if [[ -d "$SCRIPT_DIR/share/afm/webui" ]]; then
+    echo "🌐 Installing webui resources..."
+    sudo mkdir -p "$SHARE_DIR/webui"
+    sudo cp -r "$SCRIPT_DIR/share/afm/webui/"* "$SHARE_DIR/webui/"
+    echo "   WebUI installed to $SHARE_DIR/webui/"
+fi
+
+echo ""
 echo "✅ Installation complete!"
 echo ""
 echo "Usage: afm --help"
 echo "Start server: afm --port 9999"
+echo "Start with webui: afm -w"
 echo ""
-echo "Note: Requires macOS 15.1+ and Apple Intelligence enabled"
+echo "Note: Requires macOS 26+ and Apple Intelligence enabled"
 EOF
 
 chmod +x "$DIST_DIR/install.sh"
@@ -178,6 +200,9 @@ echo -e "${BLUE}📋 Package contents:${NC}"
 echo "  • afm binary ($(du -h .build/release/afm | cut -f1))"
 echo "  • install.sh (portable installer)"
 echo "  • README.md (documentation)"
+if [[ "$WEBUI_INCLUDED" == "true" ]]; then
+    echo "  • share/afm/webui/ (llama.cpp webui)"
+fi
 echo ""
 echo -e "${BLUE}🚀 Usage:${NC}"
 echo "  1. Extract: tar -xzf dist/${DIST_NAME}.tar.gz"
