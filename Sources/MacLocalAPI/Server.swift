@@ -1,5 +1,6 @@
 import Vapor
 import Foundation
+import Compression
 
 // Storage key for the continuation
 struct ContinuationKey: StorageKey {
@@ -17,8 +18,10 @@ class Server {
     private let temperature: Double?
     private let randomness: String?
     private let permissiveGuardrails: Bool
-    
-    init(port: Int, hostname: String, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false) async throws {
+    private let webuiEnabled: Bool
+    private let webuiPath: String?
+
+    init(port: Int, hostname: String, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, webuiEnabled: Bool = false) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -28,6 +31,8 @@ class Server {
         self.temperature = temperature
         self.randomness = randomness
         self.permissiveGuardrails = permissiveGuardrails
+        self.webuiEnabled = webuiEnabled
+        self.webuiPath = Server.findWebuiPath()
         
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
@@ -57,7 +62,7 @@ class Server {
                 version: "1.0.0"
             )
         }
-        
+
         app.get("v1", "models") { req in
             return ModelsResponse(
                 object: "list",
@@ -66,14 +71,114 @@ class Server {
                         id: "foundation",
                         object: "model",
                         created: Int(Date().timeIntervalSince1970),
-                        ownedBy: "apple"
+                        owned_by: "apple"
                     )
                 ]
             )
         }
-        
+
         let chatController = ChatCompletionsController(streamingEnabled: streamingEnabled, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
         try app.register(collection: chatController)
+
+        // Props endpoint for llama.cpp webui compatibility
+        app.get("props") { [self] req async -> PropsResponse in
+            return PropsResponse(
+                default_generation_settings: DefaultGenerationSettings(
+                    n_ctx: 4096,
+                    params: GenerationParams(
+                        n_predict: -1,
+                        temperature: self.temperature ?? 0.8,
+                        top_k: 40,
+                        top_p: 0.95,
+                        min_p: 0.05,
+                        stream: self.streamingEnabled,
+                        max_tokens: 2048
+                    )
+                ),
+                total_slots: 1,
+                model_path: "Apple Foundation Model",
+                role: "MODEL",
+                modalities: Modalities(vision: false, audio: false),
+                chat_template: "",
+                bos_token: "",
+                eos_token: "",
+                build_info: "AFM \(BuildInfo.version ?? "dev")"
+            )
+        }
+
+        // WebUI routes (if enabled and webui files exist)
+        if webuiEnabled, let webuiFilePath = webuiPath {
+            // Serve index.html with injected CSS for root path
+            app.get { req -> Response in
+                return try await self.serveWebuiWithCustomCSS(webuiFilePath: webuiFilePath, req: req)
+            }
+
+            // SPA fallback for non-API routes
+            app.get("**") { req -> Response in
+                let path = req.url.path
+
+                // Don't intercept API routes
+                if path.hasPrefix("/v1/") || path == "/health" || path == "/props" {
+                    throw Abort(.notFound)
+                }
+
+                return try await self.serveWebuiWithCustomCSS(webuiFilePath: webuiFilePath, req: req)
+            }
+        }
+    }
+
+    /// Custom CSS/JS to inject into webui (branding and hiding unsupported features)
+    private static let customCSS = """
+    <style>
+    /* Hide attachment/file picker button - AFM doesn't support file uploads */
+    button[aria-label*="attachment"], button[aria-label*="Attachment"],
+    .attachment-button, [class*="attachment"], [class*="Attachment"],
+    button:has(svg[class*="paperclip"]), button:has(svg[class*="Paperclip"]) {
+        display: none !important;
+    }
+    </style>
+    <script>
+    (function(){
+        function rebrand(){
+            document.querySelectorAll('h1,h2,h3,p,span').forEach(function(el){
+                if(el.textContent==='llama.cpp')el.textContent='Apple Foundation Models';
+                if(el.textContent.includes('upload files'))el.textContent='Type a message to get started';
+            });
+            document.title=document.title.replace('llama.cpp','AFM');
+        }
+        if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',rebrand);}
+        else{rebrand();}
+        setInterval(rebrand,1000);
+    })();
+    </script>
+    """
+
+    /// Serve the webui with custom CSS injected
+    private func serveWebuiWithCustomCSS(webuiFilePath: String, req: Request) async throws -> Response {
+        let fileURL = URL(fileURLWithPath: webuiFilePath)
+        let compressedData = try Data(contentsOf: fileURL)
+
+        // Decompress gzip data
+        guard let decompressedData = try? Self.gunzip(compressedData),
+              var htmlString = String(data: decompressedData, encoding: .utf8) else {
+            // Fallback: serve compressed if decompression fails
+            var headers = HTTPHeaders()
+            headers.add(name: .contentType, value: "text/html; charset=utf-8")
+            headers.add(name: .contentEncoding, value: "gzip")
+            headers.add(name: "Cache-Control", value: "no-cache")
+            return Response(status: .ok, headers: headers, body: .init(data: compressedData))
+        }
+
+        // Inject custom CSS before </head>
+        if let headEndRange = htmlString.range(of: "</head>") {
+            htmlString.insert(contentsOf: Self.customCSS, at: headEndRange.lowerBound)
+        }
+
+        var headers = HTTPHeaders()
+        headers.add(name: .contentType, value: "text/html; charset=utf-8")
+        headers.add(name: "Cache-Control", value: "no-cache")
+
+        return Response(status: .ok, headers: headers, body: .init(string: htmlString))
     }
     
     func start() async throws {
@@ -128,6 +233,13 @@ class Server {
         print("")
         print("  ⚙️  Configuration:")
         print("     • Streaming:          \(streamingEnabled ? "✓ enabled" : "✗ disabled")")
+        if webuiEnabled {
+            if webuiPath != nil {
+                print("     • WebUI:              ✓ enabled")
+            } else {
+                print("     • WebUI:              ⚠️  enabled but not found (run 'make webui')")
+            }
+        }
         if let temp = temperature {
             print("     • Temperature:        \(String(format: "%.1f", temp))")
         }
@@ -149,7 +261,15 @@ class Server {
         
         // Start the server
         try await app.server.start(address: .hostname(hostname, port: port))
-        
+
+        // Open browser if webui is enabled
+        if webuiEnabled && webuiPath != nil {
+            let url = "http://\(hostname):\(port)"
+            print("  🌐 Opening WebUI in browser: \(url)")
+            print("")
+            openBrowser(url: url)
+        }
+
         // Wait indefinitely (until shutdown is called)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             // Store continuation for later use in shutdown
@@ -159,12 +279,12 @@ class Server {
     
     func shutdown() {
         print("🛑 Shutting down server...")
-        
+
         // Shutdown the server first
         Task {
             await app.server.shutdown()
             print("Server shutdown complete")
-            
+
             // Resume the continuation to exit the wait
             if let continuation = app.storage[ContinuationKey.self] {
                 continuation.resume()
@@ -172,6 +292,133 @@ class Server {
             }
         }
     }
+
+    /// Find the webui index.html.gz file
+    private static func findWebuiPath() -> String? {
+        let fileManager = FileManager.default
+        let cwd = fileManager.currentDirectoryPath
+
+        // Get the executable's absolute directory
+        let executablePath = CommandLine.arguments[0]
+        let executableURL: URL
+        if executablePath.hasPrefix("/") {
+            executableURL = URL(fileURLWithPath: executablePath)
+        } else {
+            executableURL = URL(fileURLWithPath: cwd).appendingPathComponent(executablePath)
+        }
+        let executableDir = executableURL.deletingLastPathComponent().standardized.path
+
+        // Paths to check (in order of priority)
+        let pathsToCheck = [
+            // Bundled with executable (portable distribution)
+            "\(executableDir)/Resources/webui/index.html.gz",
+            // One level up from executable
+            "\(executableDir)/../Resources/webui/index.html.gz",
+            // Two levels up (e.g., .build/release -> .build -> project root)
+            "\(executableDir)/../../Resources/webui/index.html.gz",
+            // Three levels up for deeper nesting
+            "\(executableDir)/../../../Resources/webui/index.html.gz",
+            // Homebrew: share directory relative to bin (Apple Silicon)
+            "\(executableDir)/../share/afm/webui/index.html.gz",
+            // Homebrew: share directory relative to bin (Intel)
+            "/usr/local/share/afm/webui/index.html.gz",
+            // Homebrew: Apple Silicon path
+            "/opt/homebrew/share/afm/webui/index.html.gz",
+            // Development: Resources folder in current working directory
+            "\(cwd)/Resources/webui/index.html.gz",
+            // Development: llama.cpp submodule public folder
+            "\(cwd)/vendor/llama.cpp/tools/server/public/index.html.gz"
+        ]
+
+        for path in pathsToCheck {
+            let standardizedPath = URL(fileURLWithPath: path).standardized.path
+            if fileManager.fileExists(atPath: standardizedPath) {
+                return standardizedPath
+            }
+        }
+
+        return nil
+    }
+
+    /// Open URL in default browser
+    private func openBrowser(url: String) {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        task.arguments = [url]
+        try? task.run()
+    }
+
+    /// Decompress gzip data
+    private static func gunzip(_ data: Data) throws -> Data {
+        // Gzip has a header we need to skip (minimum 10 bytes)
+        guard data.count > 10 else { throw GzipError.invalidData }
+
+        // Check gzip magic number
+        guard data[0] == 0x1f && data[1] == 0x8b else { throw GzipError.invalidData }
+
+        // Skip gzip header (10 bytes minimum, more if there are extra fields)
+        var headerSize = 10
+        let flags = data[3]
+
+        // Check for extra field (FEXTRA)
+        if flags & 0x04 != 0 {
+            guard data.count > headerSize + 2 else { throw GzipError.invalidData }
+            let extraLen = Int(data[headerSize]) | (Int(data[headerSize + 1]) << 8)
+            headerSize += 2 + extraLen
+        }
+
+        // Check for original filename (FNAME)
+        if flags & 0x08 != 0 {
+            while headerSize < data.count && data[headerSize] != 0 {
+                headerSize += 1
+            }
+            headerSize += 1 // skip null terminator
+        }
+
+        // Check for comment (FCOMMENT)
+        if flags & 0x10 != 0 {
+            while headerSize < data.count && data[headerSize] != 0 {
+                headerSize += 1
+            }
+            headerSize += 1 // skip null terminator
+        }
+
+        // Check for header CRC (FHCRC)
+        if flags & 0x02 != 0 {
+            headerSize += 2
+        }
+
+        guard headerSize < data.count - 8 else { throw GzipError.invalidData }
+
+        // Extract compressed data (excluding 8-byte trailer: CRC32 + original size)
+        let compressedData = data.subdata(in: headerSize..<(data.count - 8))
+
+        // Decompress using zlib raw deflate
+        let destinationBufferSize = 10 * 1024 * 1024 // 10MB max
+        let destinationBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: destinationBufferSize)
+        defer { destinationBuffer.deallocate() }
+
+        let decompressedSize = compressedData.withUnsafeBytes { sourcePtr -> Int in
+            guard let baseAddress = sourcePtr.baseAddress else { return 0 }
+            return compression_decode_buffer(
+                destinationBuffer,
+                destinationBufferSize,
+                baseAddress.assumingMemoryBound(to: UInt8.self),
+                compressedData.count,
+                nil,
+                COMPRESSION_ZLIB
+            )
+        }
+
+        guard decompressedSize > 0 else { throw GzipError.decompressionFailed }
+
+        return Data(bytes: destinationBuffer, count: decompressedSize)
+    }
+}
+
+enum GzipError: Error {
+    case invalidData
+    case decompressionFailed
 }
 
 struct ModelsResponse: Content {
@@ -183,11 +430,45 @@ struct ModelInfo: Content {
     let id: String
     let object: String
     let created: Int
-    let ownedBy: String
+    let owned_by: String
 }
 
 struct HealthResponse: Content {
     let status: String
     let timestamp: Double
     let version: String
+}
+
+// MARK: - Props Response (llama.cpp webui compatibility)
+
+struct PropsResponse: Content {
+    let default_generation_settings: DefaultGenerationSettings
+    let total_slots: Int
+    let model_path: String
+    let role: String
+    let modalities: Modalities
+    let chat_template: String
+    let bos_token: String
+    let eos_token: String
+    let build_info: String
+}
+
+struct DefaultGenerationSettings: Content {
+    let n_ctx: Int
+    let params: GenerationParams
+}
+
+struct GenerationParams: Content {
+    let n_predict: Int
+    let temperature: Double
+    let top_k: Int
+    let top_p: Double
+    let min_p: Double
+    let stream: Bool
+    let max_tokens: Int
+}
+
+struct Modalities: Content {
+    let vision: Bool
+    let audio: Bool
 }

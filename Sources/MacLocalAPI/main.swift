@@ -43,9 +43,12 @@ struct ServeCommand: ParsableCommand {
 
     @Option(name: [.short, .long], help: "Sampling mode: 'greedy', 'random', 'random:top-p=<0.0-1.0>', 'random:top-k=<int>', with optional ':seed=<int>'")
     var randomness: String?
-    
+
     @Flag(name: [.customShort("P"), .long], help: "Permissive guardrails for unsafe or inappropriate responses")
     var permissiveGuardrails: Bool = false
+
+    @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
+    var webui: Bool = false
 
     func run() throws {
         // Validate temperature parameter
@@ -80,7 +83,7 @@ struct ServeCommand: ParsableCommand {
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: port, hostname: hostname, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
+                let server = try await Server(port: port, hostname: hostname, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, webuiEnabled: webui)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -154,9 +157,12 @@ struct RootCommand: ParsableCommand {
 
     @Option(name: [.short, .long], help: "Sampling mode: 'greedy', 'random', 'random:top-p=<0.0-1.0>', 'random:top-k=<int>', with optional ':seed=<int>'")
     var randomness: String?
-    
+
     @Flag(name: [.customShort("P"), .long], help: "Permissive guardrails for unsafe or inappropriate responses")
     var permissiveGuardrails: Bool = false
+
+    @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
+    var webui: Bool = false
 
     func run() throws {
         // Validate temperature parameter
@@ -198,6 +204,7 @@ struct RootCommand: ParsableCommand {
         serveCommand.temperature = temperature
         serveCommand.randomness = randomness
         serveCommand.permissiveGuardrails = permissiveGuardrails
+        serveCommand.webui = webui
         try serveCommand.run()
     }
 }

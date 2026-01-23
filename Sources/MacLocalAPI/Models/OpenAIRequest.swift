@@ -2,7 +2,7 @@ import Vapor
 import Foundation
 
 struct ChatCompletionRequest: Content {
-    let model: String
+    let model: String?
     let messages: [Message]
     let temperature: Double?
     let maxTokens: Int?

@@ -63,3 +63,8 @@ test.pdf
 # LoRA adapter files for testing
 *.fmadapter
 test_lora.fmadapter
+
+# WebUI build artifacts
+Resources/webui/
+vendor/llama.cpp/tools/server/webui/node_modules/
+vendor/llama.cpp/tools/server/public/

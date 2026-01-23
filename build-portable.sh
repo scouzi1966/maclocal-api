@@ -192,6 +192,19 @@ chmod +x ".build/afm-portable"
 echo -e "${GREEN}✅ Convenience script created: .build/afm-portable${NC}"
 echo ""
 
+# Copy webui resources if they exist
+if [ -d "Resources/webui" ]; then
+    echo -e "${BLUE}🌐 Copying webui resources...${NC}"
+    mkdir -p ".build/release/Resources/webui"
+    cp -r Resources/webui/* ".build/release/Resources/webui/"
+    echo -e "${GREEN}✅ WebUI resources copied to .build/release/Resources/webui/${NC}"
+    WEBUI_INCLUDED=true
+else
+    echo -e "${YELLOW}ℹ️  WebUI not found. Run 'make webui' to build it.${NC}"
+    WEBUI_INCLUDED=false
+fi
+echo ""
+
 # Final summary
 echo -e "${GREEN}🎉 Portable AFM build complete!${NC}"
 echo ""
@@ -199,10 +212,16 @@ echo -e "${BLUE}📦 Usage options:${NC}"
 echo "  1. Direct: ./.build/release/afm --port 9999"
 echo "  2. Wrapper: ./.build/afm-portable --port 9999"
 echo "  3. Copy anywhere: cp ./.build/release/afm /usr/local/bin/"
+if [ "$WEBUI_INCLUDED" = true ]; then
+    echo "  4. With WebUI: ./.build/release/afm -w"
+fi
 echo ""
 echo -e "${BLUE}📋 Distribution:${NC}"
 echo "  • The binary at ./.build/release/afm is now portable"
 echo "  • Copy it anywhere on macOS and it should work"
 echo "  • Requires macOS with Swift runtime (10.14.4+)"
+if [ "$WEBUI_INCLUDED" = true ]; then
+    echo "  • WebUI included in Resources/webui/"
+fi
 echo ""
 echo -e "${YELLOW}💡 Tip: Run './create-distribution.sh' to create a distribution package${NC}"
