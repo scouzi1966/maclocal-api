@@ -3,6 +3,14 @@
 > [!TIP]
 > ## What's new in v0.9.0 --> afm -w or afm --webui starts the API server AND a chat web interface!. It integrates llama.cpp webui.
 
+> [!TIP]
+> 
+> ### TLDR install with Homebrew
+> ```bash
+> brew tap scouzi1966/afm
+> brew install afm
+> ```
+
 # MacLocalAPI is the repo for the afm command on macOS 26 Tahoe. The afm command (cli) allows one to access the on-device Apple LLM Foundation model from the command line in a single prompt or in API mode. It allows integration with other OS command line tools using standard Unix pipes.
 
 # Additionally, it contains a built-in server that serves the on-device Foundation Model with the OpenAI standard SDK through an API. You can use the model with another front end such as Open WebUI. By default, launching the simple 'afm' command starts a server on port 9999 immediately! Simple, fast.
