@@ -1,6 +1,7 @@
 ## Latest app release --> https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.0
 
-## What's new in v0.9.0 --> afm -w or afm --webui starts the API server AND a chat web interface!. It integrates llama.cpp webui.
+> [!TIP]
+> ## What's new in v0.9.0 --> afm -w or afm --webui starts the API server AND a chat web interface!. It integrates llama.cpp webui.
 
 # MacLocalAPI is the repo for the afm command on macOS 26 Tahoe. The afm command (cli) allows one to access the on-device Apple LLM Foundation model from the command line in a single prompt or in API mode. It allows integration with other OS command line tools using standard Unix pipes.
 
@@ -52,6 +53,9 @@ Try again
 
 # Start the OpenAI compatible API server on DEFAULT port 9999
 afm
+
+# Start the OpenAI compatible API server on DEFAULT port 9999 and a Webserver to chat
+afm -w
 
 # Start the OpenAI compatible  API server on port 9998 with trained adapter
 afm -a ./my_adapter.fmadapter -p 9998
