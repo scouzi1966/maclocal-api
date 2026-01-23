@@ -147,9 +147,9 @@ struct ChatCompletionsController: RouteCollection {
         let streamId = UUID().uuidString
         
         httpResponse.body = .init(asyncStream: { writer in
+            let encoder = JSONEncoder()
+
             do {
-                let encoder = JSONEncoder()
-                
                 // Use temperature from API request if provided, otherwise use CLI parameter
                 let effectiveTemperature = chatRequest.temperature ?? self.temperature
                 let effectiveRandomness = self.randomness
@@ -208,7 +208,6 @@ struct ChatCompletionsController: RouteCollection {
                 // Detect context window exceeded errors and provide user-friendly message
                 let errorString = String(describing: error)
                 let errorMessage: String
-                let errorType: String
 
                 if errorString.contains("exceededContextWindowSize") || errorString.contains("context") && errorString.contains("exceeds") {
                     // Extract token counts if available
@@ -216,23 +215,37 @@ struct ChatCompletionsController: RouteCollection {
                        let maxMatch = errorString.range(of: "maximum allowed is ([0-9,]+)", options: .regularExpression) {
                         let providedStr = String(errorString[providedMatch]).replacingOccurrences(of: "Provided ", with: "").replacingOccurrences(of: " tokens", with: "")
                         let maxStr = String(errorString[maxMatch]).replacingOccurrences(of: "maximum allowed is ", with: "")
-                        errorMessage = "Context window exceeded: Your conversation has \(providedStr) tokens but the maximum is \(maxStr). Please start a new conversation or reduce the message length."
+                        errorMessage = "⚠️ **Context window exceeded**\n\nYour conversation has \(providedStr) tokens but the maximum is \(maxStr).\n\nPlease start a new conversation or reduce the message length."
                     } else {
-                        errorMessage = "Context window exceeded: The conversation is too long. Apple Foundation Models has a 4096 token limit. Please start a new conversation."
+                        errorMessage = "⚠️ **Context window exceeded**\n\nThe conversation is too long. Apple Foundation Models has a 4096 token limit.\n\nPlease start a new conversation."
                     }
-                    errorType = "context_length_exceeded"
                 } else {
-                    // Generic error fallback - escape any special characters for JSON
-                    errorMessage = error.localizedDescription.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-                    errorType = "server_error"
+                    errorMessage = "⚠️ **Error**\n\n\(error.localizedDescription)"
                 }
 
-                // Send a proper error response in OpenAI format
-                let errorResponse = """
-                data: {"error": {"message": "\(errorMessage)", "type": "\(errorType)", "code": "\(errorType)"}}
+                // Send error as visible content in the chat (so user sees it)
+                let errorChunk = ChatCompletionStreamResponse(
+                    id: streamId,
+                    model: chatRequest.model ?? "foundation",
+                    content: errorMessage,
+                    isFirst: true
+                )
+                if let errorData = try? encoder.encode(errorChunk),
+                   let jsonString = String(data: errorData, encoding: .utf8) {
+                    try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                }
 
-                """
-                try? await writer.write(.buffer(.init(string: errorResponse)))
+                // Send final chunk to mark completion
+                let finalChunk = ChatCompletionStreamResponse(
+                    id: streamId,
+                    model: chatRequest.model ?? "foundation",
+                    content: "",
+                    isFinished: true
+                )
+                if let finalData = try? encoder.encode(finalChunk),
+                   let jsonString = String(data: finalData, encoding: .utf8) {
+                    try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                }
 
                 // Send [DONE] marker to properly terminate the stream
                 try? await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
