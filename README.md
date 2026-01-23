@@ -2,6 +2,7 @@
 
 > [!TIP]
 > ## What's new in v0.9.0 --> afm -w or afm --webui starts the API server AND a chat web interface!. It integrates llama.cpp webui.
+> ## afm -w is all you need!
 
 > [!TIP]
 > 
