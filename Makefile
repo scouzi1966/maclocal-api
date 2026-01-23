@@ -1,7 +1,7 @@
 # AFM - Apple Foundation Models API
 # Makefile for building and distributing the portable CLI
 
-.PHONY: build clean install uninstall portable dist test help submodules webui build-with-webui
+.PHONY: build clean install uninstall portable dist test help submodules submodule-status webui build-with-webui
 
 # Default target
 all: build
@@ -22,11 +22,17 @@ build:
 portable:
 	@./build-portable.sh
 
-# Initialize/update git submodules
+# Initialize git submodules (pinned to specific commit for reproducibility)
+# NOTE: llama.cpp is pinned to a specific commit - do not use --remote flag
 submodules:
-	@echo "📦 Initializing git submodules..."
-	@git submodule update --init --recursive
-	@echo "✅ Submodules initialized"
+	@echo "📦 Initializing git submodules (pinned version)..."
+	@git submodule update --init
+	@echo "✅ Submodules initialized (llama.cpp @ $$(cd vendor/llama.cpp && git rev-parse --short HEAD))"
+
+# Show pinned submodule versions
+submodule-status:
+	@echo "📌 Pinned submodule versions:"
+	@git submodule status
 
 # Build the webui from llama.cpp
 webui: submodules

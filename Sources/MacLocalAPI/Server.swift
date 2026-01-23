@@ -127,7 +127,7 @@ class Server {
         }
     }
 
-    /// Custom CSS to inject into webui (hides unsupported features for Apple Foundation Model)
+    /// Custom CSS/JS to inject into webui (branding and hiding unsupported features)
     private static let customCSS = """
     <style>
     /* Hide attachment/file picker button - AFM doesn't support file uploads */
@@ -137,6 +137,20 @@ class Server {
         display: none !important;
     }
     </style>
+    <script>
+    (function(){
+        function rebrand(){
+            document.querySelectorAll('h1,h2,h3,p,span').forEach(function(el){
+                if(el.textContent==='llama.cpp')el.textContent='Apple Foundation Models';
+                if(el.textContent.includes('upload files'))el.textContent='Type a message to get started';
+            });
+            document.title=document.title.replace('llama.cpp','AFM');
+        }
+        if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',rebrand);}
+        else{rebrand();}
+        setInterval(rebrand,1000);
+    })();
+    </script>
     """
 
     /// Serve the webui with custom CSS injected
