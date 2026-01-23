@@ -71,12 +71,23 @@ struct ChatCompletionsController: RouteCollection {
             return try await createSuccessResponse(req: req, response: response)
             
         } catch let foundationError as FoundationModelError {
+            // Handle context window exceeded with specific error type
+            let errorType: String
+            let status: HTTPStatus
+            switch foundationError {
+            case .contextWindowExceeded:
+                errorType = "context_length_exceeded"
+                status = .badRequest
+            default:
+                errorType = "foundation_model_error"
+                status = .serviceUnavailable
+            }
             let error = OpenAIError(
                 message: foundationError.localizedDescription,
-                type: "foundation_model_error"
+                type: errorType
             )
-            return try await createErrorResponse(req: req, error: error, status: .serviceUnavailable)
-            
+            return try await createErrorResponse(req: req, error: error, status: status)
+
         } catch {
             req.logger.error("Unexpected error: \(error)")
             let error = OpenAIError(
@@ -193,12 +204,38 @@ struct ChatCompletionsController: RouteCollection {
                 
             } catch {
                 req.logger.error("Streaming error: \(error)")
+
+                // Detect context window exceeded errors and provide user-friendly message
+                let errorString = String(describing: error)
+                let errorMessage: String
+                let errorType: String
+
+                if errorString.contains("exceededContextWindowSize") || errorString.contains("context") && errorString.contains("exceeds") {
+                    // Extract token counts if available
+                    if let providedMatch = errorString.range(of: "Provided ([0-9,]+) tokens", options: .regularExpression),
+                       let maxMatch = errorString.range(of: "maximum allowed is ([0-9,]+)", options: .regularExpression) {
+                        let providedStr = String(errorString[providedMatch]).replacingOccurrences(of: "Provided ", with: "").replacingOccurrences(of: " tokens", with: "")
+                        let maxStr = String(errorString[maxMatch]).replacingOccurrences(of: "maximum allowed is ", with: "")
+                        errorMessage = "Context window exceeded: Your conversation has \(providedStr) tokens but the maximum is \(maxStr). Please start a new conversation or reduce the message length."
+                    } else {
+                        errorMessage = "Context window exceeded: The conversation is too long. Apple Foundation Models has a 4096 token limit. Please start a new conversation."
+                    }
+                    errorType = "context_length_exceeded"
+                } else {
+                    // Generic error fallback - escape any special characters for JSON
+                    errorMessage = error.localizedDescription.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+                    errorType = "server_error"
+                }
+
                 // Send a proper error response in OpenAI format
                 let errorResponse = """
-                data: {"error": {"message": "\(error.localizedDescription)", "type": "server_error"}}
+                data: {"error": {"message": "\(errorMessage)", "type": "\(errorType)", "code": "\(errorType)"}}
 
                 """
                 try? await writer.write(.buffer(.init(string: errorResponse)))
+
+                // Send [DONE] marker to properly terminate the stream
+                try? await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
                 try? await writer.write(.end)
             }
         })

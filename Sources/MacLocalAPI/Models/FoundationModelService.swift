@@ -106,6 +106,7 @@ enum FoundationModelError: Error, LocalizedError {
     case responseGenerationFailed(String)
     case invalidInput
     case invalidRandomnessParameter(String)
+    case contextWindowExceeded(provided: Int, maximum: Int)
 
     var errorDescription: String? {
         switch self {
@@ -119,7 +120,39 @@ enum FoundationModelError: Error, LocalizedError {
             return "Invalid input provided to Foundation Models"
         case .invalidRandomnessParameter(let message):
             return "Invalid randomness parameter: \(message)"
+        case .contextWindowExceeded(let provided, let maximum):
+            return "Context window exceeded: Your conversation has \(provided) tokens but the maximum is \(maximum). Please start a new conversation or reduce the message length."
         }
+    }
+
+    /// Check if an error is a context window exceeded error and extract token counts
+    static func parseContextWindowError(_ error: Error) -> FoundationModelError? {
+        let errorString = String(describing: error)
+        guard errorString.contains("exceededContextWindowSize") || (errorString.contains("context") && errorString.contains("exceeds")) else {
+            return nil
+        }
+
+        // Try to extract token counts from the error message
+        // Pattern: "Provided 4,089 tokens, but the maximum allowed is 4,096"
+        let providedPattern = try? NSRegularExpression(pattern: "Provided ([0-9,]+) tokens")
+        let maxPattern = try? NSRegularExpression(pattern: "maximum allowed is ([0-9,]+)")
+
+        var provided = 0
+        var maximum = 4096 // Default
+
+        if let match = providedPattern?.firstMatch(in: errorString, range: NSRange(errorString.startIndex..., in: errorString)),
+           let range = Range(match.range(at: 1), in: errorString) {
+            let numStr = String(errorString[range]).replacingOccurrences(of: ",", with: "")
+            provided = Int(numStr) ?? 0
+        }
+
+        if let match = maxPattern?.firstMatch(in: errorString, range: NSRange(errorString.startIndex..., in: errorString)),
+           let range = Range(match.range(at: 1), in: errorString) {
+            let numStr = String(errorString[range]).replacingOccurrences(of: ",", with: "")
+            maximum = Int(numStr) ?? 4096
+        }
+
+        return .contextWindowExceeded(provided: provided, maximum: maximum)
     }
 }
 
@@ -233,14 +266,18 @@ class FoundationModelService {
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
         }
-        
+
         let prompt = formatMessagesAsPrompt(messages)
-        
+
         do {
             let options = try createGenerationOptions(temperature: temperature, randomness: randomness)
             let response = try await session.respond(to: prompt, options: options)
             return response.content
         } catch {
+            // Check for context window exceeded error and wrap it
+            if let contextError = FoundationModelError.parseContextWindowError(error) {
+                throw contextError
+            }
             throw FoundationModelError.responseGenerationFailed(error.localizedDescription)
         }
         #else
@@ -253,23 +290,31 @@ class FoundationModelService {
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
         }
-        
+
         let prompt = formatMessagesAsPrompt(messages)
-        
+
         // Measure actual Foundation Model processing time
         let promptStartTime = Date()
-        let options = try createGenerationOptions(temperature: temperature, randomness: randomness)
-        let response = try await session.respond(to: prompt, options: options)
-        let promptTime = Date().timeIntervalSince(promptStartTime)
-        
-        let content = response.content
-        
-        // Handle empty or nil content
-        guard !content.isEmpty else {
-            return (content: "I'm unable to generate a response at the moment.", promptTime: promptTime)
+        do {
+            let options = try createGenerationOptions(temperature: temperature, randomness: randomness)
+            let response = try await session.respond(to: prompt, options: options)
+            let promptTime = Date().timeIntervalSince(promptStartTime)
+
+            let content = response.content
+
+            // Handle empty or nil content
+            guard !content.isEmpty else {
+                return (content: "I'm unable to generate a response at the moment.", promptTime: promptTime)
+            }
+
+            return (content: content, promptTime: promptTime)
+        } catch {
+            // Check for context window exceeded error and wrap it
+            if let contextError = FoundationModelError.parseContextWindowError(error) {
+                throw contextError
+            }
+            throw FoundationModelError.responseGenerationFailed(error.localizedDescription)
         }
-        
-        return (content: content, promptTime: promptTime)
         #else
         throw FoundationModelError.notAvailable
         #endif
