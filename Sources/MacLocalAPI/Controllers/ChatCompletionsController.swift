@@ -34,42 +34,45 @@ struct ChatCompletionsController: RouteCollection {
     func chatCompletions(req: Request) async throws -> Response {
         do {
             let chatRequest = try req.content.decode(ChatCompletionRequest.self)
-            
+
             guard !chatRequest.messages.isEmpty else {
                 let error = OpenAIError(message: "At least one message is required")
                 return try await createErrorResponse(req: req, error: error, status: .badRequest)
             }
-            
+
             let foundationService: FoundationModelService
+            var processedMessages: [Message] = chatRequest.messages
             if #available(macOS 26.0, *) {
                 foundationService = try await FoundationModelService.createWithSharedAdapter(instructions: instructions, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
+                // Process any images in messages
+                processedMessages = await processMessagesForImages(chatRequest.messages)
             } else {
                 throw FoundationModelError.notAvailable
             }
-            
+
             // Check if streaming is requested and enabled
             if chatRequest.stream == true && streamingEnabled {
-                return try await createStreamingResponse(req: req, chatRequest: chatRequest, foundationService: foundationService)
+                return try await createStreamingResponse(req: req, chatRequest: chatRequest, processedMessages: processedMessages, foundationService: foundationService)
             }
-            
+
             // Use temperature from API request if provided, otherwise use CLI parameter
             let effectiveTemperature = chatRequest.temperature ?? temperature
             let effectiveRandomness = randomness
 
-            let content = try await foundationService.generateResponse(for: chatRequest.messages, temperature: effectiveTemperature, randomness: effectiveRandomness)
-            
-            let promptTokens = estimateTokens(for: chatRequest.messages)
+            let content = try await foundationService.generateResponse(for: processedMessages, temperature: effectiveTemperature, randomness: effectiveRandomness)
+
+            let promptTokens = estimateTokens(for: processedMessages)
             let completionTokens = estimateTokens(for: content)
-            
+
             let response = ChatCompletionResponse(
                 model: chatRequest.model ?? "foundation",
                 content: content,
                 promptTokens: promptTokens,
                 completionTokens: completionTokens
             )
-            
+
             return try await createSuccessResponse(req: req, response: response)
-            
+
         } catch let foundationError as FoundationModelError {
             // Handle context window exceeded with specific error type
             let errorType: String
@@ -115,8 +118,63 @@ struct ChatCompletionsController: RouteCollection {
     }
     
     private func estimateTokens(for messages: [Message]) -> Int {
-        let totalText = messages.map { $0.content }.joined(separator: " ")
+        let totalText = messages.map { $0.textContent }.joined(separator: " ")
         return estimateTokens(for: totalText)
+    }
+
+    /// Process messages, extracting text from any images or PDFs
+    @available(macOS 26.0, *)
+    private func processMessagesForImages(_ messages: [Message]) async -> [Message] {
+        var processedMessages: [Message] = []
+
+        for message in messages {
+            if !message.hasImages {
+                // No images - use message as-is
+                processedMessages.append(Message(role: message.role, content: message.textContent))
+                continue
+            }
+
+            // Process images and combine with text
+            var combinedContent = message.textContent
+
+            for (index, imageURL) in message.imageURLs.enumerated() {
+                let imageLabel = message.imageURLs.count > 1 ? " \(index + 1)" : ""
+
+                let isPDF = imageURL.contains("application/pdf") || imageURL.lowercased().hasSuffix(".pdf")
+                let fileIcon = isPDF ? "📄" : "📷"
+                let fileType = isPDF ? "PDF" : "Image"
+
+                if imageURL.hasPrefix("data:") {
+                    // Base64 encoded file (image or PDF)
+                    do {
+                        let visionService = VisionService()
+                        let extractedText = try await visionService.extractTextFromBase64(imageURL)
+                        combinedContent += "\n\n\(fileIcon) [\(fileType)\(imageLabel) - OCR Extracted Text]\n\(extractedText)"
+                    } catch VisionError.noTextFound {
+                        combinedContent += "\n\n\(fileIcon) [\(fileType)\(imageLabel) - OCR Error: No text found in image. Note: OCR can only extract text, not describe visual content like photos or scenes.]"
+                    } catch {
+                        combinedContent += "\n\n\(fileIcon) [\(fileType)\(imageLabel) - OCR Error: \(error.localizedDescription)]"
+                    }
+                } else if imageURL.hasPrefix("http://") || imageURL.hasPrefix("https://") {
+                    // Remote URL - fetch and process (image or PDF)
+                    do {
+                        let visionService = VisionService()
+                        let extractedText = try await visionService.extractTextFromURL(imageURL)
+                        combinedContent += "\n\n\(fileIcon) [\(fileType)\(imageLabel) - OCR Extracted Text]\n\(extractedText)"
+                    } catch VisionError.noTextFound {
+                        combinedContent += "\n\n\(fileIcon) [\(fileType)\(imageLabel) - OCR Error: No text found in image. Note: OCR can only extract text, not describe visual content like photos or scenes.]"
+                    } catch {
+                        combinedContent += "\n\n\(fileIcon) [\(fileType)\(imageLabel) - OCR Error: \(error.localizedDescription)]"
+                    }
+                } else {
+                    combinedContent += "\n\n\(fileIcon) [\(fileType)\(imageLabel) - Unsupported format]"
+                }
+            }
+
+            processedMessages.append(Message(role: message.role, content: combinedContent))
+        }
+
+        return processedMessages
     }
     
     private func estimateTokens(for text: String) -> Int {
@@ -135,7 +193,7 @@ struct ChatCompletionsController: RouteCollection {
         return Int(max(charBasedTokens, wordBasedTokens))
     }
     
-    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, foundationService: FoundationModelService) async throws -> Response {
+    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, processedMessages: [Message], foundationService: FoundationModelService) async throws -> Response {
         let httpResponse = Response(status: .ok)
         httpResponse.headers.add(name: .contentType, value: "text/event-stream")
         httpResponse.headers.add(name: .cacheControl, value: "no-cache")
@@ -143,9 +201,9 @@ struct ChatCompletionsController: RouteCollection {
         httpResponse.headers.add(name: "Access-Control-Allow-Origin", value: "*")
         httpResponse.headers.add(name: "Access-Control-Allow-Headers", value: "Content-Type")
         httpResponse.headers.add(name: "X-Accel-Buffering", value: "no")
-        
+
         let streamId = UUID().uuidString
-        
+
         httpResponse.body = .init(asyncStream: { writer in
             let encoder = JSONEncoder()
 
@@ -154,36 +212,50 @@ struct ChatCompletionsController: RouteCollection {
                 let effectiveTemperature = chatRequest.temperature ?? self.temperature
                 let effectiveRandomness = self.randomness
 
-                // Get response with proper timing measurement
-                let (content, promptTime) = try await foundationService.generateStreamingResponseWithTiming(for: chatRequest.messages, temperature: effectiveTemperature, randomness: effectiveRandomness)
-                
-                // Start streaming timing
-                let completionStartTime = Date()
+                // Use native streaming for real token-by-token output
+                let promptStartTime = Date()
+                let stream = foundationService.generateNativeStreamingResponse(
+                    for: processedMessages,
+                    temperature: effectiveTemperature,
+                    randomness: effectiveRandomness
+                )
+
                 var isFirst = true
                 var completionTokens = 0
-                
-                // ChatGPT-style smooth streaming: token-by-token with natural timing
-                try await streamContentSmoothly(
-                    content: content,
-                    streamId: streamId,
-                    model: chatRequest.model ?? "foundation",
-                    encoder: encoder,
-                    writer: writer,
-                    isFirst: &isFirst,
-                    completionTokens: &completionTokens
-                )
-                
+                var firstTokenTime: Date? = nil
+
+                for try await chunk in stream {
+                    if firstTokenTime == nil {
+                        firstTokenTime = Date()
+                    }
+
+                    let streamChunk = ChatCompletionStreamResponse(
+                        id: streamId,
+                        model: chatRequest.model ?? "foundation",
+                        content: chunk,
+                        isFirst: isFirst
+                    )
+                    isFirst = false
+                    completionTokens += self.estimateTokens(for: chunk)
+
+                    let chunkData = try encoder.encode(streamChunk)
+                    if let jsonString = String(data: chunkData, encoding: .utf8) {
+                        try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                    }
+                }
+
                 // Calculate timing metrics
-                let completionTime = Date().timeIntervalSince(completionStartTime)
-                let promptTokens = estimateTokens(for: chatRequest.messages)
-                
+                let completionTime = Date().timeIntervalSince(firstTokenTime ?? promptStartTime)
+                let promptTime = (firstTokenTime ?? Date()).timeIntervalSince(promptStartTime)
+                let promptTokens = self.estimateTokens(for: processedMessages)
+
                 let usage = StreamUsage(
                     promptTokens: promptTokens,
                     completionTokens: completionTokens,
                     completionTime: completionTime,
                     promptTime: promptTime
                 )
-                
+
                 // Send final chunk with metrics
                 let finalChunk = ChatCompletionStreamResponse(
                     id: streamId,
@@ -196,12 +268,12 @@ struct ChatCompletionsController: RouteCollection {
                 if let jsonString = String(data: finalData, encoding: .utf8) {
                     try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                 }
-                
+
                 // Send done marker
                 try await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
-                
+
                 try await writer.write(.end)
-                
+
             } catch {
                 req.logger.error("Streaming error: \(error)")
 
@@ -252,7 +324,7 @@ struct ChatCompletionsController: RouteCollection {
                 try? await writer.write(.end)
             }
         })
-        
+
         return httpResponse
     }
     

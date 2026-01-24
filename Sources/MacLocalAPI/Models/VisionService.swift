@@ -36,9 +36,146 @@ enum VisionError: Error, LocalizedError {
 
 @available(macOS 26.0, *)
 class VisionService {
-    
+
     private let supportedExtensions = ["png", "jpg", "jpeg", "heic", "pdf"]
-    
+
+    /// Extract text from a base64-encoded data URL (supports images and PDFs)
+    /// - Parameter dataURL: Data URL in format "data:image/png;base64,..." or "data:application/pdf;base64,..."
+    /// - Returns: Extracted text from the file
+    func extractTextFromBase64(_ dataURL: String) async throws -> String {
+        // Parse data URL format: data:mime/type;base64,DATA...
+        guard dataURL.hasPrefix("data:"),
+              let semicolonIndex = dataURL.firstIndex(of: ";"),
+              let commaIndex = dataURL.firstIndex(of: ",") else {
+            throw VisionError.unsupportedFormat
+        }
+
+        let mimeType = String(dataURL[dataURL.index(dataURL.startIndex, offsetBy: 5)..<semicolonIndex])
+        let base64String = String(dataURL[dataURL.index(after: commaIndex)...])
+
+        guard let fileData = Data(base64Encoded: base64String) else {
+            throw VisionError.imageLoadingFailed
+        }
+
+        // Handle PDFs specially - extract text from ALL pages
+        if mimeType == "application/pdf" {
+            return try await extractTextFromPDFData(fileData)
+        }
+
+        // Handle images
+        let requestHandler = VNImageRequestHandler(data: fileData)
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+
+        try requestHandler.perform([request])
+
+        guard let observations = request.results, !observations.isEmpty else {
+            throw VisionError.noTextFound
+        }
+
+        return observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+    }
+
+    /// Extract text from PDF data (all pages)
+    /// - Parameter pdfData: Raw PDF data
+    /// - Returns: Combined text from all pages
+    func extractTextFromPDFData(_ pdfData: Data) async throws -> String {
+        guard let pdfDocument = PDFDocument(data: pdfData) else {
+            throw VisionError.imageLoadingFailed
+        }
+
+        guard pdfDocument.pageCount > 0 else {
+            throw VisionError.noTextFound
+        }
+
+        var allText: [String] = []
+
+        // Process ALL pages
+        for pageIndex in 0..<pdfDocument.pageCount {
+            guard let pdfPage = pdfDocument.page(at: pageIndex) else { continue }
+
+            // First try native text extraction (faster, works for text PDFs)
+            if let pageText = pdfPage.string, !pageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                allText.append("--- Page \(pageIndex + 1) ---\n\(pageText)")
+                continue
+            }
+
+            // Fallback to OCR for scanned PDFs
+            let pageRect = pdfPage.bounds(for: .mediaBox)
+            let scale: CGFloat = 2.0
+
+            guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+                  let context = CGContext(
+                      data: nil,
+                      width: Int(pageRect.width * scale),
+                      height: Int(pageRect.height * scale),
+                      bitsPerComponent: 8,
+                      bytesPerRow: 0,
+                      space: colorSpace,
+                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                  ) else { continue }
+
+            context.setFillColor(CGColor.white)
+            context.fill(CGRect(origin: .zero, size: CGSize(width: pageRect.width * scale, height: pageRect.height * scale)))
+            context.scaleBy(x: scale, y: scale)
+            context.translateBy(x: 0, y: pageRect.height)
+            context.scaleBy(x: 1.0, y: -1.0)
+            pdfPage.draw(with: .mediaBox, to: context)
+
+            guard let cgImage = context.makeImage() else { continue }
+
+            let requestHandler = VNImageRequestHandler(cgImage: cgImage)
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = true
+
+            try? requestHandler.perform([request])
+
+            if let observations = request.results {
+                let pageText = observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+                if !pageText.isEmpty {
+                    allText.append("--- Page \(pageIndex + 1) ---\n\(pageText)")
+                }
+            }
+        }
+
+        guard !allText.isEmpty else {
+            throw VisionError.noTextFound
+        }
+
+        return allText.joined(separator: "\n\n")
+    }
+
+    /// Extract text from a remote URL (image or PDF)
+    func extractTextFromURL(_ urlString: String) async throws -> String {
+        guard let url = URL(string: urlString) else {
+            throw VisionError.unsupportedFormat
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        // Check content type for PDFs
+        let contentType = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? ""
+        if contentType.contains("pdf") || urlString.lowercased().hasSuffix(".pdf") {
+            return try await extractTextFromPDFData(data)
+        }
+
+        // Process as image
+        let requestHandler = VNImageRequestHandler(data: data)
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+
+        try requestHandler.perform([request])
+
+        guard let observations = request.results, !observations.isEmpty else {
+            throw VisionError.noTextFound
+        }
+
+        return observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+    }
+
     func extractText(from filePath: String) async throws -> String {
         // Validate file existence
         let url = URL(fileURLWithPath: filePath)

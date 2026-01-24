@@ -50,6 +50,9 @@ struct ServeCommand: ParsableCommand {
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
 
+    @Option(name: .long, help: "Pre-warm the model on server startup for faster first response (y/n, default: y)")
+    var prewarm: String = "y"
+
     func run() throws {
         // Validate temperature parameter
         if let temp = temperature {
@@ -69,21 +72,24 @@ struct ServeCommand: ParsableCommand {
             }
         }
 
+        // Parse prewarm flag
+        let prewarmEnabled = prewarm.lowercased() != "n" && prewarm.lowercased() != "no" && prewarm != "0"
+
         if verbose {
             print("Starting afm server with verbose logging enabled...")
         }
-        
+
         // Use RunLoop to handle the server lifecycle properly
         let runLoop = RunLoop.current
-        
+
         // Set up signal handling for graceful shutdown
         signal(SIGINT, handleShutdown)
         signal(SIGTERM, handleShutdown)
-        
+
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: port, hostname: hostname, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, webuiEnabled: webui)
+                let server = try await Server(port: port, hostname: hostname, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, webuiEnabled: webui, prewarmEnabled: prewarmEnabled)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -164,6 +170,9 @@ struct RootCommand: ParsableCommand {
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
 
+    @Option(name: .long, help: "Pre-warm the model on server startup for faster first response (y/n, default: y)")
+    var prewarm: String = "y"
+
     func run() throws {
         // Validate temperature parameter
         if let temp = temperature {
@@ -192,7 +201,7 @@ struct RootCommand: ParsableCommand {
         if let stdinContent = try readFromStdin() {
             return try runSinglePrompt(stdinContent, adapter: adapter)
         }
-        
+
         // If no subcommand specified and no single prompt, run server
         var serveCommand = ServeCommand()
         serveCommand.port = port
@@ -205,6 +214,7 @@ struct RootCommand: ParsableCommand {
         serveCommand.randomness = randomness
         serveCommand.permissiveGuardrails = permissiveGuardrails
         serveCommand.webui = webui
+        serveCommand.prewarm = prewarm
         try serveCommand.run()
     }
 }

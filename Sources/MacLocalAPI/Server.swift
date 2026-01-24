@@ -20,8 +20,9 @@ class Server {
     private let permissiveGuardrails: Bool
     private let webuiEnabled: Bool
     private let webuiPath: String?
+    private let prewarmEnabled: Bool
 
-    init(port: Int, hostname: String, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, webuiEnabled: Bool = false) async throws {
+    init(port: Int, hostname: String, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, webuiEnabled: Bool = false, prewarmEnabled: Bool = true) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -33,6 +34,7 @@ class Server {
         self.permissiveGuardrails = permissiveGuardrails
         self.webuiEnabled = webuiEnabled
         self.webuiPath = Server.findWebuiPath()
+        self.prewarmEnabled = prewarmEnabled
         
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
@@ -50,7 +52,11 @@ class Server {
     private func configure() throws {
         app.http.server.configuration.port = port
         app.http.server.configuration.hostname = hostname
-        
+
+        // Increase max body size for base64-encoded images/PDFs (default is 16KB)
+        // 50MB should handle most images and multi-page PDFs
+        app.routes.defaultMaxBodySize = "50mb"
+
         try routes()
     }
     
@@ -98,7 +104,7 @@ class Server {
                 total_slots: 1,
                 model_path: "Apple Foundation Model",
                 role: "MODEL",
-                modalities: Modalities(vision: false, audio: false),
+                modalities: Modalities(vision: true, audio: false),  // Vision enabled for image/PDF OCR
                 chat_template: "",
                 bos_token: "",
                 eos_token: "",
@@ -127,22 +133,17 @@ class Server {
         }
     }
 
-    /// Custom CSS/JS to inject into webui (branding and hiding unsupported features)
+    /// Custom CSS/JS to inject into webui (branding)
     private static let customCSS = """
     <style>
-    /* Hide attachment/file picker button - AFM doesn't support file uploads */
-    button[aria-label*="attachment"], button[aria-label*="Attachment"],
-    .attachment-button, [class*="attachment"], [class*="Attachment"],
-    button:has(svg[class*="paperclip"]), button:has(svg[class*="Paperclip"]) {
-        display: none !important;
-    }
+    /* Image/PDF upload supported via OCR only - cannot describe visual scenes */
     </style>
     <script>
     (function(){
         function rebrand(){
             document.querySelectorAll('h1,h2,h3,p,span').forEach(function(el){
                 if(el.textContent==='llama.cpp')el.textContent='Apple Foundation Models';
-                if(el.textContent.includes('upload files'))el.textContent='Type a message to get started';
+                if(el.textContent.includes('upload files'))el.textContent='Upload images/PDFs for OCR text extraction only';
             });
             document.title=document.title.replace('llama.cpp','AFM');
         }
@@ -221,7 +222,7 @@ class Server {
 
         // Initialize the Foundation Model Service once at startup
         if #available(macOS 26.0, *) {
-            try await FoundationModelService.initialize(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
+            try await FoundationModelService.initialize(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, prewarm: prewarmEnabled)
         }
 
         print("  🚀 Server: http://\(hostname):\(port)")
@@ -233,9 +234,10 @@ class Server {
         print("")
         print("  ⚙️  Configuration:")
         print("     • Streaming:          \(streamingEnabled ? "✓ enabled" : "✗ disabled")")
+        print("     • Prewarm:            \(prewarmEnabled ? "✓ enabled" : "✗ disabled")")
         if webuiEnabled {
             if webuiPath != nil {
-                print("     • WebUI:              ✓ enabled")
+                print("     • WebUI:              ✓ enabled (with image/PDF upload)")
             } else {
                 print("     • WebUI:              ⚠️  enabled but not found (run 'make webui')")
             }

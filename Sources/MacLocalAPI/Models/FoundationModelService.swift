@@ -362,22 +362,70 @@ class FoundationModelService {
     
     private func formatMessagesAsPrompt(_ messages: [Message]) -> String {
         var prompt = ""
-        
+
         for message in messages {
             switch message.role {
             case "system":
-                prompt += "System: \(message.content)\n\n"
+                prompt += "System: \(message.textContent)\n\n"
             case "user":
-                prompt += "User: \(message.content)\n\n"
+                prompt += "User: \(message.textContent)\n\n"
             case "assistant":
-                prompt += "Assistant: \(message.content)\n\n"
+                prompt += "Assistant: \(message.textContent)\n\n"
             default:
-                prompt += "\(message.content)\n\n"
+                prompt += "\(message.textContent)\n\n"
             }
         }
-        
+
         prompt += "Assistant: "
         return prompt
+    }
+
+    /// Pre-warm the session for faster first response
+    func prewarm() async throws {
+        #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
+        guard let session = session else {
+            throw FoundationModelError.sessionCreationFailed
+        }
+        try await session.prewarm()
+        #endif
+    }
+
+    /// Generate response with native streaming (real token-by-token output)
+    func generateNativeStreamingResponse(
+        for messages: [Message],
+        temperature: Double? = nil,
+        randomness: String? = nil
+    ) -> AsyncThrowingStream<String, Error> {
+        return AsyncThrowingStream { continuation in
+            Task {
+                #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
+                guard let session = self.session else {
+                    continuation.finish(throwing: FoundationModelError.sessionCreationFailed)
+                    return
+                }
+
+                let prompt = self.formatMessagesAsPrompt(messages)
+
+                do {
+                    let options = try self.createGenerationOptions(temperature: temperature, randomness: randomness)
+                    // Use native streaming API
+                    let stream = session.streamResponse(to: prompt, options: options)
+                    for try await partialResponse in stream {
+                        continuation.yield(partialResponse.content)
+                    }
+                    continuation.finish()
+                } catch {
+                    if let contextError = FoundationModelError.parseContextWindowError(error) {
+                        continuation.finish(throwing: contextError)
+                    } else {
+                        continuation.finish(throwing: FoundationModelError.responseGenerationFailed(error.localizedDescription))
+                    }
+                }
+                #else
+                continuation.finish(throwing: FoundationModelError.notAvailable)
+                #endif
+            }
+        }
     }
     
     private func streamContentSmoothly(content: String, continuation: AsyncThrowingStream<String, Error>.Continuation) async {
@@ -657,8 +705,13 @@ class FoundationModelService {
     }
     
     // Initialize the shared instance once at server startup
-    static func initialize(instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) async throws {
+    static func initialize(instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool, prewarm: Bool = false) async throws {
         shared = try await FoundationModelService(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
+        if prewarm {
+            print("🔥 Pre-warming model...")
+            try await shared?.prewarm()
+            print("✅ Model pre-warmed and ready")
+        }
     }
     
     // Get the shared instance
