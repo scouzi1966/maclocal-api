@@ -10,6 +10,9 @@
 > ```bash
 > brew tap scouzi1966/afm
 > brew install afm
+>
+> single command
+> brew install scouzi1966/afm/afm
 > ```
 > To start a webchat:
 > 
