@@ -5,15 +5,22 @@
 > ## afm -w is all you need!
 
 > [!TIP]
-> 
+>
 > ### TLDR install with Homebrew
 > ```bash
 > brew tap scouzi1966/afm
 > brew install afm
 > ```
 > To start a webchat:
-> 
+>
 > afm -w
+
+> [!TIP]
+>
+> ### TLDR install with pip
+> ```bash
+> pip install macafm
+> ```
 
 # MacLocalAPI is the repo for the afm command on macOS 26 Tahoe. The afm command (cli) allows one to access the on-device Apple LLM Foundation model from the command line in a single prompt or in API mode. It allows integration with other OS command line tools using standard Unix pipes.
 
@@ -129,7 +136,17 @@ brew install afm
 # Verify installation
 afm --version
 ```
-#### Option 2: Install from tarball
+#### Option 2: pip (PyPI)
+
+```bash
+# Install from PyPI
+pip install macafm
+
+# Verify installation
+afm --version
+```
+
+#### Option 3: Install from tarball
 
 ```bash
 # Download the release
@@ -143,7 +160,7 @@ sudo cp afm /usr/local/bin/
 afm --version  # Should show v0.5.5
 ```
 
-#### Option 3: Build from Source
+#### Option 4: Build from Source
 
 ```bash
 # Clone the repository
