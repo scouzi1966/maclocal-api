@@ -7,6 +7,7 @@ If you find this useful, please ⭐ the repo!
 > ## afm -w is all you need!
 
 > [!TIP]
+> ### TLDR Chose ONE of 2 methods to install
 > 
 > ### TLDR install with Homebrew
 > ```bash
@@ -17,7 +18,7 @@ If you find this useful, please ⭐ the repo!
 > brew install scouzi1966/afm/afm
 > ```
 >
-> > ### TLDR NEW WITH PIP
+> > ### OR NEW METHOD WITH PIP! 
 > ```bash
 > pip install macafm
 > ```
