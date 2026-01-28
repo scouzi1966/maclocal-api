@@ -16,6 +16,11 @@ If you find this useful, please ⭐ the repo!
 > single command
 > brew install scouzi1966/afm/afm
 > ```
+>
+> > ### TLDR NEW WITH PIP
+> ```bash
+> pip install macafm
+> ```
 > To start a webchat:
 > 
 > afm -w
