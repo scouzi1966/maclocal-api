@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "macafm"
-version = "0.9.2"
+version = "0.9.3"
 description = "Access Apple's on-device Foundation Models via CLI and OpenAI-compatible API"
 readme = "README.md"
 license = "MIT"
@@ -60,4 +60,4 @@ packages = ["macafm"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-macafm = ["bin/*"]
+macafm = ["bin/*", "share/webui/*"]

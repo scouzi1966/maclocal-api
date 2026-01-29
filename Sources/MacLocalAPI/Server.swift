@@ -687,6 +687,8 @@ class Server {
             "\(executableDir)/../../Resources/webui/index.html.gz",
             // Three levels up for deeper nesting
             "\(executableDir)/../../../Resources/webui/index.html.gz",
+            // pip: webui bundled in macafm package (sibling share directory)
+            "\(executableDir)/../share/webui/index.html.gz",
             // Homebrew: share directory relative to bin (Apple Silicon)
             "\(executableDir)/../share/afm/webui/index.html.gz",
             // Homebrew: share directory relative to bin (Intel)
