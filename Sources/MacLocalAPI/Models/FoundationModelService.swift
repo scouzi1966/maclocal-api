@@ -107,6 +107,7 @@ enum FoundationModelError: Error, LocalizedError {
     case invalidInput
     case invalidRandomnessParameter(String)
     case contextWindowExceeded(provided: Int, maximum: Int)
+    case guardrailViolation(String)
 
     var errorDescription: String? {
         switch self {
@@ -122,7 +123,26 @@ enum FoundationModelError: Error, LocalizedError {
             return "Invalid randomness parameter: \(message)"
         case .contextWindowExceeded(let provided, let maximum):
             return "Context window exceeded: Your conversation has \(provided) tokens but the maximum is \(maximum). Please start a new conversation or reduce the message length."
+        case .guardrailViolation(let message):
+            return "Content policy violation: \(message)"
         }
+    }
+
+    /// Check if an error is a guardrail violation and extract the message
+    static func parseGuardrailError(_ error: Error) -> FoundationModelError? {
+        let errorString = String(describing: error)
+        if errorString.contains("guardrailViolation") || errorString.contains("unsafe content") {
+            // Extract the debug description if available
+            if let range = errorString.range(of: "debugDescription: \"") {
+                let start = range.upperBound
+                if let endRange = errorString[start...].range(of: "\"") {
+                    let message = String(errorString[start..<endRange.lowerBound])
+                    return .guardrailViolation(message)
+                }
+            }
+            return .guardrailViolation("The request was blocked due to content policy restrictions.")
+        }
+        return nil
     }
 
     /// Check if an error is a context window exceeded error and extract token counts
@@ -261,7 +281,7 @@ class FoundationModelService {
         #endif
     }
     
-    func generateResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil) async throws -> String {
+    func generateResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil, maxTokens: Int? = nil) async throws -> String {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
@@ -270,7 +290,7 @@ class FoundationModelService {
         let prompt = formatMessagesAsPrompt(messages)
 
         do {
-            let options = try createGenerationOptions(temperature: temperature, randomness: randomness)
+            let options = try createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
             let response = try await session.respond(to: prompt, options: options)
             return response.content
         } catch {
@@ -278,40 +298,9 @@ class FoundationModelService {
             if let contextError = FoundationModelError.parseContextWindowError(error) {
                 throw contextError
             }
-            throw FoundationModelError.responseGenerationFailed(error.localizedDescription)
-        }
-        #else
-        throw FoundationModelError.notAvailable
-        #endif
-    }
-    
-    func generateStreamingResponseWithTiming(for messages: [Message], temperature: Double? = nil, randomness: String? = nil) async throws -> (content: String, promptTime: Double) {
-        #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
-        guard let session = session else {
-            throw FoundationModelError.sessionCreationFailed
-        }
-
-        let prompt = formatMessagesAsPrompt(messages)
-
-        // Measure actual Foundation Model processing time
-        let promptStartTime = Date()
-        do {
-            let options = try createGenerationOptions(temperature: temperature, randomness: randomness)
-            let response = try await session.respond(to: prompt, options: options)
-            let promptTime = Date().timeIntervalSince(promptStartTime)
-
-            let content = response.content
-
-            // Handle empty or nil content
-            guard !content.isEmpty else {
-                return (content: "I'm unable to generate a response at the moment.", promptTime: promptTime)
-            }
-
-            return (content: content, promptTime: promptTime)
-        } catch {
-            // Check for context window exceeded error and wrap it
-            if let contextError = FoundationModelError.parseContextWindowError(error) {
-                throw contextError
+            // Check for guardrail violation
+            if let guardrailError = FoundationModelError.parseGuardrailError(error) {
+                throw guardrailError
             }
             throw FoundationModelError.responseGenerationFailed(error.localizedDescription)
         }
@@ -319,283 +308,94 @@ class FoundationModelService {
         throw FoundationModelError.notAvailable
         #endif
     }
-    
-    func generateStreamingResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil) async throws -> AsyncThrowingStream<String, Error> {
-        #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
-        guard let session = session else {
-            throw FoundationModelError.sessionCreationFailed
-        }
-        
-        let prompt = formatMessagesAsPrompt(messages)
-        
-        return AsyncThrowingStream<String, Error> { continuation in
-            Task {
-                do {
-                    // Since FoundationModels may not have streaming support yet,
-                    // we'll simulate streaming by chunking the complete response
-                    let options = try self.createGenerationOptions(temperature: temperature, randomness: randomness)
-                    let response = try await session.respond(to: prompt, options: options)
-                    let content = response.content
-                    
-                    // Handle empty or nil content
-                    guard !content.isEmpty else {
-                        continuation.yield("I'm unable to generate a response at the moment.")
-                        continuation.finish()
-                        return
-                    }
-                    
-                    // ChatGPT-style smooth streaming with natural delays
-                    await streamContentSmoothly(content: content, continuation: continuation)
-                    
-                    continuation.finish()
-                } catch {
-                    // Log the error and provide a fallback response
-                    print("FoundationModel error: \(error)")
-                    continuation.finish(throwing: FoundationModelError.responseGenerationFailed(error.localizedDescription))
-                }
-            }
-        }
-        #else
-        throw FoundationModelError.notAvailable
-        #endif
-    }
-    
+
     private func formatMessagesAsPrompt(_ messages: [Message]) -> String {
         var prompt = ""
-        
+
         for message in messages {
             switch message.role {
             case "system":
-                prompt += "System: \(message.content)\n\n"
+                prompt += "System: \(message.textContent)\n\n"
             case "user":
-                prompt += "User: \(message.content)\n\n"
+                prompt += "User: \(message.textContent)\n\n"
             case "assistant":
-                prompt += "Assistant: \(message.content)\n\n"
+                prompt += "Assistant: \(message.textContent)\n\n"
             default:
-                prompt += "\(message.content)\n\n"
+                prompt += "\(message.textContent)\n\n"
             }
         }
-        
+
         prompt += "Assistant: "
         return prompt
     }
-    
-    private func streamContentSmoothly(content: String, continuation: AsyncThrowingStream<String, Error>.Continuation) async {
-        // Handle code blocks specially to preserve formatting
-        let codeBlockRanges = findCodeBlockRanges(in: content)
-        var currentIndex = content.startIndex
-        
-        while currentIndex < content.endIndex {
-            // Check if we're at the start of a code block
-            if let codeBlockRange = codeBlockRanges.first(where: { $0.lowerBound == currentIndex }) {
-                // Stream entire code block at once to preserve formatting
-                let codeBlockContent = String(content[codeBlockRange])
-                continuation.yield(codeBlockContent)
-                currentIndex = codeBlockRange.upperBound
-                
-                // Brief pause after code blocks
-                do {
-                    try await Task.sleep(nanoseconds: 100_000_000) // 100ms
-                } catch {
-                    // Continue if sleep is interrupted
-                }
-            } else {
-                // Stream character by character or small tokens for smooth flow
-                let remainingContent = String(content[currentIndex...])
-                let nextChunk = getNextStreamingChunk(from: remainingContent, codeBlockRanges: codeBlockRanges, currentIndex: currentIndex, fullContent: content)
-                
-                if !nextChunk.isEmpty {
-                    continuation.yield(nextChunk)
-                    
-                    // Natural streaming delay - varies based on content type
-                    let delay = getStreamingDelay(for: nextChunk)
-                    if delay > 0 {
-                        do {
-                            try await Task.sleep(nanoseconds: delay)
-                        } catch {
-                            // Continue if sleep is interrupted
-                        }
-                    }
-                    
-                    currentIndex = content.index(currentIndex, offsetBy: nextChunk.count)
-                } else {
-                    currentIndex = content.index(after: currentIndex)
-                }
-            }
+
+    /// Pre-warm the session for faster first response
+    func prewarm() async throws {
+        #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
+        guard let session = session else {
+            throw FoundationModelError.sessionCreationFailed
         }
-    }
-    
-    private func findCodeBlockRanges(in content: String) -> [Range<String.Index>] {
-        var ranges: [Range<String.Index>] = []
-        var searchIndex = content.startIndex
-        
-        while searchIndex < content.endIndex {
-            // Look for code block start
-            if let startRange = content.range(of: "```", options: [], range: searchIndex..<content.endIndex) {
-                // Find the end of this code block
-                let afterStart = startRange.upperBound
-                if let endRange = content.range(of: "```", options: [], range: afterStart..<content.endIndex) {
-                    let fullRange = startRange.lowerBound..<endRange.upperBound
-                    ranges.append(fullRange)
-                    searchIndex = endRange.upperBound
-                } else {
-                    // No closing ```, treat rest as code block
-                    ranges.append(startRange.lowerBound..<content.endIndex)
-                    break
-                }
-            } else {
-                break
-            }
-        }
-        
-        return ranges
-    }
-    
-    private func getNextStreamingChunk(from content: String, codeBlockRanges: [Range<String.Index>], currentIndex: String.Index, fullContent: String) -> String {
-        // Don't break if we're inside a code block
-        if codeBlockRanges.contains(where: { $0.contains(currentIndex) }) {
-            return ""
-        }
-        
-        // For smooth streaming, send 1-3 characters at a time, preferring word boundaries
-        let maxChunkSize = 3
-        let chunkSize = min(maxChunkSize, content.count)
-        
-        if chunkSize > 1 {
-            // Try to break at word boundaries when possible
-            let endIndex = content.index(content.startIndex, offsetBy: chunkSize)
-            if endIndex < content.endIndex {
-                let nextChar = content[endIndex]
-                if nextChar.isWhitespace || nextChar.isPunctuation {
-                    // Good place to break
-                    return String(content.prefix(chunkSize))
-                }
-                // Look backwards for a space within the chunk
-                for i in (1..<chunkSize).reversed() {
-                    let testIndex = content.index(content.startIndex, offsetBy: i)
-                    if content[testIndex].isWhitespace {
-                        return String(content.prefix(i + 1))
-                    }
-                }
-            }
-        }
-        
-        // Fallback to single characters for very smooth streaming
-        return chunkSize > 0 ? String(content.prefix(1)) : ""
-    }
-    
-    private func getStreamingDelay(for chunk: String) -> UInt64 {
-        // Variable delay based on content type for natural feel
-        if chunk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return 10_000_000 // 10ms for whitespace
-        }
-        
-        if chunk.contains("\n") {
-            return 50_000_000 // 50ms for line breaks
-        }
-        
-        if chunk.hasSuffix(".") || chunk.hasSuffix("!") || chunk.hasSuffix("?") {
-            return 80_000_000 // 80ms for sentence endings
-        }
-        
-        if chunk.hasSuffix(",") || chunk.hasSuffix(";") || chunk.hasSuffix(":") {
-            return 40_000_000 // 40ms for punctuation
-        }
-        
-        // Base delay for regular characters - very fast for smooth flow
-        return 15_000_000 // 15ms
-    }
-    
-    private func smartChunkContent(_ content: String) -> [String] {
-        var chunks: [String] = []
-        var currentChunk = ""
-        var inCodeBlock = false
-        // Note: inInlineCode and codeBlockMarker reserved for future inline code detection
-        
-        let lines = content.components(separatedBy: .newlines)
-        
-        for line in lines {
-            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
-            
-            // Detect code block start/end
-            if trimmedLine.hasPrefix("```") {
-                if !inCodeBlock {
-                    // Starting a code block
-                    inCodeBlock = true
-                    // codeBlockMarker = trimmedLine // Reserved for future use
-                    if !currentChunk.isEmpty {
-                        chunks.append(currentChunk)
-                        currentChunk = ""
-                    }
-                    currentChunk = line + "\n"
-                } else if trimmedLine == "```" || trimmedLine.hasPrefix("```") {
-                    // Ending a code block
-                    currentChunk += line + "\n"
-                    chunks.append(currentChunk)
-                    currentChunk = ""
-                    inCodeBlock = false
-                    // codeBlockMarker = "" // Reserved for future use
-                } else {
-                    // Inside code block
-                    currentChunk += line + "\n"
-                }
-                continue
-            }
-            
-            // If we're in a code block, just accumulate
-            if inCodeBlock {
-                currentChunk += line + "\n"
-                continue
-            }
-            
-            // For non-code content, check if we should chunk
-            currentChunk += line
-            if !line.isEmpty {
-                currentChunk += "\n"
-            }
-            
-            // Chunk on natural breaks (paragraphs, sentences) but preserve formatting
-            if line.isEmpty || 
-               line.hasSuffix(".") || 
-               line.hasSuffix("!") || 
-               line.hasSuffix("?") ||
-               line.hasSuffix(":") ||
-               currentChunk.count > 200 { // Fallback size limit
-                
-                if !currentChunk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    chunks.append(currentChunk)
-                    currentChunk = ""
-                }
-            }
-        }
-        
-        // Add any remaining content
-        if !currentChunk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            chunks.append(currentChunk)
-        }
-        
-        // If no good chunks were made, fall back to word-based chunking
-        if chunks.isEmpty && !content.isEmpty {
-            let words = content.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
-            let chunkSize = max(5, words.count / 8)
-            
-            for i in stride(from: 0, to: words.count, by: chunkSize) {
-                let endIndex = min(i + chunkSize, words.count)
-                let chunk = words[i..<endIndex].joined(separator: " ") + " "
-                chunks.append(chunk)
-            }
-        }
-        
-        return chunks.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        try await session.prewarm()
+        #endif
     }
 
+    /// Generate response with native streaming (real token-by-token output)
+    func generateNativeStreamingResponse(
+        for messages: [Message],
+        temperature: Double? = nil,
+        randomness: String? = nil,
+        maxTokens: Int? = nil
+    ) -> AsyncThrowingStream<String, Error> {
+        return AsyncThrowingStream { continuation in
+            Task {
+                #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
+                guard let session = self.session else {
+                    continuation.finish(throwing: FoundationModelError.sessionCreationFailed)
+                    return
+                }
+
+                let prompt = self.formatMessagesAsPrompt(messages)
+
+                do {
+                    let options = try self.createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
+                    // Use native streaming API — partialResponse.content is cumulative,
+                    // so we must extract only the new delta each iteration.
+                    let stream = session.streamResponse(to: prompt, options: options)
+                    var previousContent = ""
+                    for try await partialResponse in stream {
+                        let full = partialResponse.content
+                        if full.count > previousContent.count {
+                            let delta = String(full.dropFirst(previousContent.count))
+                            continuation.yield(delta)
+                        }
+                        previousContent = full
+                    }
+                    continuation.finish()
+                } catch {
+                    if let contextError = FoundationModelError.parseContextWindowError(error) {
+                        continuation.finish(throwing: contextError)
+                    } else if let guardrailError = FoundationModelError.parseGuardrailError(error) {
+                        continuation.finish(throwing: guardrailError)
+                    } else {
+                        continuation.finish(throwing: FoundationModelError.responseGenerationFailed(error.localizedDescription))
+                    }
+                }
+                #else
+                continuation.finish(throwing: FoundationModelError.notAvailable)
+                #endif
+            }
+        }
+    }
+    
     #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
-    private func createGenerationOptions(temperature: Double?, randomness: String?) throws -> GenerationOptions {
-        DebugLogger.log("createGenerationOptions called with temperature: \(temperature?.description ?? "nil"), randomness: \(randomness ?? "nil")")
+    private func createGenerationOptions(temperature: Double?, randomness: String?, maxTokens: Int? = nil) throws -> GenerationOptions {
+        // Treat non-positive values as "no limit" (Apple default)
+        let effectiveMaxTokens: Int? = if let mt = maxTokens, mt > 0 { mt } else { nil }
+        DebugLogger.log("createGenerationOptions called with temperature: \(temperature?.description ?? "nil"), randomness: \(randomness ?? "nil"), maxTokens: \(effectiveMaxTokens?.description ?? "nil")")
 
         guard let randomnessString = randomness else {
             // Default behavior when randomness is not specified
-            return GenerationOptions(temperature: temperature)
+            return GenerationOptions(temperature: temperature, maximumResponseTokens: effectiveMaxTokens)
         }
 
         let config = try RandomnessConfig.parse(randomnessString)
@@ -605,43 +405,48 @@ class FoundationModelService {
         case .greedy:
             return GenerationOptions(
                 sampling: .greedy,
-                temperature: temperature
+                temperature: temperature,
+                maximumResponseTokens: effectiveMaxTokens
             )
         case .random:
-            // Apple's default random sampling doesn't support seed directly
-            // For seeded random, we need to use a high probability threshold (near 1.0)
             if let seed = config.seed {
                 return GenerationOptions(
                     sampling: .random(probabilityThreshold: 1.0, seed: seed),
-                    temperature: temperature
+                    temperature: temperature,
+                    maximumResponseTokens: effectiveMaxTokens
                 )
             } else {
                 return GenerationOptions(
-                    temperature: temperature
+                    temperature: temperature,
+                    maximumResponseTokens: effectiveMaxTokens
                 )
             }
         case .topP(let threshold):
             if let seed = config.seed {
                 return GenerationOptions(
                     sampling: .random(probabilityThreshold: threshold, seed: seed),
-                    temperature: temperature
+                    temperature: temperature,
+                    maximumResponseTokens: effectiveMaxTokens
                 )
             } else {
                 return GenerationOptions(
                     sampling: .random(probabilityThreshold: threshold),
-                    temperature: temperature
+                    temperature: temperature,
+                    maximumResponseTokens: effectiveMaxTokens
                 )
             }
         case .topK(let k):
             if let seed = config.seed {
                 return GenerationOptions(
                     sampling: .random(top: k, seed: seed),
-                    temperature: temperature
+                    temperature: temperature,
+                    maximumResponseTokens: effectiveMaxTokens
                 )
             } else {
                 return GenerationOptions(
                     sampling: .random(top: k),
-                    temperature: temperature
+                    temperature: temperature,
+                    maximumResponseTokens: effectiveMaxTokens
                 )
             }
         }
@@ -657,8 +462,13 @@ class FoundationModelService {
     }
     
     // Initialize the shared instance once at server startup
-    static func initialize(instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) async throws {
+    static func initialize(instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool, prewarm: Bool = false) async throws {
         shared = try await FoundationModelService(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
+        if prewarm {
+            print("🔥 Pre-warming model...")
+            try await shared?.prewarm()
+            print("✅ Model pre-warmed and ready")
+        }
     }
     
     // Get the shared instance

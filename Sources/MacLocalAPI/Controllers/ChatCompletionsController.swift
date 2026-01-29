@@ -19,7 +19,8 @@ struct ChatCompletionsController: RouteCollection {
     }
     func boot(routes: RoutesBuilder) throws {
         let v1 = routes.grouped("v1")
-        v1.post("chat", "completions", use: chatCompletions)
+        // Set explicit body size limit for long conversations
+        v1.on(.POST, "chat", "completions", body: .collect(maxSize: "100mb"), use: chatCompletions)
         v1.on(.OPTIONS, "chat", "completions", use: handleOptions)
     }
     
@@ -34,49 +35,83 @@ struct ChatCompletionsController: RouteCollection {
     func chatCompletions(req: Request) async throws -> Response {
         do {
             let chatRequest = try req.content.decode(ChatCompletionRequest.self)
-            
+
             guard !chatRequest.messages.isEmpty else {
                 let error = OpenAIError(message: "At least one message is required")
                 return try await createErrorResponse(req: req, error: error, status: .badRequest)
             }
-            
+
+            // Route to external backend if model is not "foundation"
+            let requestedModel = chatRequest.model ?? "foundation"
+            req.logger.info("Chat completions request - model: '\(requestedModel)', stream: \(chatRequest.stream ?? false)")
+
+            if requestedModel != "foundation" {
+                if let discovery = req.application.backendDiscovery,
+                   let backendModel = await discovery.backendForModel(requestedModel),
+                   let proxy = req.application.backendProxy {
+                    req.logger.info("Routing to backend '\(backendModel.backendName)' at \(backendModel.baseURL), originalId: '\(backendModel.originalId)'")
+                    if chatRequest.stream == true {
+                        return try await proxy.proxyStreamingRequest(to: backendModel.baseURL, originalModelId: backendModel.originalId, backendName: backendModel.backendName, request: req)
+                    } else {
+                        return try await proxy.proxyRequest(to: backendModel.baseURL, originalModelId: backendModel.originalId, backendName: backendModel.backendName, request: req)
+                    }
+                } else {
+                    let error = OpenAIError(
+                        message: "Model '\(requestedModel)' not found. Use GET /v1/models to list available models.",
+                        type: "model_not_found",
+                        code: "model_not_found"
+                    )
+                    return try await createErrorResponse(req: req, error: error, status: .notFound)
+                }
+            }
+
+            // Notify proxy that Foundation model is being used, so switching
+            // to a backend model next will trigger a clean context
+            if let proxy = req.application.backendProxy {
+                await proxy.notifyModelUsed("foundation")
+            }
+
             let foundationService: FoundationModelService
+            let processedMessages: [Message] = chatRequest.messages
             if #available(macOS 26.0, *) {
                 foundationService = try await FoundationModelService.createWithSharedAdapter(instructions: instructions, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
             } else {
                 throw FoundationModelError.notAvailable
             }
-            
+
             // Check if streaming is requested and enabled
             if chatRequest.stream == true && streamingEnabled {
-                return try await createStreamingResponse(req: req, chatRequest: chatRequest, foundationService: foundationService)
+                return try await createStreamingResponse(req: req, chatRequest: chatRequest, processedMessages: processedMessages, foundationService: foundationService)
             }
-            
+
             // Use temperature from API request if provided, otherwise use CLI parameter
             let effectiveTemperature = chatRequest.temperature ?? temperature
             let effectiveRandomness = randomness
 
-            let content = try await foundationService.generateResponse(for: chatRequest.messages, temperature: effectiveTemperature, randomness: effectiveRandomness)
-            
-            let promptTokens = estimateTokens(for: chatRequest.messages)
+            let content = try await foundationService.generateResponse(for: processedMessages, temperature: effectiveTemperature, randomness: effectiveRandomness, maxTokens: chatRequest.maxTokens)
+
+            let promptTokens = estimateTokens(for: processedMessages)
             let completionTokens = estimateTokens(for: content)
-            
+
             let response = ChatCompletionResponse(
                 model: chatRequest.model ?? "foundation",
                 content: content,
                 promptTokens: promptTokens,
                 completionTokens: completionTokens
             )
-            
+
             return try await createSuccessResponse(req: req, response: response)
-            
+
         } catch let foundationError as FoundationModelError {
-            // Handle context window exceeded with specific error type
+            // Handle specific error types
             let errorType: String
             let status: HTTPStatus
             switch foundationError {
             case .contextWindowExceeded:
                 errorType = "context_length_exceeded"
+                status = .badRequest
+            case .guardrailViolation:
+                errorType = "content_policy_violation"
                 status = .badRequest
             default:
                 errorType = "foundation_model_error"
@@ -115,10 +150,10 @@ struct ChatCompletionsController: RouteCollection {
     }
     
     private func estimateTokens(for messages: [Message]) -> Int {
-        let totalText = messages.map { $0.content }.joined(separator: " ")
+        let totalText = messages.map { $0.textContent }.joined(separator: " ")
         return estimateTokens(for: totalText)
     }
-    
+
     private func estimateTokens(for text: String) -> Int {
         // GPT-Style estimation based on OpenAI's rough estimates:
         // - 1 token ≈ 4 characters of English text
@@ -135,7 +170,7 @@ struct ChatCompletionsController: RouteCollection {
         return Int(max(charBasedTokens, wordBasedTokens))
     }
     
-    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, foundationService: FoundationModelService) async throws -> Response {
+    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, processedMessages: [Message], foundationService: FoundationModelService) async throws -> Response {
         let httpResponse = Response(status: .ok)
         httpResponse.headers.add(name: .contentType, value: "text/event-stream")
         httpResponse.headers.add(name: .cacheControl, value: "no-cache")
@@ -143,9 +178,9 @@ struct ChatCompletionsController: RouteCollection {
         httpResponse.headers.add(name: "Access-Control-Allow-Origin", value: "*")
         httpResponse.headers.add(name: "Access-Control-Allow-Headers", value: "Content-Type")
         httpResponse.headers.add(name: "X-Accel-Buffering", value: "no")
-        
+
         let streamId = UUID().uuidString
-        
+
         httpResponse.body = .init(asyncStream: { writer in
             let encoder = JSONEncoder()
 
@@ -154,73 +189,102 @@ struct ChatCompletionsController: RouteCollection {
                 let effectiveTemperature = chatRequest.temperature ?? self.temperature
                 let effectiveRandomness = self.randomness
 
-                // Get response with proper timing measurement
-                let (content, promptTime) = try await foundationService.generateStreamingResponseWithTiming(for: chatRequest.messages, temperature: effectiveTemperature, randomness: effectiveRandomness)
-                
-                // Start streaming timing
-                let completionStartTime = Date()
+                // Use native streaming for real token-by-token output
+                let promptStartTime = Date()
+                let stream = foundationService.generateNativeStreamingResponse(
+                    for: processedMessages,
+                    temperature: effectiveTemperature,
+                    randomness: effectiveRandomness,
+                    maxTokens: chatRequest.maxTokens
+                )
+
                 var isFirst = true
                 var completionTokens = 0
-                
-                // ChatGPT-style smooth streaming: token-by-token with natural timing
-                try await streamContentSmoothly(
-                    content: content,
-                    streamId: streamId,
-                    model: chatRequest.model ?? "foundation",
-                    encoder: encoder,
-                    writer: writer,
-                    isFirst: &isFirst,
-                    completionTokens: &completionTokens
-                )
-                
+                var firstTokenTime: Date? = nil
+
+                for try await chunk in stream {
+                    if firstTokenTime == nil {
+                        firstTokenTime = Date()
+                    }
+
+                    let streamChunk = ChatCompletionStreamResponse(
+                        id: streamId,
+                        model: chatRequest.model ?? "foundation",
+                        content: chunk,
+                        isFirst: isFirst
+                    )
+                    isFirst = false
+                    completionTokens += self.estimateTokens(for: chunk)
+
+                    let chunkData = try encoder.encode(streamChunk)
+                    if let jsonString = String(data: chunkData, encoding: .utf8) {
+                        try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                    }
+                }
+
                 // Calculate timing metrics
-                let completionTime = Date().timeIntervalSince(completionStartTime)
-                let promptTokens = estimateTokens(for: chatRequest.messages)
-                
+                let completionTime = Date().timeIntervalSince(firstTokenTime ?? promptStartTime)
+                let promptTime = (firstTokenTime ?? Date()).timeIntervalSince(promptStartTime)
+                let promptTokens = self.estimateTokens(for: processedMessages)
+
                 let usage = StreamUsage(
                     promptTokens: promptTokens,
                     completionTokens: completionTokens,
                     completionTime: completionTime,
                     promptTime: promptTime
                 )
-                
+
+                // Build timings for webui tokens/sec display
+                let timings = StreamTimings(
+                    prompt_n: promptTokens,
+                    prompt_ms: promptTime * 1000,
+                    predicted_n: completionTokens,
+                    predicted_ms: completionTime * 1000
+                )
+
                 // Send final chunk with metrics
                 let finalChunk = ChatCompletionStreamResponse(
                     id: streamId,
                     model: chatRequest.model ?? "foundation",
                     content: "",
                     isFinished: true,
-                    usage: usage
+                    usage: usage,
+                    timings: timings
                 )
                 let finalData = try encoder.encode(finalChunk)
                 if let jsonString = String(data: finalData, encoding: .utf8) {
                     try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                 }
-                
+
                 // Send done marker
                 try await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
-                
+
                 try await writer.write(.end)
-                
+
             } catch {
                 req.logger.error("Streaming error: \(error)")
 
-                // Detect context window exceeded errors and provide user-friendly message
-                let errorString = String(describing: error)
+                // Detect specific error types and provide user-friendly messages
                 let errorMessage: String
 
-                if errorString.contains("exceededContextWindowSize") || errorString.contains("context") && errorString.contains("exceeds") {
-                    // Extract token counts if available
-                    if let providedMatch = errorString.range(of: "Provided ([0-9,]+) tokens", options: .regularExpression),
-                       let maxMatch = errorString.range(of: "maximum allowed is ([0-9,]+)", options: .regularExpression) {
-                        let providedStr = String(errorString[providedMatch]).replacingOccurrences(of: "Provided ", with: "").replacingOccurrences(of: " tokens", with: "")
-                        let maxStr = String(errorString[maxMatch]).replacingOccurrences(of: "maximum allowed is ", with: "")
-                        errorMessage = "⚠️ **Context window exceeded**\n\nYour conversation has \(providedStr) tokens but the maximum is \(maxStr).\n\nPlease start a new conversation or reduce the message length."
-                    } else {
-                        errorMessage = "⚠️ **Context window exceeded**\n\nThe conversation is too long. Apple Foundation Models has a 4096 token limit.\n\nPlease start a new conversation."
+                if let foundationError = error as? FoundationModelError {
+                    switch foundationError {
+                    case .contextWindowExceeded(let provided, let maximum):
+                        errorMessage = "⚠️ **Context window exceeded**\n\nYour conversation has \(provided) tokens but the maximum is \(maximum).\n\nPlease start a new conversation or reduce the message length."
+                    case .guardrailViolation(let message):
+                        errorMessage = "⚠️ **Content Policy Violation**\n\n\(message)\n\nPlease rephrase your request."
+                    default:
+                        errorMessage = "⚠️ **Error**\n\n\(foundationError.localizedDescription)"
                     }
                 } else {
-                    errorMessage = "⚠️ **Error**\n\n\(error.localizedDescription)"
+                    let errorString = String(describing: error)
+                    if errorString.contains("exceededContextWindowSize") || errorString.contains("context") && errorString.contains("exceeds") {
+                        errorMessage = "⚠️ **Context window exceeded**\n\nThe conversation is too long. Apple Foundation Models has a 4096 token limit.\n\nPlease start a new conversation."
+                    } else if errorString.contains("guardrailViolation") || errorString.contains("unsafe content") {
+                        errorMessage = "⚠️ **Content Policy Violation**\n\nYour request was blocked due to content policy restrictions.\n\nPlease rephrase your request."
+                    } else {
+                        errorMessage = "⚠️ **Error**\n\n\(error.localizedDescription)"
+                    }
                 }
 
                 // Send error as visible content in the chat (so user sees it)
@@ -252,7 +316,7 @@ struct ChatCompletionsController: RouteCollection {
                 try? await writer.write(.end)
             }
         })
-        
+
         return httpResponse
     }
     

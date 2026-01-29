@@ -50,6 +50,12 @@ struct ServeCommand: ParsableCommand {
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
 
+    @Flag(name: [.customShort("g"), .long], help: "Enable API gateway mode: discover and proxy to local LLM backends (Ollama, LM Studio, Jan, etc.)")
+    var gateway: Bool = false
+
+    @Option(name: .long, help: "Pre-warm the model on server startup for faster first response (y/n, default: y)")
+    var prewarm: String = "y"
+
     func run() throws {
         // Validate temperature parameter
         if let temp = temperature {
@@ -69,21 +75,24 @@ struct ServeCommand: ParsableCommand {
             }
         }
 
+        // Parse prewarm flag
+        let prewarmEnabled = prewarm.lowercased() != "n" && prewarm.lowercased() != "no" && prewarm != "0"
+
         if verbose {
             print("Starting afm server with verbose logging enabled...")
         }
-        
+
         // Use RunLoop to handle the server lifecycle properly
         let runLoop = RunLoop.current
-        
+
         // Set up signal handling for graceful shutdown
         signal(SIGINT, handleShutdown)
         signal(SIGTERM, handleShutdown)
-        
+
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: port, hostname: hostname, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, webuiEnabled: webui)
+                let server = try await Server(port: port, hostname: hostname, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -91,12 +100,12 @@ struct ServeCommand: ParsableCommand {
                 shouldKeepRunning = false
             }
         }
-        
+
         // Keep the main thread alive until shutdown
         while shouldKeepRunning && runLoop.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) {
             // Keep running until shutdown signal
         }
-        
+
         print("Server shutdown complete.")
     }
 }
@@ -110,9 +119,8 @@ struct MacLocalAPI: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "afm",
         abstract: "macOS server that exposes Apple's Foundation Models through OpenAI-compatible API",
-        discussion: "GitHub: https://github.com/scouzi1966/maclocal-api",
-        version: buildVersion,
-        subcommands: [VisionCommand.self]
+        discussion: "Use -w to enable the WebUI, -g to enable API gateway mode (auto-discovers and proxies to Ollama, LM Studio, Jan, and other local LLM backends).\n\nGitHub: https://github.com/scouzi1966/maclocal-api",
+        version: buildVersion
     )
 }
 
@@ -120,14 +128,7 @@ struct RootCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "afm",
         abstract: "macOS server that exposes Apple's Foundation Models through OpenAI-compatible API",
-        discussion: """
-        GitHub: https://github.com/scouzi1966/maclocal-api
-        
-        Additional subcommands:
-          vision                  Extract text from images using Apple's Vision framework
-          
-        Use 'afm vision --help' for vision-specific options.
-        """,
+        discussion: "Use -w to enable the WebUI, -g to enable API gateway mode (auto-discovers and proxies to Ollama, LM Studio, Jan, and other local LLM backends).\n\nGitHub: https://github.com/scouzi1966/maclocal-api",
         version: MacLocalAPI.buildVersion
     )
     
@@ -164,6 +165,12 @@ struct RootCommand: ParsableCommand {
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
 
+    @Flag(name: [.customShort("g"), .long], help: "Enable API gateway mode: discover and proxy to local LLM backends (Ollama, LM Studio, Jan, etc.)")
+    var gateway: Bool = false
+
+    @Option(name: .long, help: "Pre-warm the model on server startup for faster first response (y/n, default: y)")
+    var prewarm: String = "y"
+
     func run() throws {
         // Validate temperature parameter
         if let temp = temperature {
@@ -192,7 +199,7 @@ struct RootCommand: ParsableCommand {
         if let stdinContent = try readFromStdin() {
             return try runSinglePrompt(stdinContent, adapter: adapter)
         }
-        
+
         // If no subcommand specified and no single prompt, run server
         var serveCommand = ServeCommand()
         serveCommand.port = port
@@ -205,21 +212,15 @@ struct RootCommand: ParsableCommand {
         serveCommand.randomness = randomness
         serveCommand.permissiveGuardrails = permissiveGuardrails
         serveCommand.webui = webui
+        serveCommand.gateway = gateway
+        serveCommand.prewarm = prewarm
         try serveCommand.run()
     }
 }
 
-// Parse command line arguments manually to handle backward compatibility
-let arguments = CommandLine.arguments
-
-// Check for vision subcommand first
-if arguments.count > 1 && arguments[1] == "vision" {
-    MacLocalAPI.main()
-} else {
-    // Use RootCommand for backward compatibility with single prompt mode
-    // This handles: afm -s, afm --help, afm -p, etc.
-    RootCommand.main()
-}
+// Use RootCommand for backward compatibility with single prompt mode
+// This handles: afm -s, afm --help, afm -p, etc.
+RootCommand.main()
 
 extension RootCommand {
     private func readFromStdin() throws -> String? {
