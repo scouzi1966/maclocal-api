@@ -133,6 +133,20 @@ struct LMStudioModelInfoResponse: Decodable {
     let type: String?
     let max_context_length: Int?
     let capabilities: [String]?
+    let state: String?
+}
+
+/// Response from LM Studio's GET /api/v0/models endpoint (all models)
+struct LMStudioModelsListResponse: Decodable {
+    let data: [LMStudioModelEntry]?
+
+    struct LMStudioModelEntry: Decodable {
+        let id: String
+        let type: String?
+        let state: String?
+        let max_context_length: Int?
+        let capabilities: [String]?
+    }
 }
 
 /// Response from Ollama's GET /api/ps endpoint (running models)

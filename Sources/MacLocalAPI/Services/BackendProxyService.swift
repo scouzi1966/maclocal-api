@@ -29,11 +29,12 @@ actor BackendProxyService {
         guard let body = request.body.data else {
             throw Abort(.badRequest, reason: "Missing request body")
         }
-        let stripHistory = lastProxiedModel != nil && lastProxiedModel != originalModelId
+        let previousModel = lastProxiedModel
+        let stripHistory = previousModel != nil && previousModel != originalModelId
         lastProxiedModel = originalModelId
         let bodyData = rewriteModelInBody(Data(buffer: body), to: originalModelId, stripHistory: stripHistory, backendName: backendName)
         if stripHistory {
-            logger.info("Model changed from '\(lastProxiedModel ?? "")' — stripping conversation history")
+            logger.info("Model changed from '\(previousModel ?? "")' — stripping conversation history")
         }
         logger.info("Proxying to \(baseURL) with model: \(originalModelId)")
 
@@ -46,11 +47,14 @@ actor BackendProxyService {
 
         let (data, urlResponse) = try await URLSession.shared.data(for: urlRequest)
 
+        // Normalize "reasoning" → "reasoning_content" in non-streaming response
+        let responseData = Self.normalizeReasoningField(in: data)
+
         let statusCode = (urlResponse as? HTTPURLResponse)?.statusCode ?? 500
         let response = Response(status: HTTPResponseStatus(statusCode: statusCode))
         response.headers.add(name: .contentType, value: "application/json")
         response.headers.add(name: .accessControlAllowOrigin, value: "*")
-        response.body = .init(data: data)
+        response.body = .init(data: responseData)
 
         return response
     }
@@ -62,11 +66,12 @@ actor BackendProxyService {
         guard let body = request.body.data else {
             throw Abort(.badRequest, reason: "Missing request body")
         }
-        let stripHistory = lastProxiedModel != nil && lastProxiedModel != originalModelId
+        let previousModel = lastProxiedModel
+        let stripHistory = previousModel != nil && previousModel != originalModelId
         lastProxiedModel = originalModelId
         let bodyData = rewriteModelInBody(Data(buffer: body), to: originalModelId, stripHistory: stripHistory, backendName: backendName)
         if stripHistory {
-            logger.info("Model changed — stripping conversation history for clean context")
+            logger.info("Model changed from '\(previousModel ?? "")' — stripping conversation history")
         }
         logger.info("Streaming proxy to \(baseURL) with model: \(originalModelId)")
 
@@ -151,10 +156,12 @@ actor BackendProxyService {
 
                     // Parse data chunks for timing and token tracking
                     if line.hasPrefix("data:") {
-                        let jsonStr = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                        var jsonStr = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
 
                         if let data = jsonStr.data(using: .utf8),
-                           let chunk = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                           var chunk = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+
+                            var chunkModified = false
 
                             // Track first-token time from content deltas
                             if let choices = chunk["choices"] as? [[String: Any]],
@@ -163,10 +170,33 @@ actor BackendProxyService {
                                 if firstTokenTime == nil { firstTokenTime = Date() }
                             }
 
+                            // Normalize "reasoning" → "reasoning_content" in deltas
+                            // (LM Studio sends "reasoning", WebUI expects "reasoning_content")
+                            if var choices = chunk["choices"] as? [[String: Any]] {
+                                for i in choices.indices {
+                                    if var delta = choices[i]["delta"] as? [String: Any],
+                                       let reasoning = delta["reasoning"] as? String,
+                                       delta["reasoning_content"] == nil {
+                                        delta["reasoning_content"] = reasoning
+                                        delta.removeValue(forKey: "reasoning")
+                                        choices[i]["delta"] = delta
+                                        chunkModified = true
+                                    }
+                                }
+                                if chunkModified { chunk["choices"] = choices }
+                            }
+
                             // Read real token counts from usage chunk (sent by Ollama with stream_options.include_usage)
                             if let usage = chunk["usage"] as? [String: Any] {
                                 if let pt = usage["prompt_tokens"] as? Int { promptTokens = pt }
                                 if let ct = usage["completion_tokens"] as? Int { completionTokens = ct }
+                            }
+
+                            // Re-serialize if we modified the chunk
+                            if chunkModified,
+                               let rewritten = try? JSONSerialization.data(withJSONObject: chunk),
+                               let result = String(data: rewritten, encoding: .utf8) {
+                                jsonStr = result
                             }
                         }
 
@@ -228,6 +258,31 @@ actor BackendProxyService {
         }
         try? await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
         try? await writer.write(.end)
+    }
+
+    /// Normalize "reasoning" → "reasoning_content" in a full JSON response body.
+    /// LM Studio sends "reasoning" but the WebUI expects "reasoning_content".
+    private static func normalizeReasoningField(in data: Data) -> Data {
+        guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var choices = json["choices"] as? [[String: Any]] else {
+            return data
+        }
+
+        var modified = false
+        for i in choices.indices {
+            if var message = choices[i]["message"] as? [String: Any],
+               let reasoning = message["reasoning"] as? String,
+               message["reasoning_content"] == nil {
+                message["reasoning_content"] = reasoning
+                message.removeValue(forKey: "reasoning")
+                choices[i]["message"] = message
+                modified = true
+            }
+        }
+
+        guard modified else { return data }
+        json["choices"] = choices
+        return (try? JSONSerialization.data(withJSONObject: json)) ?? data
     }
 
     /// Rewrite the "model" field in the JSON body to the original backend model ID.

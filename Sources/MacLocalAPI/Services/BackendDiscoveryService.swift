@@ -266,6 +266,12 @@ actor BackendDiscoveryService {
                 }
             }
 
+            // For LM Studio, fetch model states from /api/v0/models
+            var lmStudioStates: [String: String] = [:]
+            if definition.name == "LM Studio" {
+                lmStudioStates = await fetchLMStudioModelStates(baseURL: definition.baseURL)
+            }
+
             let models = entries.map { entry in
                 let displayId = "\(entry.id) · \(definition.name)"
 
@@ -280,6 +286,9 @@ actor BackendDiscoveryService {
                 let modelCaps = ModelCapabilities(vision: hasVision, tools: hasTools, contextLength: ctxLength)
                 capabilitiesCache[displayId] = modelCaps
 
+                // LM Studio: use state from /api/v0/models; others default to loaded
+                let isLoaded = lmStudioStates.isEmpty || lmStudioStates[entry.id] == "loaded"
+
                 return DiscoveredModel(
                     id: displayId,
                     originalId: entry.id,
@@ -287,7 +296,7 @@ actor BackendDiscoveryService {
                     backendName: definition.name,
                     baseURL: definition.baseURL,
                     created: entry.created ?? Int(Date().timeIntervalSince1970),
-                    loaded: true
+                    loaded: isLoaded
                 )
             }
 
@@ -387,6 +396,36 @@ actor BackendDiscoveryService {
         }
     }
 
+    /// Fetch model states from LM Studio's /api/v0/models endpoint.
+    /// Returns a dict of model ID → state ("loaded", "not-loaded", etc.)
+    private nonisolated func fetchLMStudioModelStates(baseURL: String) async -> [String: String] {
+        guard let url = URL(string: "\(baseURL)/api/v0/models") else { return [:] }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(afmAPIKey)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 3
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                return [:]
+            }
+
+            let decoded = try JSONDecoder().decode(LMStudioModelsListResponse.self, from: data)
+            var states: [String: String] = [:]
+            for entry in decoded.data ?? [] {
+                if let state = entry.state {
+                    states[entry.id] = state
+                }
+            }
+            return states
+        } catch {
+            return [:]
+        }
+    }
+
     /// Probe LM Studio via GET /api/v0/models/<id> for model capabilities
     private nonisolated func probeLMStudioCapabilities(_ model: DiscoveredModel) async -> ModelCapabilities {
         // URL-encode the model ID for the path
@@ -415,26 +454,6 @@ actor BackendDiscoveryService {
         }
     }
 
-    /// Fetch currently running/loaded models from Ollama's /api/ps endpoint
-    private nonisolated func fetchOllamaRunningModels(baseURL: String) async -> Set<String> {
-        guard let url = URL(string: "\(baseURL)/api/ps") else { return [] }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(afmAPIKey)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 3
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
-                return []
-            }
-            let decoded = try JSONDecoder().decode(OllamaRunningModelsResponse.self, from: data)
-            return Set((decoded.models ?? []).map { $0.name })
-        } catch {
-            return []
-        }
-    }
 }
 
 // MARK: - Vapor Storage Keys
