@@ -273,21 +273,22 @@ class Server {
             fetch('/v1/models').then(function(r){return r.json()}).then(function(d){
                 var count = d && d.data ? d.data.length : 0;
                 _isMultiModel = count > 1;
-                if(!_isMultiModel){ _autoSelectDone = true; return; }
                 var trigger = document.querySelector('[data-slot="chat-form"] button[class*="cursor-pointer"]');
                 if(!trigger){ _autoSelectDone = true; return; }
                 var text = trigger.textContent.trim();
                 if(text.includes('Select model')){
                     _autoSelectDone = true;
-                    selectModelByName(_preferredModel);
+                    // In single-model mode, select the only available model
+                    var name = _isMultiModel ? _preferredModel : (d.data[0] ? d.data[0].id : 'foundation');
+                    selectModelByName(name, true);
                 } else {
                     _autoSelectDone = true;
                 }
             }).catch(function(){ _autoSelectDone = true; });
         }
 
-        function selectModelByName(name){
-            if(!_isMultiModel) return;
+        function selectModelByName(name, force){
+            if(!_isMultiModel && !force) return;
             var trigger = document.querySelector('[data-slot="chat-form"] button[class*="cursor-pointer"]');
             if(!trigger) return;
             trigger.click();
