@@ -92,19 +92,4 @@ struct Message: Content {
             return parts.compactMap { $0.text }.joined(separator: "\n")
         }
     }
-
-    /// Get all image URLs from the message
-    var imageURLs: [String] {
-        switch content {
-        case .text(_):
-            return []
-        case .parts(let parts):
-            return parts.compactMap { $0.image_url?.url }
-        }
-    }
-
-    /// Check if message contains images
-    var hasImages: Bool {
-        !imageURLs.isEmpty
-    }
 }

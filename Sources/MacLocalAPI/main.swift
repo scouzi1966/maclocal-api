@@ -117,8 +117,7 @@ struct MacLocalAPI: ParsableCommand {
         commandName: "afm",
         abstract: "macOS server that exposes Apple's Foundation Models through OpenAI-compatible API",
         discussion: "GitHub: https://github.com/scouzi1966/maclocal-api",
-        version: buildVersion,
-        subcommands: [VisionCommand.self]
+        version: buildVersion
     )
 }
 
@@ -126,14 +125,7 @@ struct RootCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "afm",
         abstract: "macOS server that exposes Apple's Foundation Models through OpenAI-compatible API",
-        discussion: """
-        GitHub: https://github.com/scouzi1966/maclocal-api
-        
-        Additional subcommands:
-          vision                  Extract text from images using Apple's Vision framework
-          
-        Use 'afm vision --help' for vision-specific options.
-        """,
+        discussion: "GitHub: https://github.com/scouzi1966/maclocal-api",
         version: MacLocalAPI.buildVersion
     )
     
@@ -219,17 +211,9 @@ struct RootCommand: ParsableCommand {
     }
 }
 
-// Parse command line arguments manually to handle backward compatibility
-let arguments = CommandLine.arguments
-
-// Check for vision subcommand first
-if arguments.count > 1 && arguments[1] == "vision" {
-    MacLocalAPI.main()
-} else {
-    // Use RootCommand for backward compatibility with single prompt mode
-    // This handles: afm -s, afm --help, afm -p, etc.
-    RootCommand.main()
-}
+// Use RootCommand for backward compatibility with single prompt mode
+// This handles: afm -s, afm --help, afm -p, etc.
+RootCommand.main()
 
 extension RootCommand {
     private func readFromStdin() throws -> String? {

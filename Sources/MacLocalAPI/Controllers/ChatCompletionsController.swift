@@ -19,7 +19,8 @@ struct ChatCompletionsController: RouteCollection {
     }
     func boot(routes: RoutesBuilder) throws {
         let v1 = routes.grouped("v1")
-        v1.post("chat", "completions", use: chatCompletions)
+        // Set explicit body size limit for long conversations
+        v1.on(.POST, "chat", "completions", body: .collect(maxSize: "100mb"), use: chatCompletions)
         v1.on(.OPTIONS, "chat", "completions", use: handleOptions)
     }
     
@@ -40,12 +41,40 @@ struct ChatCompletionsController: RouteCollection {
                 return try await createErrorResponse(req: req, error: error, status: .badRequest)
             }
 
+            // Route to external backend if model is not "foundation"
+            let requestedModel = chatRequest.model ?? "foundation"
+            req.logger.info("Chat completions request - model: '\(requestedModel)', stream: \(chatRequest.stream ?? false)")
+
+            if requestedModel != "foundation" {
+                if let discovery = req.application.backendDiscovery,
+                   let backendModel = await discovery.backendForModel(requestedModel),
+                   let proxy = req.application.backendProxy {
+                    req.logger.info("Routing to backend '\(backendModel.backendName)' at \(backendModel.baseURL), originalId: '\(backendModel.originalId)'")
+                    if chatRequest.stream == true {
+                        return try await proxy.proxyStreamingRequest(to: backendModel.baseURL, originalModelId: backendModel.originalId, backendName: backendModel.backendName, request: req)
+                    } else {
+                        return try await proxy.proxyRequest(to: backendModel.baseURL, originalModelId: backendModel.originalId, backendName: backendModel.backendName, request: req)
+                    }
+                } else {
+                    let error = OpenAIError(
+                        message: "Model '\(requestedModel)' not found. Use GET /v1/models to list available models.",
+                        type: "model_not_found",
+                        code: "model_not_found"
+                    )
+                    return try await createErrorResponse(req: req, error: error, status: .notFound)
+                }
+            }
+
+            // Notify proxy that Foundation model is being used, so switching
+            // to a backend model next will trigger a clean context
+            if let proxy = req.application.backendProxy {
+                await proxy.notifyModelUsed("foundation")
+            }
+
             let foundationService: FoundationModelService
-            var processedMessages: [Message] = chatRequest.messages
+            let processedMessages: [Message] = chatRequest.messages
             if #available(macOS 26.0, *) {
                 foundationService = try await FoundationModelService.createWithSharedAdapter(instructions: instructions, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
-                // Process any images in messages
-                processedMessages = await processMessagesForImages(chatRequest.messages)
             } else {
                 throw FoundationModelError.notAvailable
             }
@@ -59,7 +88,7 @@ struct ChatCompletionsController: RouteCollection {
             let effectiveTemperature = chatRequest.temperature ?? temperature
             let effectiveRandomness = randomness
 
-            let content = try await foundationService.generateResponse(for: processedMessages, temperature: effectiveTemperature, randomness: effectiveRandomness)
+            let content = try await foundationService.generateResponse(for: processedMessages, temperature: effectiveTemperature, randomness: effectiveRandomness, maxTokens: chatRequest.maxTokens)
 
             let promptTokens = estimateTokens(for: processedMessages)
             let completionTokens = estimateTokens(for: content)
@@ -74,12 +103,15 @@ struct ChatCompletionsController: RouteCollection {
             return try await createSuccessResponse(req: req, response: response)
 
         } catch let foundationError as FoundationModelError {
-            // Handle context window exceeded with specific error type
+            // Handle specific error types
             let errorType: String
             let status: HTTPStatus
             switch foundationError {
             case .contextWindowExceeded:
                 errorType = "context_length_exceeded"
+                status = .badRequest
+            case .guardrailViolation:
+                errorType = "content_policy_violation"
                 status = .badRequest
             default:
                 errorType = "foundation_model_error"
@@ -122,61 +154,6 @@ struct ChatCompletionsController: RouteCollection {
         return estimateTokens(for: totalText)
     }
 
-    /// Process messages, extracting text from any images or PDFs
-    @available(macOS 26.0, *)
-    private func processMessagesForImages(_ messages: [Message]) async -> [Message] {
-        var processedMessages: [Message] = []
-
-        for message in messages {
-            if !message.hasImages {
-                // No images - use message as-is
-                processedMessages.append(Message(role: message.role, content: message.textContent))
-                continue
-            }
-
-            // Process images and combine with text
-            var combinedContent = message.textContent
-
-            for (index, imageURL) in message.imageURLs.enumerated() {
-                let imageLabel = message.imageURLs.count > 1 ? " \(index + 1)" : ""
-
-                let isPDF = imageURL.contains("application/pdf") || imageURL.lowercased().hasSuffix(".pdf")
-                let fileIcon = isPDF ? "📄" : "📷"
-                let fileType = isPDF ? "PDF" : "Image"
-
-                if imageURL.hasPrefix("data:") {
-                    // Base64 encoded file (image or PDF)
-                    do {
-                        let visionService = VisionService()
-                        let extractedText = try await visionService.extractTextFromBase64(imageURL)
-                        combinedContent += "\n\n\(fileIcon) [\(fileType)\(imageLabel) - OCR Extracted Text]\n\(extractedText)"
-                    } catch VisionError.noTextFound {
-                        combinedContent += "\n\n\(fileIcon) [\(fileType)\(imageLabel) - OCR Error: No text found in image. Note: OCR can only extract text, not describe visual content like photos or scenes.]"
-                    } catch {
-                        combinedContent += "\n\n\(fileIcon) [\(fileType)\(imageLabel) - OCR Error: \(error.localizedDescription)]"
-                    }
-                } else if imageURL.hasPrefix("http://") || imageURL.hasPrefix("https://") {
-                    // Remote URL - fetch and process (image or PDF)
-                    do {
-                        let visionService = VisionService()
-                        let extractedText = try await visionService.extractTextFromURL(imageURL)
-                        combinedContent += "\n\n\(fileIcon) [\(fileType)\(imageLabel) - OCR Extracted Text]\n\(extractedText)"
-                    } catch VisionError.noTextFound {
-                        combinedContent += "\n\n\(fileIcon) [\(fileType)\(imageLabel) - OCR Error: No text found in image. Note: OCR can only extract text, not describe visual content like photos or scenes.]"
-                    } catch {
-                        combinedContent += "\n\n\(fileIcon) [\(fileType)\(imageLabel) - OCR Error: \(error.localizedDescription)]"
-                    }
-                } else {
-                    combinedContent += "\n\n\(fileIcon) [\(fileType)\(imageLabel) - Unsupported format]"
-                }
-            }
-
-            processedMessages.append(Message(role: message.role, content: combinedContent))
-        }
-
-        return processedMessages
-    }
-    
     private func estimateTokens(for text: String) -> Int {
         // GPT-Style estimation based on OpenAI's rough estimates:
         // - 1 token ≈ 4 characters of English text
@@ -217,7 +194,8 @@ struct ChatCompletionsController: RouteCollection {
                 let stream = foundationService.generateNativeStreamingResponse(
                     for: processedMessages,
                     temperature: effectiveTemperature,
-                    randomness: effectiveRandomness
+                    randomness: effectiveRandomness,
+                    maxTokens: chatRequest.maxTokens
                 )
 
                 var isFirst = true
@@ -256,13 +234,22 @@ struct ChatCompletionsController: RouteCollection {
                     promptTime: promptTime
                 )
 
+                // Build timings for webui tokens/sec display
+                let timings = StreamTimings(
+                    prompt_n: promptTokens,
+                    prompt_ms: promptTime * 1000,
+                    predicted_n: completionTokens,
+                    predicted_ms: completionTime * 1000
+                )
+
                 // Send final chunk with metrics
                 let finalChunk = ChatCompletionStreamResponse(
                     id: streamId,
                     model: chatRequest.model ?? "foundation",
                     content: "",
                     isFinished: true,
-                    usage: usage
+                    usage: usage,
+                    timings: timings
                 )
                 let finalData = try encoder.encode(finalChunk)
                 if let jsonString = String(data: finalData, encoding: .utf8) {
@@ -277,22 +264,27 @@ struct ChatCompletionsController: RouteCollection {
             } catch {
                 req.logger.error("Streaming error: \(error)")
 
-                // Detect context window exceeded errors and provide user-friendly message
-                let errorString = String(describing: error)
+                // Detect specific error types and provide user-friendly messages
                 let errorMessage: String
 
-                if errorString.contains("exceededContextWindowSize") || errorString.contains("context") && errorString.contains("exceeds") {
-                    // Extract token counts if available
-                    if let providedMatch = errorString.range(of: "Provided ([0-9,]+) tokens", options: .regularExpression),
-                       let maxMatch = errorString.range(of: "maximum allowed is ([0-9,]+)", options: .regularExpression) {
-                        let providedStr = String(errorString[providedMatch]).replacingOccurrences(of: "Provided ", with: "").replacingOccurrences(of: " tokens", with: "")
-                        let maxStr = String(errorString[maxMatch]).replacingOccurrences(of: "maximum allowed is ", with: "")
-                        errorMessage = "⚠️ **Context window exceeded**\n\nYour conversation has \(providedStr) tokens but the maximum is \(maxStr).\n\nPlease start a new conversation or reduce the message length."
-                    } else {
-                        errorMessage = "⚠️ **Context window exceeded**\n\nThe conversation is too long. Apple Foundation Models has a 4096 token limit.\n\nPlease start a new conversation."
+                if let foundationError = error as? FoundationModelError {
+                    switch foundationError {
+                    case .contextWindowExceeded(let provided, let maximum):
+                        errorMessage = "⚠️ **Context window exceeded**\n\nYour conversation has \(provided) tokens but the maximum is \(maximum).\n\nPlease start a new conversation or reduce the message length."
+                    case .guardrailViolation(let message):
+                        errorMessage = "⚠️ **Content Policy Violation**\n\n\(message)\n\nPlease rephrase your request."
+                    default:
+                        errorMessage = "⚠️ **Error**\n\n\(foundationError.localizedDescription)"
                     }
                 } else {
-                    errorMessage = "⚠️ **Error**\n\n\(error.localizedDescription)"
+                    let errorString = String(describing: error)
+                    if errorString.contains("exceededContextWindowSize") || errorString.contains("context") && errorString.contains("exceeds") {
+                        errorMessage = "⚠️ **Context window exceeded**\n\nThe conversation is too long. Apple Foundation Models has a 4096 token limit.\n\nPlease start a new conversation."
+                    } else if errorString.contains("guardrailViolation") || errorString.contains("unsafe content") {
+                        errorMessage = "⚠️ **Content Policy Violation**\n\nYour request was blocked due to content policy restrictions.\n\nPlease rephrase your request."
+                    } else {
+                        errorMessage = "⚠️ **Error**\n\n\(error.localizedDescription)"
+                    }
                 }
 
                 // Send error as visible content in the chat (so user sees it)

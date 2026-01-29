@@ -107,6 +107,7 @@ enum FoundationModelError: Error, LocalizedError {
     case invalidInput
     case invalidRandomnessParameter(String)
     case contextWindowExceeded(provided: Int, maximum: Int)
+    case guardrailViolation(String)
 
     var errorDescription: String? {
         switch self {
@@ -122,7 +123,26 @@ enum FoundationModelError: Error, LocalizedError {
             return "Invalid randomness parameter: \(message)"
         case .contextWindowExceeded(let provided, let maximum):
             return "Context window exceeded: Your conversation has \(provided) tokens but the maximum is \(maximum). Please start a new conversation or reduce the message length."
+        case .guardrailViolation(let message):
+            return "Content policy violation: \(message)"
         }
+    }
+
+    /// Check if an error is a guardrail violation and extract the message
+    static func parseGuardrailError(_ error: Error) -> FoundationModelError? {
+        let errorString = String(describing: error)
+        if errorString.contains("guardrailViolation") || errorString.contains("unsafe content") {
+            // Extract the debug description if available
+            if let range = errorString.range(of: "debugDescription: \"") {
+                let start = range.upperBound
+                if let endRange = errorString[start...].range(of: "\"") {
+                    let message = String(errorString[start..<endRange.lowerBound])
+                    return .guardrailViolation(message)
+                }
+            }
+            return .guardrailViolation("The request was blocked due to content policy restrictions.")
+        }
+        return nil
     }
 
     /// Check if an error is a context window exceeded error and extract token counts
@@ -261,7 +281,7 @@ class FoundationModelService {
         #endif
     }
     
-    func generateResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil) async throws -> String {
+    func generateResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil, maxTokens: Int? = nil) async throws -> String {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
@@ -270,7 +290,7 @@ class FoundationModelService {
         let prompt = formatMessagesAsPrompt(messages)
 
         do {
-            let options = try createGenerationOptions(temperature: temperature, randomness: randomness)
+            let options = try createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
             let response = try await session.respond(to: prompt, options: options)
             return response.content
         } catch {
@@ -278,14 +298,18 @@ class FoundationModelService {
             if let contextError = FoundationModelError.parseContextWindowError(error) {
                 throw contextError
             }
+            // Check for guardrail violation
+            if let guardrailError = FoundationModelError.parseGuardrailError(error) {
+                throw guardrailError
+            }
             throw FoundationModelError.responseGenerationFailed(error.localizedDescription)
         }
         #else
         throw FoundationModelError.notAvailable
         #endif
     }
-    
-    func generateStreamingResponseWithTiming(for messages: [Message], temperature: Double? = nil, randomness: String? = nil) async throws -> (content: String, promptTime: Double) {
+
+    func generateStreamingResponseWithTiming(for messages: [Message], temperature: Double? = nil, randomness: String? = nil, maxTokens: Int? = nil) async throws -> (content: String, promptTime: Double) {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
@@ -296,7 +320,7 @@ class FoundationModelService {
         // Measure actual Foundation Model processing time
         let promptStartTime = Date()
         do {
-            let options = try createGenerationOptions(temperature: temperature, randomness: randomness)
+            let options = try createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
             let response = try await session.respond(to: prompt, options: options)
             let promptTime = Date().timeIntervalSince(promptStartTime)
 
@@ -313,13 +337,17 @@ class FoundationModelService {
             if let contextError = FoundationModelError.parseContextWindowError(error) {
                 throw contextError
             }
+            // Check for guardrail violation
+            if let guardrailError = FoundationModelError.parseGuardrailError(error) {
+                throw guardrailError
+            }
             throw FoundationModelError.responseGenerationFailed(error.localizedDescription)
         }
         #else
         throw FoundationModelError.notAvailable
         #endif
     }
-    
+
     func generateStreamingResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil) async throws -> AsyncThrowingStream<String, Error> {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         guard let session = session else {
@@ -351,7 +379,13 @@ class FoundationModelService {
                 } catch {
                     // Log the error and provide a fallback response
                     print("FoundationModel error: \(error)")
-                    continuation.finish(throwing: FoundationModelError.responseGenerationFailed(error.localizedDescription))
+                    if let contextError = FoundationModelError.parseContextWindowError(error) {
+                        continuation.finish(throwing: contextError)
+                    } else if let guardrailError = FoundationModelError.parseGuardrailError(error) {
+                        continuation.finish(throwing: guardrailError)
+                    } else {
+                        continuation.finish(throwing: FoundationModelError.responseGenerationFailed(error.localizedDescription))
+                    }
                 }
             }
         }
@@ -359,7 +393,7 @@ class FoundationModelService {
         throw FoundationModelError.notAvailable
         #endif
     }
-    
+
     private func formatMessagesAsPrompt(_ messages: [Message]) -> String {
         var prompt = ""
 
@@ -394,7 +428,8 @@ class FoundationModelService {
     func generateNativeStreamingResponse(
         for messages: [Message],
         temperature: Double? = nil,
-        randomness: String? = nil
+        randomness: String? = nil,
+        maxTokens: Int? = nil
     ) -> AsyncThrowingStream<String, Error> {
         return AsyncThrowingStream { continuation in
             Task {
@@ -407,16 +442,25 @@ class FoundationModelService {
                 let prompt = self.formatMessagesAsPrompt(messages)
 
                 do {
-                    let options = try self.createGenerationOptions(temperature: temperature, randomness: randomness)
-                    // Use native streaming API
+                    let options = try self.createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
+                    // Use native streaming API — partialResponse.content is cumulative,
+                    // so we must extract only the new delta each iteration.
                     let stream = session.streamResponse(to: prompt, options: options)
+                    var previousContent = ""
                     for try await partialResponse in stream {
-                        continuation.yield(partialResponse.content)
+                        let full = partialResponse.content
+                        if full.count > previousContent.count {
+                            let delta = String(full.dropFirst(previousContent.count))
+                            continuation.yield(delta)
+                        }
+                        previousContent = full
                     }
                     continuation.finish()
                 } catch {
                     if let contextError = FoundationModelError.parseContextWindowError(error) {
                         continuation.finish(throwing: contextError)
+                    } else if let guardrailError = FoundationModelError.parseGuardrailError(error) {
+                        continuation.finish(throwing: guardrailError)
                     } else {
                         continuation.finish(throwing: FoundationModelError.responseGenerationFailed(error.localizedDescription))
                     }
@@ -638,12 +682,14 @@ class FoundationModelService {
     }
 
     #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
-    private func createGenerationOptions(temperature: Double?, randomness: String?) throws -> GenerationOptions {
-        DebugLogger.log("createGenerationOptions called with temperature: \(temperature?.description ?? "nil"), randomness: \(randomness ?? "nil")")
+    private func createGenerationOptions(temperature: Double?, randomness: String?, maxTokens: Int? = nil) throws -> GenerationOptions {
+        // Treat non-positive values as "no limit" (Apple default)
+        let effectiveMaxTokens: Int? = if let mt = maxTokens, mt > 0 { mt } else { nil }
+        DebugLogger.log("createGenerationOptions called with temperature: \(temperature?.description ?? "nil"), randomness: \(randomness ?? "nil"), maxTokens: \(effectiveMaxTokens?.description ?? "nil")")
 
         guard let randomnessString = randomness else {
             // Default behavior when randomness is not specified
-            return GenerationOptions(temperature: temperature)
+            return GenerationOptions(temperature: temperature, maximumResponseTokens: effectiveMaxTokens)
         }
 
         let config = try RandomnessConfig.parse(randomnessString)
@@ -653,43 +699,48 @@ class FoundationModelService {
         case .greedy:
             return GenerationOptions(
                 sampling: .greedy,
-                temperature: temperature
+                temperature: temperature,
+                maximumResponseTokens: effectiveMaxTokens
             )
         case .random:
-            // Apple's default random sampling doesn't support seed directly
-            // For seeded random, we need to use a high probability threshold (near 1.0)
             if let seed = config.seed {
                 return GenerationOptions(
                     sampling: .random(probabilityThreshold: 1.0, seed: seed),
-                    temperature: temperature
+                    temperature: temperature,
+                    maximumResponseTokens: effectiveMaxTokens
                 )
             } else {
                 return GenerationOptions(
-                    temperature: temperature
+                    temperature: temperature,
+                    maximumResponseTokens: effectiveMaxTokens
                 )
             }
         case .topP(let threshold):
             if let seed = config.seed {
                 return GenerationOptions(
                     sampling: .random(probabilityThreshold: threshold, seed: seed),
-                    temperature: temperature
+                    temperature: temperature,
+                    maximumResponseTokens: effectiveMaxTokens
                 )
             } else {
                 return GenerationOptions(
                     sampling: .random(probabilityThreshold: threshold),
-                    temperature: temperature
+                    temperature: temperature,
+                    maximumResponseTokens: effectiveMaxTokens
                 )
             }
         case .topK(let k):
             if let seed = config.seed {
                 return GenerationOptions(
                     sampling: .random(top: k, seed: seed),
-                    temperature: temperature
+                    temperature: temperature,
+                    maximumResponseTokens: effectiveMaxTokens
                 )
             } else {
                 return GenerationOptions(
                     sampling: .random(top: k),
-                    temperature: temperature
+                    temperature: temperature,
+                    maximumResponseTokens: effectiveMaxTokens
                 )
             }
         }

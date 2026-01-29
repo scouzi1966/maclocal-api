@@ -77,14 +77,16 @@ struct ChatCompletionStreamResponse: Content {
     let model: String
     let choices: [StreamChoice]
     let usage: StreamUsage?
-    
-    init(id: String = UUID().uuidString, model: String, content: String, isFinished: Bool = false, isFirst: Bool = false, usage: StreamUsage? = nil) {
+    let timings: StreamTimings?
+
+    init(id: String = UUID().uuidString, model: String, content: String, isFinished: Bool = false, isFirst: Bool = false, usage: StreamUsage? = nil, timings: StreamTimings? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion.chunk"
         self.created = Int(Date().timeIntervalSince1970)
         self.model = model
         self.usage = usage
-        
+        self.timings = timings
+
         if isFinished {
             self.choices = [
                 StreamChoice(
@@ -111,6 +113,13 @@ struct ChatCompletionStreamResponse: Content {
             ]
         }
     }
+}
+
+struct StreamTimings: Content {
+    let prompt_n: Int
+    let prompt_ms: Double
+    let predicted_n: Int
+    let predicted_ms: Double
 }
 
 struct StreamChoice: Content {
