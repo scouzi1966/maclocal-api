@@ -1,10 +1,10 @@
 If you find this useful, please ⭐ the repo!
 
-## Latest app release --> https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.1
+## Latest app release --> https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.2
 
 > [!TIP]
-> ## What's new in v0.9.1 --> afm -w or afm --webui starts the API server AND a chat web interface!. It integrates llama.cpp webui.
-> ## afm -w is all you need!
+> ## What's new in v0.9.2 --> afm -w -g enables WebUI + API gateway mode. Auto-discovers and proxies to Ollama, LM Studio, Jan, and other local LLM backends. Reasoning model support (Qwen, DeepSeek, gpt-oss).
+> ## afm -w -g is all you need!
 
 > [!TIP]
 > ### TLDR Chose ONE of 2 methods to install
@@ -389,11 +389,10 @@ The server respects standard logging environment variables:
 
 ## ⚠️ Limitations & Notes
 
-- **Model Scope**: Uses Apple's 3B parameter Foundation Model (optimized for on-device performance)
-- **No Streaming**: Current implementation doesn't support streaming responses
+- **Model Scope**: Apple Foundation Model is a 3B parameter model (optimized for on-device performance)
 - **macOS 26+ Only**: Requires the latest macOS with Foundation Models framework
 - **Apple Intelligence Required**: Must be enabled in System Settings
-- **Token Estimation**: Uses word-based approximation for token counting
+- **Token Estimation**: Uses word-based approximation for token counting (Foundation model only; proxied backends report real counts)
 
 ## 🔍 Troubleshooting
 
@@ -456,12 +455,12 @@ If you encounter any issues or have questions:
 
 ## 🗺️ Roadmap
 
-- [ ] Streaming response support
-- [ ] Function calling implementation  
-- [ ] Multiple model support
+- [x] Streaming response support
+- [ ] Function/tool calling implementation
+- [x] Multiple model support (API gateway mode)
 - [ ] Performance optimizations
 - [ ] Docker containerization (when supported)
-- [ ] Web UI for testing
+- [x] Web UI for testing (llama.cpp WebUI integration)
 
 ---
 
