@@ -265,21 +265,29 @@ class Server {
         var _preferredModel = localStorage.getItem('afm-preferred-model') || 'foundation';
         var _autoSelectDone = false;
         var _userClickedModel = false;
+        var _isMultiModel = false; // detected from /v1/models count
 
         function autoSelectDefault(){
             if(_autoSelectDone) return;
-            var trigger = document.querySelector('[data-slot="chat-form"] button[class*="cursor-pointer"]');
-            if(!trigger) return;
-            var text = trigger.textContent.trim();
-            if(text.includes('Select model')){
-                _autoSelectDone = true;
-                selectModelByName(_preferredModel);
-            } else {
-                _autoSelectDone = true;
-            }
+            // Check if we're in multi-model (gateway) mode
+            fetch('/v1/models').then(function(r){return r.json()}).then(function(d){
+                var count = d && d.data ? d.data.length : 0;
+                _isMultiModel = count > 1;
+                if(!_isMultiModel){ _autoSelectDone = true; return; }
+                var trigger = document.querySelector('[data-slot="chat-form"] button[class*="cursor-pointer"]');
+                if(!trigger){ _autoSelectDone = true; return; }
+                var text = trigger.textContent.trim();
+                if(text.includes('Select model')){
+                    _autoSelectDone = true;
+                    selectModelByName(_preferredModel);
+                } else {
+                    _autoSelectDone = true;
+                }
+            }).catch(function(){ _autoSelectDone = true; });
         }
 
         function selectModelByName(name){
+            if(!_isMultiModel) return;
             var trigger = document.querySelector('[data-slot="chat-form"] button[class*="cursor-pointer"]');
             if(!trigger) return;
             trigger.click();
@@ -297,6 +305,7 @@ class Server {
 
         // Listen for user clicks on model dropdown options to track user intent
         document.addEventListener('click', function(e){
+            if(!_isMultiModel) return;
             var el = e.target;
             while(el && el !== document.body){
                 if(el.getAttribute && el.getAttribute('role') === 'option'){
@@ -347,15 +356,15 @@ class Server {
             if(!trigger) return;
             var model = trigger.textContent.trim();
             if(!model || model.includes('Select model')) {
-                // SPA reset — re-select preferred model
-                selectModelByName(_preferredModel);
+                // SPA reset — re-select preferred model (only in multi-model mode)
+                if(_isMultiModel) selectModelByName(_preferredModel);
                 var strip = document.getElementById('afm-model-info');
                 if(strip) strip.textContent = '';
                 _lastModel = '';
                 return;
             }
-            // Detect SPA-driven model switch (not user-initiated)
-            if(model !== _preferredModel && !_userClickedModel && _autoSelectDone){
+            // Detect SPA-driven model switch (only in multi-model mode)
+            if(_isMultiModel && model !== _preferredModel && !_userClickedModel && _autoSelectDone){
                 selectModelByName(_preferredModel);
                 return;
             }
