@@ -57,6 +57,9 @@ You can also explore a pure and private MacOS chat experience (non-cli) here: ht
 
 # The TLDR quick installation of the afm command on MacOS 26 Tahoe:
 
+Chose ONE of 2 methods to install (Homebrew or pip):
+
+### Method 1: Homebrew
 ```bash
 # Add the tap (first time only)
 brew tap scouzi1966/afm
@@ -70,12 +73,17 @@ brew upgrade afm
 afm --version  # Should show latest release
 
 # Brew workaround If you are having issues upgrading, Try the following:
-
 brew uninstall afm
-
 brew untap scouzi1966/afm
+# Then try again
+```
 
-Try again
+### Method 2: pip
+```bash
+pip install macafm
+
+# Verify installation
+afm --version
 ```
 
 **HOW TO USE afm:**
