@@ -133,19 +133,26 @@ actor BackendProxyService {
                 var firstTokenTime: Date? = nil
                 var promptTokens = 0
                 var completionTokens = 0
+                var estimatedCompletionTokens = 0
                 var lastDataLine: String? = nil
+                // State for <think> tag extraction (Qwen, DeepSeek R1, etc.)
+                var insideThinkBlock = false
+                var contentBuffer = ""  // accumulates content to detect tags across chunks
 
                 for try await line in bytes.lines {
                     // Check for stream termination
                     if line.contains("[DONE]") {
                         // Inject timings into the last data chunk if the backend didn't provide them
+                        // Use real token counts from usage if available, otherwise use estimates
+                        let finalPromptTokens = promptTokens > 0 ? promptTokens : estimatedCompletionTokens
+                        let finalCompletionTokens = completionTokens > 0 ? completionTokens : estimatedCompletionTokens
                         if let last = lastDataLine {
                             let injected = Self.injectTimingsIfMissing(
                                 line: last,
                                 streamStart: streamStart,
                                 firstTokenTime: firstTokenTime,
-                                promptTokens: promptTokens,
-                                completionTokens: completionTokens
+                                promptTokens: finalPromptTokens,
+                                completionTokens: finalCompletionTokens
                             )
                             try await writer.write(.buffer(.init(string: "data: \(injected)\n\n")))
                         }
@@ -163,11 +170,17 @@ actor BackendProxyService {
 
                             var chunkModified = false
 
-                            // Track first-token time from content deltas
+                            // Track first-token time and estimate token counts from content deltas
                             if let choices = chunk["choices"] as? [[String: Any]],
-                               let delta = choices.first?["delta"] as? [String: Any],
-                               let content = delta["content"] as? String, !content.isEmpty {
-                                if firstTokenTime == nil { firstTokenTime = Date() }
+                               let delta = choices.first?["delta"] as? [String: Any] {
+                                if let content = delta["content"] as? String, !content.isEmpty {
+                                    if firstTokenTime == nil { firstTokenTime = Date() }
+                                    estimatedCompletionTokens += max(1, content.count / 4)
+                                }
+                                if let reasoning = delta["reasoning"] as? String, !reasoning.isEmpty {
+                                    if firstTokenTime == nil { firstTokenTime = Date() }
+                                    estimatedCompletionTokens += max(1, reasoning.count / 4)
+                                }
                             }
 
                             // Normalize "reasoning" → "reasoning_content" in deltas
@@ -184,6 +197,41 @@ actor BackendProxyService {
                                     }
                                 }
                                 if chunkModified { chunk["choices"] = choices }
+                            }
+
+                            // Extract <think>...</think> tags from content into reasoning_content
+                            // (Qwen, DeepSeek R1, and similar models embed reasoning in content)
+                            if var choices = chunk["choices"] as? [[String: Any]] {
+                                for i in choices.indices {
+                                    if var delta = choices[i]["delta"] as? [String: Any],
+                                       let content = delta["content"] as? String,
+                                       delta["reasoning_content"] == nil,
+                                       delta["reasoning"] == nil {
+                                        contentBuffer += content
+                                        let extracted = Self.extractThinkTags(
+                                            buffer: &contentBuffer,
+                                            insideThinkBlock: &insideThinkBlock
+                                        )
+                                        if extracted.reasoning != nil || extracted.content != content {
+                                            // Rewrite the delta
+                                            if let r = extracted.reasoning, !r.isEmpty {
+                                                delta["reasoning_content"] = r
+                                            }
+                                            if let c = extracted.content {
+                                                delta["content"] = c.isEmpty ? nil : c
+                                            } else {
+                                                delta.removeValue(forKey: "content")
+                                            }
+                                            // Remove delta entirely if both are empty/nil
+                                            if delta["content"] == nil && delta["reasoning_content"] == nil {
+                                                delta["content"] = ""
+                                            }
+                                            choices[i]["delta"] = delta
+                                            chunk["choices"] = choices
+                                            chunkModified = true
+                                        }
+                                    }
+                                }
                             }
 
                             // Read real token counts from usage chunk (sent by Ollama with stream_options.include_usage)
@@ -260,8 +308,9 @@ actor BackendProxyService {
         try? await writer.write(.end)
     }
 
-    /// Normalize "reasoning" → "reasoning_content" in a full JSON response body.
-    /// LM Studio sends "reasoning" but the WebUI expects "reasoning_content".
+    /// Normalize reasoning fields in a full JSON response body:
+    /// 1. Rename "reasoning" → "reasoning_content" (LM Studio gpt-oss)
+    /// 2. Extract <think>...</think> from content into reasoning_content (Qwen, DeepSeek R1)
     private static func normalizeReasoningField(in data: Data) -> Data {
         guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               var choices = json["choices"] as? [[String: Any]] else {
@@ -270,19 +319,99 @@ actor BackendProxyService {
 
         var modified = false
         for i in choices.indices {
-            if var message = choices[i]["message"] as? [String: Any],
-               let reasoning = message["reasoning"] as? String,
-               message["reasoning_content"] == nil {
-                message["reasoning_content"] = reasoning
-                message.removeValue(forKey: "reasoning")
-                choices[i]["message"] = message
-                modified = true
+            if var message = choices[i]["message"] as? [String: Any] {
+                // Rename "reasoning" → "reasoning_content"
+                if let reasoning = message["reasoning"] as? String,
+                   message["reasoning_content"] == nil {
+                    message["reasoning_content"] = reasoning
+                    message.removeValue(forKey: "reasoning")
+                    choices[i]["message"] = message
+                    modified = true
+                }
+
+                // Extract <think>...</think> from content
+                if let content = message["content"] as? String,
+                   message["reasoning_content"] == nil,
+                   content.contains("<think>") {
+                    var buffer = content
+                    var inside = false
+                    let extracted = extractThinkTags(buffer: &buffer, insideThinkBlock: &inside)
+                    // Flush remaining buffer as content
+                    let finalContent = (extracted.content ?? "") + buffer
+                    if let r = extracted.reasoning, !r.isEmpty {
+                        message["reasoning_content"] = r
+                        message["content"] = finalContent.trimmingCharacters(in: .whitespacesAndNewlines)
+                        choices[i]["message"] = message
+                        modified = true
+                    }
+                }
             }
         }
 
         guard modified else { return data }
         json["choices"] = choices
         return (try? JSONSerialization.data(withJSONObject: json)) ?? data
+    }
+
+    /// Extract `<think>...</think>` content from a streaming buffer.
+    /// Returns any reasoning and regular content that can be flushed.
+    /// The buffer retains incomplete tag fragments for the next call.
+    private static func extractThinkTags(
+        buffer: inout String,
+        insideThinkBlock: inout Bool
+    ) -> (reasoning: String?, content: String?) {
+        var reasoning = ""
+        var content = ""
+
+        while !buffer.isEmpty {
+            if insideThinkBlock {
+                // Look for </think>
+                if let endRange = buffer.range(of: "</think>") {
+                    // Everything before </think> is reasoning
+                    reasoning += String(buffer[buffer.startIndex..<endRange.lowerBound])
+                    buffer = String(buffer[endRange.upperBound...])
+                    insideThinkBlock = false
+                } else if buffer.count > 8 {
+                    // Flush all but last 8 chars (enough to hold a partial "</think>")
+                    let safeEnd = buffer.index(buffer.endIndex, offsetBy: -8)
+                    reasoning += String(buffer[buffer.startIndex..<safeEnd])
+                    buffer = String(buffer[safeEnd...])
+                    break
+                } else {
+                    // Buffer too short, wait for more data
+                    break
+                }
+            } else {
+                // Look for <think>
+                if let startRange = buffer.range(of: "<think>") {
+                    // Everything before <think> is regular content
+                    let before = String(buffer[buffer.startIndex..<startRange.lowerBound])
+                    content += before
+                    buffer = String(buffer[startRange.upperBound...])
+                    insideThinkBlock = true
+                } else if buffer.count > 7 {
+                    // Flush all but last 7 chars (enough to hold a partial "<think>")
+                    let safeEnd = buffer.index(buffer.endIndex, offsetBy: -7)
+                    content += String(buffer[buffer.startIndex..<safeEnd])
+                    buffer = String(buffer[safeEnd...])
+                    break
+                } else {
+                    // Buffer too short, wait for more data
+                    break
+                }
+            }
+        }
+
+        // Return nil if nothing to emit for that field
+        let r: String? = reasoning.isEmpty ? nil : reasoning
+        let c: String? = content.isEmpty ? nil : content
+
+        // If we consumed input but produced nothing yet, return empty content to suppress original
+        if r == nil && c == nil {
+            return (reasoning: nil, content: "")
+        }
+
+        return (reasoning: r, content: c)
     }
 
     /// Rewrite the "model" field in the JSON body to the original backend model ID.
@@ -309,6 +438,11 @@ actor BackendProxyService {
                 trimmed.append(lastUser)
             }
             json["messages"] = trimmed
+        }
+
+        // Request usage data in all streaming responses so we get real token counts
+        if json["stream"] as? Bool == true {
+            json["stream_options"] = ["include_usage": true]
         }
 
         // Ollama's OpenAI-compat endpoint ignores non-standard top-level params.
@@ -393,9 +527,5 @@ actor BackendProxyService {
             json["options"] = options
         }
 
-        // Request usage data in streaming responses so we get real token counts
-        if json["stream"] as? Bool == true {
-            json["stream_options"] = ["include_usage": true]
-        }
     }
 }

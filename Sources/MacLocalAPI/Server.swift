@@ -264,6 +264,7 @@ class Server {
         // Auto-select last used model (or "foundation" on first load)
         var _preferredModel = localStorage.getItem('afm-preferred-model') || 'foundation';
         var _autoSelectDone = false;
+        var _userClickedModel = false;
 
         function autoSelectDefault(){
             if(_autoSelectDone) return;
@@ -272,27 +273,50 @@ class Server {
             var text = trigger.textContent.trim();
             if(text.includes('Select model')){
                 _autoSelectDone = true;
-                trigger.click();
-                setTimeout(function(){
-                    var items = document.querySelectorAll('[role="option"]');
-                    for(var i=0;i<items.length;i++){
-                        if(items[i].textContent.trim().startsWith(_preferredModel)){
-                            items[i].click();
-                            return;
-                        }
-                    }
-                    for(var i=0;i<items.length;i++){
-                        if(items[i].textContent.trim().startsWith('foundation')){
-                            items[i].click();
-                            return;
-                        }
-                    }
-                    trigger.click();
-                }, 200);
+                selectModelByName(_preferredModel);
             } else {
                 _autoSelectDone = true;
             }
         }
+
+        function selectModelByName(name){
+            var trigger = document.querySelector('[data-slot="chat-form"] button[class*="cursor-pointer"]');
+            if(!trigger) return;
+            trigger.click();
+            setTimeout(function(){
+                var items = document.querySelectorAll('[role="option"]');
+                for(var i=0;i<items.length;i++){
+                    if(items[i].textContent.trim().startsWith(name)){
+                        items[i].click();
+                        return;
+                    }
+                }
+                trigger.click(); // close if not found
+            }, 200);
+        }
+
+        // Listen for user clicks on model dropdown options to track user intent
+        document.addEventListener('click', function(e){
+            var el = e.target;
+            while(el && el !== document.body){
+                if(el.getAttribute && el.getAttribute('role') === 'option'){
+                    _userClickedModel = true;
+                    setTimeout(function(){
+                        var trigger = document.querySelector('[data-slot="chat-form"] button[class*="cursor-pointer"]');
+                        if(trigger){
+                            var model = trigger.textContent.trim();
+                            if(model && !model.includes('Select model')){
+                                _preferredModel = model;
+                                localStorage.setItem('afm-preferred-model', model);
+                            }
+                        }
+                        _userClickedModel = false;
+                    }, 300);
+                    return;
+                }
+                el = el.parentElement;
+            }
+        }, true);
 
         // Model info strip
         var _lastModel = '';
@@ -323,20 +347,22 @@ class Server {
             if(!trigger) return;
             var model = trigger.textContent.trim();
             if(!model || model.includes('Select model')) {
+                // SPA reset — re-select preferred model
+                selectModelByName(_preferredModel);
                 var strip = document.getElementById('afm-model-info');
                 if(strip) strip.textContent = '';
                 _lastModel = '';
+                return;
+            }
+            // Detect SPA-driven model switch (not user-initiated)
+            if(model !== _preferredModel && !_userClickedModel && _autoSelectDone){
+                selectModelByName(_preferredModel);
                 return;
             }
             // Re-render if strip was destroyed by SPA re-render even if model unchanged
             var stripExists = document.getElementById('afm-model-info');
             if(model === _lastModel && stripExists) return;
             _lastModel = model;
-            // Remember selected model for new chats
-            if(model !== _preferredModel){
-                _preferredModel = model;
-                localStorage.setItem('afm-preferred-model', model);
-            }
 
             // Fetch model details from /v1/models (cached) and /props
             var p1 = _modelsCache ? Promise.resolve(_modelsCache) : fetch('/v1/models').then(function(r){return r.json()}).then(function(d){_modelsCache=d;return d});
