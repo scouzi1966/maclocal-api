@@ -162,45 +162,37 @@ pip install macafm
 afm --version
 ```
 
-#### Option 3: Install from tarball
+#### Option 3: Build from Source
 
 ```bash
-# Download the release
-curl -L -o afm-v0.5.5-arm64.tar.gz https://github.com/scouzi1966/maclocal-api/releases/download/v0.5.5/afm-v0.5.5-arm64.tar.gz
-
-# Extract and install
-tar -xzf afm-v0.5.5-arm64.tar.gz
-sudo cp afm /usr/local/bin/
-
-# Verify installation
-afm --version  # Should show v0.5.5
-```
-
-#### Option 4: Build from Source
-
-```bash
-# Clone the repository
-git clone https://github.com/scouzi1966/maclocal-api.git
+# Clone the repository (includes llama.cpp WebUI as a submodule)
+git clone --recursive https://github.com/scouzi1966/maclocal-api.git
 cd maclocal-api
 
 # Build the project
 swift build -c release
+
+# Run
+./.build/release/afm --version
 ```
 
-### Running the Server
+### Running
 
 ```bash
-# Start server on default port 9999 (Homebrew install)
+# API server only (Apple Foundation Model on port 9999)
 afm
 
-# Or if built from source
-./.build/release/afm
+# API server with WebUI chat interface
+afm -w
+
+# WebUI + API gateway (auto-discovers Ollama, LM Studio, Jan, etc.)
+afm -w -g
 
 # Custom port with verbose logging
-afm --port 8080 --verbose
+afm -p 8080 -v
 
 # Show help
-afm --help
+afm -h
 ```
 
 ## 📡 API Endpoints
@@ -406,8 +398,8 @@ The server respects standard logging environment variables:
 
 ### Server Won't Start
 1. Check if the port is already in use: `lsof -i :9999`
-2. Try a different port: `./MacLocalAPI --port 8080`
-3. Enable verbose logging: `./MacLocalAPI --verbose`
+2. Try a different port: `afm -p 8080`
+3. Enable verbose logging: `afm -v`
 
 ### Build Issues
 1. Ensure you have **Xcode 26 installed
@@ -421,18 +413,15 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 ### Development Setup
 
 ```bash
-# Clone the repo
-git clone https://github.com/scouzi1966/maclocal-api.git
+# Clone the repo with submodules
+git clone --recursive https://github.com/scouzi1966/maclocal-api.git
 cd maclocal-api
 
 # Build for development
 swift build
 
-# Run tests (when available)
-swift test
-
-# Run with development flags
-./.build/debug/MacLocalAPI --verbose
+# Run with verbose logging
+./.build/debug/afm -w -g -v
 ```
 
 ## 📄 License
