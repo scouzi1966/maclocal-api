@@ -169,6 +169,13 @@ afm --version
 git clone --recursive https://github.com/scouzi1966/maclocal-api.git
 cd maclocal-api
 
+# Build the WebUI (requires Node.js)
+cd vendor/llama.cpp/tools/server/webui
+npm install && npm run build
+cd ../../../../..
+mkdir -p Resources/webui
+cp vendor/llama.cpp/tools/server/public/index.html.gz Resources/webui/
+
 # Build the project
 swift build -c release
 
@@ -416,6 +423,10 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 # Clone the repo with submodules
 git clone --recursive https://github.com/scouzi1966/maclocal-api.git
 cd maclocal-api
+
+# Build WebUI (first time only, requires Node.js)
+cd vendor/llama.cpp/tools/server/webui && npm install && npm run build && cd ../../../../..
+mkdir -p Resources/webui && cp vendor/llama.cpp/tools/server/public/index.html.gz Resources/webui/
 
 # Build for development
 swift build
