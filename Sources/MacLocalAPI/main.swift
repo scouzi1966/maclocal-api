@@ -50,6 +50,9 @@ struct ServeCommand: ParsableCommand {
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
 
+    @Flag(name: [.customShort("g"), .long], help: "Enable API gateway mode: discover and proxy to local LLM backends (Ollama, LM Studio, Jan, etc.)")
+    var gateway: Bool = false
+
     @Option(name: .long, help: "Pre-warm the model on server startup for faster first response (y/n, default: y)")
     var prewarm: String = "y"
 
@@ -89,7 +92,7 @@ struct ServeCommand: ParsableCommand {
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: port, hostname: hostname, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, webuiEnabled: webui, prewarmEnabled: prewarmEnabled)
+                let server = try await Server(port: port, hostname: hostname, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -97,12 +100,12 @@ struct ServeCommand: ParsableCommand {
                 shouldKeepRunning = false
             }
         }
-        
+
         // Keep the main thread alive until shutdown
         while shouldKeepRunning && runLoop.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) {
             // Keep running until shutdown signal
         }
-        
+
         print("Server shutdown complete.")
     }
 }
@@ -116,7 +119,7 @@ struct MacLocalAPI: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "afm",
         abstract: "macOS server that exposes Apple's Foundation Models through OpenAI-compatible API",
-        discussion: "GitHub: https://github.com/scouzi1966/maclocal-api",
+        discussion: "Use -w to enable the WebUI, -g to enable API gateway mode (auto-discovers and proxies to Ollama, LM Studio, Jan, and other local LLM backends).\n\nGitHub: https://github.com/scouzi1966/maclocal-api",
         version: buildVersion
     )
 }
@@ -125,7 +128,7 @@ struct RootCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "afm",
         abstract: "macOS server that exposes Apple's Foundation Models through OpenAI-compatible API",
-        discussion: "GitHub: https://github.com/scouzi1966/maclocal-api",
+        discussion: "Use -w to enable the WebUI, -g to enable API gateway mode (auto-discovers and proxies to Ollama, LM Studio, Jan, and other local LLM backends).\n\nGitHub: https://github.com/scouzi1966/maclocal-api",
         version: MacLocalAPI.buildVersion
     )
     
@@ -161,6 +164,9 @@ struct RootCommand: ParsableCommand {
 
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
+
+    @Flag(name: [.customShort("g"), .long], help: "Enable API gateway mode: discover and proxy to local LLM backends (Ollama, LM Studio, Jan, etc.)")
+    var gateway: Bool = false
 
     @Option(name: .long, help: "Pre-warm the model on server startup for faster first response (y/n, default: y)")
     var prewarm: String = "y"
@@ -206,6 +212,7 @@ struct RootCommand: ParsableCommand {
         serveCommand.randomness = randomness
         serveCommand.permissiveGuardrails = permissiveGuardrails
         serveCommand.webui = webui
+        serveCommand.gateway = gateway
         serveCommand.prewarm = prewarm
         try serveCommand.run()
     }

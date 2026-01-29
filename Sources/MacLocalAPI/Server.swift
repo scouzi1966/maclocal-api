@@ -40,9 +40,10 @@ class Server {
     private let permissiveGuardrails: Bool
     private let webuiEnabled: Bool
     private let webuiPath: String?
+    private let gatewayEnabled: Bool
     private let prewarmEnabled: Bool
 
-    init(port: Int, hostname: String, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, webuiEnabled: Bool = false, prewarmEnabled: Bool = true) async throws {
+    init(port: Int, hostname: String, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -54,23 +55,26 @@ class Server {
         self.permissiveGuardrails = permissiveGuardrails
         self.webuiEnabled = webuiEnabled
         self.webuiPath = Server.findWebuiPath()
+        self.gatewayEnabled = gatewayEnabled
         self.prewarmEnabled = prewarmEnabled
-        
+
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
         try LoggingSystem.bootstrap(from: &env)
-        
+
         self.app = try await Application.make(env)
-        
+
         if verbose {
             app.logger.logLevel = .debug
         }
 
-        // Initialize backend discovery and proxy services
-        let discovery = BackendDiscoveryService(logger: app.logger, selfPort: port)
-        let proxy = BackendProxyService(logger: app.logger)
-        app.backendDiscovery = discovery
-        app.backendProxy = proxy
+        // Initialize backend discovery and proxy services (only in gateway mode)
+        if gatewayEnabled {
+            let discovery = BackendDiscoveryService(logger: app.logger, selfPort: port)
+            let proxy = BackendProxyService(logger: app.logger)
+            app.backendDiscovery = discovery
+            app.backendProxy = proxy
+        }
 
         try configure()
     }
@@ -501,22 +505,27 @@ class Server {
         if let adapterPath = adapter {
             print("     • Adapter:            \(adapterPath)")
         }
+        if gatewayEnabled {
+            print("     • Gateway:            ✓ enabled (multi-backend proxy)")
+        }
         print("")
         print("  ℹ️  Requires macOS 26+ with Apple Intelligence")
         print("  💡 Press Ctrl+C to stop the server")
-        print("")
-        let yellow = "\u{001B}[33m"
-        print("  ⚠️  API Key for detected backends: \(yellow)\(afmAPIKey)\(reset)")
-        print("     This is NOT a security measure and is considered unsafe and insecure.")
-        print("     It is a shared passphrase for backends absolutely requiring API keys")
-        print("     (e.g. Jan). Set this key in your backend's API")
-        print("     key settings if it rejects requests.")
+        if gatewayEnabled {
+            print("")
+            let yellow = "\u{001B}[33m"
+            print("  ⚠️  API Key for detected backends: \(yellow)\(afmAPIKey)\(reset)")
+            print("     This is NOT a security measure and is considered unsafe and insecure.")
+            print("     It is a shared passphrase for backends absolutely requiring API keys")
+            print("     (e.g. Jan). Set this key in your backend's API")
+            print("     key settings if it rejects requests.")
+        }
         print("")
         print("  ─────────────────────────────────────────────────────────────────────────")
         print("")
-        
-        // Start backend discovery scanning
-        if let discovery = app.backendDiscovery {
+
+        // Start backend discovery scanning (gateway mode only)
+        if gatewayEnabled, let discovery = app.backendDiscovery {
             await discovery.startPeriodicScanning()
 
             let discovered = await discovery.allDiscoveredModels()
