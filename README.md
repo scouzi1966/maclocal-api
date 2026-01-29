@@ -4,6 +4,10 @@ If you find this useful, please ⭐ the repo!
 
 > [!TIP]
 > ## What's new in v0.9.2 --> afm -w -g enables WebUI + API gateway mode. Auto-discovers and proxies to Ollama, LM Studio, Jan, and other local LLM backends. Reasoning model support (Qwen, DeepSeek, gpt-oss).
+>
+> Truly a killer feature. -g is a new Gateway mode which will aggregate and proxy all your locallu running model servers from Ollama, llama-server, LM Studio, Jan and expose a single API for all! Combined with -w (afm -wg), you'll instantly gain access to all your models served on your machine in a single Web interface with very little setup friction.
+> Please comment for feature requests, bugs anything! I hope you're enjoying this app. Star if you are.
+> 
 > ## afm -w -g is all you need!
 
 > [!TIP]
