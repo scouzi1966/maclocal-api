@@ -1,15 +1,26 @@
-## Latest app release --> https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.0
+If you find this useful, please ⭐ the repo!
+
+## Latest app release --> https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.1
 
 > [!TIP]
-> ## What's new in v0.9.0 --> afm -w or afm --webui starts the API server AND a chat web interface!. It integrates llama.cpp webui.
+> ## What's new in v0.9.1 --> afm -w or afm --webui starts the API server AND a chat web interface!. It integrates llama.cpp webui.
 > ## afm -w is all you need!
 
 > [!TIP]
+> ### TLDR Chose ONE of 2 methods to install
 >
 > ### TLDR install with Homebrew
 > ```bash
 > brew tap scouzi1966/afm
 > brew install afm
+>
+> single command
+> brew install scouzi1966/afm/afm
+> ```
+>
+> > ### OR NEW METHOD WITH PIP! 
+> ```bash
+> pip install macafm
 > ```
 > To start a webchat:
 >
