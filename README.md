@@ -81,29 +81,26 @@ Try again
 **HOW TO USE afm:**
 ```bash
 
-# Start the OpenAI compatible API server on DEFAULT port 9999
+# Start the API server only (Apple Foundation Model on port 9999)
 afm
 
-# Start the OpenAI compatible API server on DEFAULT port 9999 and a Webserver to chat
+# Start the API server with WebUI chat interface
 afm -w
 
-# Start the OpenAI compatible  API server on port 9998 with trained adapter
+# Start with WebUI and API gateway (auto-discovers Ollama, LM Studio, Jan, etc.)
+afm -w -g
+
+# Start on a custom port with a trained LoRA adapter
 afm -a ./my_adapter.fmadapter -p 9998
 
-# Use in single mode
+# Use in single prompt mode
 afm -i "you are a pirate, you only answer in pirate jargon" -s "Write a story about Einstein"
 
-# Use in single mode with adapter
+# Use in single prompt mode with adapter
 afm -s "Write a story about Einstein" -a ./my_adapter.fmadapter
 
 # Use in pipe mode
 ls -ltr | afm -i "list the files only of ls output"
-
-# Experimental with Apple Vision Framework - extract text
-afm vision -f file.jpg or pdf
-
-# Experimental with Apple Vision Framework - detect and extract tables in csv. Can be handwritten text and it will use OCR
-afm vision -t -f file.jpg or pdf 
 ```
 
 A very simple to use macOS server application that exposes Apple's Foundation Models through OpenAI-compatible API endpoints. Run Apple Intelligence locally with full OpenAI API compatibility. For use with Python, JS or even open-webui (https://github.com/open-webui/open-webui).
