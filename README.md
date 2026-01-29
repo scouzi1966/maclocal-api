@@ -335,31 +335,47 @@ MacLocalAPI/
 
 ### Command Line Options
 
-```bash
-OVERVIEW: macOS server that exposes Apple's Foundation Models through OpenAI-compatible API
+```
+OVERVIEW: macOS server that exposes Apple's Foundation Models through
+OpenAI-compatible API
 
-USAGE: afm [--single-prompt <single-prompt>] [--instructions <instructions>] [--verbose] [--no-streaming] [--adapter <adapter>] [--port <port>] [--hostname <hostname>] [--temperature <temperature>] [--randomness <randomness>]
+Use -w to enable the WebUI, -g to enable API gateway mode (auto-discovers and
+proxies to Ollama, LM Studio, Jan, and other local LLM backends).
+
+USAGE: afm <options>
 
 OPTIONS:
-  -p, --port <port>       Port to run the server on (default: 9999)
-  -v, --verbose           Enable verbose logging
-  --no-streaming          Disable streaming responses (streaming is enabled by default)
-  -i, --instructions <instructions>
-                          Custom instructions for the AI assistant (default: You are a helpful assistant)
   -s, --single-prompt <single-prompt>
                           Run a single prompt without starting the server
+  -i, --instructions <instructions>
+                          Custom instructions for the AI assistant (default:
+                          You are a helpful assistant)
+  -v, --verbose           Enable verbose logging
+  --no-streaming          Disable streaming responses (streaming is enabled by
+                          default)
   -a, --adapter <adapter> Path to a .fmadapter file for LoRA adapter fine-tuning
+  -p, --port <port>       Port to run the server on (default: 9999)
   -H, --hostname <hostname>
                           Hostname to bind server to (default: 127.0.0.1)
   -t, --temperature <temperature>
-                          Temperature for response generation (0.0-1.0, Apple default when not specified)
+                          Temperature for response generation (0.0-1.0)
   -r, --randomness <randomness>
-                          Randomness mode: 'greedy' or 'random' (Apple default when not specified)
+                          Sampling mode: 'greedy', 'random',
+                          'random:top-p=<0.0-1.0>', 'random:top-k=<int>', with
+                          optional ':seed=<int>'
+  -P, --permissive-guardrails
+                          Permissive guardrails for unsafe or inappropriate
+                          responses
+  -w, --webui             Enable webui and open in default browser
+  -g, --gateway           Enable API gateway mode: discover and proxy to local
+                          LLM backends (Ollama, LM Studio, Jan, etc.)
+  --prewarm <prewarm>     Pre-warm the model on server startup for faster first
+                          response (y/n, default: y)
   --version               Show the version.
   -h, --help              Show help information.
 
-Note: afm also accepts piped input from other commands, equivalent to using -s with the piped content as the prompt.
-
+Note: afm also accepts piped input from other commands, equivalent to using -s
+with the piped content as the prompt.
 ```
 
 ### Environment Variables
