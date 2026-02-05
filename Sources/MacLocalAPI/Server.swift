@@ -290,6 +290,7 @@ class Server {
         var _autoSelectDone = false;
         var _userClickedModel = false;
         var _isMultiModel = false; // detected from /v1/models count
+        var _modelRestorationAttempted = false; // Track if we've already tried to restore preferred model
 
         function autoSelectDefault(){
             if(_autoSelectDone) return;
@@ -313,18 +314,22 @@ class Server {
 
         function selectModelByName(name, force){
             if(!_isMultiModel && !force) return;
+            if(_selectingModel) return; // Prevent re-entrant calls
             var trigger = document.querySelector('[data-slot="chat-form"] button[class*="cursor-pointer"]');
             if(!trigger) return;
+            _selectingModel = true;
             trigger.click();
             setTimeout(function(){
                 var items = document.querySelectorAll('[role="option"]');
                 for(var i=0;i<items.length;i++){
                     if(items[i].textContent.trim().startsWith(name)){
                         items[i].click();
+                        setTimeout(function(){ _selectingModel = false; }, 500);
                         return;
                     }
                 }
                 trigger.click(); // close if not found
+                setTimeout(function(){ _selectingModel = false; }, 500);
             }, 200);
         }
 
@@ -354,6 +359,7 @@ class Server {
 
         // Model info strip
         var _lastModel = '';
+        var _selectingModel = false; // Prevent repeated auto-select during dropdown animation
         var _modelsCache = null;
 
         function fmtCtx(n){
@@ -377,22 +383,23 @@ class Server {
         }
 
         function updateInfoStrip(){
+            if(_selectingModel) return; // Don't interfere while selecting
             var trigger = document.querySelector('[data-slot="chat-form"] button[class*="cursor-pointer"]');
             if(!trigger) return;
             var model = trigger.textContent.trim();
             if(!model || model.includes('Select model')) {
                 // SPA reset — re-select preferred model (only in multi-model mode)
-                if(_isMultiModel) selectModelByName(_preferredModel);
+                if(_isMultiModel && !_selectingModel && !_modelRestorationAttempted) {
+                    _modelRestorationAttempted = true;
+                    selectModelByName(_preferredModel);
+                }
                 var strip = document.getElementById('afm-model-info');
                 if(strip) strip.textContent = '';
                 _lastModel = '';
                 return;
             }
-            // Detect SPA-driven model switch (only in multi-model mode)
-            if(_isMultiModel && model !== _preferredModel && !_userClickedModel && _autoSelectDone){
-                selectModelByName(_preferredModel);
-                return;
-            }
+            // Model is now selected, mark restoration as complete
+            _modelRestorationAttempted = true;
             // Re-render if strip was destroyed by SPA re-render even if model unchanged
             var stripExists = document.getElementById('afm-model-info');
             if(model === _lastModel && stripExists) return;
