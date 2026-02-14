@@ -248,9 +248,9 @@ class Server {
     /// Custom CSS/JS to inject into webui (branding + auto-select default model)
     private static let customCSS = """
     <style>
-    /* Hide page until branding is applied to prevent llama.cpp flash */
+    /* Hide page until branding + model selection complete */
     body { opacity: 0 !important; }
-    body.afm-ready { opacity: 1 !important; }
+    body.afm-ready { opacity: 1 !important; transition: opacity 0.15s ease-in; }
     /* Make model labels on response bubbles static (non-clickable) */
     .info [data-slot="popover-trigger"] { pointer-events: none; }
     .info [data-slot="popover-trigger"] svg { display: none; }
@@ -285,52 +285,28 @@ class Server {
             document.title=document.title.replace('llama.cpp','AFM');
         }
 
-        // Auto-select last used model (or "foundation" on first load)
-        var _preferredModel = localStorage.getItem('afm-preferred-model') || 'foundation';
-        var _autoSelectDone = false;
+        // Keep reveal gating simple: no programmatic model auto-clicking.
+        var _autoSelectDone = true;
         var _userClickedModel = false;
         var _isMultiModel = false; // detected from /v1/models count
-        var _modelRestorationAttempted = false; // Track if we've already tried to restore preferred model
 
-        function autoSelectDefault(){
-            if(_autoSelectDone) return;
-            // Check if we're in multi-model (gateway) mode
-            fetch('/v1/models').then(function(r){return r.json()}).then(function(d){
-                var count = d && d.data ? d.data.length : 0;
-                _isMultiModel = count > 1;
-                var trigger = document.querySelector('[data-slot="chat-form"] button[class*="cursor-pointer"]');
-                if(!trigger){ _autoSelectDone = true; return; }
-                var text = trigger.textContent.trim();
-                if(text.includes('Select model')){
-                    _autoSelectDone = true;
-                    // In single-model mode, select the only available model
-                    var name = _isMultiModel ? _preferredModel : (d.data[0] ? d.data[0].id : 'foundation');
-                    selectModelByName(name, true);
-                } else {
-                    _autoSelectDone = true;
-                }
-            }).catch(function(){ _autoSelectDone = true; });
-        }
+        function getModelTrigger(){
+            var form = document.querySelector('[data-slot="chat-form"]');
+            if(!form) return null;
 
-        function selectModelByName(name, force){
-            if(!_isMultiModel && !force) return;
-            if(_selectingModel) return; // Prevent re-entrant calls
-            var trigger = document.querySelector('[data-slot="chat-form"] button[class*="cursor-pointer"]');
-            if(!trigger) return;
-            _selectingModel = true;
-            trigger.click();
-            setTimeout(function(){
-                var items = document.querySelectorAll('[role="option"]');
-                for(var i=0;i<items.length;i++){
-                    if(items[i].textContent.trim().startsWith(name)){
-                        items[i].click();
-                        setTimeout(function(){ _selectingModel = false; }, 500);
-                        return;
-                    }
-                }
-                trigger.click(); // close if not found
-                setTimeout(function(){ _selectingModel = false; }, 500);
-            }, 200);
+            // Prefer the actual model picker button (popover/listbox trigger)
+            var popoverButtons = form.querySelectorAll('button[aria-haspopup="listbox"],button[data-slot="popover-trigger"]');
+            if(popoverButtons.length > 0) return popoverButtons[0];
+
+            // Fallback: find a button that looks like model text, not action buttons
+            var buttons = form.querySelectorAll('button');
+            for(var i=0;i<buttons.length;i++){
+                var txt = (buttons[i].textContent || '').trim();
+                if(!txt) continue;
+                if(txt.includes('Select model')) return buttons[i];
+                if(txt !== 'Send' && txt !== 'Stop' && txt !== '+') return buttons[i];
+            }
+            return null;
         }
 
         // Listen for user clicks on model dropdown options to track user intent
@@ -341,11 +317,10 @@ class Server {
                 if(el.getAttribute && el.getAttribute('role') === 'option'){
                     _userClickedModel = true;
                     setTimeout(function(){
-                        var trigger = document.querySelector('[data-slot="chat-form"] button[class*="cursor-pointer"]');
+                        var trigger = getModelTrigger();
                         if(trigger){
                             var model = trigger.textContent.trim();
                             if(model && !model.includes('Select model')){
-                                _preferredModel = model;
                                 localStorage.setItem('afm-preferred-model', model);
                             }
                         }
@@ -371,7 +346,7 @@ class Server {
         function getOrCreateStrip(){
             var el = document.getElementById('afm-model-info');
             if(el) return el;
-            var trigger = document.querySelector('[data-slot="chat-form"] button[class*="cursor-pointer"]');
+            var trigger = getModelTrigger();
             if(!trigger) return null;
             var parent = trigger.parentElement;
             if(!parent) return null;
@@ -384,22 +359,15 @@ class Server {
 
         function updateInfoStrip(){
             if(_selectingModel) return; // Don't interfere while selecting
-            var trigger = document.querySelector('[data-slot="chat-form"] button[class*="cursor-pointer"]');
+            var trigger = getModelTrigger();
             if(!trigger) return;
             var model = trigger.textContent.trim();
             if(!model || model.includes('Select model')) {
-                // SPA reset — re-select preferred model (only in multi-model mode)
-                if(_isMultiModel && !_selectingModel && !_modelRestorationAttempted) {
-                    _modelRestorationAttempted = true;
-                    selectModelByName(_preferredModel);
-                }
                 var strip = document.getElementById('afm-model-info');
                 if(strip) strip.textContent = '';
                 _lastModel = '';
                 return;
             }
-            // Model is now selected, mark restoration as complete
-            _modelRestorationAttempted = true;
             // Re-render if strip was destroyed by SPA re-render even if model unchanged
             var stripExists = document.getElementById('afm-model-info');
             if(model === _lastModel && stripExists) return;
@@ -450,12 +418,14 @@ class Server {
         }
 
         function waitForSpaAndReveal(){
-            // Wait for the SPA to render before rebranding and revealing
+            // Wait for the SPA to render AND model auto-select to finish before revealing
             var attempts = 0;
             var check = setInterval(function(){
                 attempts++;
                 var h1 = document.querySelector('h1');
-                if(h1 || attempts > 50){
+                var spaReady = h1 || attempts > 50;
+                var selectReady = _autoSelectDone || attempts > 100; // max ~5s wait for select
+                if(spaReady && selectReady){
                     clearInterval(check);
                     rebrand();
                     document.body.classList.add('afm-ready');
@@ -465,10 +435,25 @@ class Server {
 
         function init(){
             waitForSpaAndReveal();
-            // Try auto-select after models load (give the SPA time to fetch /v1/models)
-            setTimeout(autoSelectDefault, 1500);
-            setTimeout(autoSelectDefault, 3000);
-            setInterval(function(){ rebrand(); updateInfoStrip(); }, 2000);
+            // Discover if gateway mode has multiple models; no auto-selection side effects.
+            fetch('/v1/models').then(function(r){return r.json()}).then(function(d){
+                var count = d && d.data ? d.data.length : 0;
+                _isMultiModel = count > 1;
+            }).catch(function(){});
+
+            // Update branding/info on real DOM changes rather than polling.
+            var refreshTimer = null;
+            function scheduleRefresh(){
+                if(refreshTimer) clearTimeout(refreshTimer);
+                refreshTimer = setTimeout(function(){
+                    rebrand();
+                    updateInfoStrip();
+                }, 120);
+            }
+            scheduleRefresh();
+            var observer = new MutationObserver(scheduleRefresh);
+            observer.observe(document.documentElement, { childList: true, subtree: true });
+
             // Periodically check for new models from background port scanning
             setInterval(refreshModelList, 15000);
             setTimeout(refreshModelList, 5000);
