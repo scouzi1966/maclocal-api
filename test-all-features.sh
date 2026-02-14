@@ -433,7 +433,7 @@ fi
 echo -e "${CYAN}Testing server with permissive guardrails enabled...${NC}"
 if start_test_server "-P"; then
     run_api_test "Chat with permissive guardrails" "/v1/chat/completions" "POST" \
-        '{"model":"apple-afm","messages":[{"role":"user","content":"Test content"}]}' \
+        '{"model":"foundation","messages":[{"role":"user","content":"Test content"}]}' \
         "choices"
 
     stop_test_server
@@ -446,7 +446,7 @@ fi
 echo -e "${CYAN}Testing server with custom parameters...${NC}"
 if start_test_server "-t 0.5 -r greedy"; then
     run_api_test "Chat with server-level temp/randomness" "/v1/chat/completions" "POST" \
-        '{"model":"apple-afm","messages":[{"role":"user","content":"Test"}]}' \
+        '{"model":"foundation","messages":[{"role":"user","content":"Test"}]}' \
         "choices"
 
     stop_test_server
