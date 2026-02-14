@@ -9,7 +9,7 @@ description = "Access Apple's on-device Foundation Models via CLI and OpenAI-com
 readme = "README.md"
 license = "MIT"
 authors = [
-    {name = "Sylvain Cousineau", email = "scouzi1966@users.noreply.github.com"}
+    {name = "Sylvain Cousineau"}
 ]
 keywords = [
     "apple",

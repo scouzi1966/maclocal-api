@@ -54,6 +54,8 @@ xcuserdata/
 
 # Logs
 *.log
+afm_full_test_log_*.txt
+afm_test_log_*.txt
 
 # Test files
 test-curl-commands.md
