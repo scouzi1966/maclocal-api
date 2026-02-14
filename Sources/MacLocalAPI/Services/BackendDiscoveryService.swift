@@ -64,7 +64,7 @@ actor BackendDiscoveryService {
     }
 
     /// Ports to scan for unknown OpenAI-compatible APIs (beyond the known backends).
-    /// Focused on common LLM server ports to keep scans fast.
+    /// These ranges are used to filter ports returned by lsof (listening ports).
     private static let scanPortRanges: [ClosedRange<Int>] = [
         3000...3999,   // Node/Express dev servers
         4000...4999,   // Various dev servers
@@ -75,7 +75,52 @@ actor BackendDiscoveryService {
         8888...8899,   // Jupyter/misc
         9000...9099,   // Various
         9999...9999,   // Common alt port
+        49152...65535, // macOS ephemeral/dynamic ports (IANA range)
     ]
+
+    /// Get all TCP ports currently listening on localhost using lsof.
+    /// This is much faster than attempting TCP connections to thousands of ports.
+    private nonisolated func getListeningPorts() -> Set<Int> {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        process.arguments = ["-iTCP", "-sTCP:LISTEN", "-nP"]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return []
+        }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else { return [] }
+
+        var ports = Set<Int>()
+        // Parse lsof output: NAME column contains "host:port (LISTEN)" like "127.0.0.1:8080 (LISTEN)" or "*:8080 (LISTEN)"
+        // We need to find the column with the colon-port pattern, not just the last column
+        for line in output.split(separator: "\n") {
+            let columns = line.split(separator: " ", omittingEmptySubsequences: true)
+            // Find column containing address:port (has colon followed by digits)
+            for column in columns {
+                let col = String(column)
+                if let colonIndex = col.lastIndex(of: ":") {
+                    let afterColon = col.index(after: colonIndex)
+                    if afterColon < col.endIndex {
+                        let portStr = String(col[afterColon...])
+                        if let port = Int(portStr), port > 0, port <= 65535 {
+                            ports.insert(port)
+                            break  // Found port for this line
+                        }
+                    }
+                }
+            }
+        }
+        return ports
+    }
 
     /// Probe only known backends (Ollama, LM Studio, etc.) — fast, ~3 seconds max.
     private func scanKnownBackends() async {
@@ -108,19 +153,29 @@ actor BackendDiscoveryService {
     }
 
     /// Scan port ranges for unknown OpenAI-compatible APIs and merge with existing backends.
+    /// Uses lsof to get listening ports first (fast), then filters to allowed ranges.
     private func scanOpenPorts() async {
         let knownPorts = Set(BackendDefinition.allKnown.map { $0.defaultPort })
-        let portsToScan = Self.scanPortRanges.flatMap { range in
-            range.filter { $0 != selfPort && !knownPorts.contains($0) && !BackendDefinition.blacklistedPorts.contains($0) }
+        let blacklisted = BackendDefinition.blacklistedPorts
+
+        // Get actually listening ports from OS (fast)
+        let listeningPorts = getListeningPorts()
+
+        // Filter to ports within our scan ranges, excluding known/blacklisted/self
+        let allowedRanges = Self.scanPortRanges
+        let openPorts = listeningPorts.filter { port in
+            port != selfPort &&
+            !knownPorts.contains(port) &&
+            !blacklisted.contains(port) &&
+            allowedRanges.contains { $0.contains(port) }
         }
 
-        let openPorts = await findOpenPorts(portsToScan)
         guard !openPorts.isEmpty else {
             logger.info("Port scan complete — no additional OpenAI-compatible APIs found")
             return
         }
 
-        logger.info("Port scan found \(openPorts.count) open port(s): \(openPorts.sorted())")
+        logger.info("Port scan found \(openPorts.count) listening port(s): \(openPorts.sorted())")
 
         var newBackends: [String: DiscoveredBackend] = [:]
         await withTaskGroup(of: (String, DiscoveredBackend?).self) { group in
