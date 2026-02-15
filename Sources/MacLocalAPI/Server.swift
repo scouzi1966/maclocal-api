@@ -42,8 +42,10 @@ class Server {
     private let webuiPath: String?
     private let gatewayEnabled: Bool
     private let prewarmEnabled: Bool
+    private let mlxModelID: String?
+    private let mlxModelService: MLXModelService?
 
-    init(port: Int, hostname: String, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true) async throws {
+    init(port: Int, hostname: String, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -57,6 +59,8 @@ class Server {
         self.webuiPath = Server.findWebuiPath()
         self.gatewayEnabled = gatewayEnabled
         self.prewarmEnabled = prewarmEnabled
+        self.mlxModelID = mlxModelID
+        self.mlxModelService = mlxModelService
 
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
@@ -103,6 +107,28 @@ class Server {
         }
 
         app.get("v1", "models") { req async -> ModelsResponse in
+            if let mlxModelID = self.mlxModelID {
+                return ModelsResponse(
+                    object: "list",
+                    data: [
+                        ModelInfo(
+                            id: mlxModelID,
+                            object: "model",
+                            created: Int(Date().timeIntervalSince1970),
+                            owned_by: "mlx",
+                            loaded: true
+                        )
+                    ],
+                    models: [
+                        ModelDetails(
+                            name: mlxModelID,
+                            model: mlxModelID,
+                            capabilities: ["chat", "completion", "vision"]
+                        )
+                    ]
+                )
+            }
+
             var models: [ModelInfo] = [
                 ModelInfo(
                     id: "foundation",
@@ -177,11 +203,46 @@ class Server {
             return response
         }
 
-        let chatController = ChatCompletionsController(streamingEnabled: streamingEnabled, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
-        try app.register(collection: chatController)
+        if let mlxModelID = mlxModelID, let mlxModelService = mlxModelService {
+            let mlxController = MLXChatCompletionsController(
+                streamingEnabled: streamingEnabled,
+                modelID: mlxModelID,
+                service: mlxModelService,
+                temperature: temperature
+            )
+            try app.register(collection: mlxController)
+        } else {
+            let chatController = ChatCompletionsController(streamingEnabled: streamingEnabled, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
+            try app.register(collection: chatController)
+        }
 
         // Props endpoint for llama.cpp webui compatibility (per-model capabilities)
         app.get("props") { [self] req async -> PropsResponse in
+            if let mlxModelID = self.mlxModelID {
+                return PropsResponse(
+                    default_generation_settings: DefaultGenerationSettings(
+                        n_ctx: 8192,
+                        params: GenerationParams(
+                            n_predict: -1,
+                            temperature: self.temperature ?? 0.8,
+                            top_k: 40,
+                            top_p: 0.95,
+                            min_p: 0.05,
+                            stream: self.streamingEnabled,
+                            max_tokens: 2048
+                        )
+                    ),
+                    total_slots: 1,
+                    model_path: mlxModelID,
+                    role: "mlx",
+                    modalities: Modalities(vision: true, audio: false),
+                    chat_template: "",
+                    bos_token: "",
+                    eos_token: "",
+                    build_info: "AFM \(BuildInfo.version ?? "dev")"
+                )
+            }
+
             let modelParam = req.query[String.self, at: "model"]
             let isFoundation = modelParam == nil || modelParam == "foundation"
 
