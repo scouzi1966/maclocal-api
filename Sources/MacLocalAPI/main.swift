@@ -126,6 +126,9 @@ struct MlxCommand: ParsableCommand {
     @Option(name: [.customShort("s"), .long], help: "Run a single prompt without starting the server")
     var singlePrompt: String?
 
+    @Option(name: [.short, .long], help: "Custom instructions for the AI assistant")
+    var instructions: String = "You are a helpful assistant"
+
     @Option(name: .shortAndLong, help: "Port to run server on. If not set, tries 9999 then falls back to ephemeral.")
     var port: Int?
 
@@ -246,7 +249,7 @@ struct MlxCommand: ParsableCommand {
                     verbose: verbose,
                     veryVerbose: veryVerbose,
                     streamingEnabled: !noStreaming,
-                    instructions: "You are a helpful assistant",
+                    instructions: instructions,
                     adapter: nil,
                     temperature: temperature,
                     randomness: nil,
@@ -293,9 +296,12 @@ struct MlxCommand: ParsableCommand {
         group.enter()
         Task {
             do {
+                var messages = [Message]()
+                messages.append(Message(role: "system", content: self.instructions))
+                messages.append(Message(role: "user", content: prompt))
                 let res = try await service.generate(
                     model: modelID,
-                    messages: [Message(role: "user", content: prompt)],
+                    messages: messages,
                     temperature: temperature,
                     maxTokens: maxTokens,
                     topP: topP,
