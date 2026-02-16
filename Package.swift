@@ -16,9 +16,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.99.3"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
-        .package(url: "https://github.com/ml-explore/mlx-swift.git", from: "0.30.0"),
-        // Same local patched workflow used in Vesta
-        .package(name: "mlx-swift-lm", path: "../git/vetsa-mac-model-support/Tools/mlx-swift-lm-local"),
+        .package(name: "mlx-swift-lm", path: "vendor/mlx-swift-lm"),
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.1.6")
     ],
     targets: [

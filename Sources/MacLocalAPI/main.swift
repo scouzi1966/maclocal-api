@@ -28,6 +28,9 @@ struct ServeCommand: ParsableCommand {
     
     @Flag(name: .shortAndLong, help: "Enable verbose logging")
     var verbose: Bool = false
+
+    @Flag(name: [.customShort("V"), .long], help: "Enable very verbose logging (full requests/responses and all parameters)")
+    var veryVerbose: Bool = false
     
     @Flag(name: .long, help: "Disable streaming responses (streaming is enabled by default)")
     var noStreaming: Bool = false
@@ -92,7 +95,7 @@ struct ServeCommand: ParsableCommand {
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: port, hostname: hostname, verbose: verbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled)
+                let server = try await Server(port: port, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -131,6 +134,9 @@ struct MlxCommand: ParsableCommand {
 
     @Flag(name: .shortAndLong, help: "Enable verbose logging")
     var verbose: Bool = false
+
+    @Flag(name: [.customShort("V"), .long], help: "Enable very verbose logging (full requests/responses and all parameters)")
+    var veryVerbose: Bool = false
 
     @Flag(name: .long, help: "Disable streaming responses (streaming is enabled by default)")
     var noStreaming: Bool = false
@@ -226,11 +232,19 @@ struct MlxCommand: ParsableCommand {
 
         _ = Task {
             do {
-                _ = try await service.ensureLoaded(model: selectedModel)
+                let loadReporter = MLXLoadReporter(modelID: selectedModel)
+                loadReporter.start()
+                _ = try await service.ensureLoaded(
+                    model: selectedModel,
+                    progress: { p in loadReporter.updateDownload(p) },
+                    stage: { s in loadReporter.updateStage(s) }
+                )
+                loadReporter.finish(success: true)
                 let server = try await Server(
                     port: chosenPort,
                     hostname: hostname,
                     verbose: verbose,
+                    veryVerbose: veryVerbose,
                     streamingEnabled: !noStreaming,
                     instructions: "You are a helpful assistant",
                     adapter: nil,
@@ -241,7 +255,8 @@ struct MlxCommand: ParsableCommand {
                     gatewayEnabled: false,
                     prewarmEnabled: false,
                     mlxModelID: selectedModel,
-                    mlxModelService: service
+                    mlxModelService: service,
+                    mlxRepetitionPenalty: repetitionPenalty
                 )
                 globalServer = server
                 if !explicitPort && chosenPort != 9999 {
@@ -249,6 +264,7 @@ struct MlxCommand: ParsableCommand {
                 }
                 try await server.start()
             } catch {
+                MLXLoadReporter.finishActiveWithError(error.localizedDescription)
                 print("Error starting MLX server. CTRL-C to stop: \(error)")
                 shouldKeepRunning = false
             }
@@ -262,6 +278,16 @@ struct MlxCommand: ParsableCommand {
     }
 
     private func runSinglePrompt(_ prompt: String, service: MLXModelService, modelID: String) throws {
+        defer {
+            let cleanup = DispatchGroup()
+            cleanup.enter()
+            Task {
+                await service.shutdownAndReleaseResources(verbose: verbose)
+                cleanup.leave()
+            }
+            cleanup.wait()
+        }
+
         let group = DispatchGroup()
         var output: Result<String, Error>?
         group.enter()
@@ -271,7 +297,9 @@ struct MlxCommand: ParsableCommand {
                     model: modelID,
                     messages: [Message(role: "user", content: prompt)],
                     temperature: temperature,
-                    maxTokens: maxTokens
+                    maxTokens: maxTokens,
+                    topP: topP,
+                    repetitionPenalty: repetitionPenalty
                 )
                 output = .success(res.content)
             } catch {
@@ -307,7 +335,6 @@ struct MlxCommand: ParsableCommand {
         var ignored: [String] = []
         if topP != nil { ignored.append("--top-p") }
         if seed != nil { ignored.append("--seed") }
-        if repetitionPenalty != nil { ignored.append("--repetition-penalty") }
         if maxKVSize != nil { ignored.append("--max-kv-size") }
         if kvBits != nil { ignored.append("--kv-bits") }
         if prefillStepSize != nil { ignored.append("--prefill-step-size") }
@@ -351,6 +378,9 @@ struct RootCommand: ParsableCommand {
     
     @Flag(name: .shortAndLong, help: "Enable verbose logging")
     var verbose: Bool = false
+
+    @Flag(name: [.customShort("V"), .long], help: "Enable very verbose logging (full requests/responses and all parameters)")
+    var veryVerbose: Bool = false
     
     @Flag(name: .long, help: "Disable streaming responses (streaming is enabled by default)")
     var noStreaming: Bool = false
@@ -416,6 +446,7 @@ struct RootCommand: ParsableCommand {
         serveCommand.port = port
         serveCommand.hostname = hostname
         serveCommand.verbose = verbose
+        serveCommand.veryVerbose = veryVerbose
         serveCommand.noStreaming = noStreaming
         serveCommand.instructions = instructions
         serveCommand.adapter = adapter
@@ -489,6 +520,158 @@ private func ensureMLXMetalLibraryAvailable(verbose: Bool) throws {
     }
     if verbose {
         print("Using MLX metallib override: \(source.path)")
+    }
+}
+
+private final class MLXLoadReporter {
+    private static let reporterLock = NSLock()
+    private static weak var activeReporter: MLXLoadReporter?
+
+    private let modelID: String
+    private let lock = NSLock()
+    private var stage: MLXLoadStage = .checkingCache
+    private var downloadFraction: Double?
+    private var timer: DispatchSourceTimer?
+    private var spinnerIndex: Int = 0
+    private var startedAt = Date()
+    private var finished = false
+
+    private let spinnerFrames = ["|", "/", "-", "\\"]
+
+    init(modelID: String) {
+        self.modelID = modelID
+    }
+
+    func start() {
+        Self.reporterLock.lock()
+        Self.activeReporter = self
+        Self.reporterLock.unlock()
+
+        startedAt = Date()
+        print("Loading MLX model: \(modelID)")
+
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now(), repeating: .milliseconds(200))
+        timer.setEventHandler { [weak self] in
+            self?.renderTick()
+        }
+        self.timer = timer
+        timer.resume()
+    }
+
+    func updateDownload(_ progress: Progress) {
+        lock.lock()
+        stage = .downloading
+        downloadFraction = progress.totalUnitCount > 0 ? progress.fractionCompleted : nil
+        lock.unlock()
+    }
+
+    func updateStage(_ stage: MLXLoadStage) {
+        lock.lock()
+        self.stage = stage
+        if stage == .loadingModel || stage == .ready {
+            downloadFraction = nil
+        }
+        lock.unlock()
+    }
+
+    func finish(success: Bool, errorMessage: String? = nil) {
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return
+        }
+        finished = true
+        let elapsed = Date().timeIntervalSince(startedAt)
+        timer?.cancel()
+        timer = nil
+        let memory = Self.currentResidentMemoryGB()
+        lock.unlock()
+
+        Self.reporterLock.lock()
+        if Self.activeReporter === self {
+            Self.activeReporter = nil
+        }
+        Self.reporterLock.unlock()
+
+        let status = success ? "ready" : "failed"
+        var line = String(
+            format: "\r[%@] %@ | mem %.2f GB | %.1fs",
+            success ? "done" : "fail",
+            status,
+            memory,
+            elapsed
+        )
+        if let errorMessage, !errorMessage.isEmpty {
+            line += " | \(errorMessage)"
+        }
+        print(line)
+    }
+
+    static func finishActiveWithError(_ message: String) {
+        reporterLock.lock()
+        let active = activeReporter
+        reporterLock.unlock()
+        active?.finish(success: false, errorMessage: message)
+    }
+
+    private func renderTick() {
+        lock.lock()
+        if finished {
+            lock.unlock()
+            return
+        }
+        let stage = self.stage
+        let downloadFraction = self.downloadFraction
+        spinnerIndex = (spinnerIndex + 1) % spinnerFrames.count
+        let spinner = spinnerFrames[spinnerIndex]
+        let elapsed = Date().timeIntervalSince(startedAt)
+        lock.unlock()
+
+        let memory = Self.currentResidentMemoryGB()
+        let barText: String
+        if stage == .downloading, let fraction = downloadFraction {
+            barText = Self.progressBar(fraction: fraction, width: 24)
+        } else {
+            barText = "[\(spinner)\(String(repeating: " ", count: 23))]"
+        }
+
+        let percentText: String
+        if stage == .downloading, let fraction = downloadFraction {
+            percentText = String(format: "%5.1f%%", max(0, min(100, fraction * 100)))
+        } else {
+            percentText = "  --.-%"
+        }
+
+        let line = String(
+            format: "\r%@ %@ %@ | mem %.2f GB | %.1fs",
+            barText,
+            percentText,
+            stage.rawValue,
+            memory,
+            elapsed
+        )
+        fputs(line, stdout)
+        fflush(stdout)
+    }
+
+    private static func progressBar(fraction: Double, width: Int) -> String {
+        let clamped = max(0.0, min(1.0, fraction))
+        let filled = Int((clamped * Double(width)).rounded(.down))
+        let bar = String(repeating: "#", count: filled) + String(repeating: "-", count: max(0, width - filled))
+        return "[\(bar)]"
+    }
+
+    private static func currentResidentMemoryGB() -> Double {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) { ptr in
+            ptr.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { rebound in
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), rebound, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return 0 }
+        return Double(info.resident_size) / 1_073_741_824.0
     }
 }
 

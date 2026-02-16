@@ -8,14 +8,24 @@ struct ChatCompletionsController: RouteCollection {
     private let temperature: Double?
     private let randomness: String?
     private let permissiveGuardrails: Bool
+    private let veryVerbose: Bool
     
-    init(streamingEnabled: Bool = true, instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) {
+    init(
+        streamingEnabled: Bool = true,
+        instructions: String = "You are a helpful assistant",
+        adapter: String? = nil,
+        temperature: Double? = nil,
+        randomness: String? = nil,
+        permissiveGuardrails: Bool,
+        veryVerbose: Bool = false
+    ) {
         self.streamingEnabled = streamingEnabled
         self.instructions = instructions
         self.adapter = adapter
         self.temperature = temperature
         self.randomness = randomness
         self.permissiveGuardrails = permissiveGuardrails
+        self.veryVerbose = veryVerbose
     }
     func boot(routes: RoutesBuilder) throws {
         let v1 = routes.grouped("v1")
@@ -35,6 +45,9 @@ struct ChatCompletionsController: RouteCollection {
     func chatCompletions(req: Request) async throws -> Response {
         do {
             let chatRequest = try req.content.decode(ChatCompletionRequest.self)
+            if veryVerbose {
+                req.logger.info("Foundation full request: \(encodeJSON(chatRequest))")
+            }
 
             guard !chatRequest.messages.isEmpty else {
                 let error = OpenAIError(message: "At least one message is required")
@@ -43,7 +56,9 @@ struct ChatCompletionsController: RouteCollection {
 
             // Route to external backend if model is not "foundation"
             let requestedModel = chatRequest.model ?? "foundation"
-            req.logger.info("Chat completions request - model: '\(requestedModel)', stream: \(chatRequest.stream ?? false)")
+            req.logger.info(
+                "Chat completions request - model: '\(requestedModel)', stream: \(chatRequest.stream ?? false), temperature=\(chatRequest.temperature?.description ?? "nil"), max_tokens=\(chatRequest.maxTokens?.description ?? "nil"), top_p=\(chatRequest.topP?.description ?? "nil"), repetition_penalty=\(chatRequest.effectiveRepetitionPenalty?.description ?? "nil")"
+            )
 
             if requestedModel != "foundation" {
                 if let discovery = req.application.backendDiscovery,
@@ -99,6 +114,9 @@ struct ChatCompletionsController: RouteCollection {
                 promptTokens: promptTokens,
                 completionTokens: completionTokens
             )
+            if veryVerbose {
+                req.logger.info("Foundation full response: \(encodeJSON(response))")
+            }
 
             return try await createSuccessResponse(req: req, response: response)
 
@@ -183,6 +201,7 @@ struct ChatCompletionsController: RouteCollection {
 
         httpResponse.body = .init(asyncStream: { writer in
             let encoder = JSONEncoder()
+            var fullStreamedContent = ""
 
             do {
                 // Use temperature from API request if provided, otherwise use CLI parameter
@@ -215,6 +234,9 @@ struct ChatCompletionsController: RouteCollection {
                     )
                     isFirst = false
                     completionTokens += self.estimateTokens(for: chunk)
+                    if self.veryVerbose {
+                        fullStreamedContent += chunk
+                    }
 
                     let chunkData = try encoder.encode(streamChunk)
                     if let jsonString = String(data: chunkData, encoding: .utf8) {
@@ -254,6 +276,11 @@ struct ChatCompletionsController: RouteCollection {
                 let finalData = try encoder.encode(finalChunk)
                 if let jsonString = String(data: finalData, encoding: .utf8) {
                     try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                }
+                if self.veryVerbose {
+                    req.logger.info("Foundation full streamed response content: \(fullStreamedContent)")
+                    req.logger.info("Foundation stream final usage: \(encodeJSON(usage))")
+                    req.logger.info("Foundation stream final chunk: \(encodeJSON(finalChunk))")
                 }
 
                 // Send done marker
@@ -318,6 +345,16 @@ struct ChatCompletionsController: RouteCollection {
         })
 
         return httpResponse
+    }
+
+    private func encodeJSON<T: Encodable>(_ value: T) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(value),
+              let text = String(data: data, encoding: .utf8) else {
+            return "<json-encode-failed>"
+        }
+        return text
     }
     
     private func streamContentSmoothly(

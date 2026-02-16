@@ -32,6 +32,7 @@ class Server {
     private let port: Int
     private let hostname: String
     private let verbose: Bool
+    private let veryVerbose: Bool
     private let streamingEnabled: Bool
     private let instructions: String
     private let adapter: String?
@@ -44,11 +45,13 @@ class Server {
     private let prewarmEnabled: Bool
     private let mlxModelID: String?
     private let mlxModelService: MLXModelService?
+    private let mlxRepetitionPenalty: Double?
 
-    init(port: Int, hostname: String, verbose: Bool, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil) async throws {
+    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
+        self.veryVerbose = veryVerbose
         self.streamingEnabled = streamingEnabled
         self.instructions = instructions
         self.adapter = adapter
@@ -61,6 +64,7 @@ class Server {
         self.prewarmEnabled = prewarmEnabled
         self.mlxModelID = mlxModelID
         self.mlxModelService = mlxModelService
+        self.mlxRepetitionPenalty = mlxRepetitionPenalty
 
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
@@ -68,7 +72,9 @@ class Server {
 
         self.app = try await Application.make(env)
 
-        if verbose {
+        if veryVerbose {
+            app.logger.logLevel = .trace
+        } else if verbose {
             app.logger.logLevel = .debug
         }
 
@@ -208,11 +214,21 @@ class Server {
                 streamingEnabled: streamingEnabled,
                 modelID: mlxModelID,
                 service: mlxModelService,
-                temperature: temperature
+                temperature: temperature,
+                repetitionPenalty: mlxRepetitionPenalty,
+                veryVerbose: veryVerbose
             )
             try app.register(collection: mlxController)
         } else {
-            let chatController = ChatCompletionsController(streamingEnabled: streamingEnabled, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
+            let chatController = ChatCompletionsController(
+                streamingEnabled: streamingEnabled,
+                instructions: instructions,
+                adapter: adapter,
+                temperature: temperature,
+                randomness: randomness,
+                permissiveGuardrails: permissiveGuardrails,
+                veryVerbose: veryVerbose
+            )
             try app.register(collection: chatController)
         }
 
@@ -229,7 +245,7 @@ class Server {
                             top_p: 0.95,
                             min_p: 0.05,
                             stream: self.streamingEnabled,
-                            max_tokens: 2048
+                            max_tokens: 2000
                         )
                     ),
                     total_slots: 1,
@@ -271,7 +287,7 @@ class Server {
                         top_p: 0.95,
                         min_p: 0.05,
                         stream: self.streamingEnabled,
-                        max_tokens: 2048
+                        max_tokens: 2000
                     )
                 ),
                 total_slots: 1,
@@ -705,6 +721,11 @@ class Server {
             }
 
             await app.server.shutdown()
+
+            if let mlxService = mlxModelService {
+                await mlxService.shutdownAndReleaseResources(verbose: verbose)
+            }
+
             print("Server shutdown complete")
 
             // Resume the continuation to exit the wait
