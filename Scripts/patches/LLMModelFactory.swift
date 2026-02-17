@@ -43,6 +43,8 @@ public enum LLMTypeRegistry {
         "internlm2": create(InternLM2Configuration.self, InternLM2Model.init),
         "deepseek_v3": create(DeepseekV3Configuration.self, DeepseekV3Model.init),
         "kimi_k2": create(DeepseekV3Configuration.self, DeepseekV3Model.init),
+        "kimi_k25": create(KimiK25Configuration.self, KimiK25Model.init),
+        "joyai_llm_flash": create(DeepseekV3Configuration.self, DeepseekV3Model.init),
         "nemotron_h": create(NemotronHConfiguration.self, NemotronHModel.init),
         "granite": create(GraniteConfiguration.self, GraniteModel.init),
         "granitemoehybrid": create(
