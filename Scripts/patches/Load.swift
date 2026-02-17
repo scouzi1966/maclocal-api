@@ -99,7 +99,9 @@ public func loadWeights(
 
     // apply the loaded weights
     let parameters = ModuleParameters.unflattened(weights)
-    try model.update(parameters: parameters, verify: [.all])
+    // Skip .shapeMismatch — modules like DeepseekV3MultiLinear use scalar
+    // placeholders that get replaced by real tensors from the checkpoint.
+    try model.update(parameters: parameters, verify: [.noUnusedKeys])
 
     eval(model)
 }
