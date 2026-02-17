@@ -323,7 +323,8 @@ class Server {
     }
 
     /// Custom CSS/JS to inject into webui (branding + auto-select default model)
-    private static let customCSS = """
+    private var customCSS: String { Self.customCSSTemplate.replacingOccurrences(of: "/*_IS_MLX_PLACEHOLDER*/false", with: mlxModelID != nil ? "true" : "false") }
+    private static let customCSSTemplate = """
     <style>
     /* Hide page until branding + model selection complete */
     body { opacity: 0 !important; }
@@ -334,6 +335,8 @@ class Server {
     </style>
     <script>
     (function(){
+        var _isMLX = /*_IS_MLX_PLACEHOLDER*/false;
+        console.log('[AFM] _isMLX =', _isMLX);
         var _aiGradient = 'linear-gradient(to right, #3b82f6, #a855f7, #ec4899, #f97316)';
 
         function rebrand(){
@@ -353,8 +356,13 @@ class Server {
                         var badge = document.createElement('div');
                         badge.className = 'afm-ai-badge';
                         badge.style.cssText = 'display:inline-flex;align-items:center;gap:5px;margin-top:8px;font-size:13px;font-weight:600;';
+                        if(_isMLX){
+                            badge.innerHTML = '<span style="font-size:15px;flex-shrink:0">⚡</span>'
+                                + '<span style="background:linear-gradient(to right, #f97316, #eab308);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">Swift MLX</span>';
+                        } else {
                         badge.innerHTML = '<img src="data:image/png;base64,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" width="18" height="18" style="flex-shrink:0" />'
                             + '<span style="background:'+_aiGradient+';-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">Apple Intelligence</span>';
+                        }
                         el.parentElement.insertBefore(badge, el.nextElementSibling?.nextElementSibling || null);
                     }
                 }
@@ -563,7 +571,7 @@ class Server {
 
         // Inject custom CSS before </head>
         if let headEndRange = htmlString.range(of: "</head>") {
-            htmlString.insert(contentsOf: Self.customCSS, at: headEndRange.lowerBound)
+            htmlString.insert(contentsOf: customCSS, at: headEndRange.lowerBound)
         }
 
         var headers = HTTPHeaders()
