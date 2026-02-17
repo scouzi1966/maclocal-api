@@ -99,10 +99,7 @@ public func loadWeights(
 
     // apply the loaded weights
     let parameters = ModuleParameters.unflattened(weights)
-    // Use .noUnusedKeys only (skip .shapeMismatch) to match Python's strict=False.
-    // Custom modules like GLM5's MultiLinear have manually quantized weights with
-    // packed shapes that differ from the model's logical init shapes.
-    try model.update(parameters: parameters, verify: [.noUnusedKeys])
+    try model.update(parameters: parameters, verify: [.all])
 
     eval(model)
 }
