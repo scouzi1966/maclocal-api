@@ -155,8 +155,8 @@ func runInteractiveModelPicker(models: [CachedModelEntry]) -> String? {
 
     // Print banner before entering raw mode
     let s = models.count == 1 ? "" : "s"
-    print("Found \(models.count) model\(s) cached locally (no download needed).")
-    print("Select a model (\u{2191}\u{2193} navigate, Enter select, q quit):\n")
+    print("\u{1B}[1;33mFound \(models.count) model\(s) cached locally (no download needed).\u{1B}[0m")
+    print("\u{1B}[1;33mSelect a model (\u{2191}\u{2193} navigate, Enter select, q quit):\u{1B}[0m\n")
 
     var selected = 0
     var firstDraw = true
