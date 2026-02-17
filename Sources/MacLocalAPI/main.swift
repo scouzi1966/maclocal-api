@@ -189,7 +189,20 @@ struct MlxCommand: ParsableCommand {
         let service = MLXModelService(resolver: resolver)
         _ = try service.revalidateRegistry()
 
-        guard let rawModel = model, !rawModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let rawModel: String
+        if let m = model, !m.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            rawModel = m
+        } else if isatty(STDIN_FILENO) != 0 {
+            let discovered = discoverAllModels(resolver: resolver)
+            guard !discovered.isEmpty else {
+                print("No models found locally. Use: afm mlx -m <org/model>")
+                throw ExitCode.failure
+            }
+            guard let selected = runInteractiveModelPicker(models: discovered) else {
+                throw ExitCode.failure
+            }
+            rawModel = selected
+        } else {
             let registered = try service.revalidateRegistry()
             if !registered.isEmpty {
                 print("No model provided. Available models in registry:")
