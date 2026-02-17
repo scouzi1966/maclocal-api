@@ -27,7 +27,7 @@ public func downloadModel(
         case .id(let id, let revision):
             // download the model weights
             let repo = Hub.Repo(id: id)
-            let modelFiles = ["*.safetensors", "*.json"]
+            let modelFiles = ["*.safetensors", "*.json", "tiktoken.model"]
             return try await hub.snapshot(
                 from: repo,
                 revision: revision,
@@ -99,8 +99,9 @@ public func loadWeights(
 
     // apply the loaded weights
     let parameters = ModuleParameters.unflattened(weights)
-    // Skip .shapeMismatch — modules like DeepseekV3MultiLinear use scalar
-    // placeholders that get replaced by real tensors from the checkpoint.
+    // Use .noUnusedKeys only (skip .shapeMismatch) to match Python's strict=False.
+    // Custom modules like GLM5's MultiLinear have manually quantized weights with
+    // packed shapes that differ from the model's logical init shapes.
     try model.update(parameters: parameters, verify: [.noUnusedKeys])
 
     eval(model)
