@@ -40,6 +40,11 @@ struct MLXCacheResolver {
             candidates.append(root.appendingPathComponent("models/\(org)/\(model)"))
             candidates.append(root.appendingPathComponent("huggingface/hub/models--\(org)--\(model)"))
         }
+        // Default HuggingFace cache: ~/.cache/huggingface/hub/
+        let defaultHFCache = fm.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cache/huggingface/hub/models--\(org)--\(model)")
+        candidates.append(defaultHFCache)
+
         if let library = fm.urls(for: .libraryDirectory, in: .userDomainMask).first {
             candidates.append(library.appendingPathComponent("Caches/models/\(org)/\(model)"))
             candidates.append(library.appendingPathComponent("Caches/huggingface/hub/models--\(org)--\(model)"))
