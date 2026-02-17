@@ -1,13 +1,27 @@
 # AFM - Apple Foundation Models API
 # Makefile for building and distributing the portable CLI
 
-.PHONY: build clean install uninstall portable dist test help submodules submodule-status webui build-with-webui
+.PHONY: build clean install uninstall portable dist test help submodules submodule-status webui build-with-webui patch patch-check
+
+PATCH_SH  := Scripts/apply-mlx-patches.sh
+PATCH_STAMP := vendor/mlx-swift-lm/.patches-applied
 
 # Default target
 all: build
 
+# Apply vendor patches (idempotent — stamp file tracks state)
+$(PATCH_STAMP): $(PATCH_SH) $(wildcard Scripts/patches/*)
+	@echo "🩹 Applying vendor patches..."
+	@bash $(PATCH_SH)
+	@touch $(PATCH_STAMP)
+
+patch: $(PATCH_STAMP)
+
+patch-check:
+	@bash $(PATCH_SH) --check
+
 # Build the release binary (portable by default)
-build:
+build: $(PATCH_STAMP)
 	@echo "🔨 Building AFM..."
 	@swift build -c release \
 		--product afm \
@@ -50,9 +64,10 @@ webui: submodules
 build-with-webui: webui build
 	@echo "✅ Build with webui complete"
 
-# Clean build artifacts
+# Clean build artifacts and revert vendor patches
 clean:
 	@echo "🧹 Cleaning build artifacts..."
+	@if [ -f $(PATCH_STAMP) ]; then bash $(PATCH_SH) --revert; rm -f $(PATCH_STAMP); fi
 	@swift package clean
 	@rm -rf .build
 	@rm -f dist/*.tar.gz
@@ -85,7 +100,7 @@ test: build
 		rm -f /tmp/afm-test-$$$$
 
 # Development build (debug)
-debug:
+debug: $(PATCH_STAMP)
 	@echo "🐛 Building debug version..."
 	@swift build
 	@echo "✅ Debug build complete: .build/debug/afm"
@@ -101,9 +116,11 @@ help:
 	@echo "=================================="
 	@echo ""
 	@echo "Available targets:"
-	@echo "  build           - Build release binary (default, portable)"
+	@echo "  build           - Build release binary (default, patches+portable)"
 	@echo "  portable        - Build with enhanced portability"
-	@echo "  clean           - Clean build artifacts"
+	@echo "  clean           - Clean build artifacts and revert patches"
+	@echo "  patch           - Apply vendor patches only"
+	@echo "  patch-check     - Verify vendor patch status"
 	@echo "  install         - Install to /usr/local/bin (requires sudo)"
 	@echo "  uninstall       - Remove from /usr/local/bin"
 	@echo "  dist            - Create distribution package"
