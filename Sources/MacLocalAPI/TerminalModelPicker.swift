@@ -153,20 +153,22 @@ func runInteractiveModelPicker(models: [CachedModelEntry]) -> String? {
     // Hide cursor
     print("\u{1B}[?25l", terminator: "")
 
+    // Print banner before entering raw mode
+    let s = models.count == 1 ? "" : "s"
+    print("Found \(models.count) model\(s) cached locally (no download needed).")
+    print("Select a model (\u{2191}\u{2193} navigate, Enter select, q quit):\n")
+
     var selected = 0
     var firstDraw = true
+    let headerLines = 3  // banner + instruction + blank
 
     func draw() {
         // Move cursor up to overwrite previous draw (except first time)
         if !firstDraw {
-            // Move up: 1 header + 1 blank + model count lines
-            let totalLines = models.count + 2
+            let totalLines = models.count
             print("\u{1B}[\(totalLines)A", terminator: "")
         }
         firstDraw = false
-
-        print("\u{1B}[2KSelect a model (\u{2191}\u{2193} navigate, Enter select, q quit):")
-        print("\u{1B}[2K")
 
         for (i, m) in models.enumerated() {
             let suffix = m.source.isEmpty ? "" : "  \(m.source)"
