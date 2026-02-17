@@ -23,6 +23,14 @@ PATCH_FILES=("Qwen3VL.swift" "Qwen3Next.swift" "GatedDelta.swift" "MiniMaxM2.swi
 TARGET_PATHS=("Libraries/MLXVLM/Models/Qwen3VL.swift" "Libraries/MLXLLM/Models/Qwen3Next.swift" "Libraries/MLXLLM/Models/GatedDelta.swift" "Libraries/MLXLLM/Models/MiniMaxM2.swift" "Libraries/MLXLLM/Models/NemotronH.swift" "Libraries/MLXLLM/Models/GLM4MoeLite.swift" "Libraries/MLXLLM/Models/GLM5MoeDsa.swift" "Libraries/MLXLLM/LLMModelFactory.swift" "Libraries/MLXLMCommon/Load.swift" "Libraries/MLXLMCommon/Evaluate.swift")
 NEW_FILES=("Qwen3Next.swift" "GatedDelta.swift" "MiniMaxM2.swift" "NemotronH.swift" "GLM4MoeLite.swift" "GLM5MoeDsa.swift")
 
+# --- Package-level patches (sed replacements in Package.swift) ---
+# Each entry: "search_pattern|replacement"
+# These fix dependency version pins that can't be handled by file-copy patches.
+MLX_PACKAGE_SWIFT="$MLX_LM_DIR/Package.swift"
+PACKAGE_PINS=(
+  '.upToNextMinor(from: "0.30.3")|exact: "0.30.3"'
+)
+
 is_new_file() {
   local filename="$1"
   for nf in "${NEW_FILES[@]}"; do
@@ -31,6 +39,59 @@ is_new_file() {
     fi
   done
   return 1
+}
+
+apply_package_pins() {
+  local pkg_file="$1"
+  [ -f "$pkg_file" ] || { log_error "Package.swift not found: $pkg_file"; return 1; }
+
+  # Backup once
+  if [ ! -f "${pkg_file}.original" ]; then
+    cp "$pkg_file" "${pkg_file}.original"
+    log_info "Backed up original: Package.swift"
+  fi
+
+  for entry in "${PACKAGE_PINS[@]}"; do
+    local search="${entry%%|*}"
+    local replace="${entry##*|}"
+    if grep -qF "$replace" "$pkg_file"; then
+      log_info "Already pinned: $replace"
+    elif grep -qF "$search" "$pkg_file"; then
+      sed -i '' "s|$(echo "$search" | sed 's/[.[\/*^$]/\\&/g')|$(echo "$replace" | sed 's/[&/\]/\\&/g')|g" "$pkg_file"
+      log_info "Pinned: $search → $replace"
+    else
+      log_warn "Pattern not found in Package.swift: $search"
+    fi
+  done
+}
+
+check_package_pins() {
+  local pkg_file="$1"
+  local all_ok=true
+  [ -f "$pkg_file" ] || { log_warn "Package.swift not found: $pkg_file"; return 1; }
+
+  for entry in "${PACKAGE_PINS[@]}"; do
+    local replace="${entry##*|}"
+    if grep -qF "$replace" "$pkg_file"; then
+      log_info "Pinned: $replace"
+    else
+      log_warn "Not pinned: $replace"
+      all_ok=false
+    fi
+  done
+  $all_ok
+}
+
+revert_package_pins() {
+  local pkg_file="$1"
+  local backup="${pkg_file}.original"
+  if [ -f "$backup" ]; then
+    cp "$backup" "$pkg_file"
+    rm "$backup"
+    log_info "Reverted: Package.swift"
+  else
+    log_warn "No backup found for Package.swift"
+  fi
 }
 
 is_file_patched() {
@@ -140,7 +201,11 @@ main() {
 
   case "$mode" in
     check)
-      if check_patches "$MLX_LM_DIR"; then
+      local files_ok=true
+      local pins_ok=true
+      check_patches "$MLX_LM_DIR" || files_ok=false
+      check_package_pins "$MLX_PACKAGE_SWIFT" || pins_ok=false
+      if $files_ok && $pins_ok; then
         log_info "All patches are applied"
       else
         exit 1
@@ -150,6 +215,7 @@ main() {
       for i in "${!PATCH_FILES[@]}"; do
         revert_file "$MLX_LM_DIR/${TARGET_PATHS[$i]}"
       done
+      revert_package_pins "$MLX_PACKAGE_SWIFT"
       log_info ""
       log_info "Files reverted. Clean build required."
       ;;
@@ -165,6 +231,7 @@ main() {
         fi
         apply_file "$patch_file" "$target_file"
       done
+      apply_package_pins "$MLX_PACKAGE_SWIFT"
       log_info ""
       log_info "Patches applied to vendor/mlx-swift-lm. Clean build required."
       ;;
