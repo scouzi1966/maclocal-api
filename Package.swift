@@ -17,7 +17,9 @@ let package = Package(
         .package(url: "https://github.com/vapor/vapor.git", from: "4.99.3"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
         .package(name: "mlx-swift-lm", path: "vendor/mlx-swift-lm"),
-        .package(url: "https://github.com/huggingface/swift-transformers", from: "1.1.6")
+        .package(url: "https://github.com/huggingface/swift-transformers", from: "1.1.6"),
+        // Pin mlx-swift to 0.30.3 — 0.30.6 has a regression causing NaN logits at ~1024 tokens
+        .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.30.3")
     ],
     targets: [
         .executableTarget(
