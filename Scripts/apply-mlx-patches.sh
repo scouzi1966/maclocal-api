@@ -19,8 +19,8 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-PATCH_FILES=("Qwen3VL.swift" "Qwen3Next.swift" "GatedDelta.swift" "MiniMaxM2.swift" "NemotronH.swift" "GLM4MoeLite.swift" "GLM5MoeDsa.swift" "KimiK25.swift" "LLMModelFactory.swift" "Load.swift" "Evaluate.swift")
-TARGET_PATHS=("Libraries/MLXVLM/Models/Qwen3VL.swift" "Libraries/MLXLLM/Models/Qwen3Next.swift" "Libraries/MLXLLM/Models/GatedDelta.swift" "Libraries/MLXLLM/Models/MiniMaxM2.swift" "Libraries/MLXLLM/Models/NemotronH.swift" "Libraries/MLXLLM/Models/GLM4MoeLite.swift" "Libraries/MLXLLM/Models/GLM5MoeDsa.swift" "Libraries/MLXLLM/Models/KimiK25.swift" "Libraries/MLXLLM/LLMModelFactory.swift" "Libraries/MLXLMCommon/Load.swift" "Libraries/MLXLMCommon/Evaluate.swift")
+PATCH_FILES=("Qwen3VL.swift" "Qwen3Next.swift" "GatedDelta.swift" "DeepseekV3.swift" "MiniMaxM2.swift" "NemotronH.swift" "GLM4MoeLite.swift" "GLM5MoeDsa.swift" "KimiK25.swift" "LLMModelFactory.swift" "Load.swift" "Evaluate.swift")
+TARGET_PATHS=("Libraries/MLXVLM/Models/Qwen3VL.swift" "Libraries/MLXLLM/Models/Qwen3Next.swift" "Libraries/MLXLLM/Models/GatedDelta.swift" "Libraries/MLXLLM/Models/DeepseekV3.swift" "Libraries/MLXLLM/Models/MiniMaxM2.swift" "Libraries/MLXLLM/Models/NemotronH.swift" "Libraries/MLXLLM/Models/GLM4MoeLite.swift" "Libraries/MLXLLM/Models/GLM5MoeDsa.swift" "Libraries/MLXLLM/Models/KimiK25.swift" "Libraries/MLXLLM/LLMModelFactory.swift" "Libraries/MLXLMCommon/Load.swift" "Libraries/MLXLMCommon/Evaluate.swift")
 NEW_FILES=("Qwen3Next.swift" "GatedDelta.swift" "MiniMaxM2.swift" "NemotronH.swift" "GLM4MoeLite.swift" "GLM5MoeDsa.swift" "KimiK25.swift")
 
 # --- Package-level patches (sed replacements in Package.swift) ---
