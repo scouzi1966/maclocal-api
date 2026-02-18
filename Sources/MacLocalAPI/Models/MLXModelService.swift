@@ -321,7 +321,11 @@ final class MLXModelService: @unchecked Sendable {
             return false
         }
         let modelType = (json["model_type"] as? String ?? "").lowercased()
-        return modelType.contains("vl") || modelType.contains("vision")
+        if modelType.contains("vl") || modelType.contains("vision") {
+            return true
+        }
+        // Multimodal models (e.g. gemma3) have both text_config and vision_config
+        return json["text_config"] != nil && json["vision_config"] != nil
     }
 
     private func buildPrompt(from messages: [Message]) -> String {
