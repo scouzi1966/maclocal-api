@@ -309,6 +309,16 @@ struct MlxCommand: ParsableCommand {
         group.enter()
         Task {
             do {
+                // Pre-load with progress bar (downloads if needed)
+                let loadReporter = MLXLoadReporter(modelID: modelID)
+                loadReporter.start()
+                _ = try await service.ensureLoaded(
+                    model: modelID,
+                    progress: { p in loadReporter.updateDownload(p) },
+                    stage: { s in loadReporter.updateStage(s) }
+                )
+                loadReporter.finish(success: true)
+
                 var messages = [Message]()
                 messages.append(Message(role: "system", content: self.instructions))
                 messages.append(Message(role: "user", content: prompt))
@@ -322,6 +332,7 @@ struct MlxCommand: ParsableCommand {
                 )
                 output = .success(res.content)
             } catch {
+                MLXLoadReporter.finishActiveWithError(error.localizedDescription)
                 output = .failure(error)
             }
             group.leave()
