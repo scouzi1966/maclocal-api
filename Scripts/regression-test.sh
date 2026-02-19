@@ -551,8 +551,9 @@ elapsed=$((SECONDS - t0))
 
 if [ $rc -eq 0 ] && [ -d "$DOWNLOAD_CACHE" ]; then
   # Check that model files were downloaded (safetensors or gguf weights + config)
-  weights=$(find "$DOWNLOAD_CACHE" \( -name "*.safetensors" -o -name "*.gguf" \) 2>/dev/null | head -1)
-  config=$(find "$DOWNLOAD_CACHE" -name "config.json" 2>/dev/null | head -1)
+  # -L follows symlinks (HF hub uses snapshots/<hash>/ with symlinks)
+  weights=$(find -L "$DOWNLOAD_CACHE" \( -name "*.safetensors" -o -name "*.gguf" \) 2>/dev/null | head -1)
+  config=$(find -L "$DOWNLOAD_CACHE" -name "config.json" 2>/dev/null | head -1)
   if [ -n "$weights" ] && [ -n "$config" ]; then
     record "$SEC" "download $MLX_SMALL_MODEL" "PASS" "downloaded in ${elapsed}s" "$elapsed"
   elif [ -n "$config" ]; then
