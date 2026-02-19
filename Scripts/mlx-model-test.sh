@@ -17,7 +17,6 @@ TIMEOUT_GENERATE=900 # seconds for generation
 
 MODELS=(
   "hub/models--mlx-community--Qwen3-VL-4B-Instruct-4bit"
-  "lmstudio-community/gemma-3n-E4B-it-MLX-4bit"
   "mlx-community/Apertus-8B-Instruct-2509-4bit"
   "mlx-community/exaone-4.0-1.2b-4bit"
   "mlx-community/gemma-3-4b-it-8bit"
