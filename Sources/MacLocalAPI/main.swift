@@ -397,7 +397,8 @@ struct RootCommand: ParsableCommand {
         commandName: "afm",
         abstract: "macOS server that exposes Apple's Foundation Models through OpenAI-compatible API",
         discussion: "Use -w to enable the WebUI, -g to enable API gateway mode, or `afm mlx` for local MLX models.\n\nGitHub: https://github.com/scouzi1966/maclocal-api",
-        version: MacLocalAPI.buildVersion
+        version: MacLocalAPI.buildVersion,
+        subcommands: [MlxCommand.self, VisionCommand.self]
     )
     
     @Option(name: [.customShort("s"), .long], help: "Run a single prompt without starting the server")
@@ -490,19 +491,8 @@ struct RootCommand: ParsableCommand {
     }
 }
 
-// Use RootCommand for backward compatibility with single prompt mode
-// This handles: afm -s, afm --help, afm -p, etc.
-if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
-    let args = Array(CommandLine.arguments.dropFirst(2))
-    do {
-        var cmd = try MlxCommand.parseAsRoot(args)
-        try cmd.run()
-    } catch {
-        MlxCommand.exit(withError: error)
-    }
-} else {
-    RootCommand.main()
-}
+// RootCommand handles all subcommands (mlx, serve) and backward-compatible flags
+RootCommand.main()
 
 private func ensureMLXMetalLibraryAvailable(verbose: Bool) throws {
     let fileManager = FileManager.default
