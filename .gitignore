@@ -66,6 +66,12 @@ test.pdf
 *.fmadapter
 test_lora.fmadapter
 
+# Build-from-scratch test workspace
+build-from-scratch/
+
+# Vendor patch stamp
+vendor/mlx-swift-lm/.patches-applied
+
 # WebUI build artifacts
 Resources/webui/
 vendor/llama.cpp/tools/server/webui/node_modules/

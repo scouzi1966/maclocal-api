@@ -15,14 +15,25 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.99.3"),
-        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0")
+        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
+        .package(name: "mlx-swift-lm", path: "vendor/mlx-swift-lm"),
+        .package(url: "https://github.com/huggingface/swift-transformers", from: "1.1.6"),
+        // Pin mlx-swift to 0.30.3 — 0.30.6 has a regression causing NaN logits at ~1024 tokens
+        .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.30.3")
     ],
     targets: [
         .executableTarget(
             name: "MacLocalAPI",
             dependencies: [
                 .product(name: "Vapor", package: "vapor"),
-                .product(name: "ArgumentParser", package: "swift-argument-parser")
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "MLXLLM", package: "mlx-swift-lm"),
+                .product(name: "MLXVLM", package: "mlx-swift-lm"),
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
+                .product(name: "Hub", package: "swift-transformers")
+            ],
+            resources: [
+                .copy("Resources/default.metallib")
             ],
             swiftSettings: [
                 // Enable optimizations for release builds

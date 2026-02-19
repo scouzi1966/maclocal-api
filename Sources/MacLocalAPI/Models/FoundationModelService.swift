@@ -389,9 +389,9 @@ class FoundationModelService {
     
     #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
     private func createGenerationOptions(temperature: Double?, randomness: String?, maxTokens: Int? = nil) throws -> GenerationOptions {
-        // Treat non-positive values as "no limit" (Apple default)
-        let effectiveMaxTokens: Int? = if let mt = maxTokens, mt > 0 { mt } else { nil }
-        DebugLogger.log("createGenerationOptions called with temperature: \(temperature?.description ?? "nil"), randomness: \(randomness ?? "nil"), maxTokens: \(effectiveMaxTokens?.description ?? "nil")")
+        // Default to 2000 tokens when max_tokens is absent or non-positive.
+        let effectiveMaxTokens: Int = if let mt = maxTokens, mt > 0 { mt } else { 2000 }
+        DebugLogger.log("createGenerationOptions called with temperature: \(temperature?.description ?? "nil"), randomness: \(randomness ?? "nil"), maxTokens: \(effectiveMaxTokens)")
 
         guard let randomnessString = randomness else {
             // Default behavior when randomness is not specified
@@ -484,4 +484,3 @@ class FoundationModelService {
         return try await FoundationModelService(instructions: instructions, useSharedAdapter: true, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
     }
 }
-

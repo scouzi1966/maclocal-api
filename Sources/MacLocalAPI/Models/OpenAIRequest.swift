@@ -7,6 +7,8 @@ struct ChatCompletionRequest: Content {
     let temperature: Double?
     let maxTokens: Int?
     let topP: Double?
+    let repetitionPenalty: Double?
+    let repeatPenalty: Double?
     let frequencyPenalty: Double?
     let presencePenalty: Double?
     let stop: [String]?
@@ -19,11 +21,17 @@ struct ChatCompletionRequest: Content {
         case temperature
         case maxTokens = "max_tokens"
         case topP = "top_p"
+        case repetitionPenalty = "repetition_penalty"
+        case repeatPenalty = "repeat_penalty"
         case frequencyPenalty = "frequency_penalty"
         case presencePenalty = "presence_penalty"
         case stop
         case stream
         case user
+    }
+
+    var effectiveRepetitionPenalty: Double? {
+        repetitionPenalty ?? repeatPenalty
     }
 }
 
