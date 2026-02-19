@@ -58,6 +58,7 @@ afm_full_test_log_*.txt
 afm_test_log_*.txt
 
 # Test files
+Scripts/regression-report-*.html
 test-curl-commands.md
 test-table.png
 test.pdf

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generate HTML regression test report from JSONL results."""
-import json, html, datetime, sys
+import json, html, datetime, sys, os
 
 results = []
 with open("/tmp/regression-test-results.jsonl") as f:
@@ -193,7 +193,9 @@ document.querySelectorAll('.badge-fail').forEach(function(badge) {{
 </html>
 """
 
-outpath = "/tmp/regression-report.html"
+script_dir = os.path.dirname(os.path.abspath(__file__))
+timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+outpath = os.path.join(script_dir, f"regression-report-{timestamp}.html")
 with open(outpath, "w") as f:
     f.write(report)
 
