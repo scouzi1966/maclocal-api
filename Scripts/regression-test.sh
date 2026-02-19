@@ -779,17 +779,11 @@ fi
 echo ""
 
 ###############################################################################
-echo "━━━ Section 11: MLX Validation ━━━"
-SEC="MLX Validation"
-
-cli_test "$SEC" "mlx without -m fails" false "" "$AFM" mlx -s "Test"
-
-# NOTE: "mlx nonexistent model" test removed — it hangs and can't be reliably
-# killed on macOS. Test manually with:  afm mlx -m "nonexistent/model-xyz" -s "Test"
-echo ""
-
+# Section 11: MLX Validation — removed (tests hang in non-interactive mode).
+# Test manually:  afm mlx -s "Test"  |  afm mlx -m "nonexistent/model-xyz" -s "Test"
 ###############################################################################
-echo "━━━ Section 12: Port Handling ━━━"
+
+echo "━━━ Section 11: Port Handling ━━━"
 SEC="Port Handling"
 
 # Start server on specific port
