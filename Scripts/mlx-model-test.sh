@@ -34,7 +34,6 @@ MODELS=(
   "mlx-community/Llama-3.2-1B-Instruct-4bit"
   "mlx-community/MiniMax-M2.5-5bit"
   "mlx-community/MiniMax-M2.5-6bit"
-  "mlx-community/Mixtral-8x7B-Instruct-v0.1-4bit"
   "mlx-community/NVIDIA-Nemotron-3-Nano-30B-A3B-4bit"
   "mlx-community/Qwen2.5-0.5B-Instruct-4bit"
   "mlx-community/Qwen3-0.6B-4bit"
@@ -44,7 +43,6 @@ MODELS=(
   "mlx-community/Qwen3-VL-4B-Instruct-8bit"
   "mlx-community/Qwen3.5-397B-A17B-4bit"
   "mlx-community/SmolLM3-3B-4bit"
-  "sentence-transformers/all-MiniLM-L6-v2"
   "mlx-community/Kimi-K2.5-3bit"
 )
 
