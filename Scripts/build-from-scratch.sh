@@ -146,7 +146,15 @@ log_step "Resolving Swift packages"
 swift package resolve
 
 log_step "Building afm ($BUILD_CONFIG)"
-swift build -c "$BUILD_CONFIG"
+if [ "$BUILD_CONFIG" = "release" ]; then
+  swift build -c release \
+    --product afm \
+    -Xswiftc -O \
+    -Xswiftc -whole-module-optimization \
+    -Xswiftc -cross-module-optimization
+else
+  swift build -c "$BUILD_CONFIG"
+fi
 
 BIN_PATH_1="$ROOT_DIR/.build/arm64-apple-macosx/$BUILD_CONFIG/afm"
 BIN_PATH_2="$ROOT_DIR/.build/$BUILD_CONFIG/afm"
@@ -158,6 +166,11 @@ elif [ -x "$BIN_PATH_2" ]; then
 else
   log_error "Build finished but afm binary was not found"
   exit 1
+fi
+
+if [ "$BUILD_CONFIG" = "release" ]; then
+  strip "$FINAL_BIN"
+  log_info "Stripped debug symbols"
 fi
 
 log_info "Build complete"
