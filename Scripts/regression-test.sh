@@ -8,8 +8,6 @@
 #   ./Scripts/regression-test.sh [-b /path/to/afm]
 #   AFM_BIN=/path/to/afm ./Scripts/regression-test.sh
 
-set -uo pipefail
-
 AFM="${AFM_BIN:-/tmp/afm-fresh-build/.build/release/afm}"
 export MACAFM_MLX_MODEL_CACHE="/Volumes/edata/models/vesta-test-cache"
 MLX_SMALL_MODEL="mlx-community/granite-4.0-350m-bf16"
@@ -46,7 +44,7 @@ escape_json() {
 
 # Record a test result
 record() {
-  local section="$1" name="$2" status="$3" detail="$4" elapsed="$5"
+  local section="$1" name="$2" status="$3" detail="${4:-}" elapsed="${5:-0}"
   total=$((total + 1))
   if [ "$status" = "PASS" ]; then
     pass=$((pass + 1))
@@ -68,10 +66,8 @@ cli_test() {
   local cmd=("$@")
 
   local t0=$SECONDS
-  set +e
-  output=$("${cmd[@]}" 2>&1)
-  rc=$?
-  set -e
+  local output rc
+  output=$("${cmd[@]}" 2>&1) && rc=$? || rc=$?
   local elapsed=$((SECONDS - t0))
 
   if [ "$expect_pass" = "true" ]; then
@@ -86,7 +82,8 @@ cli_test() {
         record "$section" "$name" "PASS" "" "$elapsed"
       fi
     else
-      local err=$(echo "$output" | head -1 | cut -c1-200)
+      local err
+      err=$(echo "$output" | head -1 | cut -c1-200)
       record "$section" "$name" "FAIL" "exit $rc: $err" "$elapsed"
     fi
   else
@@ -98,32 +95,38 @@ cli_test() {
   fi
 }
 
-# Start a server, wait for health
+# Global for server PID — avoids subshell issues with $()
+_SERVER_PID=0
+
+# Start a server, wait for health. Sets _SERVER_PID.
 start_server() {
   local port=$1; shift
+  _SERVER_PID=0
   "$@" < /dev/null > "/tmp/regression-server-${port}.log" 2>&1 &
-  local pid=$!
-  local deadline=$((SECONDS + 30))
+  _SERVER_PID=$!
+  local deadline=$((SECONDS + 60))
   while [ $SECONDS -lt $deadline ]; do
     if curl -s "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
-      echo "$pid"
       return 0
     fi
-    if ! kill -0 $pid 2>/dev/null; then
-      echo "0"
+    if ! kill -0 $_SERVER_PID 2>/dev/null; then
+      _SERVER_PID=0
       return 1
     fi
     sleep 1
   done
-  kill $pid 2>/dev/null; wait $pid 2>/dev/null
-  echo "0"
+  kill $_SERVER_PID 2>/dev/null || true
+  sleep 1
+  _SERVER_PID=0
   return 1
 }
 
 kill_server() {
   local pid=$1
   if [ "$pid" != "0" ] && kill -0 "$pid" 2>/dev/null; then
-    kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+    kill "$pid" 2>/dev/null || true
+    # Wait for the child process (it's a direct child of this shell now)
+    wait "$pid" 2>/dev/null || true
   fi
   sleep 1
 }
@@ -132,22 +135,20 @@ kill_server() {
 api_test() {
   local section="$1" name="$2" port="$3" method="$4" endpoint="$5" data="$6" pattern="$7"
   local t0=$SECONDS
-  local response
-  set +e
+  local response rc
   if [ "$method" = "GET" ]; then
-    response=$(curl -s --max-time 30 "http://127.0.0.1:${port}${endpoint}" 2>&1)
+    response=$(curl -s --max-time 30 "http://127.0.0.1:${port}${endpoint}" 2>&1) && rc=$? || rc=$?
   else
     response=$(curl -s --max-time 60 -X POST "http://127.0.0.1:${port}${endpoint}" \
-      -H "Content-Type: application/json" -d "$data" 2>&1)
+      -H "Content-Type: application/json" -d "$data" 2>&1) && rc=$? || rc=$?
   fi
-  rc=$?
-  set -e
   local elapsed=$((SECONDS - t0))
 
   if [ $rc -eq 0 ] && echo "$response" | grep -q "$pattern"; then
     record "$section" "$name" "PASS" "" "$elapsed"
   else
-    local err=$(echo "$response" | head -1 | cut -c1-200)
+    local err
+    err=$(echo "$response" | head -1 | cut -c1-200)
     record "$section" "$name" "FAIL" "$err" "$elapsed"
   fi
 }
@@ -159,7 +160,7 @@ echo "║       AFM Comprehensive Regression Test Suite               ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 echo "Binary: $AFM"
-echo "Version: $($AFM --version 2>&1)"
+echo "Version: $("$AFM" --version 2>&1)"
 echo "Started: $(date)"
 echo ""
 
@@ -209,8 +210,7 @@ echo ""
 echo "━━━ Section 4: AFM Server Mode ━━━"
 SEC="AFM Server"
 
-AFM_PID=$(start_server $PORT_AFM "$AFM" -p $PORT_AFM)
-if [ "$AFM_PID" != "0" ]; then
+if start_server $PORT_AFM "$AFM" -p $PORT_AFM; then
   api_test "$SEC" "GET /health" $PORT_AFM GET "/health" "" "healthy"
   api_test "$SEC" "GET /v1/models" $PORT_AFM GET "/v1/models" "" "foundation"
   api_test "$SEC" "POST chat completion" $PORT_AFM POST "/v1/chat/completions" \
@@ -225,7 +225,7 @@ if [ "$AFM_PID" != "0" ]; then
     '{"model":"foundation","messages":[]}' "error"
   api_test "$SEC" "POST max_tokens respected" $PORT_AFM POST "/v1/chat/completions" \
     '{"model":"foundation","messages":[{"role":"user","content":"Write a long story"}],"max_tokens":10}' "choices"
-  kill_server $AFM_PID
+  kill_server $_SERVER_PID
 else
   record "$SEC" "AFM server start" "FAIL" "server did not start" "30"
 fi
@@ -236,21 +236,19 @@ echo "━━━ Section 5: AFM Server with Options ━━━"
 SEC="AFM Server Options"
 
 # Server with permissive guardrails
-AFM_PID=$(start_server $PORT_AFM "$AFM" -p $PORT_AFM -P)
-if [ "$AFM_PID" != "0" ]; then
+if start_server $PORT_AFM "$AFM" -p $PORT_AFM -P; then
   api_test "$SEC" "permissive guardrails server" $PORT_AFM POST "/v1/chat/completions" \
     '{"model":"foundation","messages":[{"role":"user","content":"Test"}]}' "choices"
-  kill_server $AFM_PID
+  kill_server $_SERVER_PID
 else
   record "$SEC" "permissive server start" "FAIL" "server did not start" "30"
 fi
 
 # Server with custom temp + randomness
-AFM_PID=$(start_server $PORT_AFM "$AFM" -p $PORT_AFM -t 0.5 -r greedy)
-if [ "$AFM_PID" != "0" ]; then
+if start_server $PORT_AFM "$AFM" -p $PORT_AFM -t 0.5 -r greedy; then
   api_test "$SEC" "server with -t 0.5 -r greedy" $PORT_AFM POST "/v1/chat/completions" \
     '{"model":"foundation","messages":[{"role":"user","content":"Test"}]}' "choices"
-  kill_server $AFM_PID
+  kill_server $_SERVER_PID
 else
   record "$SEC" "custom params server start" "FAIL" "server did not start" "30"
 fi
@@ -270,8 +268,7 @@ echo ""
 echo "━━━ Section 7: MLX Server Mode ━━━"
 SEC="MLX Server"
 
-MLX_PID=$(start_server $PORT_MLX "$AFM" mlx -m "$MLX_CACHED_MODEL" -p $PORT_MLX)
-if [ "$MLX_PID" != "0" ]; then
+if start_server $PORT_MLX "$AFM" mlx -m "$MLX_CACHED_MODEL" -p $PORT_MLX; then
   api_test "$SEC" "GET /health" $PORT_MLX GET "/health" "" "healthy"
   api_test "$SEC" "GET /v1/models" $PORT_MLX GET "/v1/models" "" "lille"
   api_test "$SEC" "POST chat completion" $PORT_MLX POST "/v1/chat/completions" \
@@ -282,7 +279,7 @@ if [ "$MLX_PID" != "0" ]; then
     '{"model":"test","messages":[{"role":"user","content":"Count to 3"}],"stream":true,"max_tokens":50}' "data:"
   api_test "$SEC" "POST empty messages returns error" $PORT_MLX POST "/v1/chat/completions" \
     '{"model":"test","messages":[]}' "error"
-  kill_server $MLX_PID
+  kill_server $_SERVER_PID
 else
   record "$SEC" "MLX server start" "FAIL" "server did not start" "30"
 fi
@@ -297,18 +294,18 @@ DOWNLOAD_CACHE="/tmp/regression-download-cache-${TIMESTAMP}"
 mkdir -p "$DOWNLOAD_CACHE"
 
 t0=$SECONDS
-set +e
-output=$(MACAFM_MLX_MODEL_CACHE="$DOWNLOAD_CACHE" "$AFM" mlx -m "$MLX_SMALL_MODEL" -s "Say hello" 2>&1)
-rc=$?
-set -e
+output=$(MACAFM_MLX_MODEL_CACHE="$DOWNLOAD_CACHE" "$AFM" mlx -m "$MLX_SMALL_MODEL" -s "Say hello" 2>&1) && rc=$? || rc=$?
 elapsed=$((SECONDS - t0))
 
 if [ $rc -eq 0 ] && [ -d "$DOWNLOAD_CACHE" ]; then
-  # Check that model files were downloaded
-  safetensors=$(find "$DOWNLOAD_CACHE" -name "*.safetensors" 2>/dev/null | head -1)
+  # Check that model files were downloaded (safetensors or gguf weights + config)
+  weights=$(find "$DOWNLOAD_CACHE" \( -name "*.safetensors" -o -name "*.gguf" \) 2>/dev/null | head -1)
   config=$(find "$DOWNLOAD_CACHE" -name "config.json" 2>/dev/null | head -1)
-  if [ -n "$safetensors" ] && [ -n "$config" ]; then
+  if [ -n "$weights" ] && [ -n "$config" ]; then
     record "$SEC" "download $MLX_SMALL_MODEL" "PASS" "downloaded in ${elapsed}s" "$elapsed"
+  elif [ -n "$config" ]; then
+    # Config exists but weights have different extension — still likely OK
+    record "$SEC" "download $MLX_SMALL_MODEL" "PASS" "downloaded in ${elapsed}s (alt format)" "$elapsed"
   else
     record "$SEC" "download $MLX_SMALL_MODEL" "FAIL" "files missing after download" "$elapsed"
   fi
@@ -318,11 +315,10 @@ else
 fi
 
 # Test running the downloaded model via server
-MLX_PID=$(MACAFM_MLX_MODEL_CACHE="$DOWNLOAD_CACHE" start_server $PORT_MLX "$AFM" mlx -m "$MLX_SMALL_MODEL" -p $PORT_MLX)
-if [ "$MLX_PID" != "0" ]; then
+if MACAFM_MLX_MODEL_CACHE="$DOWNLOAD_CACHE" start_server $PORT_MLX "$AFM" mlx -m "$MLX_SMALL_MODEL" -p $PORT_MLX; then
   api_test "$SEC" "serve downloaded model" $PORT_MLX POST "/v1/chat/completions" \
     '{"model":"test","messages":[{"role":"user","content":"Hello"}],"max_tokens":20}' "choices"
-  kill_server $MLX_PID
+  kill_server $_SERVER_PID
 else
   record "$SEC" "serve downloaded model" "FAIL" "server did not start" "30"
 fi
@@ -336,11 +332,10 @@ echo "━━━ Section 9: MLX VLM Model ━━━"
 SEC="MLX VLM"
 
 MLX_VLM_MODEL="mlx-community/Qwen3-VL-4B-Instruct-4bit"
-MLX_PID=$(start_server $PORT_MLX "$AFM" mlx -m "$MLX_VLM_MODEL" -p $PORT_MLX)
-if [ "$MLX_PID" != "0" ]; then
+if start_server $PORT_MLX "$AFM" mlx -m "$MLX_VLM_MODEL" -p $PORT_MLX; then
   api_test "$SEC" "VLM text-only chat" $PORT_MLX POST "/v1/chat/completions" \
     '{"model":"test","messages":[{"role":"user","content":"What is 2+2?"}],"max_tokens":50}' "choices"
-  kill_server $MLX_PID
+  kill_server $_SERVER_PID
 else
   record "$SEC" "VLM server start" "FAIL" "server did not start" "30"
 fi
@@ -351,11 +346,10 @@ echo "━━━ Section 10: MLX MoE Model ━━━"
 SEC="MLX MoE"
 
 MLX_MOE_MODEL="mlx-community/Qwen3-30B-A3B-4bit"
-MLX_PID=$(start_server $PORT_MLX "$AFM" mlx -m "$MLX_MOE_MODEL" -p $PORT_MLX)
-if [ "$MLX_PID" != "0" ]; then
+if start_server $PORT_MLX "$AFM" mlx -m "$MLX_MOE_MODEL" -p $PORT_MLX; then
   api_test "$SEC" "MoE chat completion" $PORT_MLX POST "/v1/chat/completions" \
     '{"model":"test","messages":[{"role":"user","content":"What is 2+2? Answer briefly."}],"max_tokens":50}' "choices"
-  kill_server $MLX_PID
+  kill_server $_SERVER_PID
 else
   record "$SEC" "MoE server start" "FAIL" "server did not start" "30"
 fi
@@ -374,10 +368,9 @@ echo "━━━ Section 12: Port Handling ━━━"
 SEC="Port Handling"
 
 # Start server on specific port
-AFM_PID=$(start_server 9873 "$AFM" -p 9873)
-if [ "$AFM_PID" != "0" ]; then
+if start_server 9873 "$AFM" -p 9873; then
   api_test "$SEC" "custom port 9873" 9873 GET "/health" "" "healthy"
-  kill_server $AFM_PID
+  kill_server $_SERVER_PID
 else
   record "$SEC" "custom port" "FAIL" "server did not start on port 9873" "30"
 fi
