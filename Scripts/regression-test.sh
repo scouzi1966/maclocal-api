@@ -1091,6 +1091,12 @@ else
   echo "  ❌ SOME TESTS FAILED"
 fi
 echo ""
+echo "  ── Manual Tests (not automatable) ──────────────────────────"
+echo "  MLX without -m (interactive model picker):"
+echo "    $AFM mlx -s \"Test\""
+echo "  MLX nonexistent model (should error):"
+echo "    $AFM mlx -m \"nonexistent/model-xyz\" -s \"Test\""
+echo ""
 
 echo "=== Generating HTML report ==="
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
