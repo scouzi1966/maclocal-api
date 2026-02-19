@@ -10,7 +10,7 @@ PORT=9877
 PROMPT="Explain calculus concepts from limits through multivariable calculus with rigorous mathematical notation"
 RESULTS_FILE="/tmp/mlx-test-results.jsonl"
 MAX_TOKENS=3000
-TIMEOUT_LOAD=900    # seconds to wait for server to start
+TIMEOUT_LOAD=120     # seconds to wait for server to start (2 min)
 TIMEOUT_GENERATE=900 # seconds for generation
 
 > "$RESULTS_FILE"
@@ -48,19 +48,41 @@ MODELS=(
   "mlx-community/Kimi-K2.5-3bit"
 )
 
+SERVER_PID=0
+
+# Kill server and all its children
 kill_server() {
   local pid=$1
-  if kill -0 "$pid" 2>/dev/null; then
-    kill "$pid" 2>/dev/null
+  if [ "$pid" != "0" ] && kill -0 "$pid" 2>/dev/null; then
+    pkill -TERM -P "$pid" 2>/dev/null
+    kill -TERM "$pid" 2>/dev/null
+    sleep 0.5
+    pkill -KILL -P "$pid" 2>/dev/null
+    kill -KILL "$pid" 2>/dev/null
     wait "$pid" 2>/dev/null
   fi
 }
+
+# Ctrl+C handler — clean up and exit
+cleanup() {
+  echo ""
+  echo "  ⚠️  Interrupted — cleaning up..."
+  kill_server $SERVER_PID
+  echo ""
+  echo "=== Test interrupted. Partial results in $RESULTS_FILE ==="
+  exit 130
+}
+trap cleanup INT TERM
 
 wait_for_server() {
   local deadline=$((SECONDS + TIMEOUT_LOAD))
   while [ $SECONDS -lt $deadline ]; do
     if curl -s "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
       return 0
+    fi
+    # Check if server process died
+    if ! kill -0 $SERVER_PID 2>/dev/null; then
+      return 1
     fi
     sleep 1
   done
@@ -98,12 +120,18 @@ for model in "${MODELS[@]}"; do
     # Grab error from log
     error_msg=$(grep -i "error\|fatal\|unsupported\|not supported\|failed" "$SERVER_LOG" | head -3 | tr '\n' ' ' | sed 's/"/\\"/g' | head -c 500)
     if [ -z "$error_msg" ]; then
-      error_msg="Server failed to start within ${TIMEOUT_LOAD}s"
+      if ! kill -0 $SERVER_PID 2>/dev/null; then
+        error_msg="Server process died (check $SERVER_LOG)"
+      else
+        error_msg="Server failed to start within ${TIMEOUT_LOAD}s"
+      fi
     fi
     echo "  FAIL: $error_msg"
     echo "{\"model\":$(escape_json "$model"),\"status\":\"FAIL\",\"error\":$(escape_json "$error_msg"),\"load_time_s\":$load_time}" >> "$RESULTS_FILE"
     kill_server $SERVER_PID
+    SERVER_PID=0
     sleep 2
+    echo ""
     continue
   fi
 
@@ -199,6 +227,7 @@ print(json.dumps(result))
 
   # Kill server
   kill_server $SERVER_PID
+  SERVER_PID=0
   sleep 2
   echo ""
 done
