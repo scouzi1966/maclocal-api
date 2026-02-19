@@ -9,7 +9,7 @@ export MACAFM_MLX_MODEL_CACHE="/Volumes/edata/models/vesta-test-cache"
 PORT=9877
 PROMPT="Explain calculus concepts from limits through multivariable calculus with rigorous mathematical notation"
 RESULTS_FILE="/tmp/mlx-test-results.jsonl"
-MAX_TOKENS=3000
+MAX_TOKENS=5000
 TIMEOUT_LOAD=360     # seconds to wait for server to start (6 min)
 TIMEOUT_GENERATE=900 # seconds for generation
 
