@@ -29,6 +29,7 @@ Options:
 
 Environment variables:
   AFM_BIN=PATH              Same as -b
+  RUN_EXTENDED_TESTS=1      Enable Section 15: Extended API Conformance
   RUN_GATEWAY_TESTS=1       Enable Section 14: Gateway Mode (requires external backends)
   MACAFM_MLX_MODEL_CACHE    Override MLX model cache directory
 HELP
@@ -326,6 +327,174 @@ if errors:
     sys.exit(1)
 print('SCHEMA_OK')
 " "$response"
+}
+
+validate_props_response() {
+  local response="$1"
+  python3 -c "
+import json, sys
+try:
+    d = json.loads(sys.argv[1])
+except Exception as e:
+    print(f'SCHEMA_FAIL: invalid JSON: {e}')
+    sys.exit(1)
+errors = []
+if 'default_generation_settings' not in d:
+    errors.append('missing default_generation_settings')
+else:
+    dgs = d['default_generation_settings']
+    if 'n_ctx' not in dgs: errors.append('missing n_ctx')
+    if 'params' not in dgs: errors.append('missing params')
+if 'total_slots' not in d: errors.append('missing total_slots')
+if 'model_path' not in d: errors.append('missing model_path')
+if errors:
+    print('SCHEMA_FAIL: ' + '; '.join(errors))
+    sys.exit(1)
+print('SCHEMA_OK')
+" "$response"
+}
+
+validate_stream_detailed() {
+  local response="$1"
+  python3 -c "
+import json, sys
+raw = sys.argv[1]
+errors = []
+lines = [l for l in raw.split('\n') if l.strip()]
+data_lines = [l for l in lines if l.startswith('data: ')]
+if not data_lines:
+    print('SCHEMA_FAIL: no SSE data: lines found')
+    sys.exit(1)
+has_done = any(l.strip() == 'data: [DONE]' for l in data_lines)
+if not has_done:
+    errors.append('missing [DONE] terminator')
+chunks = []
+for dl in data_lines:
+    payload = dl[len('data: '):]
+    if payload.strip() == '[DONE]':
+        continue
+    try:
+        chunks.append(json.loads(payload))
+    except Exception as e:
+        errors.append(f'invalid JSON chunk: {e}')
+        break
+if not chunks:
+    errors.append('no valid chunks')
+else:
+    # First chunk should have role in delta
+    c0 = chunks[0]
+    delta0 = c0.get('choices', [{}])[0].get('delta', {})
+    if 'role' not in delta0:
+        errors.append('first chunk delta missing role')
+    # Last chunk should have finish_reason
+    last = chunks[-1]
+    fr = last.get('choices', [{}])[0].get('finish_reason')
+    if fr is None:
+        errors.append('last chunk missing finish_reason')
+    # Final chunk should have usage
+    usage = last.get('usage')
+    if usage and isinstance(usage, dict):
+        for f in ('prompt_tokens', 'completion_tokens', 'total_tokens'):
+            if f not in usage: errors.append(f'final usage missing: {f}')
+    # All chunks should have consistent id
+    ids = set(c.get('id') for c in chunks)
+    if len(ids) > 1:
+        errors.append(f'inconsistent chunk ids: {ids}')
+    # All chunks should be chat.completion.chunk
+    bad_obj = [c.get('object') for c in chunks if c.get('object') != 'chat.completion.chunk']
+    if bad_obj:
+        errors.append(f'wrong object type in chunks: {bad_obj[0]}')
+if errors:
+    print('SCHEMA_FAIL: ' + '; '.join(errors))
+    sys.exit(1)
+print('SCHEMA_OK')
+" "$response"
+}
+
+validate_chat_response_extended() {
+  local response="$1"
+  python3 -c "
+import json, sys
+try:
+    d = json.loads(sys.argv[1])
+except Exception as e:
+    print(f'SCHEMA_FAIL: invalid JSON: {e}')
+    sys.exit(1)
+errors = []
+# All standard fields
+for f in ('id', 'object', 'created', 'model', 'choices', 'usage'):
+    if f not in d: errors.append(f'missing field: {f}')
+if d.get('object') != 'chat.completion':
+    errors.append(f'object should be chat.completion, got {d.get(\"object\")}')
+if not isinstance(d.get('created'), int):
+    errors.append('created should be int')
+if not str(d.get('id','')).startswith('chatcmpl-'):
+    errors.append(f'id should start with chatcmpl-')
+# system_fingerprint should be present (string or null)
+if 'system_fingerprint' not in d:
+    errors.append('missing system_fingerprint')
+# choices deep check
+choices = d.get('choices', [])
+if not isinstance(choices, list) or len(choices) < 1:
+    errors.append('choices should be non-empty array')
+else:
+    c = choices[0]
+    if c.get('index') != 0: errors.append(f'first choice index should be 0, got {c.get(\"index\")}')
+    if c.get('finish_reason') not in ('stop', 'length'):
+        errors.append(f'unexpected finish_reason: {c.get(\"finish_reason\")}')
+    msg = c.get('message', {})
+    if msg.get('role') != 'assistant':
+        errors.append(f'message role should be assistant, got {msg.get(\"role\")}')
+    if not isinstance(msg.get('content'), str):
+        errors.append('message content should be string')
+# usage deep check
+usage = d.get('usage', {})
+if isinstance(usage, dict):
+    for f in ('prompt_tokens', 'completion_tokens', 'total_tokens'):
+        if f not in usage:
+            errors.append(f'usage missing: {f}')
+        elif not isinstance(usage[f], int):
+            errors.append(f'usage.{f} should be int')
+    pt = usage.get('prompt_tokens', 0)
+    ct = usage.get('completion_tokens', 0)
+    tt = usage.get('total_tokens', 0)
+    if pt + ct != tt:
+        errors.append(f'usage total mismatch: {pt}+{ct} != {tt}')
+if errors:
+    print('SCHEMA_FAIL: ' + '; '.join(errors))
+    sys.exit(1)
+print('SCHEMA_OK')
+" "$response"
+}
+
+# Header check helper — checks a specific response header value
+header_test() {
+  local section="$1" name="$2" port="$3" method="$4" endpoint="$5" data="$6" header="$7" expect="$8"
+  local t0=$SECONDS
+  local headers rc
+  if [ "$method" = "GET" ]; then
+    headers=$(curl -sI --max-time 30 "http://127.0.0.1:${port}${endpoint}" 2>&1) && rc=$? || rc=$?
+  elif [ "$method" = "OPTIONS" ]; then
+    headers=$(curl -sI --max-time 30 -X OPTIONS "http://127.0.0.1:${port}${endpoint}" 2>&1) && rc=$? || rc=$?
+  else
+    headers=$(curl -sI --max-time 60 -X POST "http://127.0.0.1:${port}${endpoint}" \
+      -H "Content-Type: application/json" -d "$data" 2>&1) && rc=$? || rc=$?
+  fi
+  local elapsed=$((SECONDS - t0))
+
+  if [ $rc -ne 0 ]; then
+    record "$section" "$name" "FAIL" "curl error $rc" "$elapsed"
+    return
+  fi
+
+  # Case-insensitive header match
+  local val
+  val=$(echo "$headers" | grep -i "^${header}:" | head -1 | sed "s/^[^:]*: *//" | tr -d '\r')
+  if echo "$val" | grep -qi "$expect"; then
+    record "$section" "$name" "PASS" "" "$elapsed"
+  else
+    record "$section" "$name" "FAIL" "$header: '$val' (expected match: $expect)" "$elapsed"
+  fi
 }
 
 # Schema-validated API test — runs curl then validates response with a validator function
@@ -691,6 +860,171 @@ else
   record "$SEC" "MLX schema server start" "FAIL" "server did not start" "30"
 fi
 echo ""
+
+###############################################################################
+# Section 15: Extended API Conformance (optional)
+# Enable with: RUN_EXTENDED_TESTS=1 ./Scripts/regression-test.sh
+# Tests OpenAI API spec coverage beyond basic schema checks.
+###############################################################################
+
+if [ "${RUN_EXTENDED_TESTS:-0}" = "1" ]; then
+  echo "━━━ Section 15: Extended API Conformance ━━━"
+  SEC="Extended Conformance"
+
+  # --- AFM extended tests ---
+  if start_server $PORT_AFM "$AFM" -p $PORT_AFM; then
+
+    # -- Response field deep validation --
+    schema_api_test "$SEC" "AFM: extended response fields" $PORT_AFM POST "/v1/chat/completions" \
+      '{"model":"foundation","messages":[{"role":"user","content":"Say hi"}]}' \
+      validate_chat_response_extended "200"
+
+    # -- system_fingerprint present --
+    t0=$SECONDS
+    sfp_resp=$(curl -s --max-time 30 -X POST "http://127.0.0.1:${PORT_AFM}/v1/chat/completions" \
+      -H "Content-Type: application/json" \
+      -d '{"model":"foundation","messages":[{"role":"user","content":"Hi"}]}' 2>&1) && sfp_rc=$? || sfp_rc=$?
+    if [ $sfp_rc -eq 0 ] && echo "$sfp_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'system_fingerprint' in d" 2>/dev/null; then
+      record "$SEC" "AFM: system_fingerprint present" "PASS" "" "$((SECONDS - t0))"
+    else
+      record "$SEC" "AFM: system_fingerprint present" "FAIL" "field not in response" "$((SECONDS - t0))"
+    fi
+
+    # -- Streaming detailed validation (role in first chunk, finish_reason in last, usage) --
+    t0=$SECONDS
+    stream_resp=$(curl -s --max-time 60 -X POST "http://127.0.0.1:${PORT_AFM}/v1/chat/completions" \
+      -H "Content-Type: application/json" \
+      -d '{"model":"foundation","messages":[{"role":"user","content":"Count to 3"}],"stream":true}' 2>&1) && stream_rc=$? || stream_rc=$?
+    elapsed=$((SECONDS - t0))
+    if [ $stream_rc -ne 0 ]; then
+      record "$SEC" "AFM: streaming detailed" "FAIL" "curl error $stream_rc" "$elapsed"
+    else
+      vresult=$(validate_stream_detailed "$stream_resp" 2>&1) && vrc=$? || vrc=$?
+      if [ $vrc -eq 0 ]; then
+        record "$SEC" "AFM: streaming detailed (role/finish/usage)" "PASS" "" "$elapsed"
+      else
+        record "$SEC" "AFM: streaming detailed (role/finish/usage)" "FAIL" "$vresult" "$elapsed"
+      fi
+    fi
+
+    # -- Parameters accepted without error --
+    schema_api_test "$SEC" "AFM: top_p accepted" $PORT_AFM POST "/v1/chat/completions" \
+      '{"model":"foundation","messages":[{"role":"user","content":"Hi"}],"top_p":0.9}' \
+      validate_chat_response "200"
+
+    schema_api_test "$SEC" "AFM: frequency_penalty accepted" $PORT_AFM POST "/v1/chat/completions" \
+      '{"model":"foundation","messages":[{"role":"user","content":"Hi"}],"frequency_penalty":0.5}' \
+      validate_chat_response "200"
+
+    schema_api_test "$SEC" "AFM: presence_penalty accepted" $PORT_AFM POST "/v1/chat/completions" \
+      '{"model":"foundation","messages":[{"role":"user","content":"Hi"}],"presence_penalty":0.5}' \
+      validate_chat_response "200"
+
+    schema_api_test "$SEC" "AFM: stop param accepted" $PORT_AFM POST "/v1/chat/completions" \
+      '{"model":"foundation","messages":[{"role":"user","content":"Hi"}],"stop":["END"]}' \
+      validate_chat_response "200"
+
+    schema_api_test "$SEC" "AFM: user param accepted" $PORT_AFM POST "/v1/chat/completions" \
+      '{"model":"foundation","messages":[{"role":"user","content":"Hi"}],"user":"test-user"}' \
+      validate_chat_response "200"
+
+    schema_api_test "$SEC" "AFM: combined params" $PORT_AFM POST "/v1/chat/completions" \
+      '{"model":"foundation","messages":[{"role":"user","content":"Hi"}],"temperature":0.7,"top_p":0.9,"max_tokens":20,"frequency_penalty":0.3,"presence_penalty":0.3}' \
+      validate_chat_response "200"
+
+    # -- Response headers --
+    header_test "$SEC" "AFM: Content-Type json" $PORT_AFM POST "/v1/chat/completions" \
+      '{"model":"foundation","messages":[{"role":"user","content":"Hi"}]}' \
+      "Content-Type" "application/json"
+
+    header_test "$SEC" "AFM: CORS header" $PORT_AFM POST "/v1/chat/completions" \
+      '{"model":"foundation","messages":[{"role":"user","content":"Hi"}]}' \
+      "Access-Control-Allow-Origin" "\\*"
+
+    header_test "$SEC" "AFM: OPTIONS CORS methods" $PORT_AFM OPTIONS "/v1/chat/completions" "" \
+      "Access-Control-Allow-Methods" "POST"
+
+    header_test "$SEC" "AFM: OPTIONS CORS headers" $PORT_AFM OPTIONS "/v1/chat/completions" "" \
+      "Access-Control-Allow-Headers" "Content-Type"
+
+    header_test "$SEC" "AFM: health Content-Type" $PORT_AFM GET "/health" "" \
+      "Content-Type" "application/json"
+
+    header_test "$SEC" "AFM: models Content-Type" $PORT_AFM GET "/v1/models" "" \
+      "Content-Type" "application/json"
+
+    # -- Props endpoint (llama.cpp compat) --
+    schema_api_test "$SEC" "AFM: /props endpoint" $PORT_AFM GET "/props" "" \
+      validate_props_response "200"
+
+    # -- Model load/unload stubs --
+    api_test "$SEC" "AFM: POST /models/load" $PORT_AFM POST "/models/load" \
+      '{"model":"foundation"}' "success"
+
+    api_test "$SEC" "AFM: POST /models/unload" $PORT_AFM POST "/models/unload" \
+      '{}' "success"
+
+    # -- Error responses --
+    http_status_test "$SEC" "AFM: 400 malformed JSON" $PORT_AFM POST "/v1/chat/completions" \
+      '{"bad json' "400"
+
+    http_status_test "$SEC" "AFM: 400 missing messages key" $PORT_AFM POST "/v1/chat/completions" \
+      '{"model":"foundation"}' "400"
+
+    # -- Unknown model (should return 404 in gateway mode, but 200/error in AFM-only) --
+    http_status_test "$SEC" "AFM: unknown endpoint 404" $PORT_AFM GET "/v1/nonexistent" "" "404"
+
+    kill_server $_SERVER_PID
+  else
+    record "$SEC" "AFM extended server start" "FAIL" "server did not start" "30"
+  fi
+
+  # --- MLX extended tests ---
+  if start_server $PORT_MLX "$AFM" mlx -m "$MLX_CACHED_MODEL" -p $PORT_MLX; then
+
+    schema_api_test "$SEC" "MLX: extended response fields" $PORT_MLX POST "/v1/chat/completions" \
+      '{"model":"test","messages":[{"role":"user","content":"Hi"}],"max_tokens":50}' \
+      validate_chat_response_extended "200"
+
+    # Streaming detailed
+    t0=$SECONDS
+    stream_resp=$(curl -s --max-time 60 -X POST "http://127.0.0.1:${PORT_MLX}/v1/chat/completions" \
+      -H "Content-Type: application/json" \
+      -d '{"model":"test","messages":[{"role":"user","content":"Count to 3"}],"stream":true,"max_tokens":50}' 2>&1) && stream_rc=$? || stream_rc=$?
+    elapsed=$((SECONDS - t0))
+    if [ $stream_rc -ne 0 ]; then
+      record "$SEC" "MLX: streaming detailed" "FAIL" "curl error $stream_rc" "$elapsed"
+    else
+      vresult=$(validate_stream_detailed "$stream_resp" 2>&1) && vrc=$? || vrc=$?
+      if [ $vrc -eq 0 ]; then
+        record "$SEC" "MLX: streaming detailed (role/finish/usage)" "PASS" "" "$elapsed"
+      else
+        record "$SEC" "MLX: streaming detailed (role/finish/usage)" "FAIL" "$vresult" "$elapsed"
+      fi
+    fi
+
+    # MLX-specific: repetition_penalty accepted
+    schema_api_test "$SEC" "MLX: repetition_penalty accepted" $PORT_MLX POST "/v1/chat/completions" \
+      '{"model":"test","messages":[{"role":"user","content":"Hi"}],"repetition_penalty":1.1,"max_tokens":50}' \
+      validate_chat_response "200"
+
+    header_test "$SEC" "MLX: CORS header" $PORT_MLX POST "/v1/chat/completions" \
+      '{"model":"test","messages":[{"role":"user","content":"Hi"}],"max_tokens":50}' \
+      "Access-Control-Allow-Origin" "\\*"
+
+    header_test "$SEC" "MLX: OPTIONS CORS" $PORT_MLX OPTIONS "/v1/chat/completions" "" \
+      "Access-Control-Allow-Methods" "POST"
+
+    kill_server $_SERVER_PID
+  else
+    record "$SEC" "MLX extended server start" "FAIL" "server did not start" "30"
+  fi
+  echo ""
+else
+  echo "━━━ Section 15: Extended API Conformance (skipped) ━━━"
+  echo "  ⏭️  Set RUN_EXTENDED_TESTS=1 to enable"
+  echo ""
+fi
 
 ###############################################################################
 # Section 14: Gateway Mode (optional — requires external backends like Ollama)
