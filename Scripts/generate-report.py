@@ -169,7 +169,7 @@ MathJax = {{
 </head>
 <body>
 <h1>MLX Model Test Report</h1>
-<p class="meta">Generated {now} &middot; AFM MLX Backend &middot; Apple M4 Ultra (512GB) &middot; 3000 max tokens &middot; temp 0.7</p>
+<p class="meta">Generated {now} &middot; AFM MLX Backend &middot; Apple M3 Ultra (512GB) &middot; 3000 max tokens &middot; temp 0.7</p>
 
 <div class="summary">
   <div class="card"><div class="label">Models Tested</div><div class="value blue">{len(results)}</div></div>

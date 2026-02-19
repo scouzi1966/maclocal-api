@@ -4,7 +4,7 @@
 
 set -uo pipefail
 
-AFM="/tmp/maclocal-api-mlx-clean/.build/release/afm"
+AFM="${AFM_BIN:-/tmp/afm-fresh-build/.build/release/afm}"
 export MACAFM_MLX_MODEL_CACHE="/Volumes/edata/models/vesta-test-cache"
 PORT=9877
 PROMPT="Explain calculus concepts from limits through multivariable calculus with rigorous mathematical notation"
@@ -46,6 +46,7 @@ MODELS=(
   "mlx-community/Qwen3.5-397B-A17B-4bit"
   "mlx-community/SmolLM3-3B-4bit"
   "sentence-transformers/all-MiniLM-L6-v2"
+  "mlx-community/Kimi-K2.5-3bit"
 )
 
 kill_server() {
