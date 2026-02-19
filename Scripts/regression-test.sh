@@ -20,7 +20,19 @@ TIMESTAMP=$(date "+%Y%m%d_%H%M%S")
 while getopts "b:h" opt; do
   case $opt in
     b) AFM="$OPTARG" ;;
-    h) echo "Usage: $0 [-b /path/to/afm]"; exit 0 ;;
+    h) cat <<HELP
+Usage: $0 [-b /path/to/afm]
+
+Options:
+  -b PATH   Path to afm binary (default: /tmp/afm-fresh-build/.build/release/afm)
+  -h        Show this help
+
+Environment variables:
+  AFM_BIN=PATH              Same as -b
+  RUN_GATEWAY_TESTS=1       Enable Section 14: Gateway Mode (requires external backends)
+  MACAFM_MLX_MODEL_CACHE    Override MLX model cache directory
+HELP
+       exit 0 ;;
     *) echo "Unknown option"; exit 1 ;;
   esac
 done
