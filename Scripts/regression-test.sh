@@ -10,7 +10,7 @@
 
 AFM="${AFM_BIN:-/tmp/afm-fresh-build/.build/release/afm}"
 export MACAFM_MLX_MODEL_CACHE="/Volumes/edata/models/vesta-test-cache"
-MLX_SMALL_MODEL="mlx-community/granite-4.0-350m-bf16"
+MLX_SMALL_MODEL="mlx-community/Qwen2.5-0.5B-Instruct-4bit"
 MLX_CACHED_MODEL="mlx-community/lille-130m-instruct-8bit"
 PORT_AFM=9871
 PORT_MLX=9872
@@ -150,6 +150,258 @@ api_test() {
     local err
     err=$(echo "$response" | head -1 | cut -c1-200)
     record "$section" "$name" "FAIL" "$err" "$elapsed"
+  fi
+}
+
+###############################################################################
+# Schema validation helpers (Python-based, called from schema_api_test)
+###############################################################################
+
+validate_chat_response() {
+  local response="$1"
+  python3 -c "
+import json, sys
+try:
+    d = json.loads(sys.argv[1])
+except Exception as e:
+    print(f'SCHEMA_FAIL: invalid JSON: {e}')
+    sys.exit(1)
+errors = []
+for f in ('id', 'object', 'created', 'model', 'choices', 'usage'):
+    if f not in d: errors.append(f'missing field: {f}')
+if d.get('object') != 'chat.completion':
+    errors.append(f'object should be chat.completion, got {d.get(\"object\")}')
+if not isinstance(d.get('created'), int):
+    errors.append('created should be int')
+if not str(d.get('id','')).startswith('chatcmpl-'):
+    errors.append(f'id should start with chatcmpl-, got {d.get(\"id\")}')
+choices = d.get('choices', [])
+if not isinstance(choices, list) or len(choices) < 1:
+    errors.append('choices should be non-empty array')
+else:
+    c = choices[0]
+    for f in ('index', 'message', 'finish_reason'):
+        if f not in c: errors.append(f'choice missing: {f}')
+    msg = c.get('message', {})
+    if 'role' not in msg: errors.append('message missing role')
+    if 'content' not in msg: errors.append('message missing content')
+usage = d.get('usage', {})
+if isinstance(usage, dict):
+    for f in ('prompt_tokens', 'completion_tokens', 'total_tokens'):
+        if f not in usage: errors.append(f'usage missing: {f}')
+if errors:
+    print('SCHEMA_FAIL: ' + '; '.join(errors))
+    sys.exit(1)
+print('SCHEMA_OK')
+" "$response"
+}
+
+validate_stream_response() {
+  local response="$1"
+  python3 -c "
+import json, sys
+raw = sys.argv[1]
+errors = []
+lines = [l for l in raw.split('\n') if l.strip()]
+data_lines = [l for l in lines if l.startswith('data: ')]
+if not data_lines:
+    print('SCHEMA_FAIL: no SSE data: lines found')
+    sys.exit(1)
+# Check [DONE] terminator
+has_done = any(l.strip() == 'data: [DONE]' for l in data_lines)
+if not has_done:
+    errors.append('missing [DONE] terminator')
+# Validate chunk objects
+chunks = []
+for dl in data_lines:
+    payload = dl[len('data: '):]
+    if payload.strip() == '[DONE]':
+        continue
+    try:
+        c = json.loads(payload)
+        chunks.append(c)
+    except Exception as e:
+        errors.append(f'invalid JSON chunk: {e}')
+        break
+if chunks:
+    c0 = chunks[0]
+    if c0.get('object') != 'chat.completion.chunk':
+        errors.append(f'object should be chat.completion.chunk, got {c0.get(\"object\")}')
+    if not str(c0.get('id','')).startswith('chatcmpl-'):
+        errors.append(f'chunk id should start with chatcmpl-, got {c0.get(\"id\")}')
+    for f in ('id', 'object', 'created', 'model', 'choices'):
+        if f not in c0: errors.append(f'chunk missing: {f}')
+    ch = c0.get('choices', [{}])
+    if isinstance(ch, list) and len(ch) > 0:
+        sc = ch[0]
+        if 'delta' not in sc: errors.append('stream choice missing delta')
+        if 'index' not in sc: errors.append('stream choice missing index')
+if errors:
+    print('SCHEMA_FAIL: ' + '; '.join(errors))
+    sys.exit(1)
+print('SCHEMA_OK')
+" "$response"
+}
+
+validate_error_response() {
+  local response="$1"
+  python3 -c "
+import json, sys
+try:
+    d = json.loads(sys.argv[1])
+except Exception as e:
+    print(f'SCHEMA_FAIL: invalid JSON: {e}')
+    sys.exit(1)
+errors = []
+if 'error' not in d:
+    errors.append('missing error object')
+else:
+    err = d['error']
+    if not isinstance(err, dict):
+        errors.append('error should be an object')
+    else:
+        if 'message' not in err: errors.append('error missing message')
+        if 'type' not in err: errors.append('error missing type')
+if errors:
+    print('SCHEMA_FAIL: ' + '; '.join(errors))
+    sys.exit(1)
+print('SCHEMA_OK')
+" "$response"
+}
+
+validate_models_response() {
+  local response="$1"
+  python3 -c "
+import json, sys
+try:
+    d = json.loads(sys.argv[1])
+except Exception as e:
+    print(f'SCHEMA_FAIL: invalid JSON: {e}')
+    sys.exit(1)
+errors = []
+if d.get('object') != 'list':
+    errors.append(f'object should be list, got {d.get(\"object\")}')
+data = d.get('data')
+if not isinstance(data, list) or len(data) < 1:
+    errors.append('data should be non-empty array')
+else:
+    m = data[0]
+    for f in ('id', 'object', 'created', 'owned_by'):
+        if f not in m: errors.append(f'model missing: {f}')
+    if m.get('object') != 'model':
+        errors.append(f'model object should be model, got {m.get(\"object\")}')
+if errors:
+    print('SCHEMA_FAIL: ' + '; '.join(errors))
+    sys.exit(1)
+print('SCHEMA_OK')
+" "$response"
+}
+
+validate_health_response() {
+  local response="$1"
+  python3 -c "
+import json, sys
+try:
+    d = json.loads(sys.argv[1])
+except Exception as e:
+    print(f'SCHEMA_FAIL: invalid JSON: {e}')
+    sys.exit(1)
+errors = []
+for f in ('status', 'timestamp', 'version'):
+    if f not in d: errors.append(f'missing field: {f}')
+if errors:
+    print('SCHEMA_FAIL: ' + '; '.join(errors))
+    sys.exit(1)
+print('SCHEMA_OK')
+" "$response"
+}
+
+# Schema-validated API test — runs curl then validates response with a validator function
+schema_api_test() {
+  local section="$1" name="$2" port="$3" method="$4" endpoint="$5" data="$6" validator="$7"
+  local expect_status="${8:-}"
+  local t0=$SECONDS
+  local response http_code rc
+  if [ "$method" = "GET" ]; then
+    response=$(curl -s -w '\n%{http_code}' --max-time 30 "http://127.0.0.1:${port}${endpoint}" 2>&1) && rc=$? || rc=$?
+  else
+    response=$(curl -s -w '\n%{http_code}' --max-time 60 -X POST "http://127.0.0.1:${port}${endpoint}" \
+      -H "Content-Type: application/json" -d "$data" 2>&1) && rc=$? || rc=$?
+  fi
+  local elapsed=$((SECONDS - t0))
+
+  if [ $rc -ne 0 ]; then
+    local err
+    err=$(echo "$response" | head -1 | cut -c1-200)
+    record "$section" "$name" "FAIL" "curl error $rc: $err" "$elapsed"
+    return
+  fi
+
+  # Split response body and HTTP status code
+  http_code=$(echo "$response" | tail -1)
+  local body
+  body=$(echo "$response" | sed '$d')
+
+  # Check expected HTTP status if specified
+  if [ -n "$expect_status" ] && [ "$http_code" != "$expect_status" ]; then
+    record "$section" "$name" "FAIL" "HTTP $http_code (expected $expect_status)" "$elapsed"
+    return
+  fi
+
+  # Run the validator function
+  local vresult
+  vresult=$($validator "$body" 2>&1) && rc=$? || rc=$?
+  if [ $rc -eq 0 ]; then
+    record "$section" "$name" "PASS" "" "$elapsed"
+  else
+    record "$section" "$name" "FAIL" "$vresult" "$elapsed"
+  fi
+}
+
+# Schema-validated streaming test — needs special curl (no -w for SSE)
+schema_stream_test() {
+  local section="$1" name="$2" port="$3" data="$4"
+  local t0=$SECONDS
+  local response rc
+  response=$(curl -s --max-time 60 -X POST "http://127.0.0.1:${port}/v1/chat/completions" \
+    -H "Content-Type: application/json" -d "$data" 2>&1) && rc=$? || rc=$?
+  local elapsed=$((SECONDS - t0))
+
+  if [ $rc -ne 0 ]; then
+    local err
+    err=$(echo "$response" | head -1 | cut -c1-200)
+    record "$section" "$name" "FAIL" "curl error $rc: $err" "$elapsed"
+    return
+  fi
+
+  local vresult
+  vresult=$(validate_stream_response "$response" 2>&1) && rc=$? || rc=$?
+  if [ $rc -eq 0 ]; then
+    record "$section" "$name" "PASS" "" "$elapsed"
+  else
+    record "$section" "$name" "FAIL" "$vresult" "$elapsed"
+  fi
+}
+
+# HTTP status code test — checks only the status code, no schema validation
+http_status_test() {
+  local section="$1" name="$2" port="$3" method="$4" endpoint="$5" data="$6" expect_status="$7"
+  local t0=$SECONDS
+  local http_code rc
+  if [ "$method" = "GET" ]; then
+    http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "http://127.0.0.1:${port}${endpoint}" 2>&1) && rc=$? || rc=$?
+  else
+    http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 -X POST "http://127.0.0.1:${port}${endpoint}" \
+      -H "Content-Type: application/json" -d "$data" 2>&1) && rc=$? || rc=$?
+  fi
+  local elapsed=$((SECONDS - t0))
+
+  if [ $rc -ne 0 ]; then
+    record "$section" "$name" "FAIL" "curl error $rc" "$elapsed"
+  elif [ "$http_code" = "$expect_status" ]; then
+    record "$section" "$name" "PASS" "" "$elapsed"
+  else
+    record "$section" "$name" "FAIL" "HTTP $http_code (expected $expect_status)" "$elapsed"
   fi
 }
 
@@ -360,7 +612,7 @@ echo "━━━ Section 11: MLX Validation ━━━"
 SEC="MLX Validation"
 
 cli_test "$SEC" "mlx without -m fails" false "" "$AFM" mlx -s "Test"
-cli_test "$SEC" "mlx nonexistent model fails" false "" "$AFM" mlx -m "nonexistent/model-xyz" -s "Test"
+cli_test "$SEC" "mlx nonexistent model fails" false "" timeout 30 "$AFM" mlx -m "nonexistent/model-xyz" -s "Test"
 echo ""
 
 ###############################################################################
@@ -373,6 +625,66 @@ if start_server 9873 "$AFM" -p 9873; then
   kill_server $_SERVER_PID
 else
   record "$SEC" "custom port" "FAIL" "server did not start on port 9873" "30"
+fi
+echo ""
+
+###############################################################################
+echo "━━━ Section 13: OpenAI Schema Validation ━━━"
+SEC="Schema Validation"
+
+# --- AFM Server schema tests ---
+if start_server $PORT_AFM "$AFM" -p $PORT_AFM; then
+  schema_api_test "$SEC" "AFM: chat response schema" $PORT_AFM POST "/v1/chat/completions" \
+    '{"model":"foundation","messages":[{"role":"user","content":"Say hi"}]}' \
+    validate_chat_response "200"
+
+  schema_api_test "$SEC" "AFM: chat with temperature schema" $PORT_AFM POST "/v1/chat/completions" \
+    '{"model":"foundation","messages":[{"role":"user","content":"Test"}],"temperature":0.5}' \
+    validate_chat_response "200"
+
+  schema_stream_test "$SEC" "AFM: streaming SSE + chunk schema" $PORT_AFM \
+    '{"model":"foundation","messages":[{"role":"user","content":"Count to 3"}],"stream":true}'
+
+  schema_api_test "$SEC" "AFM: error response schema" $PORT_AFM POST "/v1/chat/completions" \
+    '{"model":"foundation","messages":[]}' \
+    validate_error_response ""
+
+  schema_api_test "$SEC" "AFM: models endpoint schema" $PORT_AFM GET "/v1/models" "" \
+    validate_models_response "200"
+
+  schema_api_test "$SEC" "AFM: health endpoint schema" $PORT_AFM GET "/health" "" \
+    validate_health_response "200"
+
+  http_status_test "$SEC" "AFM: 200 on valid chat" $PORT_AFM POST "/v1/chat/completions" \
+    '{"model":"foundation","messages":[{"role":"user","content":"Hi"}]}' "200"
+
+  http_status_test "$SEC" "AFM: 400 on empty messages" $PORT_AFM POST "/v1/chat/completions" \
+    '{"model":"foundation","messages":[]}' "400"
+
+  kill_server $_SERVER_PID
+else
+  record "$SEC" "AFM schema server start" "FAIL" "server did not start" "30"
+fi
+
+# --- MLX Server schema tests ---
+if start_server $PORT_MLX "$AFM" mlx -m "$MLX_CACHED_MODEL" -p $PORT_MLX; then
+  schema_api_test "$SEC" "MLX: chat response schema" $PORT_MLX POST "/v1/chat/completions" \
+    '{"model":"test","messages":[{"role":"user","content":"Say hi"}],"max_tokens":50}' \
+    validate_chat_response "200"
+
+  schema_stream_test "$SEC" "MLX: streaming SSE + chunk schema" $PORT_MLX \
+    '{"model":"test","messages":[{"role":"user","content":"Count to 3"}],"stream":true,"max_tokens":50}'
+
+  schema_api_test "$SEC" "MLX: error response schema" $PORT_MLX POST "/v1/chat/completions" \
+    '{"model":"test","messages":[]}' \
+    validate_error_response ""
+
+  schema_api_test "$SEC" "MLX: models endpoint schema" $PORT_MLX GET "/v1/models" "" \
+    validate_models_response "200"
+
+  kill_server $_SERVER_PID
+else
+  record "$SEC" "MLX schema server start" "FAIL" "server did not start" "30"
 fi
 echo ""
 
