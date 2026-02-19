@@ -10,8 +10,8 @@ PORT=9877
 PROMPT="Explain calculus concepts from limits through multivariable calculus with rigorous mathematical notation"
 RESULTS_FILE="/tmp/mlx-test-results.jsonl"
 MAX_TOKENS=3000
-TIMEOUT_LOAD=300    # seconds to wait for server to start
-TIMEOUT_GENERATE=300 # seconds for generation
+TIMEOUT_LOAD=900    # seconds to wait for server to start
+TIMEOUT_GENERATE=900 # seconds for generation
 
 > "$RESULTS_FILE"
 
