@@ -59,6 +59,7 @@ afm_test_log_*.txt
 
 # Test files
 Scripts/regression-report-*.html
+Scripts/mlx-model-report-*.html
 test-curl-commands.md
 test-table.png
 test.pdf

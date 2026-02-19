@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import json, html, datetime, re
+import json, html, datetime, re, os, sys
 
 results = []
 with open("/tmp/mlx-test-results.jsonl") as f:
@@ -281,8 +281,11 @@ function renderContent(idx) {{
 </html>
 """
 
-with open("/tmp/mlx-model-report.html", "w") as f:
+script_dir = os.path.dirname(os.path.abspath(__file__))
+timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+outpath = os.path.join(script_dir, f"mlx-model-report-{timestamp}.html")
+with open(outpath, "w") as f:
     f.write(report)
 
-print(f"Report written to /tmp/mlx-model-report.html")
+print(f"Report: {outpath}")
 print(f"  {len(ok)} passed, {len(fail)} failed out of {len(results)} models")

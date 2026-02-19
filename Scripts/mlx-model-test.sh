@@ -233,3 +233,7 @@ print(json.dumps(result))
 done
 
 echo "=== All tests complete. Results in $RESULTS_FILE ==="
+echo ""
+echo "=== Generating HTML report ==="
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+python3 "$SCRIPT_DIR/generate-report.py"
