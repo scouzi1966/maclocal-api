@@ -52,12 +52,12 @@ SERVER_PID=0
 kill_server() {
   local pid=$1
   if [ "$pid" != "0" ] && kill -0 "$pid" 2>/dev/null; then
-    pkill -TERM -P "$pid" 2>/dev/null
-    kill -TERM "$pid" 2>/dev/null
+    pkill -TERM -P "$pid" 2>/dev/null || true
+    kill -TERM "$pid" 2>/dev/null || true
     sleep 0.5
-    pkill -KILL -P "$pid" 2>/dev/null
-    kill -KILL "$pid" 2>/dev/null
-    wait "$pid" 2>/dev/null
+    pkill -KILL -P "$pid" 2>/dev/null || true
+    kill -KILL "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
   fi
 }
 
