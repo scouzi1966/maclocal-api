@@ -176,19 +176,18 @@ afm --version
 #### Option 3: Build from Source
 
 ```bash
-# Clone the repository (includes llama.cpp WebUI as a submodule)
-git clone --recursive https://github.com/scouzi1966/maclocal-api.git
+# Clone the repository with submodules
+git clone --recurse-submodules https://github.com/scouzi1966/maclocal-api.git
 cd maclocal-api
 
-# Build the WebUI (requires Node.js)
-cd vendor/llama.cpp/tools/server/webui
-npm install && npm run build
-cd ../../../../..
-mkdir -p Resources/webui
-cp vendor/llama.cpp/tools/server/public/index.html.gz Resources/webui/
+# Build everything from scratch (patches + webui + release build)
+./Scripts/build-from-scratch.sh
 
-# Build the project
-swift build -c release
+# Or skip webui if you don't have Node.js
+./Scripts/build-from-scratch.sh --skip-webui
+
+# Or use make (patches + release build, no webui)
+make
 
 # Run
 ./.build/release/afm --version
@@ -431,15 +430,14 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 
 ```bash
 # Clone the repo with submodules
-git clone --recursive https://github.com/scouzi1966/maclocal-api.git
+git clone --recurse-submodules https://github.com/scouzi1966/maclocal-api.git
 cd maclocal-api
 
-# Build WebUI (first time only, requires Node.js)
-cd vendor/llama.cpp/tools/server/webui && npm install && npm run build && cd ../../../../..
-mkdir -p Resources/webui && cp vendor/llama.cpp/tools/server/public/index.html.gz Resources/webui/
+# Full build from scratch (submodules + patches + webui + release)
+./Scripts/build-from-scratch.sh
 
-# Build for development
-swift build
+# Or for debug builds during development
+./Scripts/build-from-scratch.sh --debug --skip-webui
 
 # Run with verbose logging
 ./.build/debug/afm -w -g -v
