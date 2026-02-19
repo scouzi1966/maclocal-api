@@ -681,6 +681,60 @@ fi
 echo ""
 
 ###############################################################################
+# Section 14: Gateway Mode (optional — requires external backends like Ollama)
+# Enable with: RUN_GATEWAY_TESTS=1 ./Scripts/regression-test.sh
+###############################################################################
+PORT_GW=9874
+
+if [ "${RUN_GATEWAY_TESTS:-0}" = "1" ]; then
+  echo "━━━ Section 14: Gateway Mode ━━━"
+  SEC="Gateway Mode"
+
+  if start_server $PORT_GW "$AFM" -p $PORT_GW -g; then
+    # Models endpoint should include discovered backends
+    api_test "$SEC" "GET /v1/models (gateway)" $PORT_GW GET "/v1/models" "" "data"
+    schema_api_test "$SEC" "models schema (gateway)" $PORT_GW GET "/v1/models" "" \
+      validate_models_response "200"
+
+    # Health should still work
+    schema_api_test "$SEC" "health schema (gateway)" $PORT_GW GET "/health" "" \
+      validate_health_response "200"
+
+    # Chat completion via AFM backend (always available)
+    schema_api_test "$SEC" "AFM chat via gateway" $PORT_GW POST "/v1/chat/completions" \
+      '{"model":"foundation","messages":[{"role":"user","content":"Say hi"}]}' \
+      validate_chat_response "200"
+
+    # Streaming via gateway
+    schema_stream_test "$SEC" "AFM streaming via gateway" $PORT_GW \
+      '{"model":"foundation","messages":[{"role":"user","content":"Count to 3"}],"stream":true}'
+
+    # If Ollama is running, test proxied completion
+    if curl -s --max-time 5 "http://127.0.0.1:11434/api/tags" >/dev/null 2>&1; then
+      # Get first available Ollama model
+      OLLAMA_MODEL=$(curl -s "http://127.0.0.1:11434/api/tags" | python3 -c "import json,sys; m=json.load(sys.stdin).get('models',[]); print(m[0]['name'] if m else '')" 2>/dev/null)
+      if [ -n "$OLLAMA_MODEL" ]; then
+        api_test "$SEC" "Ollama proxy: $OLLAMA_MODEL" $PORT_GW POST "/v1/chat/completions" \
+          "{\"model\":\"$OLLAMA_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hi\"}],\"max_tokens\":50}" "choices"
+      else
+        record "$SEC" "Ollama proxy" "SKIP" "Ollama running but no models loaded" "0"
+      fi
+    else
+      record "$SEC" "Ollama proxy" "SKIP" "Ollama not running on :11434" "0"
+    fi
+
+    kill_server $_SERVER_PID
+  else
+    record "$SEC" "gateway server start" "FAIL" "server did not start" "30"
+  fi
+  echo ""
+else
+  echo "━━━ Section 14: Gateway Mode (skipped) ━━━"
+  echo "  ⏭️  Set RUN_GATEWAY_TESTS=1 to enable"
+  echo ""
+fi
+
+###############################################################################
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║                    TEST SUMMARY                             ║"
