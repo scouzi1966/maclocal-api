@@ -5,6 +5,8 @@ If you find this useful, please ⭐ the repo!
 
 ## Latest app release --> https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.4
 
+![MLX Models](test-reports/MLX-Models.png)
+
 > [!TIP]
 > ## What's new in v0.9.4
 >
