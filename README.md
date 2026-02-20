@@ -5,6 +5,24 @@ If you find this useful, please ⭐ the repo!
 
 ## Latest app release --> https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.4
 
+# Run ANY Open-Source LLM on Your Mac — 100% Local, 100% Swift, Zero Python
+
+**afm now supports MLX models!** Run Qwen, Gemma, Llama, DeepSeek, GLM, and 28+ tested models directly on Apple Silicon. No Python environment, no conda, no venv — just one command. Built entirely in Swift with MLX for maximum Metal GPU performance.
+
+```bash
+# Install
+pip install macafm          # or: brew install scouzi1966/afm/afm
+
+# Run any model with WebUI
+afm mlx -m mlx-community/gemma-3-4b-it-8bit -w
+
+# Or just chat from the terminal
+afm mlx -m mlx-community/Qwen3-0.6B-4bit -s "Explain quantum computing"
+
+# Apple's on-device Foundation Model with WebUI
+afm -w
+```
+
 ![MLX Models](test-reports/MLX-Models.png)
 
 > [!TIP]
