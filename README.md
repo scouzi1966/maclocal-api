@@ -6,12 +6,35 @@ If you find this useful, please ⭐ the repo!
 ## Latest app release --> https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.4
 
 > [!TIP]
-> ## What's new in v0.9.4 --> afm -w -g enables WebUI + API gateway mode. Auto-discovers and proxies to Ollama, LM Studio, Jan, and other local LLM backends. Reasoning model support (Qwen, DeepSeek, gpt-oss).
+> ## What's new in v0.9.4
 >
-> Truly a killer feature. -g is a new Gateway mode which will aggregate and proxy all your locally running model servers from Ollama, llama-server, LM Studio, Jan , others and expose a single API for all on default port 9999! Combined with -w (afm -wg), you'll instantly gain access to all your models served on your machine in a single Web interface with very little setup friction.
-> Please comment for feature requests, bugs anything! I hope you're enjoying this app. Star if you are.
-> 
-> ## afm -w -g is all you need!
+> ### MLX Local Model Support
+> Run any Hugging Face MLX model locally — no cloud, no API keys, full privacy:
+> ```bash
+> # Run any MLX model from Hugging Face
+> afm mlx -m mlx-community/Qwen2.5-0.5B-Instruct-4bit -s "Hello!"
+>
+> # MLX model with WebUI
+> afm mlx -m mlx-community/gemma-3-4b-it-8bit -w
+>
+> # Interactive model picker (downloads on first use)
+> afm mlx -w
+> ```
+> 28 models tested and verified including Qwen3, Gemma 3/3n, GLM-4/5, DeepSeek V3, LFM2, SmolLM3, Llama 3.2, MiniMax M2.5, Nemotron, and more. See [test reports](test-reports/).
+>
+> ### Gateway Mode
+> Aggregate all your local model servers into a single API and WebUI:
+> ```bash
+> afm -w -g
+> ```
+> Auto-discovers and proxies Ollama, LM Studio, Jan, llama-server, and other local backends. One URL, all your models.
+>
+> ### Also new
+> - Vision OCR subcommand (`afm vision`)
+> - Reasoning model support (Qwen, DeepSeek, gpt-oss)
+> - WebUI auto-selects the right model on startup
+>
+> Please comment for feature requests, bugs, anything! Star if you enjoy the app.
 
 > [!TIP]
 > ### TLDR Chose ONE of 2 methods to install
@@ -133,8 +156,12 @@ The magic command is afm
 ## 🌟 Features
 
 - **🔗 OpenAI API Compatible** - Works with existing OpenAI client libraries and applications
+- **🧠 MLX Local Models** - Run any Hugging Face MLX model locally (Qwen, Gemma, Llama, DeepSeek, GLM, and 28+ tested models)
+- **🌐 API Gateway** - Auto-discovers and proxies Ollama, LM Studio, Jan, and other local backends into a single API
 - **⚡ LoRA adapter support** - Supports fine-tuning with LoRA adapters using Apple's tuning Toolkit
 - **📱 Apple Foundation Models** - Uses Apple's on-device 3B parameter language model
+- **👁️ Vision OCR** - Extract text from images and PDFs using Apple Vision (`afm vision`)
+- **🖥️ Built-in WebUI** - Chat interface with model selection (`afm -w`)
 - **🔒 Privacy-First** - All processing happens locally on your device
 - **⚡ Fast & Lightweight** - No network calls, no API keys required
 - **🛠️ Easy Integration** - Drop-in replacement for OpenAI API endpoints
@@ -211,6 +238,32 @@ afm -p 8080 -v
 # Show help
 afm -h
 ```
+
+### MLX Local Models
+
+Run open-source models locally on Apple Silicon using MLX:
+
+```bash
+# Run a model with single prompt
+afm mlx -m mlx-community/Qwen2.5-0.5B-Instruct-4bit -s "Explain gravity"
+
+# Start MLX model with WebUI
+afm mlx -m mlx-community/gemma-3-4b-it-8bit -w
+
+# Interactive model picker (lists downloaded models)
+afm mlx -w
+
+# MLX model as API server
+afm mlx -m mlx-community/Llama-3.2-1B-Instruct-4bit -p 8080
+
+# Pipe mode
+cat essay.txt | afm mlx -m mlx-community/Qwen3-0.6B-4bit -i "Summarize this"
+
+# MLX help
+afm mlx --help
+```
+
+Models are downloaded from Hugging Face on first use and cached locally. Any model from the [mlx-community](https://huggingface.co/mlx-community) collection is supported.
 
 ## 📡 API Endpoints
 
@@ -357,6 +410,8 @@ Use -w to enable the WebUI, -g to enable API gateway mode (auto-discovers and
 proxies to Ollama, LM Studio, Jan, and other local LLM backends).
 
 USAGE: afm <options>
+       afm mlx [<options>]      Run local MLX models from Hugging Face
+       afm vision <image>       OCR text extraction from images/PDFs
 
 OPTIONS:
   -s, --single-prompt <single-prompt>
@@ -465,11 +520,13 @@ If you encounter any issues or have questions:
 ## 🗺️ Roadmap
 
 - [x] Streaming response support
-- [ ] Function/tool calling implementation
+- [x] MLX local model support (28+ models tested)
 - [x] Multiple model support (API gateway mode)
+- [x] Web UI for testing (llama.cpp WebUI integration)
+- [x] Vision OCR subcommand
+- [ ] Function/tool calling implementation
 - [ ] Performance optimizations
 - [ ] Docker containerization (when supported)
-- [x] Web UI for testing (llama.cpp WebUI integration)
 
 ---
 
