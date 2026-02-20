@@ -43,12 +43,8 @@ afm -w
 
 [OpenCode](https://opencode.ai/) is a terminal-based AI coding assistant. Connect it to afm for a fully local coding experience — no cloud, no API keys.
 
-**1. Start afm with a coding model:**
-```bash
-afm mlx -m Qwen3-Coder-Next-4bit -t 1.0 --top-p 0.95 --max-tokens 8192
-```
+**1. Configure OpenCode** (`~/.config/opencode/opencode.json`):
 
-**2. Configure OpenCode** (`~/.config/opencode/opencode.json`):
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
@@ -67,6 +63,11 @@ afm mlx -m Qwen3-Coder-Next-4bit -t 1.0 --top-p 0.95 --max-tokens 8192
     }
   }
 }
+```
+
+**2. Start afm with a coding model:**
+```bash
+afm mlx -m Qwen3-Coder-Next-4bit -t 1.0 --top-p 0.95 --max-tokens 8192
 ```
 
 **3. Launch OpenCode** and type `/connect`. Scroll down to the very bottom of the provider list — `macafm (local)` will likely be the last entry. Select it, and when prompted for an API key, enter any value (e.g. `x`) — tokenized access is not yet implemented in afm so the key is ignored. All inference runs locally on your Mac's GPU.
