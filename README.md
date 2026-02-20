@@ -35,6 +35,8 @@ MACAFM_MLX_MODEL_CACHE=/path/to/models afm mlx -w
 afm -w
 ```
 
+ ## 27 MLX Models tested
+
 ![MLX Models](test-reports/MLX-Models.png)
 
 > [!TIP]
