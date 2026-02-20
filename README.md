@@ -11,7 +11,9 @@ If you find this useful, please ⭐ the repo!
 
 ```bash
 # Install
-pip install macafm          # or: brew install scouzi1966/afm/afm
+pip install macafm
+
+# or: brew install scouzi1966/afm/afm
 
 # list all features
 afm mlx -h
