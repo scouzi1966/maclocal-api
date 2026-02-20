@@ -29,6 +29,8 @@ afm mlx -m mlx-community/Qwen3-0.6B-4bit -s "Explain quantum computing"
 afm mlx -m Qwen3-0.6B-4bit -s "Explain quantum computing"
 
 # Pick from menu of available model to start a WEBUi with a model of your choice
+# Environment variable to set ypur model repo.
+# afm will also detect your LM Studio repo
 MACAFM_MLX_MODEL_CACHE=/path/to/models afm mlx -w
 
 # Apple's on-device Foundation Model with WebUI
