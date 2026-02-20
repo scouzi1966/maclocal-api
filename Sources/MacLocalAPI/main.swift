@@ -154,9 +154,9 @@ struct MlxCommand: ParsableCommand {
     var gateway: Bool = false
 
     // Python compatibility switches (accepted for parity; not all are currently applied)
-    @Option(name: .long, help: "Top-p sampling (compatibility)")
+    @Option(name: .long, help: "Top-p (nucleus) sampling threshold (0.0-1.0)")
     var topP: Double?
-    @Option(name: .long, help: "Max tokens (compatibility)")
+    @Option(name: .long, help: "Maximum tokens to generate per response")
     var maxTokens: Int?
     @Option(name: .long, help: "Random seed (compatibility)")
     var seed: Int?
@@ -272,7 +272,9 @@ struct MlxCommand: ParsableCommand {
                     prewarmEnabled: false,
                     mlxModelID: selectedModel,
                     mlxModelService: service,
-                    mlxRepetitionPenalty: repetitionPenalty
+                    mlxRepetitionPenalty: repetitionPenalty,
+                    mlxTopP: topP,
+                    mlxMaxTokens: maxTokens
                 )
                 globalServer = server
                 if !explicitPort && chosenPort != 9999 {
@@ -363,7 +365,6 @@ struct MlxCommand: ParsableCommand {
 
     private func emitCompatibilityWarnings() {
         var ignored: [String] = []
-        if topP != nil { ignored.append("--top-p") }
         if seed != nil { ignored.append("--seed") }
         if maxKVSize != nil { ignored.append("--max-kv-size") }
         if kvBits != nil { ignored.append("--kv-bits") }

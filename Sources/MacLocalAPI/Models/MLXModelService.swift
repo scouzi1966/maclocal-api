@@ -420,15 +420,13 @@ final class MLXModelService: @unchecked Sendable {
     }
 
     private func normalizedTopP(_ value: Double?) -> Float {
-        let raw = value ?? 0.8
-        let clamped = min(max(raw, 0.0), 1.0)
-        return Float(clamped)
+        guard let value else { return 1.0 }  // MLX library default
+        return Float(min(max(value, 0.0), 1.0))
     }
 
     private func normalizedTemperature(_ value: Double?) -> Float {
-        let raw = value ?? 0.7
-        let clamped = min(max(raw, 0.0), 1.0)
-        return Float(clamped)
+        guard let value else { return 0.6 }  // MLX library default
+        return Float(min(max(value, 0.0), 1.0))
     }
 
 }

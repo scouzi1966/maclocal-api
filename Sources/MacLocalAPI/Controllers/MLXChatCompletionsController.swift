@@ -6,6 +6,8 @@ struct MLXChatCompletionsController: RouteCollection {
     private let modelID: String
     private let service: MLXModelService
     private let temperature: Double?
+    private let topP: Double?
+    private let maxTokens: Int?
     private let repetitionPenalty: Double?
     private let veryVerbose: Bool
 
@@ -14,6 +16,8 @@ struct MLXChatCompletionsController: RouteCollection {
         modelID: String,
         service: MLXModelService,
         temperature: Double?,
+        topP: Double? = nil,
+        maxTokens: Int? = nil,
         repetitionPenalty: Double?,
         veryVerbose: Bool = false
     ) {
@@ -21,6 +25,8 @@ struct MLXChatCompletionsController: RouteCollection {
         self.modelID = modelID
         self.service = service
         self.temperature = temperature
+        self.topP = topP
+        self.maxTokens = maxTokens
         self.repetitionPenalty = repetitionPenalty
         self.veryVerbose = veryVerbose
     }
@@ -61,22 +67,28 @@ struct MLXChatCompletionsController: RouteCollection {
             }
 
             let effectiveTemp = chatRequest.temperature ?? temperature
+            let effectiveTopP = chatRequest.topP ?? topP
             let effectiveMaxTokens = normalizedMaxTokens(chatRequest.maxTokens)
             let effectiveRepetitionPenalty = chatRequest.effectiveRepetitionPenalty ?? repetitionPenalty
             let started = Date()
+            let promptChars = chatRequest.messages.map { $0.textContent.count }.reduce(0, +)
             req.logger.info(
-                "MLX generation start: model=\(modelID) stream=false max_tokens=\(effectiveMaxTokens) temperature=\(effectiveTemp?.description ?? "nil") top_p=\(chatRequest.topP?.description ?? "nil") repetition_penalty=\(effectiveRepetitionPenalty?.description ?? "nil")"
+                "[\(Self.timestamp())] MLX start: stream=false prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens) temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")"
             )
             let result = try await service.generate(
                 model: modelID,
                 messages: chatRequest.messages,
                 temperature: effectiveTemp,
                 maxTokens: effectiveMaxTokens,
-                topP: chatRequest.topP,
+                topP: effectiveTopP,
                 repetitionPenalty: effectiveRepetitionPenalty
             )
             let cleanedContent = sanitizeDegenerateTail(result.content)
-            req.logger.info("MLX generation done: model=\(modelID) stream=false completion_tokens=\(result.completionTokens) elapsed=\(String(format: "%.2f", Date().timeIntervalSince(started)))s")
+            let elapsed = Date().timeIntervalSince(started)
+            let completionTok = result.completionTokens
+            let tokPerSec = elapsed > 0 ? Double(completionTok) / elapsed : 0
+            let stopReason = completionTok >= effectiveMaxTokens ? "length" : "stop"
+            req.logger.info("[\(Self.timestamp())] MLX done: stream=false prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok) elapsed=\(String(format: "%.2f", elapsed))s tok/s=\(String(format: "%.1f", tokPerSec)) finish_reason=\(stopReason)")
             let response = ChatCompletionResponse(
                 model: result.modelID,
                 content: cleanedContent,
@@ -108,18 +120,20 @@ struct MLXChatCompletionsController: RouteCollection {
             let encoder = JSONEncoder()
             do {
                 let effectiveTemp = chatRequest.temperature ?? self.temperature
+                let effectiveTopP = chatRequest.topP ?? self.topP
                 let effectiveMaxTokens = self.normalizedMaxTokens(chatRequest.maxTokens)
                 let effectiveRepetitionPenalty = chatRequest.effectiveRepetitionPenalty ?? self.repetitionPenalty
                 let started = Date()
+                let promptChars = chatRequest.messages.map { $0.textContent.count }.reduce(0, +)
                 req.logger.info(
-                    "MLX generation start: model=\(self.modelID) stream=true max_tokens=\(effectiveMaxTokens) temperature=\(effectiveTemp?.description ?? "nil") top_p=\(chatRequest.topP?.description ?? "nil") repetition_penalty=\(effectiveRepetitionPenalty?.description ?? "nil")"
+                    "[\(Self.timestamp())] MLX start: stream=true prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens) temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")"
                 )
                 let res = try await service.generateStreaming(
                     model: modelID,
                     messages: chatRequest.messages,
                     temperature: effectiveTemp,
                     maxTokens: effectiveMaxTokens,
-                    topP: chatRequest.topP,
+                    topP: effectiveTopP,
                     repetitionPenalty: effectiveRepetitionPenalty
                 )
                 var fullContent = ""
@@ -171,7 +185,9 @@ struct MLXChatCompletionsController: RouteCollection {
                 if let jsonString = String(data: finalData, encoding: .utf8) {
                     try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                 }
-                req.logger.info("MLX generation done: model=\(self.modelID) stream=true completion_tokens=\(completionTokens) elapsed=\(String(format: "%.2f", generationDuration))s")
+                let tokPerSec = generationDuration > 0 ? Double(completionTokens) / generationDuration : 0
+                let stopReason = completionTokens >= effectiveMaxTokens ? "length" : "stop"
+                req.logger.info("[\(Self.timestamp())] MLX done: stream=true prompt_tokens=\(res.promptTokens) completion_tokens=\(completionTokens) elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec)) finish_reason=\(stopReason)")
                 if self.veryVerbose {
                     req.logger.info("MLX full streamed response content: \(fullContent)")
                     req.logger.info("MLX stream final usage: \(encodeJSON(usage))")
@@ -199,10 +215,13 @@ struct MLXChatCompletionsController: RouteCollection {
     }
 
     private func normalizedMaxTokens(_ requested: Int?) -> Int {
-        guard let requested, requested > 0 else {
-            return 2000
+        if let requested, requested > 0 {
+            return requested
         }
-        return requested
+        if let maxTokens, maxTokens > 0 {
+            return maxTokens
+        }
+        return 4096
     }
 
     private func sanitizeDegenerateTail(_ text: String) -> String {
@@ -244,6 +263,17 @@ struct MLXChatCompletionsController: RouteCollection {
     private func estimateTokens(_ text: String) -> Int {
         let words = text.split(whereSeparator: \.isWhitespace).count
         return Int(max(Double(text.count) / 4.0, Double(words) / 0.75))
+    }
+
+    private static let isoFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
+    private static func timestamp() -> String {
+        isoFormatter.string(from: Date())
     }
 
     private func encodeJSON<T: Encodable>(_ value: T) -> String {

@@ -46,8 +46,10 @@ class Server {
     private let mlxModelID: String?
     private let mlxModelService: MLXModelService?
     private let mlxRepetitionPenalty: Double?
+    private let mlxTopP: Double?
+    private let mlxMaxTokens: Int?
 
-    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil) async throws {
+    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -65,6 +67,8 @@ class Server {
         self.mlxModelID = mlxModelID
         self.mlxModelService = mlxModelService
         self.mlxRepetitionPenalty = mlxRepetitionPenalty
+        self.mlxTopP = mlxTopP
+        self.mlxMaxTokens = mlxMaxTokens
 
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
@@ -215,6 +219,8 @@ class Server {
                 modelID: mlxModelID,
                 service: mlxModelService,
                 temperature: temperature,
+                topP: mlxTopP,
+                maxTokens: mlxMaxTokens,
                 repetitionPenalty: mlxRepetitionPenalty,
                 veryVerbose: veryVerbose
             )
