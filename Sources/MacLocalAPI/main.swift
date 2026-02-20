@@ -491,8 +491,27 @@ struct RootCommand: ParsableCommand {
     }
 }
 
-// RootCommand handles all subcommands (mlx, serve) and backward-compatible flags
-RootCommand.main()
+// Manual dispatch for subcommands to avoid flag conflicts between root and subcommands.
+// Subcommands are still registered in RootCommand.configuration so they appear in -h.
+if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
+    let args = Array(CommandLine.arguments.dropFirst(2))
+    do {
+        var cmd = try MlxCommand.parseAsRoot(args)
+        try cmd.run()
+    } catch {
+        MlxCommand.exit(withError: error)
+    }
+} else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "vision" {
+    let args = Array(CommandLine.arguments.dropFirst(2))
+    do {
+        var cmd = try VisionCommand.parseAsRoot(args)
+        try cmd.run()
+    } catch {
+        VisionCommand.exit(withError: error)
+    }
+} else {
+    RootCommand.main()
+}
 
 private func ensureMLXMetalLibraryAvailable(verbose: Bool) throws {
     let fileManager = FileManager.default

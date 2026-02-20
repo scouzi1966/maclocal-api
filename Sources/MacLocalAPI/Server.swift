@@ -255,7 +255,8 @@ class Server {
                     chat_template: "",
                     bos_token: "",
                     eos_token: "",
-                    build_info: "AFM \(BuildInfo.version ?? "dev")"
+                    build_info: "AFM \(BuildInfo.version ?? "dev")",
+                    default_model: mlxModelID
                 )
             }
 
@@ -292,12 +293,13 @@ class Server {
                 ),
                 total_slots: 1,
                 model_path: modelPath,
-                role: "router",
+                role: self.gatewayEnabled ? "router" : "model",
                 modalities: Modalities(vision: hasVision, audio: false),
                 chat_template: "",
                 bos_token: "",
                 eos_token: "",
-                build_info: "AFM \(BuildInfo.version ?? "dev")"
+                build_info: "AFM \(BuildInfo.version ?? "dev")",
+                default_model: "foundation"
             )
         }
 
@@ -370,10 +372,48 @@ class Server {
             document.title=document.title.replace('llama.cpp','AFM');
         }
 
-        // Keep reveal gating simple: no programmatic model auto-clicking.
-        var _autoSelectDone = true;
+        var _autoSelectDone = false;
         var _userClickedModel = false;
         var _isMultiModel = false; // detected from /v1/models count
+
+        // Auto-select "foundation" model in router mode if no model is selected
+        function autoSelectFoundation(){
+            var trigger = getModelTrigger();
+            if(!trigger) { _autoSelectDone = true; return; }
+            var txt = (trigger.textContent || '').trim();
+            // Already selected
+            if(txt && !txt.includes('Select model')){ _autoSelectDone = true; return; }
+            // Open the dropdown
+            _selectingModel = true;
+            trigger.click();
+            setTimeout(function(){
+                // Find the "foundation" option in the listbox
+                var options = document.querySelectorAll('[role="option"]');
+                var found = false;
+                for(var i=0;i<options.length;i++){
+                    var label = (options[i].textContent || '').trim().toLowerCase();
+                    if(label.indexOf('foundation') !== -1 || label.indexOf('apple') !== -1){
+                        options[i].click();
+                        found = true;
+                        break;
+                    }
+                }
+                // If only one option and not found by name, click the first one
+                if(!found && options.length === 1){
+                    options[0].click();
+                }
+                // Close dropdown if still open
+                setTimeout(function(){
+                    var trigger2 = getModelTrigger();
+                    if(trigger2){
+                        var listbox = document.querySelector('[role="listbox"]');
+                        if(listbox){ trigger2.click(); }
+                    }
+                    _selectingModel = false;
+                    _autoSelectDone = true;
+                }, 150);
+            }, 300);
+        }
 
         function getModelTrigger(){
             var form = document.querySelector('[data-slot="chat-form"]');
@@ -520,11 +560,26 @@ class Server {
 
         function init(){
             waitForSpaAndReveal();
-            // Discover if gateway mode has multiple models; no auto-selection side effects.
+            // Discover if gateway mode has multiple models, then auto-select foundation.
             fetch('/v1/models').then(function(r){return r.json()}).then(function(d){
                 var count = d && d.data ? d.data.length : 0;
                 _isMultiModel = count > 1;
-            }).catch(function(){});
+                // In router mode, auto-select foundation after SPA renders
+                if(_isMultiModel){
+                    // Wait for the SPA model list to populate, then auto-select
+                    var selectAttempts = 0;
+                    var selectInterval = setInterval(function(){
+                        selectAttempts++;
+                        var trigger = getModelTrigger();
+                        if(trigger || selectAttempts > 40){
+                            clearInterval(selectInterval);
+                            autoSelectFoundation();
+                        }
+                    }, 100);
+                } else {
+                    _autoSelectDone = true;
+                }
+            }).catch(function(){ _autoSelectDone = true; });
 
             // Update branding/info on real DOM changes rather than polling.
             var refreshTimer = null;
@@ -924,6 +979,7 @@ struct PropsResponse: Content {
     let bos_token: String
     let eos_token: String
     let build_info: String
+    let default_model: String
 }
 
 struct DefaultGenerationSettings: Content {
