@@ -144,6 +144,9 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Disable streaming responses (streaming is enabled by default)")
     var noStreaming: Bool = false
 
+    @Flag(name: .long, help: "Output raw model content without extracting <think> tags into reasoning_content")
+    var raw: Bool = false
+
     @Option(name: [.short, .long], help: "Temperature for response generation")
     var temperature: Double?
 
@@ -274,7 +277,8 @@ struct MlxCommand: ParsableCommand {
                     mlxModelService: service,
                     mlxRepetitionPenalty: repetitionPenalty,
                     mlxTopP: topP,
-                    mlxMaxTokens: maxTokens
+                    mlxMaxTokens: maxTokens,
+                    mlxRawOutput: raw
                 )
                 globalServer = server
                 if !explicitPort && chosenPort != 9999 {

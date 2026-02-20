@@ -180,7 +180,20 @@ final class MLXModelService: @unchecked Sendable {
         let generated: String = try await container.perform { context in
             let input = try await context.processor.prepare(input: userInput)
 
+            // If the chat template appended <think>, prepend it so extractors can detect it
+            let tokens = input.text.tokens
+            let ndim = tokens.ndim
+            let seqLen = tokens.dim(ndim - 1)
             var out = ""
+            if seqLen >= 2 {
+                let flat = tokens.reshaped(-1)
+                let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
+                let decoded = context.tokenizer.decode(tokens: lastTwo)
+                if decoded.contains("<think>") {
+                    out = "<think>"
+                }
+            }
+
             for await piece in try MLXLMCommon.generate(input: input, parameters: params, context: context) {
                 if case .chunk(let text) = piece {
                     out += text
@@ -223,11 +236,30 @@ final class MLXModelService: @unchecked Sendable {
         )
 
         let stream = AsyncThrowingStream<String, Error> { continuation in
-            Task {
+            let task = Task {
                 do {
                     try await container.perform { context in
                         let input = try await context.processor.prepare(input: userInput)
+
+                        // If the chat template appended <think> to the prompt, inject it
+                        // into the stream so the reasoning extractor can detect it.
+                        let tokens = input.text.tokens
+                        let ndim = tokens.ndim
+                        let seqLen = tokens.dim(ndim - 1)
+                        if seqLen >= 2 {
+                            let flat = tokens.reshaped(-1)
+                            let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
+                            let decoded = context.tokenizer.decode(tokens: lastTwo)
+                            if decoded.contains("<think>") {
+                                continuation.yield("<think>")
+                            }
+                        }
+
                         for await piece in try MLXLMCommon.generate(input: input, parameters: params, context: context) {
+                            if Task.isCancelled {
+                                print("[MLX] Generation cancelled by client")
+                                break
+                            }
                             if case .chunk(let text) = piece {
                                 continuation.yield(text)
                             }
@@ -239,6 +271,9 @@ final class MLXModelService: @unchecked Sendable {
                 } catch {
                     continuation.finish(throwing: error)
                 }
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
             }
         }
 
@@ -325,7 +360,14 @@ final class MLXModelService: @unchecked Sendable {
             return true
         }
         // Multimodal models (e.g. gemma3) have both text_config and vision_config
-        return json["text_config"] != nil && json["vision_config"] != nil
+        if json["text_config"] != nil && json["vision_config"] != nil {
+            return true
+        }
+        // Some VLMs (e.g. Qwen3.5-MoE) have vision token IDs without a vision_config block
+        if json["image_token_id"] != nil || json["vision_start_token_id"] != nil {
+            return true
+        }
+        return false
     }
 
     private func buildPrompt(from messages: [Message]) -> String {

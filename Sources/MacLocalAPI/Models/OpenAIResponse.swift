@@ -20,7 +20,7 @@ struct ChatCompletionResponse: Content {
         case systemFingerprint = "system_fingerprint"
     }
     
-    init(id: String = UUID().uuidString, model: String, content: String, promptTokens: Int = 0, completionTokens: Int = 0) {
+    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, promptTokens: Int = 0, completionTokens: Int = 0) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion"
         self.created = Int(Date().timeIntervalSince1970)
@@ -28,7 +28,7 @@ struct ChatCompletionResponse: Content {
         self.choices = [
             Choice(
                 index: 0,
-                message: ResponseMessage(role: "assistant", content: content),
+                message: ResponseMessage(role: "assistant", content: content, reasoningContent: reasoningContent),
                 finishReason: "stop"
             )
         ]
@@ -56,6 +56,19 @@ struct Choice: Content {
 struct ResponseMessage: Content {
     let role: String
     let content: String
+    let reasoningContent: String?
+
+    enum CodingKeys: String, CodingKey {
+        case role
+        case content
+        case reasoningContent = "reasoning_content"
+    }
+
+    init(role: String, content: String, reasoningContent: String? = nil) {
+        self.role = role
+        self.content = content
+        self.reasoningContent = reasoningContent
+    }
 }
 
 struct Usage: Content {
@@ -79,7 +92,7 @@ struct ChatCompletionStreamResponse: Content {
     let usage: StreamUsage?
     let timings: StreamTimings?
 
-    init(id: String = UUID().uuidString, model: String, content: String, isFinished: Bool = false, isFirst: Bool = false, usage: StreamUsage? = nil, timings: StreamTimings? = nil) {
+    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, isFinished: Bool = false, isFirst: Bool = false, usage: StreamUsage? = nil, timings: StreamTimings? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion.chunk"
         self.created = Int(Date().timeIntervalSince1970)
@@ -99,7 +112,7 @@ struct ChatCompletionStreamResponse: Content {
             self.choices = [
                 StreamChoice(
                     index: 0,
-                    delta: StreamDelta(role: "assistant", content: content),
+                    delta: StreamDelta(role: "assistant", content: content, reasoningContent: reasoningContent),
                     finishReason: nil
                 )
             ]
@@ -107,7 +120,7 @@ struct ChatCompletionStreamResponse: Content {
             self.choices = [
                 StreamChoice(
                     index: 0,
-                    delta: StreamDelta(content: content),
+                    delta: StreamDelta(content: content, reasoningContent: reasoningContent),
                     finishReason: nil
                 )
             ]
@@ -137,10 +150,18 @@ struct StreamChoice: Content {
 struct StreamDelta: Content {
     let role: String?
     let content: String?
-    
-    init(role: String? = nil, content: String?) {
+    let reasoningContent: String?
+
+    enum CodingKeys: String, CodingKey {
+        case role
+        case content
+        case reasoningContent = "reasoning_content"
+    }
+
+    init(role: String? = nil, content: String?, reasoningContent: String? = nil) {
         self.role = role
         self.content = content
+        self.reasoningContent = reasoningContent
     }
 }
 

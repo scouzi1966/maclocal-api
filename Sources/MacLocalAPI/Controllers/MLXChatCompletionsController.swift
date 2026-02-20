@@ -10,6 +10,7 @@ struct MLXChatCompletionsController: RouteCollection {
     private let maxTokens: Int?
     private let repetitionPenalty: Double?
     private let veryVerbose: Bool
+    private let rawOutput: Bool
 
     init(
         streamingEnabled: Bool = true,
@@ -19,7 +20,8 @@ struct MLXChatCompletionsController: RouteCollection {
         topP: Double? = nil,
         maxTokens: Int? = nil,
         repetitionPenalty: Double?,
-        veryVerbose: Bool = false
+        veryVerbose: Bool = false,
+        rawOutput: Bool = false
     ) {
         self.streamingEnabled = streamingEnabled
         self.modelID = modelID
@@ -29,6 +31,7 @@ struct MLXChatCompletionsController: RouteCollection {
         self.maxTokens = maxTokens
         self.repetitionPenalty = repetitionPenalty
         self.veryVerbose = veryVerbose
+        self.rawOutput = rawOutput
     }
 
     func boot(routes: RoutesBuilder) throws {
@@ -62,8 +65,11 @@ struct MLXChatCompletionsController: RouteCollection {
                 req.logger.info("MLX request model '\(requestedModelRaw)' does not match active model '\(modelID)'; serving active model")
             }
 
+            let isWebUI = req.headers.first(name: .origin) != nil
+            let extractThinking = !rawOutput || isWebUI
+
             if chatRequest.stream == true && streamingEnabled {
-                return try await createStreamingResponse(req: req, chatRequest: chatRequest)
+                return try await createStreamingResponse(req: req, chatRequest: chatRequest, extractThinking: extractThinking)
             }
 
             let effectiveTemp = chatRequest.temperature ?? temperature
@@ -89,9 +95,21 @@ struct MLXChatCompletionsController: RouteCollection {
             let tokPerSec = elapsed > 0 ? Double(completionTok) / elapsed : 0
             let stopReason = completionTok >= effectiveMaxTokens ? "length" : "stop"
             req.logger.info("[\(Self.timestamp())] MLX done: stream=false prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok) elapsed=\(String(format: "%.2f", elapsed))s tok/s=\(String(format: "%.1f", tokPerSec)) finish_reason=\(stopReason)")
+
+            // Extract <think>...</think> tags into reasoning_content
+            let finalContent: String
+            let reasoningContent: String?
+            if extractThinking {
+                (finalContent, reasoningContent) = Self.extractThinkContent(from: cleanedContent)
+            } else {
+                finalContent = cleanedContent
+                reasoningContent = nil
+            }
+
             let response = ChatCompletionResponse(
                 model: result.modelID,
-                content: cleanedContent,
+                content: finalContent,
+                reasoningContent: reasoningContent,
                 promptTokens: result.promptTokens,
                 completionTokens: estimateTokens(cleanedContent)
             )
@@ -105,7 +123,7 @@ struct MLXChatCompletionsController: RouteCollection {
         }
     }
 
-    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest) async throws -> Response {
+    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, extractThinking: Bool) async throws -> Response {
         let httpResponse = Response(status: .ok)
         httpResponse.headers.add(name: .contentType, value: "text/event-stream")
         httpResponse.headers.add(name: .cacheControl, value: "no-cache")
@@ -150,18 +168,91 @@ struct MLXChatCompletionsController: RouteCollection {
                     try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                 }
 
+                // State for <think> tag extraction (Qwen, DeepSeek R1, etc.)
+                var insideThinkBlock = false
+                var thinkBuffer = ""
+                var verboseReasoningBuf = ""
+                var verboseContentBuf = ""
+
                 // True token streaming: forward every chunk as it is generated.
                 for try await piece in res.stream {
                     fullContent += piece
-                    let contentChunk = ChatCompletionStreamResponse(
-                        id: streamId,
-                        model: res.modelID,
-                        content: piece,
-                        isFirst: false
-                    )
-                    let chunkData = try encoder.encode(contentChunk)
-                    if let jsonString = String(data: chunkData, encoding: .utf8) {
-                        try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+
+                    if extractThinking {
+                        thinkBuffer += piece
+
+                        let extracted = Self.extractThinkTags(
+                            buffer: &thinkBuffer,
+                            insideThinkBlock: &insideThinkBlock
+                        )
+
+                        let emitContent = extracted.content
+                        let emitReasoning = extracted.reasoning
+
+                        // Only emit a chunk if we have something to send
+                        if emitContent != nil || emitReasoning != nil {
+                            if self.veryVerbose {
+                                if let r = emitReasoning { verboseReasoningBuf += r }
+                                if let c = emitContent { verboseContentBuf += c }
+                                // Flush verbose log on newlines or when buffer gets large
+                                if verboseReasoningBuf.hasSuffix("\n") || verboseReasoningBuf.count > 200 {
+                                    req.logger.info("MLX stream reasoning: \(verboseReasoningBuf)")
+                                    verboseReasoningBuf = ""
+                                }
+                                if verboseContentBuf.hasSuffix("\n") || verboseContentBuf.count > 200 {
+                                    req.logger.info("MLX stream content: \(verboseContentBuf)")
+                                    verboseContentBuf = ""
+                                }
+                            }
+                            let contentChunk = ChatCompletionStreamResponse(
+                                id: streamId,
+                                model: res.modelID,
+                                content: emitContent ?? "",
+                                reasoningContent: emitReasoning,
+                                isFirst: false
+                            )
+                            let chunkData = try encoder.encode(contentChunk)
+                            if let jsonString = String(data: chunkData, encoding: .utf8) {
+                                try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                            }
+                        }
+                    } else {
+                        let contentChunk = ChatCompletionStreamResponse(
+                            id: streamId,
+                            model: res.modelID,
+                            content: piece,
+                            isFirst: false
+                        )
+                        let chunkData = try encoder.encode(contentChunk)
+                        if let jsonString = String(data: chunkData, encoding: .utf8) {
+                            try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                        }
+                    }
+                }
+
+                // Flush any remaining buffer content (thinking extraction only)
+                if extractThinking && !thinkBuffer.isEmpty {
+                    let remaining: String?
+                    let remainingReasoning: String?
+                    if insideThinkBlock {
+                        remainingReasoning = thinkBuffer
+                        remaining = nil
+                    } else {
+                        remaining = thinkBuffer
+                        remainingReasoning = nil
+                    }
+                    if remaining != nil || remainingReasoning != nil {
+                        let flushChunk = ChatCompletionStreamResponse(
+                            id: streamId,
+                            model: res.modelID,
+                            content: remaining ?? "",
+                            reasoningContent: remainingReasoning,
+                            isFirst: false
+                        )
+                        let flushData = try encoder.encode(flushChunk)
+                        if let jsonString = String(data: flushData, encoding: .utf8) {
+                            try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                        }
                     }
                 }
 
@@ -189,9 +280,9 @@ struct MLXChatCompletionsController: RouteCollection {
                 let stopReason = completionTokens >= effectiveMaxTokens ? "length" : "stop"
                 req.logger.info("[\(Self.timestamp())] MLX done: stream=true prompt_tokens=\(res.promptTokens) completion_tokens=\(completionTokens) elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec)) finish_reason=\(stopReason)")
                 if self.veryVerbose {
-                    req.logger.info("MLX full streamed response content: \(fullContent)")
+                    if !verboseReasoningBuf.isEmpty { req.logger.info("MLX stream reasoning: \(verboseReasoningBuf)") }
+                    if !verboseContentBuf.isEmpty { req.logger.info("MLX stream content: \(verboseContentBuf)") }
                     req.logger.info("MLX stream final usage: \(encodeJSON(usage))")
-                    req.logger.info("MLX stream final chunk: \(encodeJSON(finalChunk))")
                 }
                 try await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
                 try await writer.write(.end)
@@ -274,6 +365,85 @@ struct MLXChatCompletionsController: RouteCollection {
 
     private static func timestamp() -> String {
         isoFormatter.string(from: Date())
+    }
+
+    /// Extract `<think>...</think>` content from a streaming buffer.
+    /// Returns any reasoning and regular content that can be flushed.
+    /// The buffer retains incomplete tag fragments for the next call.
+    private static func extractThinkTags(
+        buffer: inout String,
+        insideThinkBlock: inout Bool
+    ) -> (reasoning: String?, content: String?) {
+        var reasoning = ""
+        var content = ""
+
+        while !buffer.isEmpty {
+            if insideThinkBlock {
+                if let endRange = buffer.range(of: "</think>") {
+                    reasoning += String(buffer[buffer.startIndex..<endRange.lowerBound])
+                    buffer = String(buffer[endRange.upperBound...])
+                    insideThinkBlock = false
+                } else if buffer.count > 8 {
+                    let safeEnd = buffer.index(buffer.endIndex, offsetBy: -8)
+                    reasoning += String(buffer[buffer.startIndex..<safeEnd])
+                    buffer = String(buffer[safeEnd...])
+                    break
+                } else {
+                    break
+                }
+            } else {
+                if let startRange = buffer.range(of: "<think>") {
+                    let before = String(buffer[buffer.startIndex..<startRange.lowerBound])
+                    content += before
+                    buffer = String(buffer[startRange.upperBound...])
+                    insideThinkBlock = true
+                } else if buffer.count > 7 {
+                    let safeEnd = buffer.index(buffer.endIndex, offsetBy: -7)
+                    content += String(buffer[buffer.startIndex..<safeEnd])
+                    buffer = String(buffer[safeEnd...])
+                    break
+                } else {
+                    break
+                }
+            }
+        }
+
+        let r: String? = reasoning.isEmpty ? nil : reasoning
+        let c: String? = content.isEmpty ? nil : content
+
+        if r == nil && c == nil {
+            return (reasoning: nil, content: "")
+        }
+
+        return (reasoning: r, content: c)
+    }
+
+    /// Extract `<think>...</think>` from a complete (non-streaming) response.
+    private static func extractThinkContent(from text: String) -> (content: String, reasoning: String?) {
+        guard text.contains("<think>") else { return (text, nil) }
+        var buffer = text
+        var inside = false
+        var allReasoning = ""
+        var allContent = ""
+
+        while !buffer.isEmpty {
+            let extracted = extractThinkTags(buffer: &buffer, insideThinkBlock: &inside)
+            if let r = extracted.reasoning { allReasoning += r }
+            if let c = extracted.content { allContent += c }
+            if extracted.reasoning == nil && extracted.content == nil { break }
+        }
+        // Flush remaining buffer
+        if !buffer.isEmpty {
+            if inside {
+                allReasoning += buffer
+            } else {
+                allContent += buffer
+            }
+        }
+
+        let reasoning: String? = allReasoning.isEmpty ? nil : allReasoning.trimmingCharacters(in: .whitespacesAndNewlines)
+        let content = allContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (content, reasoning)
     }
 
     private func encodeJSON<T: Encodable>(_ value: T) -> String {
