@@ -10,10 +10,11 @@ If you find this useful, please ⭐ the repo!
 **afm now supports MLX models!** Run Qwen, Gemma, Llama, DeepSeek, GLM, and 28+ tested models directly on Apple Silicon. No Python environment, no conda, no venv — just one command. Built entirely in Swift with MLX for maximum Metal GPU performance.
 
 ```bash
-# Install
+# Installation Method 1 (do not mix methods)
 pip install macafm
 
-# or: brew install scouzi1966/afm/afm
+# Installation Method 2 (do not mix methods)
+brew install scouzi1966/afm/afm
 
 # list all features
 afm mlx -h
