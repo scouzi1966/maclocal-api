@@ -42,7 +42,7 @@ afm -w
 
  ## Use with OpenCode
 
-[OpenCode](https://opencode.ai/) is a terminal-based AI coding assistant. Connect it to afm for a fully local coding experience — no cloud, no API keys.
+[OpenCode](https://opencode.ai/) is a terminal-based AI coding assistant. Connect it to afm for a fully local coding experience — no cloud, no API keys. No Internet required (other than initially download the model of course!)
 
 **1. Configure OpenCode** (`~/.config/opencode/opencode.json`):
 
