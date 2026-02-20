@@ -173,6 +173,17 @@ if [ "$BUILD_CONFIG" = "release" ]; then
   log_info "Stripped debug symbols"
 fi
 
+FINAL_DIR="$(dirname "$FINAL_BIN")"
+
+# Verify the MLX metallib resource bundle is present
+METALLIB_BUNDLE="$FINAL_DIR/MacLocalAPI_MacLocalAPI.bundle/default.metallib"
+if [ -f "$METALLIB_BUNDLE" ]; then
+  log_info "MLX metallib bundle OK ($(du -h "$METALLIB_BUNDLE" | cut -f1 | xargs))"
+else
+  log_error "Missing MLX metallib bundle: $METALLIB_BUNDLE"
+  exit 1
+fi
+
 log_info "Build complete"
 echo ""
 echo "afm binary: $FINAL_BIN"

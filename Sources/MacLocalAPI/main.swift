@@ -518,47 +518,38 @@ private func ensureMLXMetalLibraryAvailable(verbose: Bool) throws {
     let executableURL = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
     let executableDir = executableURL.deletingLastPathComponent()
 
-    let colocatedMLX = executableDir.appendingPathComponent("mlx.metallib")
-    let colocatedDefault = executableDir.appendingPathComponent("default.metallib")
-    if fileManager.fileExists(atPath: colocatedMLX.path) || fileManager.fileExists(atPath: colocatedDefault.path) {
-        return
-    }
+    // Resolution order:
+    // 1. MACAFM_MLX_METALLIB env var (explicit override)
+    // 2. Bundle.module resource (standard Swift PM — works from build dir and when bundle is co-located)
+    // 3. MacLocalAPI_MacLocalAPI.bundle/ next to executable (relocated binary with bundle)
+    // MLX loads kernels from default.metallib in the cwd, so we always chdir.
 
     let env = ProcessInfo.processInfo.environment
-    let packaged = Bundle.module.url(forResource: "default", withExtension: "metallib")
     let explicit = env["MACAFM_MLX_METALLIB"].flatMap { raw -> URL? in
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : URL(fileURLWithPath: trimmed)
     }
+    let packaged = Bundle.module.url(forResource: "default", withExtension: "metallib")
+    let bundleRelative: URL? = {
+        let candidate = executableDir
+            .appendingPathComponent("MacLocalAPI_MacLocalAPI.bundle")
+            .appendingPathComponent("default.metallib")
+        return fileManager.fileExists(atPath: candidate.path) ? candidate : nil
+    }()
 
-    guard let source = explicit ?? packaged, fileManager.fileExists(atPath: source.path) else {
+    guard let source = explicit ?? packaged ?? bundleRelative,
+          fileManager.fileExists(atPath: source.path) else {
         throw ValidationError(
-            "Packaged MLX metallib is missing. Expected Sources/MacLocalAPI/Resources/default.metallib in this build."
+            "MLX metallib not found. Ensure MacLocalAPI_MacLocalAPI.bundle is next to the afm binary."
         )
     }
 
-    if source.lastPathComponent == "default.metallib" {
-        guard fileManager.changeCurrentDirectoryPath(source.deletingLastPathComponent().path) else {
-            throw ValidationError("Failed to switch to metallib directory: \(source.deletingLastPathComponent().path)")
-        }
-        if verbose {
-            print("Using packaged MLX metallib: \(source.path)")
-        }
-        return
-    }
-
-    let runtimeDir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("afm-mlx-metal", isDirectory: true)
-    try fileManager.createDirectory(at: runtimeDir, withIntermediateDirectories: true)
-    let stagedDefault = runtimeDir.appendingPathComponent("default.metallib")
-    if fileManager.fileExists(atPath: stagedDefault.path) {
-        try fileManager.removeItem(at: stagedDefault)
-    }
-    try fileManager.copyItem(at: source, to: stagedDefault)
-    guard fileManager.changeCurrentDirectoryPath(runtimeDir.path) else {
-        throw ValidationError("Failed to switch to metallib runtime directory: \(runtimeDir.path)")
+    let metalDir = source.deletingLastPathComponent().path
+    guard fileManager.changeCurrentDirectoryPath(metalDir) else {
+        throw ValidationError("Failed to switch to metallib directory: \(metalDir)")
     }
     if verbose {
-        print("Using MLX metallib override: \(source.path)")
+        print("Using MLX metallib: \(source.path)")
     }
 }
 
