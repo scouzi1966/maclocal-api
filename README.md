@@ -39,6 +39,40 @@ MACAFM_MLX_MODEL_CACHE=/path/to/models afm mlx -w
 afm -w
 ```
 
+ ## Use with OpenCode
+
+[OpenCode](https://opencode.ai/) is a terminal-based AI coding assistant. Connect it to afm for a fully local coding experience — no cloud, no API keys.
+
+**1. Start afm with a coding model:**
+```bash
+afm mlx -m Qwen3-Coder-Next-4bit -t 1.0 --top-p 0.95 --max-tokens 8192
+```
+
+**2. Configure OpenCode** (`~/.config/opencode/opencode.json`):
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "macafm (local)",
+      "options": {
+        "baseURL": "http://localhost:9999/v1"
+      },
+      "models": {
+        "mlx-community/Qwen3-Coder-Next-4bit": {
+          "name": "mlx-community/Qwen3-Coder-Next-4bit"
+        }
+      }
+    }
+  }
+}
+```
+
+**3. Launch OpenCode** and select the model — all inference runs locally on your Mac's GPU.
+
+---
+
  ## 27 MLX Models tested
 
 ![MLX Models](test-reports/MLX-Models.png)
