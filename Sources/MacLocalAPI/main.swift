@@ -129,7 +129,7 @@ struct MlxCommand: ParsableCommand {
     @Option(name: [.short, .long], help: "Custom instructions for the AI assistant")
     var instructions: String = "You are a helpful assistant"
 
-    @Option(name: .shortAndLong, help: "Port to run server on. If not set, tries 9999 then falls back to ephemeral.")
+    @Option(name: .shortAndLong, help: "Port to run server on (default: 9999, falls back to ephemeral if busy)")
     var port: Int?
 
     @Option(name: [.customShort("H"), .long], help: "Hostname to bind server to")
@@ -147,7 +147,7 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Output raw model content without extracting <think> tags into reasoning_content")
     var raw: Bool = false
 
-    @Option(name: [.short, .long], help: "Temperature for response generation")
+    @Option(name: [.short, .long], help: "Temperature for response generation (0.0-2.0)")
     var temperature: Double?
 
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
@@ -157,9 +157,9 @@ struct MlxCommand: ParsableCommand {
     var gateway: Bool = false
 
     // Python compatibility switches (accepted for parity; not all are currently applied)
-    @Option(name: .long, help: "Top-p (nucleus) sampling threshold (0.0-1.0)")
+    @Option(name: .long, help: "Top-p (nucleus) sampling threshold (0.0-1.0, default: 1.0)")
     var topP: Double?
-    @Option(name: .long, help: "Maximum tokens to generate per response")
+    @Option(name: .long, help: "Maximum tokens to generate per response (default: 8192)")
     var maxTokens: Int?
     @Option(name: .long, help: "Random seed (compatibility)")
     var seed: Int?
@@ -179,6 +179,9 @@ struct MlxCommand: ParsableCommand {
     var dtype: String?
     @Flag(name: .long, help: "VLM hint (compatibility)")
     var vlm: Bool = false
+
+    @Flag(name: .long, help: "Print OpenClaw provider config JSON and exit")
+    var openclawConfig: Bool = false
 
     func run() throws {
         if gateway {
@@ -220,6 +223,13 @@ struct MlxCommand: ParsableCommand {
         }
 
         let selectedModel = service.normalizeModel(rawModel)
+
+        if openclawConfig {
+            let chosenPort = port ?? 9999
+            printOpenClawConfig(model: selectedModel, hostname: hostname, port: chosenPort, resolver: resolver)
+            return
+        }
+
         print("MLX model: \(selectedModel)")
         try ensureMLXMetalLibraryAvailable(verbose: verbose)
 
@@ -365,6 +375,92 @@ struct MlxCommand: ParsableCommand {
             throw ExitCode.failure
         }
         return content
+    }
+
+    private func printOpenClawConfig(model: String, hostname: String, port: Int, resolver: MLXCacheResolver) {
+        // Auto-detect capabilities from cached config.json
+        var supportsVision = false
+        var supportsReasoning = false
+        var contextWindow = 131072
+        var defaultMaxTokens = 8192
+
+        if let modelDir = resolver.localModelDirectory(repoId: model) {
+            let configURL = modelDir.appendingPathComponent("config.json")
+            if let data = try? Data(contentsOf: configURL),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                // Vision: check for vision_config or visual key
+                if json["vision_config"] != nil || json["visual"] != nil {
+                    supportsVision = true
+                }
+                // Context window from max_position_embeddings
+                if let maxPos = json["max_position_embeddings"] as? Int {
+                    contextWindow = maxPos
+                }
+            }
+            // Reasoning: check chat_template for <think> tags
+            let templateURL = modelDir.appendingPathComponent("tokenizer_config.json")
+            if let data = try? Data(contentsOf: templateURL),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if let chatTemplate = json["chat_template"] as? String, chatTemplate.contains("<think>") {
+                    supportsReasoning = true
+                }
+            }
+            // Reasoning: check generation_config.json for enable_thinking
+            let genConfigURL = modelDir.appendingPathComponent("generation_config.json")
+            if let data = try? Data(contentsOf: genConfigURL),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let enableThinking = json["enable_thinking"] as? Bool, enableThinking {
+                supportsReasoning = true
+            }
+        }
+
+        // Fallback: detect reasoning from known model family name patterns
+        if !supportsReasoning {
+            let lower = model.lowercased()
+            let reasoningPatterns = [
+                "qwen3", "deepseek-r", "glm-4", "glm-5", "kimi",
+                "qwq", "marco-o1", "skywork-o1", "ling-",
+                "nemotron", "minimax", "gpt-oss"
+            ]
+            supportsReasoning = reasoningPatterns.contains(where: { lower.contains($0) })
+        }
+
+        // Short model name (strip org prefix for display)
+        let shortName = model.contains("/") ? String(model.split(separator: "/", maxSplits: 1).last!) : model
+
+        var input: [String] = ["text"]
+        if supportsVision { input.append("image") }
+
+        let config: [String: Any] = [
+            "models": [
+                "providers": [
+                    "afm": [
+                        "baseUrl": "http://\(hostname):\(port)/v1",
+                        "apiKey": "not-needed",
+                        "api": "openai-completions",
+                        "models": [[
+                            "id": shortName,
+                            "name": "\(shortName) (afm)",
+                            "reasoning": supportsReasoning,
+                            "input": input,
+                            "cost": ["input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0],
+                            "contextWindow": contextWindow,
+                            "maxTokens": defaultMaxTokens
+                        ] as [String: Any]]
+                    ] as [String: Any]
+                ]
+            ],
+            "agents": [
+                "defaults": [
+                    "model": ["primary": "afm/\(shortName)"]
+                ]
+            ]
+        ]
+
+        if let jsonData = try? JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys]),
+           let jsonString = String(data: jsonData, encoding: .utf8) {
+            print(jsonString)
+        }
     }
 
     private func emitCompatibilityWarnings() {

@@ -314,7 +314,7 @@ class FoundationModelService {
 
         for message in messages {
             switch message.role {
-            case "system":
+            case "system", "developer":
                 prompt += "System: \(message.textContent)\n\n"
             case "user":
                 prompt += "User: \(message.textContent)\n\n"

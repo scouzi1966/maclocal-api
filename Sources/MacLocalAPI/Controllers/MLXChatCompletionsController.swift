@@ -52,7 +52,13 @@ struct MLXChatCompletionsController: RouteCollection {
         do {
             let chatRequest = try req.content.decode(ChatCompletionRequest.self)
             if veryVerbose {
-                req.logger.info("MLX full request: \(encodeJSON(chatRequest))")
+                req.logger.info("\(Self.pink)[\(Self.timestamp())] MLX full request: \(encodeJSON(chatRequest))\(Self.reset)")
+                // Log the user's prompt in red for quick scanning
+                if let lastUser = chatRequest.messages.last(where: { $0.role == "user" }) {
+                    let prompt = lastUser.textContent
+                    let truncated = prompt.count > 500 ? String(prompt.prefix(500)) + "..." : prompt
+                    req.logger.info("\(Self.red)[\(Self.timestamp())] MLX user prompt: \(truncated)\(Self.reset)")
+                }
             }
             guard !chatRequest.messages.isEmpty else {
                 return try await createErrorResponse(req: req, error: OpenAIError(message: "At least one message is required"), status: .badRequest)
@@ -62,7 +68,7 @@ struct MLXChatCompletionsController: RouteCollection {
                !requestedModelRaw.isEmpty,
                requestedModelRaw != modelID {
                 // WebUI may send transformed model identifiers; afm mlx always serves the active model.
-                req.logger.info("MLX request model '\(requestedModelRaw)' does not match active model '\(modelID)'; serving active model")
+                req.logger.info("[\(Self.timestamp())] MLX request model '\(requestedModelRaw)' does not match active model '\(modelID)'; serving active model")
             }
 
             let isWebUI = req.headers.first(name: .origin) != nil
@@ -74,12 +80,12 @@ struct MLXChatCompletionsController: RouteCollection {
 
             let effectiveTemp = chatRequest.temperature ?? temperature
             let effectiveTopP = chatRequest.topP ?? topP
-            let effectiveMaxTokens = normalizedMaxTokens(chatRequest.maxTokens)
+            let effectiveMaxTokens = normalizedMaxTokens(chatRequest.effectiveMaxTokens)
             let effectiveRepetitionPenalty = chatRequest.effectiveRepetitionPenalty ?? repetitionPenalty
             let started = Date()
             let promptChars = chatRequest.messages.map { $0.textContent.count }.reduce(0, +)
             req.logger.info(
-                "[\(Self.timestamp())] MLX start: stream=false prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens) temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")"
+                "\(Self.orange)[\(Self.timestamp())] MLX start: stream=false prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens) temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\(Self.reset)"
             )
             let result = try await service.generate(
                 model: modelID,
@@ -94,7 +100,7 @@ struct MLXChatCompletionsController: RouteCollection {
             let completionTok = result.completionTokens
             let tokPerSec = elapsed > 0 ? Double(completionTok) / elapsed : 0
             let stopReason = completionTok >= effectiveMaxTokens ? "length" : "stop"
-            req.logger.info("[\(Self.timestamp())] MLX done: stream=false prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok) elapsed=\(String(format: "%.2f", elapsed))s tok/s=\(String(format: "%.1f", tokPerSec)) finish_reason=\(stopReason)")
+            req.logger.info("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok) elapsed=\(String(format: "%.2f", elapsed))s tok/s=\(String(format: "%.1f", tokPerSec)) finish_reason=\(stopReason)\(Self.reset)")
 
             // Extract <think>...</think> tags into reasoning_content
             let finalContent: String
@@ -114,11 +120,11 @@ struct MLXChatCompletionsController: RouteCollection {
                 completionTokens: estimateTokens(cleanedContent)
             )
             if veryVerbose {
-                req.logger.info("MLX full response: \(encodeJSON(response))")
+                req.logger.info("\(Self.teal)[\(Self.timestamp())] MLX full response: \(encodeJSON(response))\(Self.reset)")
             }
             return try await createSuccessResponse(req: req, response: response)
         } catch {
-            req.logger.error("MLX completions error: \(error)")
+            req.logger.error("[\(Self.timestamp())] MLX completions error: \(error)")
             return try await createErrorResponse(req: req, error: OpenAIError(message: error.localizedDescription, type: "mlx_error"), status: .badRequest)
         }
     }
@@ -136,15 +142,17 @@ struct MLXChatCompletionsController: RouteCollection {
 
         httpResponse.body = .init(asyncStream: { writer in
             let encoder = JSONEncoder()
+            var fullContent = ""
+            let started = Date()
+            let effectiveTemp = chatRequest.temperature ?? self.temperature
+            let effectiveTopP = chatRequest.topP ?? self.topP
+            let effectiveMaxTokens = self.normalizedMaxTokens(chatRequest.effectiveMaxTokens)
+            let effectiveRepetitionPenalty = chatRequest.effectiveRepetitionPenalty ?? self.repetitionPenalty
+
             do {
-                let effectiveTemp = chatRequest.temperature ?? self.temperature
-                let effectiveTopP = chatRequest.topP ?? self.topP
-                let effectiveMaxTokens = self.normalizedMaxTokens(chatRequest.maxTokens)
-                let effectiveRepetitionPenalty = chatRequest.effectiveRepetitionPenalty ?? self.repetitionPenalty
-                let started = Date()
                 let promptChars = chatRequest.messages.map { $0.textContent.count }.reduce(0, +)
                 req.logger.info(
-                    "[\(Self.timestamp())] MLX start: stream=true prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens) temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")"
+                    "\(Self.orange)[\(Self.timestamp())] MLX start: stream=true prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens) temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\(Self.reset)"
                 )
                 let res = try await service.generateStreaming(
                     model: modelID,
@@ -154,8 +162,6 @@ struct MLXChatCompletionsController: RouteCollection {
                     topP: effectiveTopP,
                     repetitionPenalty: effectiveRepetitionPenalty
                 )
-                var fullContent = ""
-
                 // Emit an initial assistant delta so clients always open a response container.
                 let initialChunk = ChatCompletionStreamResponse(
                     id: streamId,
@@ -175,8 +181,14 @@ struct MLXChatCompletionsController: RouteCollection {
                 var verboseContentBuf = ""
 
                 // True token streaming: forward every chunk as it is generated.
+                var pendingRawTag: String? = nil
                 for try await piece in res.stream {
                     fullContent += piece
+
+                    // Detect RAW think tags but defer logging until after extraction flush
+                    if self.veryVerbose && (piece.contains("<think>") || piece.contains("</think>")) {
+                        pendingRawTag = piece.debugDescription
+                    }
 
                     if extractThinking {
                         thinkBuffer += piece
@@ -196,11 +208,11 @@ struct MLXChatCompletionsController: RouteCollection {
                                 if let c = emitContent { verboseContentBuf += c }
                                 // Flush verbose log on newlines or when buffer gets large
                                 if verboseReasoningBuf.hasSuffix("\n") || verboseReasoningBuf.count > 200 {
-                                    req.logger.info("MLX stream reasoning: \(verboseReasoningBuf)")
+                                    req.logger.info("\(Self.purple)[\(Self.timestamp())] MLX reasoning (extracted): \(verboseReasoningBuf)\(Self.reset)")
                                     verboseReasoningBuf = ""
                                 }
                                 if verboseContentBuf.hasSuffix("\n") || verboseContentBuf.count > 200 {
-                                    req.logger.info("MLX stream content: \(verboseContentBuf)")
+                                    req.logger.info("\(Self.teal)[\(Self.timestamp())] MLX content (extracted): \(verboseContentBuf)\(Self.reset)")
                                     verboseContentBuf = ""
                                 }
                             }
@@ -216,6 +228,12 @@ struct MLXChatCompletionsController: RouteCollection {
                                 try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                             }
                         }
+                        // Log RAW think tag AFTER extracted reasoning/content is flushed
+                        if let tag = pendingRawTag {
+                            print("\(Self.purple)[\(Self.timestamp())] MLX RAW token: \(tag)\(Self.reset)")
+                            fflush(stdout)
+                            pendingRawTag = nil
+                        }
                     } else {
                         let contentChunk = ChatCompletionStreamResponse(
                             id: streamId,
@@ -230,7 +248,28 @@ struct MLXChatCompletionsController: RouteCollection {
                     }
                 }
 
-                // Flush any remaining buffer content (thinking extraction only)
+                // === LOG IMMEDIATELY after generation, BEFORE any writer.write() calls ===
+                if self.veryVerbose {
+                    if !verboseReasoningBuf.isEmpty { print("\(Self.purple)[\(Self.timestamp())] MLX reasoning (extracted): \(verboseReasoningBuf)\(Self.reset)") }
+                    if !verboseContentBuf.isEmpty { print("\(Self.teal)[\(Self.timestamp())] MLX content (extracted): \(verboseContentBuf)\(Self.reset)") }
+                }
+                let completionTokens = self.estimateTokens(fullContent)
+                let generationDuration = max(Date().timeIntervalSince(started), 0.001)
+                let tokPerSec = generationDuration > 0 ? Double(completionTokens) / generationDuration : 0
+                let stopReason = completionTokens >= effectiveMaxTokens ? "length" : "stop"
+                let (finalAnswer, _) = Self.extractThinkContent(from: fullContent)
+                let trimmedAnswer = finalAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedAnswer.isEmpty {
+                    print("\(Self.teal)[\(Self.timestamp())] MLX answer: \(trimmedAnswer)\(Self.reset)")
+                }
+                print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true prompt_tokens=\(res.promptTokens) completion_tokens=\(completionTokens) elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec)) finish_reason=\(stopReason)\(Self.reset)")
+                if self.veryVerbose {
+                    let usageLog = StreamUsage(promptTokens: res.promptTokens, completionTokens: completionTokens, completionTime: generationDuration, promptTime: 0)
+                    print("\(Self.teal)[\(Self.timestamp())] MLX stream final usage: \(self.encodeJSON(usageLog))\(Self.reset)")
+                }
+                fflush(stdout)
+
+                // === Now flush remaining buffer to client (writer calls may hang/throw) ===
                 if extractThinking && !thinkBuffer.isEmpty {
                     let remaining: String?
                     let remainingReasoning: String?
@@ -249,15 +288,13 @@ struct MLXChatCompletionsController: RouteCollection {
                             reasoningContent: remainingReasoning,
                             isFirst: false
                         )
-                        let flushData = try encoder.encode(flushChunk)
-                        if let jsonString = String(data: flushData, encoding: .utf8) {
-                            try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                        if let flushData = try? encoder.encode(flushChunk),
+                           let jsonString = String(data: flushData, encoding: .utf8) {
+                            try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                         }
                     }
                 }
 
-                let completionTokens = self.estimateTokens(fullContent)
-                let generationDuration = max(Date().timeIntervalSince(started), 0.001)
                 let usage = StreamUsage(
                     promptTokens: res.promptTokens,
                     completionTokens: completionTokens,
@@ -274,20 +311,23 @@ struct MLXChatCompletionsController: RouteCollection {
                 )
                 let finalData = try encoder.encode(finalChunk)
                 if let jsonString = String(data: finalData, encoding: .utf8) {
-                    try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                    try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                 }
-                let tokPerSec = generationDuration > 0 ? Double(completionTokens) / generationDuration : 0
-                let stopReason = completionTokens >= effectiveMaxTokens ? "length" : "stop"
-                req.logger.info("[\(Self.timestamp())] MLX done: stream=true prompt_tokens=\(res.promptTokens) completion_tokens=\(completionTokens) elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec)) finish_reason=\(stopReason)")
-                if self.veryVerbose {
-                    if !verboseReasoningBuf.isEmpty { req.logger.info("MLX stream reasoning: \(verboseReasoningBuf)") }
-                    if !verboseContentBuf.isEmpty { req.logger.info("MLX stream content: \(verboseContentBuf)") }
-                    req.logger.info("MLX stream final usage: \(encodeJSON(usage))")
-                }
-                try await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
-                try await writer.write(.end)
+                try? await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
+                try? await writer.write(.end)
             } catch {
-                req.logger.error("MLX stream error: \(error)")
+                // Log summary even on error/cancellation
+                let completionTokens = self.estimateTokens(fullContent)
+                let generationDuration = max(Date().timeIntervalSince(started), 0.001)
+                let tokPerSec = generationDuration > 0 ? Double(completionTokens) / generationDuration : 0
+                let (finalAnswer, _) = Self.extractThinkContent(from: fullContent)
+                let trimmedAnswer = finalAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedAnswer.isEmpty {
+                    print("\(Self.teal)[\(Self.timestamp())] MLX answer: \(trimmedAnswer)\(Self.reset)")
+                }
+                print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true completion_tokens=\(completionTokens) elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec)) error=\(error.localizedDescription)\(Self.reset)")
+                fflush(stdout)
+                req.logger.error("[\(Self.timestamp())] MLX stream error: \(error)")
                 let errorChunk = ChatCompletionStreamResponse(
                     id: streamId,
                     model: self.modelID,
@@ -367,6 +407,14 @@ struct MLXChatCompletionsController: RouteCollection {
         isoFormatter.string(from: Date())
     }
 
+    /// ANSI color codes
+    private static let orange = "\u{1B}[38;5;208m"
+    private static let pink = "\u{1B}[38;5;213m"
+    private static let red = "\u{1B}[38;5;196m"
+    private static let teal = "\u{1B}[38;5;43m"
+    private static let purple = "\u{1B}[38;5;135m"
+    private static let reset = "\u{1B}[0m"
+
     /// Extract `<think>...</think>` content from a streaming buffer.
     /// Returns any reasoning and regular content that can be flushed.
     /// The buffer retains incomplete tag fragments for the next call.
@@ -412,7 +460,7 @@ struct MLXChatCompletionsController: RouteCollection {
         let c: String? = content.isEmpty ? nil : content
 
         if r == nil && c == nil {
-            return (reasoning: nil, content: "")
+            return (reasoning: nil, content: nil)
         }
 
         return (reasoning: r, content: c)

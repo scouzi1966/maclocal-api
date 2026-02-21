@@ -48,7 +48,6 @@ final class MLXModelService: @unchecked Sendable {
     private var activeOperations: Int = 0
     private var isShuttingDown = false
     private var gpuInitialized = false
-
     init(resolver: MLXCacheResolver) {
         self.resolver = resolver
         self.resolver.applyEnvironment()
@@ -381,7 +380,7 @@ final class MLXModelService: @unchecked Sendable {
             let text = m.textContent
             let images = try extractImages(from: m)
             switch m.role {
-            case "system":
+            case "system", "developer":
                 hasSystemMessage = true
                 chatMessages.append(.system(text))
             case "assistant":
@@ -400,6 +399,7 @@ final class MLXModelService: @unchecked Sendable {
         if chatMessages.isEmpty {
             return UserInput(prompt: "")
         }
+
         return UserInput(chat: chatMessages, processing: .init(resize: .init(width: 1024, height: 1024)))
     }
 

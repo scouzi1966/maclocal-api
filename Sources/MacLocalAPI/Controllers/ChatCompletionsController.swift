@@ -103,7 +103,7 @@ struct ChatCompletionsController: RouteCollection {
             let effectiveTemperature = chatRequest.temperature ?? temperature
             let effectiveRandomness = randomness
 
-            let content = try await foundationService.generateResponse(for: processedMessages, temperature: effectiveTemperature, randomness: effectiveRandomness, maxTokens: chatRequest.maxTokens)
+            let content = try await foundationService.generateResponse(for: processedMessages, temperature: effectiveTemperature, randomness: effectiveRandomness, maxTokens: chatRequest.effectiveMaxTokens)
 
             let promptTokens = estimateTokens(for: processedMessages)
             let completionTokens = estimateTokens(for: content)
@@ -214,7 +214,7 @@ struct ChatCompletionsController: RouteCollection {
                     for: processedMessages,
                     temperature: effectiveTemperature,
                     randomness: effectiveRandomness,
-                    maxTokens: chatRequest.maxTokens
+                    maxTokens: chatRequest.effectiveMaxTokens
                 )
 
                 var isFirst = true

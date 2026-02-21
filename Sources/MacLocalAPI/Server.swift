@@ -723,9 +723,27 @@ class Server {
         if gatewayEnabled {
             print("     • Gateway:            ✓ enabled (multi-backend proxy)")
         }
+        if veryVerbose {
+            let red = "\u{001B}[38;5;196m"
+            let pink = "\u{001B}[38;5;213m"
+            let purple = "\u{001B}[38;5;135m"
+            let teal = "\u{001B}[38;5;43m"
+            let orange = "\u{001B}[38;5;208m"
+            print("  🎨 Log colors (-V):")
+            print("     • \(red)Red\(reset)      User prompt")
+            print("     • \(pink)Pink\(reset)     Full request JSON")
+            print("     • \(purple)Purple\(reset)   Reasoning")
+            print("     • \(teal)Teal\(reset)     Content / answer / usage")
+            print("     • \(orange)Orange\(reset)   Start / done bookends")
+        }
         print("")
         print("  ℹ️  Requires macOS 26+ with Apple Intelligence")
         print("  💡 Press Ctrl+C to stop the server")
+        if let mlxModel = mlxModelID {
+            print("  💡 OpenClaw:  afm mlx -m \(mlxModel) --openclaw-config")
+        } else {
+            print("  💡 OpenClaw:  afm mlx -m <model> --openclaw-config")
+        }
         if gatewayEnabled {
             print("")
             let yellow = "\u{001B}[33m"
