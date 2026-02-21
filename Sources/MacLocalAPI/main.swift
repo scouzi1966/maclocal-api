@@ -169,6 +169,8 @@ struct MlxCommand: ParsableCommand {
     var maxTokens: Int?
     @Option(name: .long, help: "Random seed for reproducible sampling (nil = non-deterministic)")
     var seed: Int?
+    @Option(name: .long, help: "Maximum number of top log probabilities returned per token (default: 20)")
+    var maxLogprobs: Int?
     @Option(name: .long, help: "Repetition penalty (compatibility)")
     var repetitionPenalty: Double?
     @Option(name: .long, help: "KV cache size (compatibility)")
@@ -298,7 +300,8 @@ struct MlxCommand: ParsableCommand {
                     mlxTopK: topK,
                     mlxMinP: minP,
                     mlxPresencePenalty: presencePenalty,
-                    mlxSeed: seed
+                    mlxSeed: seed,
+                    mlxMaxLogprobs: maxLogprobs
                 )
                 globalServer = server
                 if !explicitPort && chosenPort != 9999 {

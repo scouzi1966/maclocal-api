@@ -4,7 +4,22 @@ import Cmlx
 import MLXLLM
 import MLXVLM
 import MLXLMCommon
+import Tokenizers
 import Hub
+
+/// Resolved log probability entry with token strings (ready for API response).
+struct ResolvedLogprob: Sendable {
+    let token: String
+    let tokenId: Int
+    let logprob: Float
+    let topTokens: [(token: String, tokenId: Int, logprob: Float)]
+}
+
+/// A chunk of streaming output, optionally carrying per-token log probabilities.
+struct StreamChunk: Sendable {
+    let text: String
+    let logprobs: [ResolvedLogprob]?
+}
 
 enum MLXLoadStage: String {
     case checkingCache = "checking cache"
@@ -159,8 +174,10 @@ final class MLXModelService: @unchecked Sendable {
         topK: Int? = nil,
         minP: Double? = nil,
         presencePenalty: Double? = nil,
-        seed: Int? = nil
-    ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int) {
+        seed: Int? = nil,
+        logprobs: Bool? = nil,
+        topLogprobs: Int? = nil
+    ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?) {
         try beginOperation()
         defer { endOperation() }
 
@@ -169,6 +186,7 @@ final class MLXModelService: @unchecked Sendable {
 
         let promptText = buildPrompt(from: messages)
         let userInput = try buildUserInput(from: messages)
+        let wantLogprobs = logprobs == true
         let params = GenerateParameters(
             maxTokens: maxTokens ?? 2000,
             kvGroupSize: 64,
@@ -181,9 +199,13 @@ final class MLXModelService: @unchecked Sendable {
             minP: normalizedMinP(minP),
             presencePenalty: normalizedPresencePenalty(presencePenalty),
             seed: normalizedSeed(seed),
+            computeLogprobs: wantLogprobs,
+            topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
             prefillStepSize: 2048
         )
 
+        var collectedLogprobs = [TokenLogprobData]()
+        var resolvedLogprobs: [ResolvedLogprob]? = nil
         let generated: String = try await container.perform { context in
             let input = try await context.processor.prepare(input: userInput)
 
@@ -204,14 +226,21 @@ final class MLXModelService: @unchecked Sendable {
             for await piece in try MLXLMCommon.generate(input: input, parameters: params, context: context) {
                 if case .chunk(let text) = piece {
                     out += text
+                } else if case .tokenLogprobs(let lps) = piece {
+                    collectedLogprobs.append(contentsOf: lps)
                 }
             }
 
             Stream.gpu.synchronize()
+
+            if wantLogprobs && !collectedLogprobs.isEmpty {
+                resolvedLogprobs = self.resolveLogprobs(collectedLogprobs, tokenizer: context.tokenizer)
+            }
+
             return out
         }
 
-        return (modelID, generated, estimateTokens(promptText), estimateTokens(generated))
+        return (modelID, generated, estimateTokens(promptText), estimateTokens(generated), resolvedLogprobs)
     }
 
     func generateStreaming(
@@ -224,8 +253,10 @@ final class MLXModelService: @unchecked Sendable {
         topK: Int? = nil,
         minP: Double? = nil,
         presencePenalty: Double? = nil,
-        seed: Int? = nil
-    ) async throws -> (modelID: String, stream: AsyncThrowingStream<String, Error>, promptTokens: Int) {
+        seed: Int? = nil,
+        logprobs: Bool? = nil,
+        topLogprobs: Int? = nil
+    ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int) {
         try beginOperation()
         defer { endOperation() }
 
@@ -235,6 +266,7 @@ final class MLXModelService: @unchecked Sendable {
         let promptText = buildPrompt(from: messages)
         let userInput = try buildUserInput(from: messages)
         let promptTokens = estimateTokens(promptText)
+        let wantLogprobs = logprobs == true
         let params = GenerateParameters(
             maxTokens: maxTokens ?? 2000,
             kvGroupSize: 64,
@@ -247,10 +279,12 @@ final class MLXModelService: @unchecked Sendable {
             minP: normalizedMinP(minP),
             presencePenalty: normalizedPresencePenalty(presencePenalty),
             seed: normalizedSeed(seed),
+            computeLogprobs: wantLogprobs,
+            topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
             prefillStepSize: 2048
         )
 
-        let stream = AsyncThrowingStream<String, Error> { continuation in
+        let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             let task = Task {
                 do {
                     try await container.perform { context in
@@ -266,17 +300,27 @@ final class MLXModelService: @unchecked Sendable {
                             let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
                             let decoded = context.tokenizer.decode(tokens: lastTwo)
                             if decoded.contains("<think>") {
-                                continuation.yield("<think>")
+                                continuation.yield(StreamChunk(text: "<think>", logprobs: nil))
                             }
                         }
 
+                        var pendingLogprobs: [TokenLogprobData]? = nil
                         for await piece in try MLXLMCommon.generate(input: input, parameters: params, context: context) {
                             if Task.isCancelled {
                                 print("[MLX] Generation cancelled by client")
                                 break
                             }
-                            if case .chunk(let text) = piece {
-                                continuation.yield(text)
+                            if case .tokenLogprobs(let lps) = piece {
+                                pendingLogprobs = lps
+                            } else if case .chunk(let text) = piece {
+                                let resolved: [ResolvedLogprob]?
+                                if let lps = pendingLogprobs {
+                                    resolved = self.resolveLogprobs(lps, tokenizer: context.tokenizer)
+                                } else {
+                                    resolved = nil
+                                }
+                                continuation.yield(StreamChunk(text: text, logprobs: resolved))
+                                pendingLogprobs = nil
                             }
                         }
                         // Synchronize GPU after generation completes (or breaks early).
@@ -467,6 +511,21 @@ final class MLXModelService: @unchecked Sendable {
         let charBased = Double(text.count) / 4.0
         let wordBased = Double(words) / 0.75
         return Int(max(charBased, wordBased))
+    }
+
+    private func resolveLogprobs(_ data: [TokenLogprobData], tokenizer: any Tokenizer) -> [ResolvedLogprob] {
+        data.map { entry in
+            let token = tokenizer.decode(tokens: [entry.tokenId])
+            let topTokens = zip(entry.topTokenIds, entry.topLogprobs).map { (id, lp) in
+                (token: tokenizer.decode(tokens: [id]), tokenId: id, logprob: lp)
+            }
+            return ResolvedLogprob(
+                token: token,
+                tokenId: entry.tokenId,
+                logprob: entry.logprob,
+                topTokens: topTokens
+            )
+        }
     }
 
     private func normalizedRepetitionPenalty(_ value: Double?) -> Float? {

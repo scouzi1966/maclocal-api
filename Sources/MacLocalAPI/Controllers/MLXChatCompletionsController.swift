@@ -13,6 +13,7 @@ struct MLXChatCompletionsController: RouteCollection {
     private let minP: Double?
     private let presencePenalty: Double?
     private let seed: Int?
+    private let maxLogprobs: Int
     private let veryVerbose: Bool
     private let rawOutput: Bool
 
@@ -28,6 +29,7 @@ struct MLXChatCompletionsController: RouteCollection {
         minP: Double? = nil,
         presencePenalty: Double? = nil,
         seed: Int? = nil,
+        maxLogprobs: Int = 20,
         veryVerbose: Bool = false,
         rawOutput: Bool = false
     ) {
@@ -42,6 +44,7 @@ struct MLXChatCompletionsController: RouteCollection {
         self.minP = minP
         self.presencePenalty = presencePenalty
         self.seed = seed
+        self.maxLogprobs = maxLogprobs
         self.veryVerbose = veryVerbose
         self.rawOutput = rawOutput
     }
@@ -74,6 +77,18 @@ struct MLXChatCompletionsController: RouteCollection {
             }
             guard !chatRequest.messages.isEmpty else {
                 return try await createErrorResponse(req: req, error: OpenAIError(message: "At least one message is required"), status: .badRequest)
+            }
+
+            // Validate top_logprobs against server max (vLLM-compatible)
+            if let requestedTopLogprobs = chatRequest.topLogprobs, requestedTopLogprobs > maxLogprobs {
+                return try await createErrorResponse(
+                    req: req,
+                    error: OpenAIError(
+                        message: "top_logprobs must be <= \(maxLogprobs). Received \(requestedTopLogprobs). Use --max-logprobs to increase the server limit.",
+                        type: "invalid_request_error"
+                    ),
+                    status: .badRequest
+                )
             }
 
             if let requestedModelRaw = chatRequest.model?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -113,7 +128,9 @@ struct MLXChatCompletionsController: RouteCollection {
                 topK: effectiveTopK,
                 minP: effectiveMinP,
                 presencePenalty: effectivePresencePenalty,
-                seed: effectiveSeed
+                seed: effectiveSeed,
+                logprobs: chatRequest.logprobs,
+                topLogprobs: chatRequest.topLogprobs
             )
             let cleanedContent = sanitizeDegenerateTail(result.content)
             let elapsed = Date().timeIntervalSince(started)
@@ -132,10 +149,12 @@ struct MLXChatCompletionsController: RouteCollection {
                 reasoningContent = nil
             }
 
+            let choiceLogprobs = buildChoiceLogprobs(result.tokenLogprobs)
             let response = ChatCompletionResponse(
                 model: result.modelID,
                 content: finalContent,
                 reasoningContent: reasoningContent,
+                logprobs: choiceLogprobs,
                 promptTokens: result.promptTokens,
                 completionTokens: estimateTokens(cleanedContent)
             )
@@ -188,7 +207,9 @@ struct MLXChatCompletionsController: RouteCollection {
                     topK: effectiveTopK,
                     minP: effectiveMinP,
                     presencePenalty: effectivePresencePenalty,
-                    seed: effectiveSeed
+                    seed: effectiveSeed,
+                    logprobs: chatRequest.logprobs,
+                    topLogprobs: chatRequest.topLogprobs
                 )
                 // Emit an initial assistant delta so clients always open a response container.
                 let initialChunk = ChatCompletionStreamResponse(
@@ -207,10 +228,15 @@ struct MLXChatCompletionsController: RouteCollection {
                 var thinkBuffer = ""
                 var verboseReasoningBuf = ""
                 var verboseContentBuf = ""
+                var logprobBuffer = [ResolvedLogprob]()
 
                 // True token streaming: forward every chunk as it is generated.
                 var pendingRawTag: String? = nil
-                for try await piece in res.stream {
+                for try await streamChunk in res.stream {
+                    let piece = streamChunk.text
+                    if let lps = streamChunk.logprobs {
+                        logprobBuffer.append(contentsOf: lps)
+                    }
                     fullContent += piece
 
                     // Detect RAW think tags but defer logging until after extraction flush
@@ -244,11 +270,15 @@ struct MLXChatCompletionsController: RouteCollection {
                                     verboseContentBuf = ""
                                 }
                             }
+                            // Flush accumulated logprobs with this chunk
+                            let flushLogprobs = logprobBuffer.isEmpty ? nil : self.buildChoiceLogprobs(logprobBuffer)
+                            logprobBuffer = []
                             let contentChunk = ChatCompletionStreamResponse(
                                 id: streamId,
                                 model: res.modelID,
                                 content: emitContent ?? "",
                                 reasoningContent: emitReasoning,
+                                logprobs: flushLogprobs,
                                 isFirst: false
                             )
                             let chunkData = try encoder.encode(contentChunk)
@@ -263,10 +293,13 @@ struct MLXChatCompletionsController: RouteCollection {
                             pendingRawTag = nil
                         }
                     } else {
+                        let flushLogprobs = logprobBuffer.isEmpty ? nil : self.buildChoiceLogprobs(logprobBuffer)
+                        logprobBuffer = []
                         let contentChunk = ChatCompletionStreamResponse(
                             id: streamId,
                             model: res.modelID,
                             content: piece,
+                            logprobs: flushLogprobs,
                             isFirst: false
                         )
                         let chunkData = try encoder.encode(contentChunk)
@@ -520,6 +553,26 @@ struct MLXChatCompletionsController: RouteCollection {
         let reasoning: String? = allReasoning.isEmpty ? nil : allReasoning.trimmingCharacters(in: .whitespacesAndNewlines)
         let content = allContent.trimmingCharacters(in: .whitespacesAndNewlines)
         return (content, reasoning)
+    }
+
+    private func buildChoiceLogprobs(_ resolved: [ResolvedLogprob]?) -> ChoiceLogprobs? {
+        guard let resolved, !resolved.isEmpty else { return nil }
+        let content = resolved.map { entry in
+            let topEntries = entry.topTokens.map { top in
+                TopLogprobEntry(
+                    token: top.token,
+                    logprob: Double(top.logprob),
+                    bytes: Array(top.token.utf8).map { Int($0) }
+                )
+            }
+            return TokenLogprobContent(
+                token: entry.token,
+                logprob: Double(entry.logprob),
+                bytes: Array(entry.token.utf8).map { Int($0) },
+                topLogprobs: topEntries
+            )
+        }
+        return ChoiceLogprobs(content: content)
     }
 
     private func encodeJSON<T: Encodable>(_ value: T) -> String {

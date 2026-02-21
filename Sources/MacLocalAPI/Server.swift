@@ -53,8 +53,9 @@ class Server {
     private let mlxMinP: Double?
     private let mlxPresencePenalty: Double?
     private let mlxSeed: Int?
+    private let mlxMaxLogprobs: Int
 
-    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil) async throws {
+    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -79,6 +80,7 @@ class Server {
         self.mlxMinP = mlxMinP
         self.mlxPresencePenalty = mlxPresencePenalty
         self.mlxSeed = mlxSeed
+        self.mlxMaxLogprobs = mlxMaxLogprobs ?? 20
 
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
@@ -236,6 +238,7 @@ class Server {
                 minP: mlxMinP,
                 presencePenalty: mlxPresencePenalty,
                 seed: mlxSeed,
+                maxLogprobs: mlxMaxLogprobs,
                 veryVerbose: veryVerbose,
                 rawOutput: mlxRawOutput
             )

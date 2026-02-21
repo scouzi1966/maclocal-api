@@ -43,6 +43,18 @@ public protocol LogitProcessor: Sendable {
     mutating func didSample(token: MLXArray)
 }
 
+/// Per-token log probability data produced during generation.
+public struct TokenLogprobData: Sendable {
+    /// The token ID that was sampled
+    public let tokenId: Int
+    /// Log probability of the sampled token
+    public let logprob: Float
+    /// Token IDs of the top alternatives (sorted by descending probability)
+    public let topTokenIds: [Int]
+    /// Log probabilities corresponding to topTokenIds
+    public let topLogprobs: [Float]
+}
+
 /// Parameters for text generation, see ``TokenIterator``.
 ///
 /// This produces:
@@ -96,6 +108,12 @@ public struct GenerateParameters: Sendable {
     /// random seed for reproducible sampling (nil = non-deterministic)
     public var seed: UInt64?
 
+    /// whether to compute per-token log probabilities (default: false)
+    public var computeLogprobs: Bool
+
+    /// number of top alternative tokens to include in logprob output (0-20, default: 0)
+    public var topLogprobsCount: Int
+
     public init(
         maxTokens: Int? = nil,
         maxKVSize: Int? = nil,
@@ -110,6 +128,8 @@ public struct GenerateParameters: Sendable {
         minP: Float = 0.0,
         presencePenalty: Float = 0.0,
         seed: UInt64? = nil,
+        computeLogprobs: Bool = false,
+        topLogprobsCount: Int = 0,
         prefillStepSize: Int = 512
     ) {
         self.maxTokens = maxTokens
@@ -125,6 +145,8 @@ public struct GenerateParameters: Sendable {
         self.minP = minP
         self.presencePenalty = presencePenalty
         self.seed = seed
+        self.computeLogprobs = computeLogprobs
+        self.topLogprobsCount = min(max(topLogprobsCount, 0), 20)
         self.prefillStepSize = prefillStepSize
     }
 
@@ -473,6 +495,15 @@ public struct TokenIterator: Sequence, IteratorProtocol {
     // Internal metrics
     var promptPrefillTime: TimeInterval = 0.0
 
+    // Logprob computation
+    let computeLogprobs: Bool
+    let topLogprobsCount: Int
+    let temperatureForLogprobs: Float
+    /// Logprob info for the token that will be returned by the current `next()` call.
+    public private(set) var lastLogprobInfo: TokenLogprobData?
+    /// Logprob info computed during `convertToToken()`, pending for the next `next()` return.
+    private var pendingLogprobInfo: TokenLogprobData?
+
     /// Initialize a `TokenIterator` with the given tokens. Note: this has been
     /// replaced with ``init(input:model:cache:parameters:)``.
     ///
@@ -497,6 +528,10 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         self.kvBits = parameters.kvBits
         self.kvGroupSize = parameters.kvGroupSize
         self.quantizedKVStart = parameters.quantizedKVStart
+
+        self.computeLogprobs = parameters.computeLogprobs
+        self.topLogprobsCount = parameters.topLogprobsCount
+        self.temperatureForLogprobs = parameters.temperature
 
         self.promptPrefillTime = try measure {
             try prepare(input: .init(text: y), windowSize: parameters.prefillStepSize)
@@ -531,6 +566,10 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         self.kvGroupSize = parameters.kvGroupSize
         self.quantizedKVStart = parameters.quantizedKVStart
 
+        self.computeLogprobs = parameters.computeLogprobs
+        self.topLogprobsCount = parameters.topLogprobsCount
+        self.temperatureForLogprobs = parameters.temperature
+
         self.promptPrefillTime = try measure {
             try prepare(input: input, windowSize: parameters.prefillStepSize)
         }
@@ -563,6 +602,10 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         self.kvBits = nil
         self.kvGroupSize = 64
         self.quantizedKVStart = 0
+
+        self.computeLogprobs = false
+        self.topLogprobsCount = 0
+        self.temperatureForLogprobs = 0
 
         self.promptPrefillTime = try measure {
             try prepare(input: input, windowSize: prefillStepSize)
@@ -599,6 +642,46 @@ public struct TokenIterator: Sequence, IteratorProtocol {
 
         processor?.didSample(token: y)
 
+        // Compute per-token log probabilities if requested
+        if computeLogprobs {
+            var lpLogits = logits
+            if lpLogits.dtype == .bfloat16 {
+                lpLogits = lpLogits.asType(.float32)
+            }
+            // Apply temperature scaling (same as the sampler uses)
+            if temperatureForLogprobs > 0 {
+                lpLogits = lpLogits / MLXArray(temperatureForLogprobs)
+            }
+            let probs = softmax(lpLogits, axis: -1)
+            let logProbs = log(probs)
+            let flatLogProbs = logProbs.reshaped(-1)
+
+            let tokenId = y.item(Int.self)
+            let tokenLogprob = flatLogProbs[tokenId].item(Float.self)
+
+            var topIds = [Int]()
+            var topLps = [Float]()
+            if topLogprobsCount > 0 {
+                let vocabSize = flatLogProbs.dim(0)
+                let n = Swift.min(topLogprobsCount, vocabSize)
+                let sorted = argSort(flatLogProbs, axis: -1)
+                for i in 0..<n {
+                    let idx = sorted[vocabSize - 1 - i].item(Int.self)
+                    topIds.append(idx)
+                    topLps.append(flatLogProbs[idx].item(Float.self))
+                }
+            }
+
+            pendingLogprobInfo = TokenLogprobData(
+                tokenId: tokenId,
+                logprob: tokenLogprob,
+                topTokenIds: topIds,
+                topLogprobs: topLps
+            )
+        } else {
+            pendingLogprobInfo = nil
+        }
+
         return y
     }
 
@@ -623,6 +706,10 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         if let maxTokens, tokenCount >= maxTokens {
             return nil
         }
+
+        // Promote pending logprob info: the logprob computed during the PREVIOUS
+        // step() corresponds to the token we are about to return (previousY).
+        lastLogprobInfo = pendingLogprobInfo
 
         // save current value -- this will be returned
         let previousY = y
@@ -1043,7 +1130,7 @@ public func generateTask(
 
     // Launch a Task to perform iteration asynchronously.
     let task = Task {
-        let iterator = iterator.consume()
+        var iterator = iterator.consume()
 
         var start = Date.timeIntervalSinceReferenceDate
         var promptTime: TimeInterval = 0
@@ -1064,8 +1151,9 @@ public func generateTask(
         let toolCallProcessor = ToolCallProcessor(
             format: modelConfiguration.toolCallFormat ?? .json
         )
+        var pendingLogprobs = [TokenLogprobData]()
 
-        for token in iterator {
+        while let token = iterator.next() {
 
             // Check for cancellation on every loop iteration.
             if Task.isCancelled {
@@ -1082,12 +1170,22 @@ public func generateTask(
                 break
             }
 
+            // Buffer logprob data for this token
+            if let lpInfo = iterator.lastLogprobInfo {
+                pendingLogprobs.append(lpInfo)
+            }
+
             detokenizer.append(token: token)
             if let chunk = detokenizer.next() {
                 tokenCount += 1
 
                 // Process chunk through the tool call processor
                 if let textToYield = toolCallProcessor.processChunk(chunk) {
+                    // Yield buffered logprobs before the chunk they belong to
+                    if !pendingLogprobs.isEmpty {
+                        continuation.yield(.tokenLogprobs(pendingLogprobs))
+                        pendingLogprobs = []
+                    }
                     if case .terminated = continuation.yield(.chunk(textToYield)) {
                         break
                     }
@@ -1190,12 +1288,16 @@ public enum Generation: Sendable {
     /// A tool call from the language model.
     case toolCall(ToolCall)
 
+    /// Per-token log probability data for the preceding chunk.
+    case tokenLogprobs([TokenLogprobData])
+
     /// Generated text or nil
     public var chunk: String? {
         switch self {
         case .chunk(let string): string
         case .info: nil
         case .toolCall: nil
+        case .tokenLogprobs: nil
         }
     }
 
@@ -1205,6 +1307,7 @@ public enum Generation: Sendable {
         case .chunk: nil
         case .info(let info): info
         case .toolCall: nil
+        case .tokenLogprobs: nil
         }
     }
 
@@ -1214,6 +1317,7 @@ public enum Generation: Sendable {
         case .chunk: nil
         case .info: nil
         case .toolCall(let toolCall): toolCall
+        case .tokenLogprobs: nil
         }
     }
 

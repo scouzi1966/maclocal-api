@@ -15,6 +15,8 @@ struct ChatCompletionRequest: Content {
     let topK: Int?
     let minP: Double?
     let seed: Int?
+    let logprobs: Bool?
+    let topLogprobs: Int?
     let stop: [String]?
     let stream: Bool?
     let user: String?
@@ -33,6 +35,8 @@ struct ChatCompletionRequest: Content {
         case topK = "top_k"
         case minP = "min_p"
         case seed
+        case logprobs
+        case topLogprobs = "top_logprobs"
         case stop
         case stream
         case user
