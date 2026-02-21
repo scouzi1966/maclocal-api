@@ -9,6 +9,10 @@ struct MLXChatCompletionsController: RouteCollection {
     private let topP: Double?
     private let maxTokens: Int?
     private let repetitionPenalty: Double?
+    private let topK: Int?
+    private let minP: Double?
+    private let presencePenalty: Double?
+    private let seed: Int?
     private let veryVerbose: Bool
     private let rawOutput: Bool
 
@@ -20,6 +24,10 @@ struct MLXChatCompletionsController: RouteCollection {
         topP: Double? = nil,
         maxTokens: Int? = nil,
         repetitionPenalty: Double?,
+        topK: Int? = nil,
+        minP: Double? = nil,
+        presencePenalty: Double? = nil,
+        seed: Int? = nil,
         veryVerbose: Bool = false,
         rawOutput: Bool = false
     ) {
@@ -30,6 +38,10 @@ struct MLXChatCompletionsController: RouteCollection {
         self.topP = topP
         self.maxTokens = maxTokens
         self.repetitionPenalty = repetitionPenalty
+        self.topK = topK
+        self.minP = minP
+        self.presencePenalty = presencePenalty
+        self.seed = seed
         self.veryVerbose = veryVerbose
         self.rawOutput = rawOutput
     }
@@ -82,10 +94,14 @@ struct MLXChatCompletionsController: RouteCollection {
             let effectiveTopP = chatRequest.topP ?? topP
             let effectiveMaxTokens = normalizedMaxTokens(chatRequest.effectiveMaxTokens)
             let effectiveRepetitionPenalty = chatRequest.effectiveRepetitionPenalty ?? repetitionPenalty
+            let effectiveTopK = chatRequest.topK ?? topK
+            let effectiveMinP = chatRequest.minP ?? minP
+            let effectivePresencePenalty = chatRequest.presencePenalty ?? presencePenalty
+            let effectiveSeed = chatRequest.seed ?? seed
             let started = Date()
             let promptChars = chatRequest.messages.map { $0.textContent.count }.reduce(0, +)
             req.logger.info(
-                "\(Self.orange)[\(Self.timestamp())] MLX start: stream=false prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens) temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\(Self.reset)"
+                "\(Self.orange)[\(Self.timestamp())] MLX start: stream=false prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens) temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none") top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none") seed=\(effectiveSeed?.description ?? "none")\(Self.reset)"
             )
             let result = try await service.generate(
                 model: modelID,
@@ -93,7 +109,11 @@ struct MLXChatCompletionsController: RouteCollection {
                 temperature: effectiveTemp,
                 maxTokens: effectiveMaxTokens,
                 topP: effectiveTopP,
-                repetitionPenalty: effectiveRepetitionPenalty
+                repetitionPenalty: effectiveRepetitionPenalty,
+                topK: effectiveTopK,
+                minP: effectiveMinP,
+                presencePenalty: effectivePresencePenalty,
+                seed: effectiveSeed
             )
             let cleanedContent = sanitizeDegenerateTail(result.content)
             let elapsed = Date().timeIntervalSince(started)
@@ -148,11 +168,15 @@ struct MLXChatCompletionsController: RouteCollection {
             let effectiveTopP = chatRequest.topP ?? self.topP
             let effectiveMaxTokens = self.normalizedMaxTokens(chatRequest.effectiveMaxTokens)
             let effectiveRepetitionPenalty = chatRequest.effectiveRepetitionPenalty ?? self.repetitionPenalty
+            let effectiveTopK = chatRequest.topK ?? self.topK
+            let effectiveMinP = chatRequest.minP ?? self.minP
+            let effectivePresencePenalty = chatRequest.presencePenalty ?? self.presencePenalty
+            let effectiveSeed = chatRequest.seed ?? self.seed
 
             do {
                 let promptChars = chatRequest.messages.map { $0.textContent.count }.reduce(0, +)
                 req.logger.info(
-                    "\(Self.orange)[\(Self.timestamp())] MLX start: stream=true prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens) temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\(Self.reset)"
+                    "\(Self.orange)[\(Self.timestamp())] MLX start: stream=true prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens) temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none") top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none") seed=\(effectiveSeed?.description ?? "none")\(Self.reset)"
                 )
                 let res = try await service.generateStreaming(
                     model: modelID,
@@ -160,7 +184,11 @@ struct MLXChatCompletionsController: RouteCollection {
                     temperature: effectiveTemp,
                     maxTokens: effectiveMaxTokens,
                     topP: effectiveTopP,
-                    repetitionPenalty: effectiveRepetitionPenalty
+                    repetitionPenalty: effectiveRepetitionPenalty,
+                    topK: effectiveTopK,
+                    minP: effectiveMinP,
+                    presencePenalty: effectivePresencePenalty,
+                    seed: effectiveSeed
                 )
                 // Emit an initial assistant delta so clients always open a response container.
                 let initialChunk = ChatCompletionStreamResponse(

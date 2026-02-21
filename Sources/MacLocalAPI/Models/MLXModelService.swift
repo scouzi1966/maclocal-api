@@ -155,7 +155,11 @@ final class MLXModelService: @unchecked Sendable {
         temperature: Double?,
         maxTokens: Int?,
         topP: Double?,
-        repetitionPenalty: Double?
+        repetitionPenalty: Double?,
+        topK: Int? = nil,
+        minP: Double? = nil,
+        presencePenalty: Double? = nil,
+        seed: Int? = nil
     ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int) {
         try beginOperation()
         defer { endOperation() }
@@ -173,6 +177,10 @@ final class MLXModelService: @unchecked Sendable {
             topP: normalizedTopP(topP),
             repetitionPenalty: normalizedRepetitionPenalty(repetitionPenalty),
             repetitionContextSize: 64,
+            topK: normalizedTopK(topK),
+            minP: normalizedMinP(minP),
+            presencePenalty: normalizedPresencePenalty(presencePenalty),
+            seed: normalizedSeed(seed),
             prefillStepSize: 2048
         )
 
@@ -212,7 +220,11 @@ final class MLXModelService: @unchecked Sendable {
         temperature: Double?,
         maxTokens: Int?,
         topP: Double?,
-        repetitionPenalty: Double?
+        repetitionPenalty: Double?,
+        topK: Int? = nil,
+        minP: Double? = nil,
+        presencePenalty: Double? = nil,
+        seed: Int? = nil
     ) async throws -> (modelID: String, stream: AsyncThrowingStream<String, Error>, promptTokens: Int) {
         try beginOperation()
         defer { endOperation() }
@@ -231,6 +243,10 @@ final class MLXModelService: @unchecked Sendable {
             topP: normalizedTopP(topP),
             repetitionPenalty: normalizedRepetitionPenalty(repetitionPenalty),
             repetitionContextSize: 64,
+            topK: normalizedTopK(topK),
+            minP: normalizedMinP(minP),
+            presencePenalty: normalizedPresencePenalty(presencePenalty),
+            seed: normalizedSeed(seed),
             prefillStepSize: 2048
         )
 
@@ -469,6 +485,26 @@ final class MLXModelService: @unchecked Sendable {
     private func normalizedTemperature(_ value: Double?) -> Float {
         guard let value else { return 0.6 }  // MLX library default
         return Float(min(max(value, 0.0), 1.0))
+    }
+
+    private func normalizedTopK(_ value: Int?) -> Int {
+        guard let value else { return 0 }  // 0 = disabled
+        return max(0, value)
+    }
+
+    private func normalizedMinP(_ value: Double?) -> Float {
+        guard let value else { return 0.0 }  // 0.0 = disabled
+        return Float(min(max(value, 0.0), 1.0))
+    }
+
+    private func normalizedPresencePenalty(_ value: Double?) -> Float {
+        guard let value else { return 0.0 }  // 0.0 = disabled
+        return Float(value)
+    }
+
+    private func normalizedSeed(_ value: Int?) -> UInt64? {
+        guard let value else { return nil }
+        return UInt64(max(0, value))
     }
 
 }

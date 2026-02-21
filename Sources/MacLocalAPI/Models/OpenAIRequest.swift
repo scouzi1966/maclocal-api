@@ -12,6 +12,9 @@ struct ChatCompletionRequest: Content {
     let repeatPenalty: Double?
     let frequencyPenalty: Double?
     let presencePenalty: Double?
+    let topK: Int?
+    let minP: Double?
+    let seed: Int?
     let stop: [String]?
     let stream: Bool?
     let user: String?
@@ -27,6 +30,9 @@ struct ChatCompletionRequest: Content {
         case repeatPenalty = "repeat_penalty"
         case frequencyPenalty = "frequency_penalty"
         case presencePenalty = "presence_penalty"
+        case topK = "top_k"
+        case minP = "min_p"
+        case seed
         case stop
         case stream
         case user

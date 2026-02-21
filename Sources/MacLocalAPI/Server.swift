@@ -49,8 +49,12 @@ class Server {
     private let mlxTopP: Double?
     private let mlxMaxTokens: Int?
     private let mlxRawOutput: Bool
+    private let mlxTopK: Int?
+    private let mlxMinP: Double?
+    private let mlxPresencePenalty: Double?
+    private let mlxSeed: Int?
 
-    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false) async throws {
+    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -71,6 +75,10 @@ class Server {
         self.mlxTopP = mlxTopP
         self.mlxMaxTokens = mlxMaxTokens
         self.mlxRawOutput = mlxRawOutput
+        self.mlxTopK = mlxTopK
+        self.mlxMinP = mlxMinP
+        self.mlxPresencePenalty = mlxPresencePenalty
+        self.mlxSeed = mlxSeed
 
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
@@ -224,6 +232,10 @@ class Server {
                 topP: mlxTopP,
                 maxTokens: mlxMaxTokens,
                 repetitionPenalty: mlxRepetitionPenalty,
+                topK: mlxTopK,
+                minP: mlxMinP,
+                presencePenalty: mlxPresencePenalty,
+                seed: mlxSeed,
                 veryVerbose: veryVerbose,
                 rawOutput: mlxRawOutput
             )

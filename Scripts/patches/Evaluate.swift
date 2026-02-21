@@ -84,6 +84,18 @@ public struct GenerateParameters: Sendable {
     /// number of tokens to consider for repetition penalty
     public var repetitionContextSize: Int
 
+    /// top-k sampling: keep only the k most likely tokens (0 = disabled)
+    public var topK: Int
+
+    /// min-p sampling: filter tokens with probability < minP * maxProb (0.0 = disabled)
+    public var minP: Float
+
+    /// presence penalty: flat additive penalty for tokens already generated (0.0 = disabled)
+    public var presencePenalty: Float
+
+    /// random seed for reproducible sampling (nil = non-deterministic)
+    public var seed: UInt64?
+
     public init(
         maxTokens: Int? = nil,
         maxKVSize: Int? = nil,
@@ -94,6 +106,10 @@ public struct GenerateParameters: Sendable {
         topP: Float = 1.0,
         repetitionPenalty: Float? = nil,
         repetitionContextSize: Int = 20,
+        topK: Int = 0,
+        minP: Float = 0.0,
+        presencePenalty: Float = 0.0,
+        seed: UInt64? = nil,
         prefillStepSize: Int = 512
     ) {
         self.maxTokens = maxTokens
@@ -105,6 +121,10 @@ public struct GenerateParameters: Sendable {
         self.topP = topP
         self.repetitionPenalty = repetitionPenalty
         self.repetitionContextSize = repetitionContextSize
+        self.topK = topK
+        self.minP = minP
+        self.presencePenalty = presencePenalty
+        self.seed = seed
         self.prefillStepSize = prefillStepSize
     }
 
@@ -112,18 +132,40 @@ public struct GenerateParameters: Sendable {
         if temperature == 0 {
             return ArgMaxSampler()
         } else if topP > 0 && topP < 1 {
-            return TopPSampler(temperature: temperature, topP: topP)
+            return TopPSampler(temperature: temperature, topP: topP, seed: seed)
         } else {
-            return CategoricalSampler(temperature: temperature)
+            return CategoricalSampler(temperature: temperature, seed: seed)
         }
     }
 
     public func processor() -> LogitProcessor? {
+        // Build processors in llama.cpp sampler chain order:
+        // penalties (repetition, presence) → top_k → min_p
+        // (temperature is handled by the sampler, not a processor)
+        var processors: [LogitProcessor] = []
+
         if let repetitionPenalty, repetitionContextSize > 0, repetitionPenalty != 1.0 {
-            return RepetitionContext(
-                repetitionPenalty: repetitionPenalty, repetitionContextSize: repetitionContextSize)
-        } else {
-            return nil
+            processors.append(RepetitionContext(
+                repetitionPenalty: repetitionPenalty, repetitionContextSize: repetitionContextSize))
+        }
+
+        if presencePenalty != 0.0 {
+            processors.append(PresenceContext(
+                presencePenalty: presencePenalty, contextSize: repetitionContextSize))
+        }
+
+        if topK > 0 {
+            processors.append(TopKProcessor(k: topK))
+        }
+
+        if minP > 0 && minP < 1 {
+            processors.append(MinPProcessor(minP: minP))
+        }
+
+        switch processors.count {
+        case 0: return nil
+        case 1: return processors[0]
+        default: return CompositeLogitProcessor(processors)
         }
     }
 }
@@ -143,10 +185,14 @@ public struct TopPSampler: LogitSampler {
     let topP: MLXArray
     let randomState: MLXRandom.RandomState
 
-    public init(temperature: Float, topP: Float) {
+    public init(temperature: Float, topP: Float, seed: UInt64? = nil) {
         self.temp = MLXArray(temperature)
         self.topP = MLXArray(topP)
-        self.randomState = MLXRandom.RandomState()
+        if let seed {
+            self.randomState = MLXRandom.RandomState(seed: seed)
+        } else {
+            self.randomState = MLXRandom.RandomState()
+        }
     }
 
     public func sample(logits: MLXArray) -> MLXArray {
@@ -178,14 +224,154 @@ public struct CategoricalSampler: LogitSampler {
     let temp: MLXArray
     let randomState: MLXRandom.RandomState
 
-    public init(temperature: Float) {
+    public init(temperature: Float, seed: UInt64? = nil) {
         self.temp = MLXArray(temperature)
-        self.randomState = MLXRandom.RandomState()
+        if let seed {
+            self.randomState = MLXRandom.RandomState(seed: seed)
+        } else {
+            self.randomState = MLXRandom.RandomState()
+        }
     }
 
     public func sample(logits: MLXArray) -> MLXArray {
         return withRandomState(randomState) {
             categorical(logits * (1 / temp))
+        }
+    }
+}
+
+/// Processor that applies a flat additive penalty for tokens already generated.
+///
+/// Follows the OpenAI / vLLM / SGLang convention: for every unique token that
+/// has appeared in the generated context, subtract `presencePenalty` from its logit.
+/// Unlike ``RepetitionContext`` (which is multiplicative and sign-aware), the penalty
+/// is always subtracted, matching the OpenAI API specification.
+public struct PresenceContext: LogitProcessor {
+    /// tokens in the context sliding window
+    var tokens = [Int]()
+
+    /// current write index into the tokens circular array
+    var index = 0
+
+    /// additive penalty for tokens already present in context
+    let presencePenalty: Float
+
+    /// number of tokens to consider
+    let contextSize: Int
+
+    public init(presencePenalty: Float, contextSize: Int = 64) {
+        precondition(contextSize > 0)
+        self.presencePenalty = presencePenalty
+        self.contextSize = contextSize
+    }
+
+    mutating public func prompt(_ prompt: MLXArray) {
+        if prompt.shape[0] <= contextSize {
+            self.tokens = prompt.asArray(Int.self)
+        } else {
+            self.tokens = prompt[(-contextSize)...].asArray(Int.self)
+        }
+    }
+
+    public func process(logits: MLXArray) -> MLXArray {
+        guard !tokens.isEmpty else { return logits }
+        let uniqueTokens = Array(Set(tokens))
+        let indices = MLXArray(uniqueTokens.map { UInt32($0) })
+        let penalty = MLXArray(presencePenalty)
+        logits[0..., indices] = logits[0..., indices] - penalty
+        return logits
+    }
+
+    mutating public func didSample(token: MLXArray) {
+        if tokens.count >= contextSize {
+            tokens[index] = token.item(Int.self)
+            index = (index + 1) % contextSize
+        } else {
+            tokens.append(token.item(Int.self))
+        }
+    }
+}
+
+/// Processor that keeps only the top-K logits, setting the rest to `-Float.infinity`.
+///
+/// When `k <= 0` or `k >= vocabSize` the processor is effectively a no-op.
+/// Follows the same algorithm used by llama.cpp and vLLM.
+public struct TopKProcessor: LogitProcessor {
+    let k: Int
+
+    public init(k: Int) {
+        self.k = k
+    }
+
+    public func prompt(_ prompt: MLXArray) {}
+    public func didSample(token: MLXArray) {}
+
+    public func process(logits: MLXArray) -> MLXArray {
+        let vocabSize = logits.dim(-1)
+        guard k > 0, k < vocabSize else { return logits }
+
+        // Sort descending along the last axis to find the k-th largest value
+        let sorted = MLX.sorted(logits, axis: -1)
+        // k-th largest is at index [vocabSize - k] in ascending-sorted array
+        let threshold = sorted[0..., vocabSize - k]
+
+        return MLX.where(logits .>= threshold, logits, MLXArray(-Float.infinity))
+    }
+}
+
+/// Processor that filters tokens whose logit is below `min_p * max_logit` (in log-space).
+///
+/// This avoids a full softmax: instead of computing probabilities, we use the
+/// identity `p(x) >= min_p * p_max` ⟺ `logit(x) >= max_logit + log(min_p)`.
+/// Follows the llama.cpp / vLLM log-space approach.
+public struct MinPProcessor: LogitProcessor {
+    let minP: Float
+
+    public init(minP: Float) {
+        self.minP = minP
+    }
+
+    public func prompt(_ prompt: MLXArray) {}
+    public func didSample(token: MLXArray) {}
+
+    public func process(logits: MLXArray) -> MLXArray {
+        guard minP > 0, minP < 1 else { return logits }
+
+        let maxLogit = MLX.max(logits, axis: -1, keepDims: true)
+        let threshold = maxLogit + MLXArray(log(minP))
+
+        return MLX.where(logits .>= threshold, logits, MLXArray(-Float.infinity))
+    }
+}
+
+/// Wraps multiple ``LogitProcessor`` instances into a single processor.
+///
+/// The processors are called in order during `process(logits:)`, matching
+/// the llama.cpp sampler chain convention: penalties → top_k → top_p → min_p → temperature.
+public struct CompositeLogitProcessor: LogitProcessor {
+    var processors: [LogitProcessor]
+
+    public init(_ processors: [LogitProcessor]) {
+        self.processors = processors
+    }
+
+    mutating public func prompt(_ prompt: MLXArray) {
+        for i in processors.indices {
+            processors[i].prompt(prompt)
+        }
+    }
+
+    public func process(logits: MLXArray) -> MLXArray {
+        var logits = logits
+        for processor in processors {
+            logits = processor.process(logits: logits)
+        }
+        return logits
+    }
+
+    mutating public func didSample(token: MLXArray) {
+        for i in processors.indices {
+            processors[i].didSample(token: token)
         }
     }
 }
