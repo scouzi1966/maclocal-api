@@ -5,7 +5,8 @@ If you find this useful, please ⭐ the repo!
 
 ## Latest app release --> https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.4
 
-# NEW IN v0.9.4! Run ANY Open-Source MLX LLM on Your Mac — 100% Local, 100% Swift, Zero Python. Yes that's right, install with pip but no python required after
+# NEW IN v0.9.4!
+# Run ANY Open-Source MLX LLM on Your Mac — 100% Local, 100% Swift, Zero Python. Yes that's right, install with pip but no python required after
 
 **afm now supports MLX models!** Run Qwen, Gemma, Llama, DeepSeek, GLM, and 28+ tested models directly on Apple Silicon. No Python environment, no conda, no venv — just one command. Built entirely in Swift with MLX for maximum Metal GPU performance.
 
