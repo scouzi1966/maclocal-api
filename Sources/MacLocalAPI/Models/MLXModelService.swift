@@ -15,10 +15,21 @@ struct ResolvedLogprob: Sendable {
     let topTokens: [(token: String, tokenId: Int, logprob: Float)]
 }
 
-/// A chunk of streaming output, optionally carrying per-token log probabilities.
+/// A chunk of streaming output, optionally carrying per-token log probabilities or tool calls.
 struct StreamChunk: Sendable {
     let text: String
     let logprobs: [ResolvedLogprob]?
+    let toolCalls: [ResponseToolCall]?
+    let promptTokens: Int?
+    let completionTokens: Int?
+
+    init(text: String, logprobs: [ResolvedLogprob]? = nil, toolCalls: [ResponseToolCall]? = nil, promptTokens: Int? = nil, completionTokens: Int? = nil) {
+        self.text = text
+        self.logprobs = logprobs
+        self.toolCalls = toolCalls
+        self.promptTokens = promptTokens
+        self.completionTokens = completionTokens
+    }
 }
 
 enum MLXLoadStage: String {
@@ -176,8 +187,11 @@ final class MLXModelService: @unchecked Sendable {
         presencePenalty: Double? = nil,
         seed: Int? = nil,
         logprobs: Bool? = nil,
-        topLogprobs: Int? = nil
-    ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?) {
+        topLogprobs: Int? = nil,
+        tools: [RequestTool]? = nil,
+        stop: [String]? = nil,
+        responseFormat: ResponseFormat? = nil
+    ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?) {
         try beginOperation()
         defer { endOperation() }
 
@@ -185,7 +199,8 @@ final class MLXModelService: @unchecked Sendable {
         guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
 
         let promptText = buildPrompt(from: messages)
-        let userInput = try buildUserInput(from: messages)
+        let toolSpecs = convertToToolSpecs(tools)
+        let userInput = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat)
         let wantLogprobs = logprobs == true
         let params = GenerateParameters(
             maxTokens: maxTokens ?? 2000,
@@ -206,6 +221,8 @@ final class MLXModelService: @unchecked Sendable {
 
         var collectedLogprobs = [TokenLogprobData]()
         var resolvedLogprobs: [ResolvedLogprob]? = nil
+        var collectedToolCalls = [ToolCall]()
+        var completionInfo: GenerateCompletionInfo? = nil
         let generated: String = try await container.perform { context in
             let input = try await context.processor.prepare(input: userInput)
 
@@ -223,11 +240,22 @@ final class MLXModelService: @unchecked Sendable {
                 }
             }
 
+            let activeStops = stop?.filter { !$0.isEmpty } ?? []
             for await piece in try MLXLMCommon.generate(input: input, parameters: params, context: context) {
                 if case .chunk(let text) = piece {
                     out += text
+                    if !activeStops.isEmpty, let match = activeStops.first(where: { out.contains($0) }) {
+                        if let range = out.range(of: match) {
+                            out = String(out[..<range.lowerBound])
+                        }
+                        break
+                    }
                 } else if case .tokenLogprobs(let lps) = piece {
                     collectedLogprobs.append(contentsOf: lps)
+                } else if case .toolCall(let tc) = piece {
+                    collectedToolCalls.append(tc)
+                } else if case .info(let info) = piece {
+                    completionInfo = info
                 }
             }
 
@@ -240,7 +268,13 @@ final class MLXModelService: @unchecked Sendable {
             return out
         }
 
-        return (modelID, generated, estimateTokens(promptText), estimateTokens(generated), resolvedLogprobs)
+        let responseToolCalls: [ResponseToolCall]? = collectedToolCalls.isEmpty ? nil : collectedToolCalls.enumerated().map { (i, tc) in
+            Self.convertToolCall(tc, index: i)
+        }
+
+        let promptTokens = completionInfo?.promptTokenCount ?? estimateTokens(promptText)
+        let completionTokens = completionInfo?.generationTokenCount ?? estimateTokens(generated)
+        return (modelID, generated, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls)
     }
 
     func generateStreaming(
@@ -255,7 +289,10 @@ final class MLXModelService: @unchecked Sendable {
         presencePenalty: Double? = nil,
         seed: Int? = nil,
         logprobs: Bool? = nil,
-        topLogprobs: Int? = nil
+        topLogprobs: Int? = nil,
+        tools: [RequestTool]? = nil,
+        stop: [String]? = nil,
+        responseFormat: ResponseFormat? = nil
     ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int) {
         try beginOperation()
         defer { endOperation() }
@@ -264,7 +301,8 @@ final class MLXModelService: @unchecked Sendable {
         guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
 
         let promptText = buildPrompt(from: messages)
-        let userInput = try buildUserInput(from: messages)
+        let toolSpecs = convertToToolSpecs(tools)
+        let userInput = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat)
         let promptTokens = estimateTokens(promptText)
         let wantLogprobs = logprobs == true
         let params = GenerateParameters(
@@ -300,9 +338,14 @@ final class MLXModelService: @unchecked Sendable {
                             let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
                             let decoded = context.tokenizer.decode(tokens: lastTwo)
                             if decoded.contains("<think>") {
-                                continuation.yield(StreamChunk(text: "<think>", logprobs: nil))
+                                continuation.yield(StreamChunk(text: "<think>"))
                             }
                         }
+
+                        let activeStops = stop?.filter { !$0.isEmpty } ?? []
+                        // Buffer to handle stop strings that span chunk boundaries
+                        let maxStopLen = activeStops.map(\.count).max() ?? 0
+                        var stopBuffer = ""
 
                         var pendingLogprobs: [TokenLogprobData]? = nil
                         for await piece in try MLXLMCommon.generate(input: input, parameters: params, context: context) {
@@ -319,9 +362,43 @@ final class MLXModelService: @unchecked Sendable {
                                 } else {
                                     resolved = nil
                                 }
-                                continuation.yield(StreamChunk(text: text, logprobs: resolved))
+
+                                if !activeStops.isEmpty {
+                                    stopBuffer += text
+                                    // Check for a complete stop string match
+                                    if let match = activeStops.first(where: { stopBuffer.contains($0) }) {
+                                        // Emit text up to the stop string
+                                        if let range = stopBuffer.range(of: match) {
+                                            let before = String(stopBuffer[..<range.lowerBound])
+                                            if !before.isEmpty {
+                                                continuation.yield(StreamChunk(text: before, logprobs: resolved))
+                                            }
+                                        }
+                                        break
+                                    }
+                                    // Flush safe portion of the buffer (keep tail that could be partial stop match)
+                                    if stopBuffer.count > maxStopLen {
+                                        let flushEnd = stopBuffer.index(stopBuffer.endIndex, offsetBy: -maxStopLen)
+                                        let flushText = String(stopBuffer[..<flushEnd])
+                                        stopBuffer = String(stopBuffer[flushEnd...])
+                                        continuation.yield(StreamChunk(text: flushText, logprobs: resolved))
+                                    }
+                                } else {
+                                    continuation.yield(StreamChunk(text: text, logprobs: resolved))
+                                }
                                 pendingLogprobs = nil
+                            } else if case .toolCall(let tc) = piece {
+                                // Emit tool call as a stream chunk with empty text
+                                let responseTC = Self.convertToolCall(tc, index: 0)
+                                continuation.yield(StreamChunk(text: "", toolCalls: [responseTC]))
+                            } else if case .info(let info) = piece {
+                                // Emit real token counts as a final info chunk
+                                continuation.yield(StreamChunk(text: "", promptTokens: info.promptTokenCount, completionTokens: info.generationTokenCount))
                             }
+                        }
+                        // Flush any remaining buffered text (no stop match found)
+                        if !activeStops.isEmpty && !stopBuffer.isEmpty {
+                            continuation.yield(StreamChunk(text: stopBuffer))
                         }
                         // Synchronize GPU after generation completes (or breaks early).
                         Stream.gpu.synchronize()
@@ -369,6 +446,56 @@ final class MLXModelService: @unchecked Sendable {
             print("MLX memory after shutdown - active: \(formatBytes(snapshot.activeMemory)), cache: \(formatBytes(snapshot.cacheMemory)), peak: \(formatBytes(snapshot.peakMemory))")
         }
     }
+
+    // MARK: - Tool conversion helpers
+
+    /// Convert OpenAI-format RequestTool array to vendor ToolSpec array.
+    private func convertToToolSpecs(_ tools: [RequestTool]?) -> [ToolSpec]? {
+        guard let tools, !tools.isEmpty else { return nil }
+        return tools.map { tool -> ToolSpec in
+            var funcDict: [String: any Sendable] = [
+                "name": tool.function.name
+            ]
+            if let desc = tool.function.description {
+                funcDict["description"] = desc
+            }
+            if let params = tool.function.parameters {
+                funcDict["parameters"] = params.toSendable()
+            }
+            return [
+                "type": tool.type,
+                "function": funcDict
+            ]
+        }
+    }
+
+    /// Convert a vendor ToolCall to an OpenAI-compatible ResponseToolCall.
+    static func convertToolCall(_ tc: ToolCall, index: Int) -> ResponseToolCall {
+        let argsDict = tc.function.arguments.mapValues { $0.anyValue }
+        let argsJSON: String
+        if let data = try? JSONSerialization.data(withJSONObject: argsDict, options: [.sortedKeys]),
+           let str = String(data: data, encoding: .utf8) {
+            argsJSON = str
+        } else {
+            argsJSON = "{}"
+        }
+        return ResponseToolCall(
+            id: "call_\(generateCallID())",
+            type: "function",
+            function: ResponseToolCallFunction(
+                name: tc.function.name,
+                arguments: argsJSON
+            )
+        )
+    }
+
+    /// Generate a random alphanumeric ID for tool call IDs.
+    private static func generateCallID() -> String {
+        let chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        return String((0..<24).map { _ in chars.randomElement()! })
+    }
+
+    // MARK: - Private helpers
 
     private func beginOperation() throws {
         try withStateLock {
@@ -433,7 +560,7 @@ final class MLXModelService: @unchecked Sendable {
         messages.map { "\($0.role): \($0.textContent)" }.joined(separator: "\n")
     }
 
-    private func buildUserInput(from messages: [Message]) throws -> UserInput {
+    private func buildUserInput(from messages: [Message], tools: [ToolSpec]? = nil, responseFormat: ResponseFormat? = nil) throws -> UserInput {
         var chatMessages: [Chat.Message] = []
         var hasSystemMessage = false
         for m in messages {
@@ -444,7 +571,29 @@ final class MLXModelService: @unchecked Sendable {
                 hasSystemMessage = true
                 chatMessages.append(.system(text))
             case "assistant":
-                chatMessages.append(.assistant(text))
+                if let toolCalls = m.toolCalls, !toolCalls.isEmpty {
+                    // Reconstruct assistant tool-call message as text for the chat template.
+                    // Models expect tool calls in a specific format that the template handles.
+                    var parts: [String] = []
+                    if !text.isEmpty {
+                        parts.append(text)
+                    }
+                    for tc in toolCalls {
+                        parts.append("<tool_call>\n{\"name\": \"\(tc.function.name)\", \"arguments\": \(tc.function.arguments)}\n</tool_call>")
+                    }
+                    chatMessages.append(.assistant(parts.joined(separator: "\n")))
+                } else {
+                    chatMessages.append(.assistant(text))
+                }
+            case "tool":
+                // Tool result messages — use the vendor's .tool() factory
+                let toolContent: String
+                if let name = m.name {
+                    toolContent = "<tool_response>\n{\"name\": \"\(name)\", \"content\": \(text)}\n</tool_response>"
+                } else {
+                    toolContent = text
+                }
+                chatMessages.append(.tool(toolContent))
             default:
                 chatMessages.append(.user(text, images: images))
             }
@@ -456,15 +605,47 @@ final class MLXModelService: @unchecked Sendable {
             chatMessages.insert(.system("You are a helpful assistant!"), at: 0)
         }
 
+        // Inject JSON format instructions when response_format is requested
+        if let format = responseFormat {
+            let jsonInstruction: String?
+            switch format.type {
+            case "json_object":
+                jsonInstruction = "Respond with valid JSON only. Do not include any text outside the JSON object."
+            case "json_schema":
+                if let schema = format.jsonSchema {
+                    var parts = ["Respond with valid JSON only. Do not include any text outside the JSON object."]
+                    if let schemaValue = schema.schema {
+                        let encoder = JSONEncoder()
+                        encoder.outputFormatting = [.sortedKeys]
+                        if let data = try? encoder.encode(schemaValue),
+                           let schemaStr = String(data: data, encoding: .utf8) {
+                            parts.append("Your response must conform to this JSON schema: \(schemaStr)")
+                        }
+                    }
+                    if let name = schema.name {
+                        parts.append("The response object is: \(name)")
+                    }
+                    jsonInstruction = parts.joined(separator: "\n")
+                } else {
+                    jsonInstruction = "Respond with valid JSON only. Do not include any text outside the JSON object."
+                }
+            default:
+                jsonInstruction = nil
+            }
+            if let instruction = jsonInstruction {
+                chatMessages.append(.system(instruction))
+            }
+        }
+
         if chatMessages.isEmpty {
             return UserInput(prompt: "")
         }
 
-        return UserInput(chat: chatMessages, processing: .init(resize: .init(width: 1024, height: 1024)))
+        return UserInput(chat: chatMessages, processing: .init(resize: .init(width: 1024, height: 1024)), tools: tools)
     }
 
     private func extractImages(from message: Message) throws -> [UserInput.Image] {
-        guard case .parts(let parts) = message.content else { return [] }
+        guard let content = message.content, case .parts(let parts) = content else { return [] }
         var images: [UserInput.Image] = []
         for part in parts where part.type == "image_url" {
             guard let raw = part.image_url?.url, let url = URL(string: raw) else { continue }

@@ -9,7 +9,7 @@ struct ChatCompletionResponse: Content {
     let choices: [Choice]
     let usage: Usage
     let systemFingerprint: String?
-    
+
     enum CodingKeys: String, CodingKey {
         case id
         case object
@@ -19,7 +19,16 @@ struct ChatCompletionResponse: Content {
         case usage
         case systemFingerprint = "system_fingerprint"
     }
-    
+
+    private static func fingerprint(for model: String) -> String {
+        if model == "foundation" {
+            return "afm_apple_foundation"
+        } else {
+            let sanitized = model.replacingOccurrences(of: "/", with: "__").replacingOccurrences(of: " ", with: "_")
+            return "afm_mlx__\(sanitized)"
+        }
+    }
+
     init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion"
@@ -38,13 +47,28 @@ struct ChatCompletionResponse: Content {
             completionTokens: completionTokens,
             totalTokens: promptTokens + completionTokens
         )
-        // Derive fingerprint from model: MLX models get "afm_mlx_<sanitized>", Apple FM gets "afm_apple_foundation"
-        if model == "foundation" {
-            self.systemFingerprint = "afm_apple_foundation"
-        } else {
-            let sanitized = model.replacingOccurrences(of: "/", with: "__").replacingOccurrences(of: " ", with: "_")
-            self.systemFingerprint = "afm_mlx__\(sanitized)"
-        }
+        self.systemFingerprint = Self.fingerprint(for: model)
+    }
+
+    init(id: String = UUID().uuidString, model: String, toolCalls: [ResponseToolCall], logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0) {
+        self.id = "chatcmpl-\(id.prefix(8))"
+        self.object = "chat.completion"
+        self.created = Int(Date().timeIntervalSince1970)
+        self.model = model
+        self.choices = [
+            Choice(
+                index: 0,
+                message: ResponseMessage(role: "assistant", content: nil, toolCalls: toolCalls),
+                logprobs: logprobs,
+                finishReason: "tool_calls"
+            )
+        ]
+        self.usage = Usage(
+            promptTokens: promptTokens,
+            completionTokens: completionTokens,
+            totalTokens: promptTokens + completionTokens
+        )
+        self.systemFingerprint = Self.fingerprint(for: model)
     }
 }
 
@@ -88,27 +112,52 @@ struct TopLogprobEntry: Content {
 
 struct ResponseMessage: Content {
     let role: String
-    let content: String
+    let content: String?
     let reasoningContent: String?
+    let toolCalls: [ResponseToolCall]?
 
     enum CodingKeys: String, CodingKey {
         case role
         case content
         case reasoningContent = "reasoning_content"
+        case toolCalls = "tool_calls"
     }
 
-    init(role: String, content: String, reasoningContent: String? = nil) {
+    init(role: String, content: String?, reasoningContent: String? = nil, toolCalls: [ResponseToolCall]? = nil) {
         self.role = role
         self.content = content
         self.reasoningContent = reasoningContent
+        self.toolCalls = toolCalls
     }
+
+    /// Always encode `content` (as null when nil) — Vercel AI SDK expects the key to be present.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(role, forKey: .role)
+        try container.encode(content, forKey: .content)
+        try container.encodeIfPresent(reasoningContent, forKey: .reasoningContent)
+        try container.encodeIfPresent(toolCalls, forKey: .toolCalls)
+    }
+}
+
+// MARK: - Tool call response types
+
+struct ResponseToolCall: Content {
+    let id: String           // "call_<random>"
+    let type: String         // "function"
+    let function: ResponseToolCallFunction
+}
+
+struct ResponseToolCallFunction: Content {
+    let name: String
+    let arguments: String    // JSON string
 }
 
 struct Usage: Content {
     let promptTokens: Int
     let completionTokens: Int
     let totalTokens: Int
-    
+
     enum CodingKeys: String, CodingKey {
         case promptTokens = "prompt_tokens"
         case completionTokens = "completion_tokens"
@@ -131,19 +180,23 @@ struct ChatCompletionStreamResponse: Content {
         case systemFingerprint = "system_fingerprint"
     }
 
-    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, isFinished: Bool = false, isFirst: Bool = false, usage: StreamUsage? = nil, timings: StreamTimings? = nil) {
+    private static func fingerprint(for model: String) -> String {
+        if model == "foundation" {
+            return "afm_apple_foundation"
+        } else {
+            let sanitized = model.replacingOccurrences(of: "/", with: "__").replacingOccurrences(of: " ", with: "_")
+            return "afm_mlx__\(sanitized)"
+        }
+    }
+
+    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, isFinished: Bool = false, isFirst: Bool = false, finishReason: String? = nil, usage: StreamUsage? = nil, timings: StreamTimings? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion.chunk"
         self.created = Int(Date().timeIntervalSince1970)
         self.model = model
         self.usage = usage
         self.timings = timings
-        if model == "foundation" {
-            self.systemFingerprint = "afm_apple_foundation"
-        } else {
-            let sanitized = model.replacingOccurrences(of: "/", with: "__").replacingOccurrences(of: " ", with: "_")
-            self.systemFingerprint = "afm_mlx__\(sanitized)"
-        }
+        self.systemFingerprint = Self.fingerprint(for: model)
 
         if isFinished {
             self.choices = [
@@ -151,7 +204,7 @@ struct ChatCompletionStreamResponse: Content {
                     index: 0,
                     delta: StreamDelta(content: nil),
                     logprobs: nil,
-                    finishReason: "stop"
+                    finishReason: finishReason ?? "stop"
                 )
             ]
         } else if isFirst {
@@ -173,6 +226,25 @@ struct ChatCompletionStreamResponse: Content {
                 )
             ]
         }
+    }
+
+    /// Init for streaming tool call deltas
+    init(id: String, model: String, toolCalls: [StreamDeltaToolCall], finishReason: String? = nil) {
+        self.id = "chatcmpl-\(id.prefix(8))"
+        self.object = "chat.completion.chunk"
+        self.created = Int(Date().timeIntervalSince1970)
+        self.model = model
+        self.usage = nil
+        self.timings = nil
+        self.systemFingerprint = Self.fingerprint(for: model)
+        self.choices = [
+            StreamChoice(
+                index: 0,
+                delta: StreamDelta(toolCalls: toolCalls),
+                logprobs: nil,
+                finishReason: finishReason
+            )
+        ]
     }
 }
 
@@ -201,18 +273,40 @@ struct StreamDelta: Content {
     let role: String?
     let content: String?
     let reasoningContent: String?
+    let toolCalls: [StreamDeltaToolCall]?
 
     enum CodingKeys: String, CodingKey {
         case role
         case content
         case reasoningContent = "reasoning_content"
+        case toolCalls = "tool_calls"
     }
 
-    init(role: String? = nil, content: String?, reasoningContent: String? = nil) {
+    init(role: String? = nil, content: String?, reasoningContent: String? = nil, toolCalls: [StreamDeltaToolCall]? = nil) {
         self.role = role
         self.content = content
         self.reasoningContent = reasoningContent
+        self.toolCalls = toolCalls
     }
+
+    init(toolCalls: [StreamDeltaToolCall]) {
+        self.role = nil
+        self.content = nil
+        self.reasoningContent = nil
+        self.toolCalls = toolCalls
+    }
+}
+
+struct StreamDeltaToolCall: Content {
+    let index: Int
+    let id: String?
+    let type: String?
+    let function: StreamDeltaFunction?
+}
+
+struct StreamDeltaFunction: Content {
+    let name: String?
+    let arguments: String?
 }
 
 struct StreamUsage: Content {
@@ -224,7 +318,7 @@ struct StreamUsage: Content {
     let totalTime: Double?
     let promptTokensPerSecond: Double?
     let completionTokensPerSecond: Double?
-    
+
     enum CodingKeys: String, CodingKey {
         case promptTokens = "prompt_tokens"
         case completionTokens = "completion_tokens"
@@ -235,7 +329,7 @@ struct StreamUsage: Content {
         case promptTokensPerSecond = "prompt_tokens_per_second"
         case completionTokensPerSecond = "completion_tokens_per_second"
     }
-    
+
     init(promptTokens: Int, completionTokens: Int, completionTime: Double, promptTime: Double = 0.0) {
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
@@ -243,14 +337,14 @@ struct StreamUsage: Content {
         self.completionTime = (completionTime * 100).rounded() / 100
         self.promptTime = (promptTime * 100).rounded() / 100
         self.totalTime = ((promptTime + completionTime) * 100).rounded() / 100
-        
+
         if promptTime > 0 {
             let promptRate = Double(promptTokens) / promptTime
             self.promptTokensPerSecond = (promptRate * 100).rounded() / 100
         } else {
             self.promptTokensPerSecond = nil
         }
-        
+
         if completionTime > 0 {
             let completionRate = Double(completionTokens) / completionTime
             self.completionTokensPerSecond = (completionRate * 100).rounded() / 100
@@ -262,13 +356,13 @@ struct StreamUsage: Content {
 
 struct OpenAIError: Content, Error {
     let error: ErrorDetail
-    
+
     struct ErrorDetail: Content {
         let message: String
         let type: String
         let code: String?
     }
-    
+
     init(message: String, type: String = "invalid_request_error", code: String? = nil) {
         self.error = ErrorDetail(message: message, type: type, code: code)
     }
