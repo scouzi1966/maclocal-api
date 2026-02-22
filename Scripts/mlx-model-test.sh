@@ -101,9 +101,13 @@ for model in "${MODELS[@]}"; do
   # Build server args
   EXTRA_ARGS=()
   SYS_PROMPT=""
+  MODEL_PROMPT="$PROMPT"
   if echo "$model" | grep -qi "gpt-oss"; then
     SYS_PROMPT="Reasoning:low"
     EXTRA_ARGS=(-i "$SYS_PROMPT")
+  fi
+  if echo "$model" | grep -qi "kimi"; then
+    MODEL_PROMPT="Why is the sky blue? Be brief"
   fi
 
   # Start server
@@ -144,7 +148,7 @@ body = {
   'model': '$model',
   'messages': [
     {'role': 'system', 'content': 'Reasoning:low'},
-    {'role': 'user', 'content': '''$PROMPT'''}
+    {'role': 'user', 'content': '''$MODEL_PROMPT'''}
   ],
   'max_tokens': $MAX_TOKENS,
   'temperature': 0.7,
@@ -158,7 +162,7 @@ import json
 body = {
   'model': '$model',
   'messages': [
-    {'role': 'user', 'content': '''$PROMPT'''}
+    {'role': 'user', 'content': '''$MODEL_PROMPT'''}
   ],
   'max_tokens': $MAX_TOKENS,
   'temperature': 0.7,
