@@ -282,10 +282,21 @@ function renderContent(idx) {{
 """
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
+project_dir = os.path.dirname(script_dir)
+report_dir = os.path.join(project_dir, "test-reports")
+os.makedirs(report_dir, exist_ok=True)
+
 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-outpath = os.path.join(script_dir, f"mlx-model-report-{timestamp}.html")
-with open(outpath, "w") as f:
+html_path = os.path.join(report_dir, f"mlx-model-report-{timestamp}.html")
+jsonl_path = os.path.join(report_dir, f"mlx-model-report-{timestamp}.jsonl")
+
+with open(html_path, "w") as f:
     f.write(report)
 
-print(f"Report: {outpath}")
+# Copy results JSONL alongside the HTML report with matching timestamp
+import shutil
+shutil.copy2("/tmp/mlx-test-results.jsonl", jsonl_path)
+
+print(f"Report: {html_path}")
+print(f"  Data: {jsonl_path}")
 print(f"  {len(ok)} passed, {len(fail)} failed out of {len(results)} models")

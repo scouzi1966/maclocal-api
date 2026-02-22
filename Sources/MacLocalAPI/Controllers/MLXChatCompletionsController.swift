@@ -9,6 +9,11 @@ struct MLXChatCompletionsController: RouteCollection {
     private let topP: Double?
     private let maxTokens: Int?
     private let repetitionPenalty: Double?
+    private let topK: Int?
+    private let minP: Double?
+    private let presencePenalty: Double?
+    private let seed: Int?
+    private let maxLogprobs: Int
     private let veryVerbose: Bool
     private let rawOutput: Bool
 
@@ -20,6 +25,11 @@ struct MLXChatCompletionsController: RouteCollection {
         topP: Double? = nil,
         maxTokens: Int? = nil,
         repetitionPenalty: Double?,
+        topK: Int? = nil,
+        minP: Double? = nil,
+        presencePenalty: Double? = nil,
+        seed: Int? = nil,
+        maxLogprobs: Int = 20,
         veryVerbose: Bool = false,
         rawOutput: Bool = false
     ) {
@@ -30,6 +40,11 @@ struct MLXChatCompletionsController: RouteCollection {
         self.topP = topP
         self.maxTokens = maxTokens
         self.repetitionPenalty = repetitionPenalty
+        self.topK = topK
+        self.minP = minP
+        self.presencePenalty = presencePenalty
+        self.seed = seed
+        self.maxLogprobs = maxLogprobs
         self.veryVerbose = veryVerbose
         self.rawOutput = rawOutput
     }
@@ -64,6 +79,18 @@ struct MLXChatCompletionsController: RouteCollection {
                 return try await createErrorResponse(req: req, error: OpenAIError(message: "At least one message is required"), status: .badRequest)
             }
 
+            // Validate top_logprobs against server max (vLLM-compatible)
+            if let requestedTopLogprobs = chatRequest.topLogprobs, requestedTopLogprobs > maxLogprobs {
+                return try await createErrorResponse(
+                    req: req,
+                    error: OpenAIError(
+                        message: "top_logprobs must be <= \(maxLogprobs). Received \(requestedTopLogprobs). Use --max-logprobs to increase the server limit.",
+                        type: "invalid_request_error"
+                    ),
+                    status: .badRequest
+                )
+            }
+
             if let requestedModelRaw = chatRequest.model?.trimmingCharacters(in: .whitespacesAndNewlines),
                !requestedModelRaw.isEmpty,
                requestedModelRaw != modelID {
@@ -82,10 +109,14 @@ struct MLXChatCompletionsController: RouteCollection {
             let effectiveTopP = chatRequest.topP ?? topP
             let effectiveMaxTokens = normalizedMaxTokens(chatRequest.effectiveMaxTokens)
             let effectiveRepetitionPenalty = chatRequest.effectiveRepetitionPenalty ?? repetitionPenalty
+            let effectiveTopK = chatRequest.topK ?? topK
+            let effectiveMinP = chatRequest.minP ?? minP
+            let effectivePresencePenalty = chatRequest.presencePenalty ?? presencePenalty
+            let effectiveSeed = chatRequest.seed ?? seed
             let started = Date()
             let promptChars = chatRequest.messages.map { $0.textContent.count }.reduce(0, +)
             req.logger.info(
-                "\(Self.orange)[\(Self.timestamp())] MLX start: stream=false prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens) temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\(Self.reset)"
+                "\(Self.orange)[\(Self.timestamp())] MLX start: stream=false prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens) temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none") top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none") seed=\(effectiveSeed?.description ?? "none")\(Self.reset)"
             )
             let result = try await service.generate(
                 model: modelID,
@@ -93,7 +124,13 @@ struct MLXChatCompletionsController: RouteCollection {
                 temperature: effectiveTemp,
                 maxTokens: effectiveMaxTokens,
                 topP: effectiveTopP,
-                repetitionPenalty: effectiveRepetitionPenalty
+                repetitionPenalty: effectiveRepetitionPenalty,
+                topK: effectiveTopK,
+                minP: effectiveMinP,
+                presencePenalty: effectivePresencePenalty,
+                seed: effectiveSeed,
+                logprobs: chatRequest.logprobs,
+                topLogprobs: chatRequest.topLogprobs
             )
             let cleanedContent = sanitizeDegenerateTail(result.content)
             let elapsed = Date().timeIntervalSince(started)
@@ -112,10 +149,12 @@ struct MLXChatCompletionsController: RouteCollection {
                 reasoningContent = nil
             }
 
+            let choiceLogprobs = buildChoiceLogprobs(result.tokenLogprobs)
             let response = ChatCompletionResponse(
                 model: result.modelID,
                 content: finalContent,
                 reasoningContent: reasoningContent,
+                logprobs: choiceLogprobs,
                 promptTokens: result.promptTokens,
                 completionTokens: estimateTokens(cleanedContent)
             )
@@ -148,11 +187,15 @@ struct MLXChatCompletionsController: RouteCollection {
             let effectiveTopP = chatRequest.topP ?? self.topP
             let effectiveMaxTokens = self.normalizedMaxTokens(chatRequest.effectiveMaxTokens)
             let effectiveRepetitionPenalty = chatRequest.effectiveRepetitionPenalty ?? self.repetitionPenalty
+            let effectiveTopK = chatRequest.topK ?? self.topK
+            let effectiveMinP = chatRequest.minP ?? self.minP
+            let effectivePresencePenalty = chatRequest.presencePenalty ?? self.presencePenalty
+            let effectiveSeed = chatRequest.seed ?? self.seed
 
             do {
                 let promptChars = chatRequest.messages.map { $0.textContent.count }.reduce(0, +)
                 req.logger.info(
-                    "\(Self.orange)[\(Self.timestamp())] MLX start: stream=true prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens) temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\(Self.reset)"
+                    "\(Self.orange)[\(Self.timestamp())] MLX start: stream=true prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens) temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none") top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none") seed=\(effectiveSeed?.description ?? "none")\(Self.reset)"
                 )
                 let res = try await service.generateStreaming(
                     model: modelID,
@@ -160,7 +203,13 @@ struct MLXChatCompletionsController: RouteCollection {
                     temperature: effectiveTemp,
                     maxTokens: effectiveMaxTokens,
                     topP: effectiveTopP,
-                    repetitionPenalty: effectiveRepetitionPenalty
+                    repetitionPenalty: effectiveRepetitionPenalty,
+                    topK: effectiveTopK,
+                    minP: effectiveMinP,
+                    presencePenalty: effectivePresencePenalty,
+                    seed: effectiveSeed,
+                    logprobs: chatRequest.logprobs,
+                    topLogprobs: chatRequest.topLogprobs
                 )
                 // Emit an initial assistant delta so clients always open a response container.
                 let initialChunk = ChatCompletionStreamResponse(
@@ -179,10 +228,15 @@ struct MLXChatCompletionsController: RouteCollection {
                 var thinkBuffer = ""
                 var verboseReasoningBuf = ""
                 var verboseContentBuf = ""
+                var logprobBuffer = [ResolvedLogprob]()
 
                 // True token streaming: forward every chunk as it is generated.
                 var pendingRawTag: String? = nil
-                for try await piece in res.stream {
+                for try await streamChunk in res.stream {
+                    let piece = streamChunk.text
+                    if let lps = streamChunk.logprobs {
+                        logprobBuffer.append(contentsOf: lps)
+                    }
                     fullContent += piece
 
                     // Detect RAW think tags but defer logging until after extraction flush
@@ -216,11 +270,15 @@ struct MLXChatCompletionsController: RouteCollection {
                                     verboseContentBuf = ""
                                 }
                             }
+                            // Flush accumulated logprobs with this chunk
+                            let flushLogprobs = logprobBuffer.isEmpty ? nil : self.buildChoiceLogprobs(logprobBuffer)
+                            logprobBuffer = []
                             let contentChunk = ChatCompletionStreamResponse(
                                 id: streamId,
                                 model: res.modelID,
                                 content: emitContent ?? "",
                                 reasoningContent: emitReasoning,
+                                logprobs: flushLogprobs,
                                 isFirst: false
                             )
                             let chunkData = try encoder.encode(contentChunk)
@@ -235,10 +293,13 @@ struct MLXChatCompletionsController: RouteCollection {
                             pendingRawTag = nil
                         }
                     } else {
+                        let flushLogprobs = logprobBuffer.isEmpty ? nil : self.buildChoiceLogprobs(logprobBuffer)
+                        logprobBuffer = []
                         let contentChunk = ChatCompletionStreamResponse(
                             id: streamId,
                             model: res.modelID,
                             content: piece,
+                            logprobs: flushLogprobs,
                             isFirst: false
                         )
                         let chunkData = try encoder.encode(contentChunk)
@@ -492,6 +553,26 @@ struct MLXChatCompletionsController: RouteCollection {
         let reasoning: String? = allReasoning.isEmpty ? nil : allReasoning.trimmingCharacters(in: .whitespacesAndNewlines)
         let content = allContent.trimmingCharacters(in: .whitespacesAndNewlines)
         return (content, reasoning)
+    }
+
+    private func buildChoiceLogprobs(_ resolved: [ResolvedLogprob]?) -> ChoiceLogprobs? {
+        guard let resolved, !resolved.isEmpty else { return nil }
+        let content = resolved.map { entry in
+            let topEntries = entry.topTokens.map { top in
+                TopLogprobEntry(
+                    token: top.token,
+                    logprob: Double(top.logprob),
+                    bytes: Array(top.token.utf8).map { Int($0) }
+                )
+            }
+            return TokenLogprobContent(
+                token: entry.token,
+                logprob: Double(entry.logprob),
+                bytes: Array(entry.token.utf8).map { Int($0) },
+                topLogprobs: topEntries
+            )
+        }
+        return ChoiceLogprobs(content: content)
     }
 
     private func encodeJSON<T: Encodable>(_ value: T) -> String {

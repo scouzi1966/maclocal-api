@@ -20,7 +20,7 @@ struct ChatCompletionResponse: Content {
         case systemFingerprint = "system_fingerprint"
     }
     
-    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, promptTokens: Int = 0, completionTokens: Int = 0) {
+    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion"
         self.created = Int(Date().timeIntervalSince1970)
@@ -29,6 +29,7 @@ struct ChatCompletionResponse: Content {
             Choice(
                 index: 0,
                 message: ResponseMessage(role: "assistant", content: content, reasoningContent: reasoningContent),
+                logprobs: logprobs,
                 finishReason: "stop"
             )
         ]
@@ -37,20 +38,52 @@ struct ChatCompletionResponse: Content {
             completionTokens: completionTokens,
             totalTokens: promptTokens + completionTokens
         )
-        self.systemFingerprint = "fp_apple_foundation"
+        // Derive fingerprint from model: MLX models get "afm_mlx_<sanitized>", Apple FM gets "afm_apple_foundation"
+        if model == "foundation" {
+            self.systemFingerprint = "afm_apple_foundation"
+        } else {
+            let sanitized = model.replacingOccurrences(of: "/", with: "__").replacingOccurrences(of: " ", with: "_")
+            self.systemFingerprint = "afm_mlx__\(sanitized)"
+        }
     }
 }
 
 struct Choice: Content {
     let index: Int
     let message: ResponseMessage
+    let logprobs: ChoiceLogprobs?
     let finishReason: String
-    
+
     enum CodingKeys: String, CodingKey {
         case index
         case message
+        case logprobs
         case finishReason = "finish_reason"
     }
+}
+
+struct ChoiceLogprobs: Content {
+    let content: [TokenLogprobContent]?
+}
+
+struct TokenLogprobContent: Content {
+    let token: String
+    let logprob: Double
+    let bytes: [Int]?
+    let topLogprobs: [TopLogprobEntry]
+
+    enum CodingKeys: String, CodingKey {
+        case token
+        case logprob
+        case bytes
+        case topLogprobs = "top_logprobs"
+    }
+}
+
+struct TopLogprobEntry: Content {
+    let token: String
+    let logprob: Double
+    let bytes: [Int]?
 }
 
 struct ResponseMessage: Content {
@@ -88,23 +121,36 @@ struct ChatCompletionStreamResponse: Content {
     let object: String
     let created: Int
     let model: String
+    let systemFingerprint: String?
     let choices: [StreamChoice]
     let usage: StreamUsage?
     let timings: StreamTimings?
 
-    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, isFinished: Bool = false, isFirst: Bool = false, usage: StreamUsage? = nil, timings: StreamTimings? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case id, object, created, model, choices, usage, timings
+        case systemFingerprint = "system_fingerprint"
+    }
+
+    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, isFinished: Bool = false, isFirst: Bool = false, usage: StreamUsage? = nil, timings: StreamTimings? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion.chunk"
         self.created = Int(Date().timeIntervalSince1970)
         self.model = model
         self.usage = usage
         self.timings = timings
+        if model == "foundation" {
+            self.systemFingerprint = "afm_apple_foundation"
+        } else {
+            let sanitized = model.replacingOccurrences(of: "/", with: "__").replacingOccurrences(of: " ", with: "_")
+            self.systemFingerprint = "afm_mlx__\(sanitized)"
+        }
 
         if isFinished {
             self.choices = [
                 StreamChoice(
                     index: 0,
                     delta: StreamDelta(content: nil),
+                    logprobs: nil,
                     finishReason: "stop"
                 )
             ]
@@ -113,6 +159,7 @@ struct ChatCompletionStreamResponse: Content {
                 StreamChoice(
                     index: 0,
                     delta: StreamDelta(role: "assistant", content: content, reasoningContent: reasoningContent),
+                    logprobs: logprobs,
                     finishReason: nil
                 )
             ]
@@ -121,6 +168,7 @@ struct ChatCompletionStreamResponse: Content {
                 StreamChoice(
                     index: 0,
                     delta: StreamDelta(content: content, reasoningContent: reasoningContent),
+                    logprobs: logprobs,
                     finishReason: nil
                 )
             ]
@@ -138,11 +186,13 @@ struct StreamTimings: Content {
 struct StreamChoice: Content {
     let index: Int
     let delta: StreamDelta
+    let logprobs: ChoiceLogprobs?
     let finishReason: String?
-    
+
     enum CodingKeys: String, CodingKey {
         case index
         case delta
+        case logprobs
         case finishReason = "finish_reason"
     }
 }
