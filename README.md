@@ -8,6 +8,10 @@ If you find this useful, please ⭐ the repo!
 # NEW IN v0.9.4!
 # Run ANY Open-Source MLX LLM on Your Mac — 100% Local, 100% Swift, Zero Python. Yes that's right, install with pip but no python required after
 
+# COMING VERY SOON IN v0.9.5!
+# OpenCode better integration with MLX Qwen/Qwen3-Coder-Next
+
+
 **afm now supports MLX models!** Run Qwen, Gemma, Llama, DeepSeek, GLM, and 28+ tested models directly on Apple Silicon. No Python environment, no conda, no venv — just one command. Built entirely in Swift with MLX for maximum Metal GPU performance.
 
 ```bash
