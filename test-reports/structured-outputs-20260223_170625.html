@@ -1,0 +1,4066 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Structured Outputs Test Report &mdash; 2026-02-23 17:11</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; padding: 2rem; }
+  h1 { color: #58a6ff; margin-bottom: 0.5rem; }
+  h2 { color: #58a6ff; margin: 2rem 0 1rem; border-bottom: 1px solid #21262d; padding-bottom: 0.5rem; }
+  .meta { color: #8b949e; font-size: 0.9rem; margin-bottom: 1.5rem; }
+  .summary { display: flex; gap: 1.5rem; margin: 1.5rem 0; flex-wrap: wrap; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1.2rem 1.5rem; min-width: 140px; }
+  .card .label { font-size: 0.85rem; color: #8b949e; margin-bottom: 0.3rem; }
+  .card .value { font-size: 1.8rem; font-weight: 700; }
+  .card .value.green { color: #3fb950; }
+  .card .value.red { color: #f85149; }
+  .card .value.blue { color: #58a6ff; }
+  .card .value.yellow { color: #d29922; }
+  .overall { text-align: center; padding: 1.5rem; border-radius: 8px; margin: 1.5rem 0; font-size: 1.3rem; font-weight: 700; }
+  .overall.green { background: #0d2818; border: 2px solid #3fb950; color: #3fb950; }
+  .overall.red { background: #2d1117; border: 2px solid #f85149; color: #f85149; }
+
+  .section { margin: 0.8rem 0; border: 1px solid #21262d; border-radius: 8px; overflow: hidden; }
+  .section-header { display: flex; align-items: center; gap: 0.8rem; padding: 0.8rem 1.2rem; background: #161b22; cursor: pointer; user-select: none; color: #c9d1d9; font-size: 0.95rem; font-weight: 500; }
+  .section-header:hover { background: #1c2129; }
+  .toggle-icon { font-size: 0.7rem; color: #8b949e; transition: transform 0.2s; display: inline-block; width: 1rem; }
+  .toggle-icon.open { transform: rotate(90deg); }
+  .section-stats { margin-left: auto; color: #8b949e; font-size: 0.8rem; display: flex; gap: 0.5rem; align-items: center; }
+  .section-body { border-top: 1px solid #21262d; }
+  .section-summary-row td { border-top: 1px solid #21262d !important; }
+
+  .badge { padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+  .badge-pass { background: #0d2818; color: #3fb950; }
+  .badge-fail { background: #2d1117; color: #f85149; }
+  .badge-skip { background: #2d2200; color: #d29922; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #0d1117; color: #58a6ff; text-align: left; padding: 0.5rem 1rem; font-weight: 600; font-size: 0.85rem; }
+  td { padding: 0.5rem 1rem; border-bottom: 1px solid #161b22; font-size: 0.9rem; vertical-align: top; }
+  tr:hover { background: #161b22; }
+  .status-ok { color: #3fb950; font-weight: 600; white-space: nowrap; }
+  .status-fail { color: #f85149; font-weight: 600; white-space: nowrap; }
+  .status-skip { color: #d29922; font-weight: 600; white-space: nowrap; }
+  .mono { font-family: 'SF Mono', Menlo, monospace; font-size: 0.85rem; }
+  .elapsed { white-space: nowrap; color: #8b949e; }
+  .detail { color: #8b949e; font-size: 0.8rem; max-width: 500px; word-break: break-word; }
+  .json-detail { display: block; white-space: pre-wrap; font-family: 'SF Mono', Menlo, monospace; font-size: 0.78rem; color: #7ee787; background: #0d1117; padding: 0.4rem 0.6rem; border-radius: 4px; margin-top: 0.2rem; max-height: 120px; overflow-y: auto; }
+  .prompt-text { color: #8b949e; font-size: 0.78rem; font-style: italic; margin-top: 0.3rem; }
+  .request-toggle { color: #58a6ff; font-size: 0.75rem; cursor: pointer; margin-top: 0.3rem; user-select: none; }
+  .request-toggle:hover { text-decoration: underline; }
+  .request-detail { display: block; white-space: pre-wrap; font-family: 'SF Mono', Menlo, monospace; font-size: 0.72rem; color: #c9d1d9; background: #0d1117; padding: 0.5rem 0.7rem; border-radius: 4px; margin-top: 0.3rem; max-height: 300px; overflow-y: auto; border: 1px solid #21262d; }
+
+  .expand-all { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.85rem; margin-bottom: 1rem; }
+  .expand-all:hover { background: #30363d; }
+
+  .footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #21262d; color: #484f58; font-size: 0.8rem; }
+</style>
+</head>
+<body>
+<h1>Structured Outputs Test Report</h1>
+<p class="meta">Generated 2026-02-23 17:11 &middot; afm v0.9.4 &middot; Apple M-series &middot; macOS 26</p>
+
+<div class="overall green">ALL TESTS PASSED</div>
+
+<div class="summary">
+  <div class="card"><div class="label">Total Tests</div><div class="value blue">88</div></div>
+  <div class="card"><div class="label">Passed</div><div class="value green">88</div></div>
+  <div class="card"><div class="label">Failed</div><div class="value red">0</div></div>
+  <div class="card"><div class="label">Skipped</div><div class="value yellow">0</div></div>
+  <div class="card"><div class="label">Models</div><div class="value blue">7</div></div>
+  <div class="card"><div class="label">Total Time</div><div class="value blue" style="font-size:1.4rem;">239.2s</div></div>
+</div>
+
+<h2>Test Results by Backend / Model</h2>
+<button class="expand-all" onclick="toggleAll()">Expand / Collapse All</button>
+
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    AFM
+    <span class="section-stats">14/14 passed &middot; 8.8s <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test / Prompt</th><th>Time</th><th>Detail / Output</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>1.1 Simple object (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;What is the capital of France? Answer with the country name and capital.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;name&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;capital&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;name&quot;,
+          &quot;capital&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">0.8s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;capital&quot;: &quot;Paris&quot;,
+  &quot;name&quot;: &quot;France&quot;
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>1.2 Simple object (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;What is the capital of Japan? Answer with the country name and capital.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;name&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;capital&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;name&quot;,
+          &quot;capital&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">0.5s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;name&quot;: &quot;Japan&quot;,
+  &quot;capital&quot;: &quot;Tokyo&quot;
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>1.3 Array of objects (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 3 colors with their hex codes.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;colors&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;object&quot;,
+              &quot;properties&quot;: {
+                &quot;name&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                },
+                &quot;hex&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;required&quot;: [
+                &quot;name&quot;,
+                &quot;hex&quot;
+              ]
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;colors&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">1.1s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;colors&quot;: [
+    {
+      &quot;hex&quot;: &quot;#FF5733&quot;,
+      &quot;name&quot;: &quot;FireBrick&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Aqua&quot;,
+      &quot;hex&quot;: &quot;#00FFFF&quot;
+    },
+    {
+      &quot;name&quot;: &quot;YellowGreen&quot;,
+      &quot;hex&quot;: &quot;#FFD700&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>1.4 Array of objects (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 2 colors with their hex codes.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;colors&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;object&quot;,
+              &quot;properties&quot;: {
+                &quot;name&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                },
+                &quot;hex&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;required&quot;: [
+                &quot;name&quot;,
+                &quot;hex&quot;
+              ]
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;colors&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">0.9s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;colors&quot;: [
+    {
+      &quot;name&quot;: &quot;FireBrick&quot;,
+      &quot;hex&quot;: &quot;#FF5733&quot;
+    },
+    {
+      &quot;hex&quot;: &quot;#00FF00&quot;,
+      &quot;name&quot;: &quot;Aqua&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>1.5 Mixed types (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Tell me about the movie Inception. Provide title, year, rating out of 10, and whether it is available on streaming.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;title&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;year&quot;: {
+            &quot;type&quot;: &quot;integer&quot;
+          },
+          &quot;rating&quot;: {
+            &quot;type&quot;: &quot;number&quot;
+          },
+          &quot;available&quot;: {
+            &quot;type&quot;: &quot;boolean&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;title&quot;,
+          &quot;year&quot;,
+          &quot;rating&quot;,
+          &quot;available&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">0.6s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;available&quot;: true,
+  &quot;year&quot;: 2010,
+  &quot;title&quot;: &quot;Inception&quot;,
+  &quot;rating&quot;: 8.8
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>1.6 Nested objects (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Give me info about Albert Einstein including his city and country.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;person&quot;: {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;name&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              },
+              &quot;address&quot;: {
+                &quot;type&quot;: &quot;object&quot;,
+                &quot;properties&quot;: {
+                  &quot;city&quot;: {
+                    &quot;type&quot;: &quot;string&quot;
+                  },
+                  &quot;country&quot;: {
+                    &quot;type&quot;: &quot;string&quot;
+                  }
+                },
+                &quot;required&quot;: [
+                  &quot;city&quot;,
+                  &quot;country&quot;
+                ]
+              }
+            },
+            &quot;required&quot;: [
+              &quot;name&quot;,
+              &quot;address&quot;
+            ]
+          }
+        },
+        &quot;required&quot;: [
+          &quot;person&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">0.6s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;person&quot;: {
+    &quot;name&quot;: &quot;Albert Einstein&quot;,
+    &quot;address&quot;: {
+      &quot;country&quot;: &quot;Germany&quot;,
+      &quot;city&quot;: &quot;Munich&quot;
+    }
+  }
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>1.7 String enum (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Analyze the sentiment of: I love this product, it is amazing!&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;sentiment&quot;: {
+            &quot;type&quot;: &quot;string&quot;,
+            &quot;enum&quot;: [
+              &quot;positive&quot;,
+              &quot;negative&quot;,
+              &quot;neutral&quot;
+            ]
+          },
+          &quot;confidence&quot;: {
+            &quot;type&quot;: &quot;number&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;sentiment&quot;,
+          &quot;confidence&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">0.4s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;confidence&quot;: 1,
+  &quot;sentiment&quot;: &quot;positive&quot;
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>1.8 Bounded array (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List some popular programming languages.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;items&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;string&quot;
+            },
+            &quot;minItems&quot;: 2,
+            &quot;maxItems&quot;: 4
+          }
+        },
+        &quot;required&quot;: [
+          &quot;items&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">0.5s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;items&quot;: [
+    &quot;Python&quot;,
+    &quot;JavaScript&quot;,
+    &quot;Java&quot;,
+    &quot;C++&quot;
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>1.9 Optional properties (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Tell me about someone named Alice.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;name&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;nickname&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;age&quot;: {
+            &quot;type&quot;: &quot;integer&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;name&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">0.3s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;name&quot;: &quot;Alice&quot;
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>1.10 Refs and defs (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 2 students with their names and letter grades.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;students&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;$ref&quot;: &quot;#/$defs/Student&quot;
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;students&quot;
+        ],
+        &quot;$defs&quot;: {
+          &quot;Student&quot;: {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;name&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              },
+              &quot;grade&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              }
+            },
+            &quot;required&quot;: [
+              &quot;name&quot;,
+              &quot;grade&quot;
+            ]
+          }
+        },
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">0.6s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;students&quot;: [
+    {
+      &quot;name&quot;: &quot;Alice&quot;,
+      &quot;grade&quot;: &quot;A&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Bob&quot;,
+      &quot;grade&quot;: &quot;B+&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>1.11 Non-strict json_schema (fallback to text)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 2 colors with hex codes.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false
+}</code></td>
+  <td class="mono elapsed">0.7s</td>
+  <td class="detail">Got text response (81 chars)</td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>1.12 json_object mode (plain text expected)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 2 animals as JSON with name and type fields.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false
+}</code></td>
+  <td class="mono elapsed">0.9s</td>
+  <td class="detail">Got text response (139 chars)</td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>1.13 No response_format (plain text regression)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;What is 2+2?&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false
+}</code></td>
+  <td class="mono elapsed">0.3s</td>
+  <td class="detail">Got text response (15 chars)</td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>1.14 Mixed types (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Tell me about the movie The Matrix. Provide title, year, rating out of 10, and whether it is available on streaming.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;title&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;year&quot;: {
+            &quot;type&quot;: &quot;integer&quot;
+          },
+          &quot;rating&quot;: {
+            &quot;type&quot;: &quot;number&quot;
+          },
+          &quot;available&quot;: {
+            &quot;type&quot;: &quot;boolean&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;title&quot;,
+          &quot;year&quot;,
+          &quot;rating&quot;,
+          &quot;available&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">0.6s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;available&quot;: true,
+  &quot;year&quot;: 1999,
+  &quot;rating&quot;: 9,
+  &quot;title&quot;: &quot;The Matrix&quot;
+}</code></td>
+</tr>
+<tr class="section-summary-row">
+  <td colspan="2" style="text-align:right; color:#8b949e; font-size:0.8rem;">Section total</td>
+  <td class="mono elapsed" style="font-weight:600;">8.8s</td>
+  <td></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    MLX:Qwen3-30B-A3B-4bit
+    <span class="section-stats">14/14 passed &middot; 50.0s <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test / Prompt</th><th>Time</th><th>Detail / Output</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.1 Simple object (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;What is the capital of France? Answer with the country name and capital.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;name&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;capital&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;name&quot;,
+          &quot;capital&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">1.5s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;name&quot;: &quot;France&quot;,
+  &quot;capital&quot;: &quot;Paris&quot;
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.2 Simple object (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;What is the capital of Germany? Answer with the country name and capital.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;name&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;capital&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;name&quot;,
+          &quot;capital&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">4.9s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;name&quot;: &quot;Germany&quot;,
+  &quot;capital&quot;: &quot;Berlin&quot;
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.3 Array of objects (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 3 colors with their hex codes.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;colors&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;object&quot;,
+              &quot;properties&quot;: {
+                &quot;name&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                },
+                &quot;hex&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;required&quot;: [
+                &quot;name&quot;,
+                &quot;hex&quot;
+              ]
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;colors&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">3.8s</td>
+  <td class="detail">{
+  &amp;quot;colors&amp;quot;: [
+    {
+      &amp;quot;name&amp;quot;: &amp;quot;Red&amp;quot;,
+      &amp;quot;hex&amp;quot;: &amp;quot;#FF0000&amp;quot;
+    },
+    {
+      &amp;quot;name&amp;quot;: &amp;quot;Blue&amp;quot;,
+      &amp;quot;hex&amp;quot;: &amp;quot;</td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.4 Array of objects (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 2 colors with their hex codes.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;colors&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;object&quot;,
+              &quot;properties&quot;: {
+                &quot;name&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                },
+                &quot;hex&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;required&quot;: [
+                &quot;name&quot;,
+                &quot;hex&quot;
+              ]
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;colors&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">4.5s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;colors&quot;: [
+    {
+      &quot;name&quot;: &quot;Black&quot;,
+      &quot;hex&quot;: &quot;#000000&quot;
+    },
+    {
+      &quot;name&quot;: &quot;White&quot;,
+      &quot;hex&quot;: &quot;#FFFFFF&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.5 Mixed types (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Tell me about the movie Inception. Provide title, year, rating out of 10, and whether it is available on streaming.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;title&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;year&quot;: {
+            &quot;type&quot;: &quot;integer&quot;
+          },
+          &quot;rating&quot;: {
+            &quot;type&quot;: &quot;number&quot;
+          },
+          &quot;available&quot;: {
+            &quot;type&quot;: &quot;boolean&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;title&quot;,
+          &quot;year&quot;,
+          &quot;rating&quot;,
+          &quot;available&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">3.8s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;title&quot;: &quot;Inception&quot;,
+  &quot;year&quot;: 2010,
+  &quot;rating&quot;: 8.8,
+  &quot;available&quot;: true
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.6 Nested objects (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Give me info about Albert Einstein including his city and country.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;person&quot;: {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;name&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              },
+              &quot;address&quot;: {
+                &quot;type&quot;: &quot;object&quot;,
+                &quot;properties&quot;: {
+                  &quot;city&quot;: {
+                    &quot;type&quot;: &quot;string&quot;
+                  },
+                  &quot;country&quot;: {
+                    &quot;type&quot;: &quot;string&quot;
+                  }
+                },
+                &quot;required&quot;: [
+                  &quot;city&quot;,
+                  &quot;country&quot;
+                ]
+              }
+            },
+            &quot;required&quot;: [
+              &quot;name&quot;,
+              &quot;address&quot;
+            ]
+          }
+        },
+        &quot;required&quot;: [
+          &quot;person&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">2.5s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;person&quot;: {
+    &quot;name&quot;: &quot;Albert Einstein&quot;,
+    &quot;address&quot;: {
+      &quot;city&quot;: &quot;Ulm&quot;,
+      &quot;country&quot;: &quot;Germany&quot;
+    }
+  }
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.7 String enum (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Analyze the sentiment of: I love this product, it is amazing! Return sentiment and confidence.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;sentiment&quot;: {
+            &quot;type&quot;: &quot;string&quot;,
+            &quot;enum&quot;: [
+              &quot;positive&quot;,
+              &quot;negative&quot;,
+              &quot;neutral&quot;
+            ]
+          },
+          &quot;confidence&quot;: {
+            &quot;type&quot;: &quot;number&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;sentiment&quot;,
+          &quot;confidence&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">2.4s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;sentiment&quot;: &quot;positive&quot;,
+  &quot;confidence&quot;: 0.9
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.8 Bounded array (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List some popular programming languages.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;items&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;string&quot;
+            },
+            &quot;minItems&quot;: 2,
+            &quot;maxItems&quot;: 4
+          }
+        },
+        &quot;required&quot;: [
+          &quot;items&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">2.0s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;items&quot;: [
+    &quot;Python&quot;,
+    &quot;JavaScript&quot;,
+    &quot;Java&quot;,
+    &quot;C++&quot;
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.9 Refs and defs (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 2 students with their names and letter grades.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;students&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;$ref&quot;: &quot;#/$defs/Student&quot;
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;students&quot;
+        ],
+        &quot;$defs&quot;: {
+          &quot;Student&quot;: {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;name&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              },
+              &quot;grade&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              }
+            },
+            &quot;required&quot;: [
+              &quot;name&quot;,
+              &quot;grade&quot;
+            ]
+          }
+        },
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">3.2s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;students&quot;: [
+    {
+      &quot;name&quot;: &quot;Alice Johnson&quot;,
+      &quot;grade&quot;: &quot;A&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Bob Smith&quot;,
+      &quot;grade&quot;: &quot;B&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.10 Non-strict json_schema<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 2 colors with hex codes as JSON.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: false,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;colors&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;object&quot;,
+              &quot;properties&quot;: {
+                &quot;name&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                },
+                &quot;hex&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;required&quot;: [
+                &quot;name&quot;,
+                &quot;hex&quot;
+              ]
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;colors&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">5.1s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;colors&quot;: [
+    {
+      &quot;name&quot;: &quot;Red&quot;,
+      &quot;hex&quot;: &quot;#FF0000&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Blue&quot;,
+      &quot;hex&quot;: &quot;#0000FF&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.11 json_object mode<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Return a JSON object with an &#x27;animals&#x27; key containing 2 animals, each with name and type fields.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_object&quot;
+  }
+}</code></td>
+  <td class="mono elapsed">2.7s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;animals&quot;: [
+    {
+      &quot;name&quot;: &quot;Buddy&quot;,
+      &quot;type&quot;: &quot;Dog&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Whiskers&quot;,
+      &quot;type&quot;: &quot;Cat&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.12 No response_format (plain text regression)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;What is 2+2?&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false
+}</code></td>
+  <td class="mono elapsed">1.6s</td>
+  <td class="detail">Got text response (72 chars)</td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.13 Nested objects (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Give me info about Marie Curie including her city and country.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;person&quot;: {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;name&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              },
+              &quot;address&quot;: {
+                &quot;type&quot;: &quot;object&quot;,
+                &quot;properties&quot;: {
+                  &quot;city&quot;: {
+                    &quot;type&quot;: &quot;string&quot;
+                  },
+                  &quot;country&quot;: {
+                    &quot;type&quot;: &quot;string&quot;
+                  }
+                },
+                &quot;required&quot;: [
+                  &quot;city&quot;,
+                  &quot;country&quot;
+                ]
+              }
+            },
+            &quot;required&quot;: [
+              &quot;name&quot;,
+              &quot;address&quot;
+            ]
+          }
+        },
+        &quot;required&quot;: [
+          &quot;person&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">5.1s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;person&quot;: {
+    &quot;name&quot;: &quot;Marie Curie&quot;,
+    &quot;address&quot;: {
+      &quot;city&quot;: &quot;Warsaw&quot;,
+      &quot;country&quot;: &quot;Poland&quot;
+    }
+  }
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.14 Mixed types (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Tell me about the movie The Matrix. Provide title, year, rating out of 10, and whether it is available.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;title&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;year&quot;: {
+            &quot;type&quot;: &quot;integer&quot;
+          },
+          &quot;rating&quot;: {
+            &quot;type&quot;: &quot;number&quot;
+          },
+          &quot;available&quot;: {
+            &quot;type&quot;: &quot;boolean&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;title&quot;,
+          &quot;year&quot;,
+          &quot;rating&quot;,
+          &quot;available&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">6.9s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;title&quot;: &quot;The Matrix&quot;,
+  &quot;year&quot;: 1999,
+  &quot;rating&quot;: 8.7,
+  &quot;available&quot;: true
+}</code></td>
+</tr>
+<tr class="section-summary-row">
+  <td colspan="2" style="text-align:right; color:#8b949e; font-size:0.8rem;">Section total</td>
+  <td class="mono elapsed" style="font-weight:600;">50.0s</td>
+  <td></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    MLX:gpt-oss-20b-MXFP4-Q4
+    <span class="section-stats">14/14 passed &middot; 51.5s <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test / Prompt</th><th>Time</th><th>Detail / Output</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.1 Simple object (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;What is the capital of France? Answer with the country name and capital.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;name&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;capital&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;name&quot;,
+          &quot;capital&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">1.5s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;name&quot;: &quot;France&quot;,
+  &quot;capital&quot;: &quot;Paris&quot;
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.2 Simple object (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;What is the capital of Germany? Answer with the country name and capital.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;name&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;capital&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;name&quot;,
+          &quot;capital&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">5.3s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;name&quot;: &quot;Germany&quot;,
+  &quot;capital&quot;: &quot;Berlin&quot;
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.3 Array of objects (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 3 colors with their hex codes.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;colors&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;object&quot;,
+              &quot;properties&quot;: {
+                &quot;name&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                },
+                &quot;hex&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;required&quot;: [
+                &quot;name&quot;,
+                &quot;hex&quot;
+              ]
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;colors&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">4.8s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;colors&quot;: [
+    {
+      &quot;name&quot;: &quot;Red&quot;,
+      &quot;hex&quot;: &quot;#FF0000&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Blue&quot;,
+      &quot;hex&quot;: &quot;#0000FF&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Green&quot;,
+      &quot;hex&quot;: &quot;#008000&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.4 Array of objects (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 2 colors with their hex codes.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;colors&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;object&quot;,
+              &quot;properties&quot;: {
+                &quot;name&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                },
+                &quot;hex&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;required&quot;: [
+                &quot;name&quot;,
+                &quot;hex&quot;
+              ]
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;colors&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">3.8s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;colors&quot;: [
+    {
+      &quot;name&quot;: &quot;Black&quot;,
+      &quot;hex&quot;: &quot;#000000&quot;
+    },
+    {
+      &quot;name&quot;: &quot;White&quot;,
+      &quot;hex&quot;: &quot;#FFFFFF&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.5 Mixed types (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Tell me about the movie Inception. Provide title, year, rating out of 10, and whether it is available on streaming.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;title&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;year&quot;: {
+            &quot;type&quot;: &quot;integer&quot;
+          },
+          &quot;rating&quot;: {
+            &quot;type&quot;: &quot;number&quot;
+          },
+          &quot;available&quot;: {
+            &quot;type&quot;: &quot;boolean&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;title&quot;,
+          &quot;year&quot;,
+          &quot;rating&quot;,
+          &quot;available&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">3.7s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;title&quot;: &quot;Inception&quot;,
+  &quot;year&quot;: 2010,
+  &quot;rating&quot;: 8.8,
+  &quot;available&quot;: true
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.6 Nested objects (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Give me info about Albert Einstein including his city and country.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;person&quot;: {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;name&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              },
+              &quot;address&quot;: {
+                &quot;type&quot;: &quot;object&quot;,
+                &quot;properties&quot;: {
+                  &quot;city&quot;: {
+                    &quot;type&quot;: &quot;string&quot;
+                  },
+                  &quot;country&quot;: {
+                    &quot;type&quot;: &quot;string&quot;
+                  }
+                },
+                &quot;required&quot;: [
+                  &quot;city&quot;,
+                  &quot;country&quot;
+                ]
+              }
+            },
+            &quot;required&quot;: [
+              &quot;name&quot;,
+              &quot;address&quot;
+            ]
+          }
+        },
+        &quot;required&quot;: [
+          &quot;person&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">3.2s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;person&quot;: {
+    &quot;name&quot;: &quot;Albert Einstein&quot;,
+    &quot;address&quot;: {
+      &quot;city&quot;: &quot;Ulm&quot;,
+      &quot;country&quot;: &quot;Germany&quot;
+    }
+  }
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.7 String enum (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Analyze the sentiment of: I love this product, it is amazing! Return sentiment and confidence.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;sentiment&quot;: {
+            &quot;type&quot;: &quot;string&quot;,
+            &quot;enum&quot;: [
+              &quot;positive&quot;,
+              &quot;negative&quot;,
+              &quot;neutral&quot;
+            ]
+          },
+          &quot;confidence&quot;: {
+            &quot;type&quot;: &quot;number&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;sentiment&quot;,
+          &quot;confidence&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">2.6s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;sentiment&quot;: &quot;positive&quot;,
+  &quot;confidence&quot;: 0.9
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.8 Bounded array (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List some popular programming languages.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;items&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;string&quot;
+            },
+            &quot;minItems&quot;: 2,
+            &quot;maxItems&quot;: 4
+          }
+        },
+        &quot;required&quot;: [
+          &quot;items&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">2.0s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;items&quot;: [
+    &quot;Python&quot;,
+    &quot;JavaScript&quot;,
+    &quot;Java&quot;,
+    &quot;C++&quot;
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.9 Refs and defs (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 2 students with their names and letter grades.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;students&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;$ref&quot;: &quot;#/$defs/Student&quot;
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;students&quot;
+        ],
+        &quot;$defs&quot;: {
+          &quot;Student&quot;: {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;name&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              },
+              &quot;grade&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              }
+            },
+            &quot;required&quot;: [
+              &quot;name&quot;,
+              &quot;grade&quot;
+            ]
+          }
+        },
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">2.7s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;students&quot;: [
+    {
+      &quot;name&quot;: &quot;Alice Johnson&quot;,
+      &quot;grade&quot;: &quot;A&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Bob Smith&quot;,
+      &quot;grade&quot;: &quot;B&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.10 Non-strict json_schema<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 2 colors with hex codes as JSON.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: false,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;colors&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;object&quot;,
+              &quot;properties&quot;: {
+                &quot;name&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                },
+                &quot;hex&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;required&quot;: [
+                &quot;name&quot;,
+                &quot;hex&quot;
+              ]
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;colors&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">4.5s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;colors&quot;: [
+    {
+      &quot;name&quot;: &quot;Red&quot;,
+      &quot;hex&quot;: &quot;#FF0000&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Blue&quot;,
+      &quot;hex&quot;: &quot;#0000FF&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.11 json_object mode<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Return a JSON object with an &#x27;animals&#x27; key containing 2 animals, each with name and type fields.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_object&quot;
+  }
+}</code></td>
+  <td class="mono elapsed">2.6s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;animals&quot;: [
+    {
+      &quot;name&quot;: &quot;Buddy&quot;,
+      &quot;type&quot;: &quot;Dog&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Whiskers&quot;,
+      &quot;type&quot;: &quot;Cat&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.12 No response_format (plain text regression)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;What is 2+2?&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false
+}</code></td>
+  <td class="mono elapsed">4.0s</td>
+  <td class="detail">Got text response (170 chars)</td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.13 Nested objects (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Give me info about Marie Curie including her city and country.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;person&quot;: {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;name&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              },
+              &quot;address&quot;: {
+                &quot;type&quot;: &quot;object&quot;,
+                &quot;properties&quot;: {
+                  &quot;city&quot;: {
+                    &quot;type&quot;: &quot;string&quot;
+                  },
+                  &quot;country&quot;: {
+                    &quot;type&quot;: &quot;string&quot;
+                  }
+                },
+                &quot;required&quot;: [
+                  &quot;city&quot;,
+                  &quot;country&quot;
+                ]
+              }
+            },
+            &quot;required&quot;: [
+              &quot;name&quot;,
+              &quot;address&quot;
+            ]
+          }
+        },
+        &quot;required&quot;: [
+          &quot;person&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">4.1s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;person&quot;: {
+    &quot;name&quot;: &quot;Marie Curie&quot;,
+    &quot;address&quot;: {
+      &quot;city&quot;: &quot;Warsaw&quot;,
+      &quot;country&quot;: &quot;Poland&quot;
+    }
+  }
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.14 Mixed types (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Tell me about the movie The Matrix. Provide title, year, rating out of 10, and whether it is available.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;title&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;year&quot;: {
+            &quot;type&quot;: &quot;integer&quot;
+          },
+          &quot;rating&quot;: {
+            &quot;type&quot;: &quot;number&quot;
+          },
+          &quot;available&quot;: {
+            &quot;type&quot;: &quot;boolean&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;title&quot;,
+          &quot;year&quot;,
+          &quot;rating&quot;,
+          &quot;available&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">6.7s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;title&quot;: &quot;The Matrix&quot;,
+  &quot;year&quot;: 1999,
+  &quot;rating&quot;: 8.7,
+  &quot;available&quot;: true
+}</code></td>
+</tr>
+<tr class="section-summary-row">
+  <td colspan="2" style="text-align:right; color:#8b949e; font-size:0.8rem;">Section total</td>
+  <td class="mono elapsed" style="font-weight:600;">51.5s</td>
+  <td></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    MLX:gemma-3-4b-it-8bit
+    <span class="section-stats">14/14 passed &middot; 41.6s <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test / Prompt</th><th>Time</th><th>Detail / Output</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.1 Simple object (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;What is the capital of France? Answer with the country name and capital.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;name&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;capital&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;name&quot;,
+          &quot;capital&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">1.4s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;name&quot;: &quot;France&quot;,
+  &quot;capital&quot;: &quot;Paris&quot;
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.2 Simple object (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;What is the capital of Germany? Answer with the country name and capital.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;name&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;capital&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;name&quot;,
+          &quot;capital&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">2.1s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;name&quot;: &quot;Germany&quot;,
+  &quot;capital&quot;: &quot;Berlin&quot;
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.3 Array of objects (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 3 colors with their hex codes.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;colors&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;object&quot;,
+              &quot;properties&quot;: {
+                &quot;name&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                },
+                &quot;hex&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;required&quot;: [
+                &quot;name&quot;,
+                &quot;hex&quot;
+              ]
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;colors&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">4.1s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;colors&quot;: [
+    {
+      &quot;name&quot;: &quot;Red&quot;,
+      &quot;hex&quot;: &quot;#FF0000&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Blue&quot;,
+      &quot;hex&quot;: &quot;#0000FF&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Green&quot;,
+      &quot;hex&quot;: &quot;#008000&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.4 Array of objects (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 2 colors with their hex codes.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;colors&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;object&quot;,
+              &quot;properties&quot;: {
+                &quot;name&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                },
+                &quot;hex&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;required&quot;: [
+                &quot;name&quot;,
+                &quot;hex&quot;
+              ]
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;colors&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">3.0s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;colors&quot;: [
+    {
+      &quot;name&quot;: &quot;Blue&quot;,
+      &quot;hex&quot;: &quot;#0000FF&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Red&quot;,
+      &quot;hex&quot;: &quot;#FF0000&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.5 Mixed types (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Tell me about the movie Inception. Provide title, year, rating out of 10, and whether it is available on streaming.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;title&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;year&quot;: {
+            &quot;type&quot;: &quot;integer&quot;
+          },
+          &quot;rating&quot;: {
+            &quot;type&quot;: &quot;number&quot;
+          },
+          &quot;available&quot;: {
+            &quot;type&quot;: &quot;boolean&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;title&quot;,
+          &quot;year&quot;,
+          &quot;rating&quot;,
+          &quot;available&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">2.6s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;title&quot;: &quot;Inception&quot;,
+  &quot;year&quot;: 2010,
+  &quot;rating&quot;: 8.8,
+  &quot;available&quot;: true
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.6 Nested objects (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Give me info about Albert Einstein including his city and country.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;person&quot;: {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;name&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              },
+              &quot;address&quot;: {
+                &quot;type&quot;: &quot;object&quot;,
+                &quot;properties&quot;: {
+                  &quot;city&quot;: {
+                    &quot;type&quot;: &quot;string&quot;
+                  },
+                  &quot;country&quot;: {
+                    &quot;type&quot;: &quot;string&quot;
+                  }
+                },
+                &quot;required&quot;: [
+                  &quot;city&quot;,
+                  &quot;country&quot;
+                ]
+              }
+            },
+            &quot;required&quot;: [
+              &quot;name&quot;,
+              &quot;address&quot;
+            ]
+          }
+        },
+        &quot;required&quot;: [
+          &quot;person&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">2.1s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;person&quot;: {
+    &quot;name&quot;: &quot;Albert Einstein&quot;,
+    &quot;address&quot;: {
+      &quot;city&quot;: &quot;Ulm&quot;,
+      &quot;country&quot;: &quot;Germany&quot;
+    }
+  }
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.7 String enum (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Analyze the sentiment of: I love this product, it is amazing! Return sentiment and confidence.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;sentiment&quot;: {
+            &quot;type&quot;: &quot;string&quot;,
+            &quot;enum&quot;: [
+              &quot;positive&quot;,
+              &quot;negative&quot;,
+              &quot;neutral&quot;
+            ]
+          },
+          &quot;confidence&quot;: {
+            &quot;type&quot;: &quot;number&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;sentiment&quot;,
+          &quot;confidence&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">2.8s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;sentiment&quot;: &quot;positive&quot;,
+  &quot;confidence&quot;: 0.95
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.8 Bounded array (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List some popular programming languages.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;items&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;string&quot;
+            },
+            &quot;minItems&quot;: 2,
+            &quot;maxItems&quot;: 4
+          }
+        },
+        &quot;required&quot;: [
+          &quot;items&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">2.1s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;items&quot;: [
+    &quot;Python&quot;,
+    &quot;JavaScript&quot;,
+    &quot;Java&quot;,
+    &quot;C++&quot;
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.9 Refs and defs (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 2 students with their names and letter grades.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;students&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;$ref&quot;: &quot;#/$defs/Student&quot;
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;students&quot;
+        ],
+        &quot;$defs&quot;: {
+          &quot;Student&quot;: {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;name&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              },
+              &quot;grade&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              }
+            },
+            &quot;required&quot;: [
+              &quot;name&quot;,
+              &quot;grade&quot;
+            ]
+          }
+        },
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">2.2s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;students&quot;: [
+    {
+      &quot;name&quot;: &quot;Alice Johnson&quot;,
+      &quot;grade&quot;: &quot;A&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Bob Smith&quot;,
+      &quot;grade&quot;: &quot;B&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.10 Non-strict json_schema<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 2 colors with hex codes as JSON.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: false,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;colors&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;object&quot;,
+              &quot;properties&quot;: {
+                &quot;name&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                },
+                &quot;hex&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;required&quot;: [
+                &quot;name&quot;,
+                &quot;hex&quot;
+              ]
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;colors&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">5.2s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;colors&quot;: [
+    {
+      &quot;name&quot;: &quot;Red&quot;,
+      &quot;hex&quot;: &quot;#FF0000&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Blue&quot;,
+      &quot;hex&quot;: &quot;#0000FF&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.11 json_object mode<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Return a JSON object with an &#x27;animals&#x27; key containing 2 animals, each with name and type fields.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_object&quot;
+  }
+}</code></td>
+  <td class="mono elapsed">3.0s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;animals&quot;: [
+    {
+      &quot;name&quot;: &quot;Buddy&quot;,
+      &quot;type&quot;: &quot;Dog&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Whiskers&quot;,
+      &quot;type&quot;: &quot;Cat&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.12 No response_format (plain text regression)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;What is 2+2?&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false
+}</code></td>
+  <td class="mono elapsed">1.7s</td>
+  <td class="detail">Got text response (151 chars)</td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.13 Nested objects (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Give me info about Marie Curie including her city and country.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;person&quot;: {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;name&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              },
+              &quot;address&quot;: {
+                &quot;type&quot;: &quot;object&quot;,
+                &quot;properties&quot;: {
+                  &quot;city&quot;: {
+                    &quot;type&quot;: &quot;string&quot;
+                  },
+                  &quot;country&quot;: {
+                    &quot;type&quot;: &quot;string&quot;
+                  }
+                },
+                &quot;required&quot;: [
+                  &quot;city&quot;,
+                  &quot;country&quot;
+                ]
+              }
+            },
+            &quot;required&quot;: [
+              &quot;name&quot;,
+              &quot;address&quot;
+            ]
+          }
+        },
+        &quot;required&quot;: [
+          &quot;person&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">5.2s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;person&quot;: {
+    &quot;name&quot;: &quot;Marie Curie&quot;,
+    &quot;address&quot;: {
+      &quot;city&quot;: &quot;Warsaw&quot;,
+      &quot;country&quot;: &quot;Poland&quot;
+    }
+  }
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.14 Mixed types (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Tell me about the movie The Matrix. Provide title, year, rating out of 10, and whether it is available.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;title&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;year&quot;: {
+            &quot;type&quot;: &quot;integer&quot;
+          },
+          &quot;rating&quot;: {
+            &quot;type&quot;: &quot;number&quot;
+          },
+          &quot;available&quot;: {
+            &quot;type&quot;: &quot;boolean&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;title&quot;,
+          &quot;year&quot;,
+          &quot;rating&quot;,
+          &quot;available&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">4.1s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;title&quot;: &quot;The Matrix&quot;,
+  &quot;year&quot;: 1999,
+  &quot;rating&quot;: 8.7,
+  &quot;available&quot;: true
+}</code></td>
+</tr>
+<tr class="section-summary-row">
+  <td colspan="2" style="text-align:right; color:#8b949e; font-size:0.8rem;">Section total</td>
+  <td class="mono elapsed" style="font-weight:600;">41.6s</td>
+  <td></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    MLX:Qwen3-Coder-Next-4bit
+    <span class="section-stats">14/14 passed &middot; 47.1s <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test / Prompt</th><th>Time</th><th>Detail / Output</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.1 Simple object (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;What is the capital of France? Answer with the country name and capital.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;name&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;capital&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;name&quot;,
+          &quot;capital&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">1.6s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;name&quot;: &quot;France&quot;,
+  &quot;capital&quot;: &quot;Paris&quot;
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.2 Simple object (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;What is the capital of Germany? Answer with the country name and capital.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;name&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;capital&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;name&quot;,
+          &quot;capital&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">2.2s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;name&quot;: &quot;Germany&quot;,
+  &quot;capital&quot;: &quot;Berlin&quot;
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.3 Array of objects (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 3 colors with their hex codes.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;colors&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;object&quot;,
+              &quot;properties&quot;: {
+                &quot;name&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                },
+                &quot;hex&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;required&quot;: [
+                &quot;name&quot;,
+                &quot;hex&quot;
+              ]
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;colors&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">4.2s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;colors&quot;: [
+    {
+      &quot;name&quot;: &quot;Black&quot;,
+      &quot;hex&quot;: &quot;#000000&quot;
+    },
+    {
+      &quot;name&quot;: &quot;White&quot;,
+      &quot;hex&quot;: &quot;#FFFFFF&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Red&quot;,
+      &quot;hex&quot;: &quot;#FF0000&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.4 Array of objects (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 2 colors with their hex codes.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;colors&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;object&quot;,
+              &quot;properties&quot;: {
+                &quot;name&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                },
+                &quot;hex&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;required&quot;: [
+                &quot;name&quot;,
+                &quot;hex&quot;
+              ]
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;colors&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">3.8s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;colors&quot;: [
+    {
+      &quot;name&quot;: &quot;Black&quot;,
+      &quot;hex&quot;: &quot;#000000&quot;
+    },
+    {
+      &quot;name&quot;: &quot;White&quot;,
+      &quot;hex&quot;: &quot;#FFFFFF&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.5 Mixed types (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Tell me about the movie Inception. Provide title, year, rating out of 10, and whether it is available on streaming.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;title&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;year&quot;: {
+            &quot;type&quot;: &quot;integer&quot;
+          },
+          &quot;rating&quot;: {
+            &quot;type&quot;: &quot;number&quot;
+          },
+          &quot;available&quot;: {
+            &quot;type&quot;: &quot;boolean&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;title&quot;,
+          &quot;year&quot;,
+          &quot;rating&quot;,
+          &quot;available&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">5.1s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;title&quot;: &quot;Inception&quot;,
+  &quot;year&quot;: 2010,
+  &quot;rating&quot;: 8.8,
+  &quot;available&quot;: true
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.6 Nested objects (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Give me info about Albert Einstein including his city and country.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;person&quot;: {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;name&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              },
+              &quot;address&quot;: {
+                &quot;type&quot;: &quot;object&quot;,
+                &quot;properties&quot;: {
+                  &quot;city&quot;: {
+                    &quot;type&quot;: &quot;string&quot;
+                  },
+                  &quot;country&quot;: {
+                    &quot;type&quot;: &quot;string&quot;
+                  }
+                },
+                &quot;required&quot;: [
+                  &quot;city&quot;,
+                  &quot;country&quot;
+                ]
+              }
+            },
+            &quot;required&quot;: [
+              &quot;name&quot;,
+              &quot;address&quot;
+            ]
+          }
+        },
+        &quot;required&quot;: [
+          &quot;person&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">2.8s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;person&quot;: {
+    &quot;name&quot;: &quot;Albert Einstein&quot;,
+    &quot;address&quot;: {
+      &quot;city&quot;: &quot;Ulm&quot;,
+      &quot;country&quot;: &quot;Germany&quot;
+    }
+  }
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.7 String enum (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Analyze the sentiment of: I love this product, it is amazing! Return sentiment and confidence.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;sentiment&quot;: {
+            &quot;type&quot;: &quot;string&quot;,
+            &quot;enum&quot;: [
+              &quot;positive&quot;,
+              &quot;negative&quot;,
+              &quot;neutral&quot;
+            ]
+          },
+          &quot;confidence&quot;: {
+            &quot;type&quot;: &quot;number&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;sentiment&quot;,
+          &quot;confidence&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">2.5s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;sentiment&quot;: &quot;positive&quot;,
+  &quot;confidence&quot;: 0.9
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.8 Bounded array (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List some popular programming languages.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;items&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;string&quot;
+            },
+            &quot;minItems&quot;: 2,
+            &quot;maxItems&quot;: 4
+          }
+        },
+        &quot;required&quot;: [
+          &quot;items&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">1.8s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;items&quot;: [
+    &quot;JavaScript&quot;,
+    &quot;Python&quot;,
+    &quot;Java&quot;,
+    &quot;C++&quot;
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.9 Refs and defs (strict, non-streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 2 students with their names and letter grades.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;students&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;$ref&quot;: &quot;#/$defs/Student&quot;
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;students&quot;
+        ],
+        &quot;$defs&quot;: {
+          &quot;Student&quot;: {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;name&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              },
+              &quot;grade&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              }
+            },
+            &quot;required&quot;: [
+              &quot;name&quot;,
+              &quot;grade&quot;
+            ]
+          }
+        },
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">2.1s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;students&quot;: [
+    {
+      &quot;name&quot;: &quot;Alice&quot;,
+      &quot;grade&quot;: &quot;A&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Bob&quot;,
+      &quot;grade&quot;: &quot;B&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.10 Non-strict json_schema<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;List 2 colors with hex codes as JSON.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: false,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;colors&quot;: {
+            &quot;type&quot;: &quot;array&quot;,
+            &quot;items&quot;: {
+              &quot;type&quot;: &quot;object&quot;,
+              &quot;properties&quot;: {
+                &quot;name&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                },
+                &quot;hex&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;required&quot;: [
+                &quot;name&quot;,
+                &quot;hex&quot;
+              ]
+            }
+          }
+        },
+        &quot;required&quot;: [
+          &quot;colors&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">7.1s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;colors&quot;: [
+    {
+      &quot;name&quot;: &quot;red&quot;,
+      &quot;hex&quot;: &quot;#FF0000&quot;
+    },
+    {
+      &quot;name&quot;: &quot;blue&quot;,
+      &quot;hex&quot;: &quot;#0000FF&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.11 json_object mode<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Return a JSON object with an &#x27;animals&#x27; key containing 2 animals, each with name and type fields.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_object&quot;
+  }
+}</code></td>
+  <td class="mono elapsed">2.2s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;animals&quot;: [
+    {
+      &quot;name&quot;: &quot;Buddy&quot;,
+      &quot;type&quot;: &quot;Dog&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Whiskers&quot;,
+      &quot;type&quot;: &quot;Cat&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.12 No response_format (plain text regression)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;What is 2+2?&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: false
+}</code></td>
+  <td class="mono elapsed">1.6s</td>
+  <td class="detail">Got text response (156 chars)</td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.13 Nested objects (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Give me info about Marie Curie including her city and country.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;person&quot;: {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;name&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              },
+              &quot;address&quot;: {
+                &quot;type&quot;: &quot;object&quot;,
+                &quot;properties&quot;: {
+                  &quot;city&quot;: {
+                    &quot;type&quot;: &quot;string&quot;
+                  },
+                  &quot;country&quot;: {
+                    &quot;type&quot;: &quot;string&quot;
+                  }
+                },
+                &quot;required&quot;: [
+                  &quot;city&quot;,
+                  &quot;country&quot;
+                ]
+              }
+            },
+            &quot;required&quot;: [
+              &quot;name&quot;,
+              &quot;address&quot;
+            ]
+          }
+        },
+        &quot;required&quot;: [
+          &quot;person&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">5.2s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;person&quot;: {
+    &quot;name&quot;: &quot;Marie Curie&quot;,
+    &quot;address&quot;: {
+      &quot;city&quot;: &quot;Warsaw&quot;,
+      &quot;country&quot;: &quot;Poland&quot;
+    }
+  }
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>2.14 Mixed types (strict, streaming)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: &quot;Tell me about the movie The Matrix. Provide title, year, rating out of 10, and whether it is available.&quot;
+    }
+  ],
+  &quot;max_tokens&quot;: 2000,
+  &quot;temperature&quot;: 0.3,
+  &quot;stream&quot;: true,
+  &quot;response_format&quot;: {
+    &quot;type&quot;: &quot;json_schema&quot;,
+    &quot;json_schema&quot;: {
+      &quot;name&quot;: &quot;test_schema&quot;,
+      &quot;strict&quot;: true,
+      &quot;schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+          &quot;title&quot;: {
+            &quot;type&quot;: &quot;string&quot;
+          },
+          &quot;year&quot;: {
+            &quot;type&quot;: &quot;integer&quot;
+          },
+          &quot;rating&quot;: {
+            &quot;type&quot;: &quot;number&quot;
+          },
+          &quot;available&quot;: {
+            &quot;type&quot;: &quot;boolean&quot;
+          }
+        },
+        &quot;required&quot;: [
+          &quot;title&quot;,
+          &quot;year&quot;,
+          &quot;rating&quot;,
+          &quot;available&quot;
+        ],
+        &quot;additionalProperties&quot;: false
+      }
+    }
+  }
+}</code></td>
+  <td class="mono elapsed">4.9s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;title&quot;: &quot;The Matrix&quot;,
+  &quot;year&quot;: 1999,
+  &quot;rating&quot;: 8.7,
+  &quot;available&quot;: true
+}</code></td>
+</tr>
+<tr class="section-summary-row">
+  <td colspan="2" style="text-align:right; color:#8b949e; font-size:0.8rem;">Section total</td>
+  <td class="mono elapsed" style="font-weight:600;">47.1s</td>
+  <td></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    CLI:AFM
+    <span class="section-stats">9/9 passed &middot; 4.7s <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test / Prompt</th><th>Time</th><th>Detail / Output</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>3.1 --guided-json simple object<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;command&quot;: &quot;.build/release/afm -s What is the capital of France? Answer with the country name and capital. --guided-json {\n  \&quot;type\&quot;: \&quot;object\&quot;,\n  \&quot;properties\&quot;: {\n    \&quot;name\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;},\n    \&quot;capital\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;}\n  },\n  \&quot;required\&quot;: [\&quot;name\&quot;, \&quot;capital\&quot;],\n  \&quot;additionalProperties\&quot;: false\n}&quot;
+}</code></td>
+  <td class="mono elapsed">1.1s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;capital&quot;: &quot;Paris&quot;,
+  &quot;name&quot;: &quot;France&quot;
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>3.2 --guided-json array of objects<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;command&quot;: &quot;.build/release/afm -s List 2 colors with their hex codes. --guided-json {\n  \&quot;type\&quot;: \&quot;object\&quot;,\n  \&quot;properties\&quot;: {\n    \&quot;colors\&quot;: {\n      \&quot;type\&quot;: \&quot;array\&quot;,\n      \&quot;items\&quot;: {\n        \&quot;type\&quot;: \&quot;object\&quot;,\n        \&quot;properties\&quot;: {\n          \&quot;name\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;},\n          \&quot;hex\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;}\n        },\n        \&quot;required\&quot;: [\&quot;name\&quot;, \&quot;hex\&quot;]\n      }\n    }\n  },\n  \&quot;required\&quot;: [\&quot;colors\&quot;],\n  \&quot;additionalProperties\&quot;: false\n}&quot;
+}</code></td>
+  <td class="mono elapsed">1.0s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;colors&quot;: [
+    {
+      &quot;hex&quot;: &quot;#FF5733&quot;,
+      &quot;name&quot;: &quot;Hot Pink&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Deep Sky Blue&quot;,
+      &quot;hex&quot;: &quot;#2196F3&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>3.3 --guided-json mixed types<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;command&quot;: &quot;.build/release/afm -s Tell me about the movie Inception. Provide title, year, rating out of 10, and whether it is available on streaming. --guided-json {\n  \&quot;type\&quot;: \&quot;object\&quot;,\n  \&quot;properties\&quot;: {\n    \&quot;title\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;},\n    \&quot;year\&quot;: {\&quot;type\&quot;: \&quot;integer\&quot;},\n    \&quot;rating\&quot;: {\&quot;type\&quot;: \&quot;number\&quot;},\n    \&quot;available\&quot;: {\&quot;type\&quot;: \&quot;boolean\&quot;}\n  },\n  \&quot;required\&quot;: [\&quot;title\&quot;, \&quot;year\&quot;, \&quot;rating\&quot;, \&quot;available\&quot;],\n  \&quot;additionalProperties\&quot;: false\n}&quot;
+}</code></td>
+  <td class="mono elapsed">0.6s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;available&quot;: true,
+  &quot;title&quot;: &quot;Inception&quot;,
+  &quot;rating&quot;: 8.8,
+  &quot;year&quot;: 2010
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>3.4 --guided-json nested objects<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;command&quot;: &quot;.build/release/afm -s Give me info about Albert Einstein including his city and country. --guided-json {\n  \&quot;type\&quot;: \&quot;object\&quot;,\n  \&quot;properties\&quot;: {\n    \&quot;person\&quot;: {\n      \&quot;type\&quot;: \&quot;object\&quot;,\n      \&quot;properties\&quot;: {\n        \&quot;name\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;},\n        \&quot;address\&quot;: {\n          \&quot;type\&quot;: \&quot;object\&quot;,\n          \&quot;properties\&quot;: {\n            \&quot;city\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;},\n            \&quot;country\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;}\n          },\n          \&quot;required\&quot;: [\&quot;city\&quot;, \&quot;country\&quot;]\n        }\n      },\n      \&quot;required\&quot;: [\&quot;name\&quot;, \&quot;address\&quot;]\n    }\n  },\n  \&quot;required\&quot;: [\&quot;person\&quot;],\n  \&quot;additionalProperties\&quot;: false\n}&quot;
+}</code></td>
+  <td class="mono elapsed">0.6s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;address&quot;: {
+    &quot;country&quot;: &quot;Germany&quot;,
+    &quot;city&quot;: &quot;Munich&quot;
+  },
+  &quot;name&quot;: &quot;Albert Einstein&quot;
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>3.5 --guided-json string enum<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;command&quot;: &quot;.build/release/afm -s Analyze the sentiment of: I love this product, it is amazing! --guided-json {\n  \&quot;type\&quot;: \&quot;object\&quot;,\n  \&quot;properties\&quot;: {\n    \&quot;sentiment\&quot;: {\n      \&quot;type\&quot;: \&quot;string\&quot;,\n      \&quot;enum\&quot;: [\&quot;positive\&quot;, \&quot;negative\&quot;, \&quot;neutral\&quot;]\n    },\n    \&quot;confidence\&quot;: {\&quot;type\&quot;: \&quot;number\&quot;}\n  },\n  \&quot;required\&quot;: [\&quot;sentiment\&quot;, \&quot;confidence\&quot;],\n  \&quot;additionalProperties\&quot;: false\n}&quot;
+}</code></td>
+  <td class="mono elapsed">0.4s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;sentiment&quot;: &quot;positive&quot;,
+  &quot;confidence&quot;: 100
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>3.6 --guided-json refs and defs<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;command&quot;: &quot;.build/release/afm -s List 2 students with their names and letter grades. --guided-json {\n  \&quot;type\&quot;: \&quot;object\&quot;,\n  \&quot;properties\&quot;: {\n    \&quot;students\&quot;: {\n      \&quot;type\&quot;: \&quot;array\&quot;,\n      \&quot;items\&quot;: {\&quot;$ref\&quot;: \&quot;#/$defs/Student\&quot;}\n    }\n  },\n  \&quot;required\&quot;: [\&quot;students\&quot;],\n  \&quot;$defs\&quot;: {\n    \&quot;Student\&quot;: {\n      \&quot;type\&quot;: \&quot;object\&quot;,\n      \&quot;properties\&quot;: {\n        \&quot;name\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;},\n        \&quot;grade\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;}\n      },\n      \&quot;required\&quot;: [\&quot;name\&quot;, \&quot;grade\&quot;]\n    }\n  },\n  \&quot;additionalProperties\&quot;: false\n}&quot;
+}</code></td>
+  <td class="mono elapsed">0.6s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;students&quot;: [
+    {
+      &quot;grade&quot;: &quot;A&quot;,
+      &quot;name&quot;: &quot;Alice&quot;
+    },
+    {
+      &quot;grade&quot;: &quot;B+&quot;,
+      &quot;name&quot;: &quot;Bob&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>3.7 Plain text (no --guided-json, regression)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;command&quot;: &quot;.build/release/afm -s What is 2+2?&quot;
+}</code></td>
+  <td class="mono elapsed">0.3s</td>
+  <td class="detail">Got text response (1 chars)</td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>3.8 Invalid --guided-json (error)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;command&quot;: &quot;.build/release/afm -s Hello --guided-json not valid json&quot;
+}</code></td>
+  <td class="mono elapsed">0.0s</td>
+  <td class="detail">Exit code 1: Error: The operation couldn’t be completed. (ArgumentParser.ValidationError error 1.)</td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>3.9 --guided-json with array schema (error)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;command&quot;: &quot;.build/release/afm -s Hello --guided-json [1,2,3]&quot;
+}</code></td>
+  <td class="mono elapsed">0.1s</td>
+  <td class="detail">Exit code 1: Error: The operation couldn’t be completed. (ArgumentParser.ValidationError error 1.)</td>
+</tr>
+<tr class="section-summary-row">
+  <td colspan="2" style="text-align:right; color:#8b949e; font-size:0.8rem;">Section total</td>
+  <td class="mono elapsed" style="font-weight:600;">4.7s</td>
+  <td></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    CLI:MLX:Qwen3-30B-A3B-4bit
+    <span class="section-stats">9/9 passed &middot; 35.5s <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test / Prompt</th><th>Time</th><th>Detail / Output</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>4.1 --guided-json simple object<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;command&quot;: &quot;.build/release/afm mlx -m mlx-community/Qwen3-30B-A3B-4bit -s What is the capital of France? Answer with the country name and capital. --guided-json {\n  \&quot;type\&quot;: \&quot;object\&quot;,\n  \&quot;properties\&quot;: {\n    \&quot;name\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;},\n    \&quot;capital\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;}\n  },\n  \&quot;required\&quot;: [\&quot;name\&quot;, \&quot;capital\&quot;],\n  \&quot;additionalProperties\&quot;: false\n}&quot;
+}</code></td>
+  <td class="mono elapsed">4.6s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;name&quot;: &quot;France&quot;,
+  &quot;capital&quot;: &quot;Paris&quot;
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>4.2 --guided-json array of objects<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;command&quot;: &quot;.build/release/afm mlx -m mlx-community/Qwen3-30B-A3B-4bit -s List 2 colors with their hex codes. --guided-json {\n  \&quot;type\&quot;: \&quot;object\&quot;,\n  \&quot;properties\&quot;: {\n    \&quot;colors\&quot;: {\n      \&quot;type\&quot;: \&quot;array\&quot;,\n      \&quot;items\&quot;: {\n        \&quot;type\&quot;: \&quot;object\&quot;,\n        \&quot;properties\&quot;: {\n          \&quot;name\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;},\n          \&quot;hex\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;}\n        },\n        \&quot;required\&quot;: [\&quot;name\&quot;, \&quot;hex\&quot;]\n      }\n    }\n  },\n  \&quot;required\&quot;: [\&quot;colors\&quot;],\n  \&quot;additionalProperties\&quot;: false\n}&quot;
+}</code></td>
+  <td class="mono elapsed">3.9s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;colors&quot;: [
+    {
+      &quot;name&quot;: &quot;Red&quot;,
+      &quot;hex&quot;: &quot;#FF0000&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Blue&quot;,
+      &quot;hex&quot;: &quot;#0000FF&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>4.3 --guided-json mixed types<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;command&quot;: &quot;.build/release/afm mlx -m mlx-community/Qwen3-30B-A3B-4bit -s Tell me about the movie Inception. Provide title, year, rating out of 10, and whether it is available on streaming. --guided-json {\n  \&quot;type\&quot;: \&quot;object\&quot;,\n  \&quot;properties\&quot;: {\n    \&quot;title\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;},\n    \&quot;year\&quot;: {\&quot;type\&quot;: \&quot;integer\&quot;},\n    \&quot;rating\&quot;: {\&quot;type\&quot;: \&quot;number\&quot;},\n    \&quot;available\&quot;: {\&quot;type\&quot;: \&quot;boolean\&quot;}\n  },\n  \&quot;required\&quot;: [\&quot;title\&quot;, \&quot;year\&quot;, \&quot;rating\&quot;, \&quot;available\&quot;],\n  \&quot;additionalProperties\&quot;: false\n}&quot;
+}</code></td>
+  <td class="mono elapsed">5.7s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;title&quot;: &quot;Inception&quot;,
+  &quot;year&quot;: 2010,
+  &quot;rating&quot;: 8.8,
+  &quot;available&quot;: true
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>4.4 --guided-json nested objects<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;command&quot;: &quot;.build/release/afm mlx -m mlx-community/Qwen3-30B-A3B-4bit -s Give me info about Albert Einstein including his city and country. --guided-json {\n  \&quot;type\&quot;: \&quot;object\&quot;,\n  \&quot;properties\&quot;: {\n    \&quot;person\&quot;: {\n      \&quot;type\&quot;: \&quot;object\&quot;,\n      \&quot;properties\&quot;: {\n        \&quot;name\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;},\n        \&quot;address\&quot;: {\n          \&quot;type\&quot;: \&quot;object\&quot;,\n          \&quot;properties\&quot;: {\n            \&quot;city\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;},\n            \&quot;country\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;}\n          },\n          \&quot;required\&quot;: [\&quot;city\&quot;, \&quot;country\&quot;]\n        }\n      },\n      \&quot;required\&quot;: [\&quot;name\&quot;, \&quot;address\&quot;]\n    }\n  },\n  \&quot;required\&quot;: [\&quot;person\&quot;],\n  \&quot;additionalProperties\&quot;: false\n}&quot;
+}</code></td>
+  <td class="mono elapsed">7.7s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;name&quot;: &quot;Albert Einstein&quot;,
+  &quot;address&quot;: {
+    &quot;city&quot;: &quot;Ulm&quot;,
+    &quot;country&quot;: &quot;Germany&quot;
+  }
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>4.5 --guided-json string enum<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;command&quot;: &quot;.build/release/afm mlx -m mlx-community/Qwen3-30B-A3B-4bit -s Analyze the sentiment of: I love this product, it is amazing! Return sentiment and confidence. --guided-json {\n  \&quot;type\&quot;: \&quot;object\&quot;,\n  \&quot;properties\&quot;: {\n    \&quot;sentiment\&quot;: {\n      \&quot;type\&quot;: \&quot;string\&quot;,\n      \&quot;enum\&quot;: [\&quot;positive\&quot;, \&quot;negative\&quot;, \&quot;neutral\&quot;]\n    },\n    \&quot;confidence\&quot;: {\&quot;type\&quot;: \&quot;number\&quot;}\n  },\n  \&quot;required\&quot;: [\&quot;sentiment\&quot;, \&quot;confidence\&quot;],\n  \&quot;additionalProperties\&quot;: false\n}&quot;
+}</code></td>
+  <td class="mono elapsed">3.5s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;sentiment&quot;: &quot;positive&quot;,
+  &quot;confidence&quot;: 0.95
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>4.6 --guided-json refs and defs<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;command&quot;: &quot;.build/release/afm mlx -m mlx-community/Qwen3-30B-A3B-4bit -s List 2 students with their names and letter grades. --guided-json {\n  \&quot;type\&quot;: \&quot;object\&quot;,\n  \&quot;properties\&quot;: {\n    \&quot;students\&quot;: {\n      \&quot;type\&quot;: \&quot;array\&quot;,\n      \&quot;items\&quot;: {\&quot;$ref\&quot;: \&quot;#/$defs/Student\&quot;}\n    }\n  },\n  \&quot;required\&quot;: [\&quot;students\&quot;],\n  \&quot;$defs\&quot;: {\n    \&quot;Student\&quot;: {\n      \&quot;type\&quot;: \&quot;object\&quot;,\n      \&quot;properties\&quot;: {\n        \&quot;name\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;},\n        \&quot;grade\&quot;: {\&quot;type\&quot;: \&quot;string\&quot;}\n      },\n      \&quot;required\&quot;: [\&quot;name\&quot;, \&quot;grade\&quot;]\n    }\n  },\n  \&quot;additionalProperties\&quot;: false\n}&quot;
+}</code></td>
+  <td class="mono elapsed">4.8s</td>
+  <td class="detail"><code class="json-detail">{
+  &quot;students&quot;: [
+    {
+      &quot;name&quot;: &quot;Alice Johnson&quot;,
+      &quot;grade&quot;: &quot;A&quot;
+    },
+    {
+      &quot;name&quot;: &quot;Bob Smith&quot;,
+      &quot;grade&quot;: &quot;B&quot;
+    }
+  ]
+}</code></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>4.7 Plain text (no --guided-json, regression)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;command&quot;: &quot;.build/release/afm mlx -m mlx-community/Qwen3-30B-A3B-4bit -s What is 2+2?&quot;
+}</code></td>
+  <td class="mono elapsed">2.8s</td>
+  <td class="detail">Got text response (1265 chars)</td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>4.8 Invalid --guided-json (error)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;command&quot;: &quot;.build/release/afm mlx -m mlx-community/Qwen3-30B-A3B-4bit -s Hello --guided-json not valid json&quot;
+}</code></td>
+  <td class="mono elapsed">1.3s</td>
+  <td class="detail">Exit code 1: MLX model: mlx-community/Qwen3-30B-A3B-4bit
+Loading MLX model: mlx-community/Qwen3-30B-A3B-4bit
+[/</td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>4.9 --guided-json with array schema (error)<div class="request-toggle" onclick="toggleRequest(this)">&#9654; Show request payload</div>
+<code class="request-detail" style="display:none">{
+  &quot;command&quot;: &quot;.build/release/afm mlx -m mlx-community/Qwen3-30B-A3B-4bit -s Hello --guided-json [1,2,3]&quot;
+}</code></td>
+  <td class="mono elapsed">1.2s</td>
+  <td class="detail">Exit code 1: MLX model: mlx-community/Qwen3-30B-A3B-4bit
+Loading MLX model: mlx-community/Qwen3-30B-A3B-4bit
+[/</td>
+</tr>
+<tr class="section-summary-row">
+  <td colspan="2" style="text-align:right; color:#8b949e; font-size:0.8rem;">Section total</td>
+  <td class="mono elapsed" style="font-weight:600;">35.5s</td>
+  <td></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+
+<div class="footer">
+  Source data: <code>structured-outputs-20260223_170625.jsonl</code>
+</div>
+
+<script>
+function toggleSection(header) {
+  var body = header.nextElementSibling;
+  var icon = header.querySelector('.toggle-icon');
+  if (body.style.display === 'none' || body.style.display === '') {
+    body.style.display = 'block';
+    icon.classList.add('open');
+  } else {
+    body.style.display = 'none';
+    icon.classList.remove('open');
+  }
+}
+
+var allExpanded = false;
+function toggleAll() {
+  allExpanded = !allExpanded;
+  document.querySelectorAll('.section-body').forEach(function(b) {
+    b.style.display = allExpanded ? 'block' : 'none';
+  });
+  document.querySelectorAll('.toggle-icon').forEach(function(i) {
+    if (allExpanded) i.classList.add('open');
+    else i.classList.remove('open');
+  });
+}
+
+function toggleRequest(el) {
+  var code = el.nextElementSibling;
+  if (code.style.display === 'none') {
+    code.style.display = 'block';
+    el.innerHTML = '&#9660; Hide request payload';
+  } else {
+    code.style.display = 'none';
+    el.innerHTML = '&#9654; Show request payload';
+  }
+}
+
+// Auto-expand failed sections
+document.querySelectorAll('.badge-fail').forEach(function(badge) {
+  var section = badge.closest('.section');
+  if (section) {
+    var body = section.querySelector('.section-body');
+    var icon = section.querySelector('.toggle-icon');
+    if (body) body.style.display = 'block';
+    if (icon) icon.classList.add('open');
+  }
+});
+</script>
+
+</body>
+</html>

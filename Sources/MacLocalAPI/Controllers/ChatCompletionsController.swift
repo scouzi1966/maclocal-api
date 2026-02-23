@@ -103,7 +103,19 @@ struct ChatCompletionsController: RouteCollection {
             let effectiveTemperature = chatRequest.temperature ?? temperature
             let effectiveRandomness = randomness
 
-            let content = try await foundationService.generateResponse(for: processedMessages, temperature: effectiveTemperature, randomness: effectiveRandomness, maxTokens: chatRequest.effectiveMaxTokens)
+            // Check for structured output (json_schema with strict: true)
+            let content: String
+            if let jsonSchema = hasStrictJsonSchema(chatRequest) {
+                content = try await foundationService.generateGuidedResponse(
+                    for: processedMessages,
+                    jsonSchema: jsonSchema,
+                    temperature: effectiveTemperature,
+                    randomness: effectiveRandomness,
+                    maxTokens: chatRequest.effectiveMaxTokens
+                )
+            } else {
+                content = try await foundationService.generateResponse(for: processedMessages, temperature: effectiveTemperature, randomness: effectiveRandomness, maxTokens: chatRequest.effectiveMaxTokens)
+            }
 
             let promptTokens = estimateTokens(for: processedMessages)
             let completionTokens = estimateTokens(for: content)
@@ -130,6 +142,9 @@ struct ChatCompletionsController: RouteCollection {
                 status = .badRequest
             case .guardrailViolation:
                 errorType = "content_policy_violation"
+                status = .badRequest
+            case .schemaConversionFailed:
+                errorType = "invalid_request_error"
                 status = .badRequest
             default:
                 errorType = "foundation_model_error"
@@ -208,14 +223,25 @@ struct ChatCompletionsController: RouteCollection {
                 let effectiveTemperature = chatRequest.temperature ?? self.temperature
                 let effectiveRandomness = self.randomness
 
-                // Use native streaming for real token-by-token output
+                // Use native streaming — guided if json_schema + strict, otherwise normal
                 let promptStartTime = Date()
-                let stream = foundationService.generateNativeStreamingResponse(
-                    for: processedMessages,
-                    temperature: effectiveTemperature,
-                    randomness: effectiveRandomness,
-                    maxTokens: chatRequest.effectiveMaxTokens
-                )
+                let stream: AsyncThrowingStream<String, Error>
+                if let jsonSchema = self.hasStrictJsonSchema(chatRequest) {
+                    stream = foundationService.generateGuidedStreamingResponse(
+                        for: processedMessages,
+                        jsonSchema: jsonSchema,
+                        temperature: effectiveTemperature,
+                        randomness: effectiveRandomness,
+                        maxTokens: chatRequest.effectiveMaxTokens
+                    )
+                } else {
+                    stream = foundationService.generateNativeStreamingResponse(
+                        for: processedMessages,
+                        temperature: effectiveTemperature,
+                        randomness: effectiveRandomness,
+                        maxTokens: chatRequest.effectiveMaxTokens
+                    )
+                }
 
                 var isFirst = true
                 var completionTokens = 0
@@ -345,6 +371,17 @@ struct ChatCompletionsController: RouteCollection {
         })
 
         return httpResponse
+    }
+
+    /// Check if the request has a strict json_schema response format.
+    private func hasStrictJsonSchema(_ chatRequest: ChatCompletionRequest) -> ResponseJsonSchema? {
+        guard let responseFormat = chatRequest.responseFormat,
+              responseFormat.type == "json_schema",
+              let jsonSchema = responseFormat.jsonSchema,
+              jsonSchema.strict == true else {
+            return nil
+        }
+        return jsonSchema
     }
 
     private func encodeJSON<T: Encodable>(_ value: T) -> String {
