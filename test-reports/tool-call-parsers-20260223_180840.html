@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tool Call Parser Test Report — 20260223_180840</title>
+<style>
+  :root { --bg: #0f172a; --card: #1e293b; --border: #334155; --text: #e2e8f0;
+           --pass: #22c55e; --fail: #ef4444; --skip: #f59e0b; --accent: #38bdf8; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', 'Segoe UI', sans-serif;
+          background: var(--bg); color: var(--text); padding: 2rem; line-height: 1.6; }
+  .container { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.25rem; }
+  .subtitle { color: #94a3b8; font-size: 0.9rem; margin-bottom: 1.5rem; }
+  .summary { display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+           padding: 1rem 1.5rem; flex: 1; min-width: 140px; }
+  .stat .label { font-size: 0.75rem; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.05em; }
+  .stat .value { font-size: 1.75rem; font-weight: 700; }
+  .stat .value.pass { color: var(--pass); }
+  .stat .value.fail { color: var(--fail); }
+  .stat .value.skip { color: var(--skip); }
+  .badge { display: inline-block; background: #22c55e; color: #fff; font-size: 0.8rem;
+            font-weight: 600; padding: 0.25rem 0.75rem; border-radius: 99px; margin-left: 0.5rem;
+            vertical-align: middle; }
+  .parser-section { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+                     margin-bottom: 1.5rem; overflow: hidden; }
+  .parser-header { padding: 1rem 1.5rem; border-bottom: 1px solid var(--border);
+                    display: flex; align-items: center; justify-content: space-between; }
+  .parser-header h2 { font-size: 1.1rem; font-weight: 600; }
+  .parser-header .model { color: #94a3b8; font-size: 0.85rem; font-family: monospace; }
+  .parser-header .parser-badge { font-size: 0.75rem; padding: 0.15rem 0.6rem; border-radius: 6px;
+                                  font-weight: 600; }
+  .parser-badge.pass { background: rgba(34,197,94,0.15); color: var(--pass); }
+  .parser-badge.fail { background: rgba(239,68,68,0.15); color: var(--fail); }
+  .parser-badge.skip { background: rgba(245,158,11,0.15); color: var(--skip); }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 0.75rem; text-transform: uppercase; color: #64748b;
+       padding: 0.6rem 1rem; letter-spacing: 0.05em; }
+  td { padding: 0.6rem 1rem; border-top: 1px solid var(--border); font-size: 0.9rem; }
+  td.test-name { font-family: monospace; font-weight: 500; }
+  .result-pass { color: var(--pass); font-weight: 600; }
+  .result-fail { color: var(--fail); font-weight: 600; }
+  .details { font-size: 0.8rem; color: #94a3b8; max-width: 400px; word-break: break-word; }
+  .details code { background: rgba(56,189,248,0.1); color: var(--accent); padding: 0.1rem 0.3rem;
+                   border-radius: 3px; font-size: 0.8rem; }
+  .stream-badge { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 4px;
+                   background: rgba(56,189,248,0.12); color: var(--accent); margin-left: 0.5rem; }
+  footer { text-align: center; margin-top: 2rem; color: #475569; font-size: 0.8rem; }
+  footer a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Tool Call Parser Test Report <span class="badge">26/26 passed</span></h1>
+  <div class="subtitle">Generated 20260223_180840 &mdash; JSONL: <code>tool-call-parsers-20260223_180840.jsonl</code></div>
+
+  <div class="summary">
+    <div class="stat"><div class="label">Passed</div><div class="value pass">26</div></div>
+    <div class="stat"><div class="label">Failed</div><div class="value fail">0</div></div>
+    <div class="stat"><div class="label">Skipped</div><div class="value skip">0</div></div>
+    <div class="stat"><div class="label">Total Tests</div><div class="value">26</div></div>
+  </div>
+
+  <div class="parser-section">
+    <div class="parser-header">
+      <div>
+        <h2>--tool-call-parser hermes</h2>
+        <div class="model">mlx-community/Qwen3-30B-A3B-4bit</div>
+      </div>
+      <span class="parser-badge pass">4/4 PASS</span>
+    </div>
+    <table>
+      <thead><tr><th>Test</th><th>Mode</th><th>Result</th><th>Time</th><th>Details</th></tr></thead>
+      <tbody>
+        <tr><td class="test-name">server_start</td><td>—</td><td class="result-pass">PASS</td><td>—</td><td class="details">Server started successfully</td></tr>
+        <tr><td class="test-name">weather_nonstream</td><td>sync</td><td class="result-pass">PASS</td><td>1.66</td><td class="details">tool: <code>get_weather</code><br>args: <code>{"city": "Tokyo"}</code><br>finish: <code>tool_calls</code></td></tr>
+        <tr><td class="test-name">weather_stream</td><td><span class="stream-badge">SSE</span></td><td class="result-pass">PASS</td><td>1.06</td><td class="details">tool: <code>get_weather</code><br>args: <code>{"city": "London"}</code><br>finish: <code>tool_calls</code></td></tr>
+        <tr><td class="test-name">calc_nonstream</td><td>sync</td><td class="result-pass">PASS</td><td>2.23</td><td class="details">tool: <code>calculate</code><br>args: <code>{"expression": "17 * 23 + 5"}</code><br>finish: <code>tool_calls</code></td></tr>
+        <tr><td class="test-name">calc_stream</td><td><span class="stream-badge">SSE</span></td><td class="result-pass">PASS</td><td>1.3</td><td class="details">tool: <code>calculate</code><br>args: <code>{"expression": "99 * 101"}</code><br>finish: <code>tool_calls</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="parser-section">
+    <div class="parser-header">
+      <div>
+        <h2>--tool-call-parser llama3_json</h2>
+        <div class="model">mlx-community/Llama-3.3-70B-Instruct-4bit-DWQ</div>
+      </div>
+      <span class="parser-badge pass">4/4 PASS</span>
+    </div>
+    <table>
+      <thead><tr><th>Test</th><th>Mode</th><th>Result</th><th>Time</th><th>Details</th></tr></thead>
+      <tbody>
+        <tr><td class="test-name">server_start</td><td>—</td><td class="result-pass">PASS</td><td>—</td><td class="details">Server started successfully</td></tr>
+        <tr><td class="test-name">weather_nonstream</td><td>sync</td><td class="result-pass">PASS</td><td>4.61</td><td class="details">tool: <code>get_weather</code><br>args: <code>{"city": "Tokyo"}</code><br>finish: <code>tool_calls</code></td></tr>
+        <tr><td class="test-name">weather_stream</td><td><span class="stream-badge">SSE</span></td><td class="result-pass">PASS</td><td>4.28</td><td class="details">tool: <code>get_weather</code><br>args: <code>{"city": "London"}</code><br>finish: <code>tool_calls</code></td></tr>
+        <tr><td class="test-name">calc_nonstream</td><td>sync</td><td class="result-pass">PASS</td><td>4.11</td><td class="details">tool: <code>calculate</code><br>args: <code>{"expression": "17 * 23 + 5"}</code><br>finish: <code>tool_calls</code></td></tr>
+        <tr><td class="test-name">calc_stream</td><td><span class="stream-badge">SSE</span></td><td class="result-pass">PASS</td><td>4.41</td><td class="details">tool: <code>calculate</code><br>args: <code>{"expression": "99 * 101"}</code><br>finish: <code>tool_calls</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="parser-section">
+    <div class="parser-header">
+      <div>
+        <h2>--tool-call-parser gemma</h2>
+        <div class="model">mlx-community/functiongemma-270m-it-bf16</div>
+      </div>
+      <span class="parser-badge pass">4/4 PASS</span>
+    </div>
+    <table>
+      <thead><tr><th>Test</th><th>Mode</th><th>Result</th><th>Time</th><th>Details</th></tr></thead>
+      <tbody>
+        <tr><td class="test-name">server_start</td><td>—</td><td class="result-pass">PASS</td><td>—</td><td class="details">Server started successfully</td></tr>
+        <tr><td class="test-name">weather_nonstream</td><td>sync</td><td class="result-pass">PASS</td><td>1.0</td><td class="details">tool: <code>get_weather</code><br>args: <code>{"city": "Tokyo"}</code><br>finish: <code>tool_calls</code></td></tr>
+        <tr><td class="test-name">weather_stream</td><td><span class="stream-badge">SSE</span></td><td class="result-pass">PASS</td><td>0.95</td><td class="details">tool: <code>get_weather</code><br>args: <code>{"city": "London"}</code><br>finish: <code>tool_calls</code></td></tr>
+        <tr><td class="test-name">calc_nonstream</td><td>sync</td><td class="result-pass">PASS</td><td>0.97</td><td class="details">tool: <code>calculate</code><br>args: <code>{"expression": "17 * 23 + 5"}</code><br>finish: <code>tool_calls</code></td></tr>
+        <tr><td class="test-name">calc_stream</td><td><span class="stream-badge">SSE</span></td><td class="result-pass">PASS</td><td>0.96</td><td class="details">tool: <code>calculate</code><br>args: <code>{"expression": "99 * 101"}</code><br>finish: <code>tool_calls</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="parser-section">
+    <div class="parser-header">
+      <div>
+        <h2>--tool-call-parser mistral</h2>
+        <div class="model">mlx-community/mistralai_Devstral-Small-2-24B-Instruct-2512-MLX-8Bit</div>
+      </div>
+      <span class="parser-badge pass">4/4 PASS</span>
+    </div>
+    <table>
+      <thead><tr><th>Test</th><th>Mode</th><th>Result</th><th>Time</th><th>Details</th></tr></thead>
+      <tbody>
+        <tr><td class="test-name">server_start</td><td>—</td><td class="result-pass">PASS</td><td>—</td><td class="details">Server started successfully</td></tr>
+        <tr><td class="test-name">weather_nonstream</td><td>sync</td><td class="result-pass">PASS</td><td>0.96</td><td class="details">tool: <code>get_weather</code><br>args: <code>{"city": "Tokyo"}</code><br>finish: <code>tool_calls</code></td></tr>
+        <tr><td class="test-name">weather_stream</td><td><span class="stream-badge">SSE</span></td><td class="result-pass">PASS</td><td>0.92</td><td class="details">tool: <code>get_weather</code><br>args: <code>{"city": "London"}</code><br>finish: <code>tool_calls</code></td></tr>
+        <tr><td class="test-name">calc_nonstream</td><td>sync</td><td class="result-pass">PASS</td><td>1.15</td><td class="details">tool: <code>calculate</code><br>args: <code>{"expression": "17 * 23 + 5"}</code><br>finish: <code>tool_calls</code></td></tr>
+        <tr><td class="test-name">calc_stream</td><td><span class="stream-badge">SSE</span></td><td class="result-pass">PASS</td><td>1.07</td><td class="details">tool: <code>calculate</code><br>args: <code>{"expression": "99 * 101"}</code><br>finish: <code>tool_calls</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="parser-section">
+    <div class="parser-header">
+      <div>
+        <h2>--tool-call-parser qwen3_xml</h2>
+        <div class="model">mlx-community/Qwen3-Coder-Next-4bit</div>
+      </div>
+      <span class="parser-badge pass">4/4 PASS</span>
+    </div>
+    <table>
+      <thead><tr><th>Test</th><th>Mode</th><th>Result</th><th>Time</th><th>Details</th></tr></thead>
+      <tbody>
+        <tr><td class="test-name">server_start</td><td>—</td><td class="result-pass">PASS</td><td>—</td><td class="details">Server started successfully</td></tr>
+        <tr><td class="test-name">weather_nonstream</td><td>sync</td><td class="result-pass">PASS</td><td>0.68</td><td class="details">tool: <code>get_weather</code><br>args: <code>{"city": "Tokyo"}</code><br>finish: <code>tool_calls</code></td></tr>
+        <tr><td class="test-name">weather_stream</td><td><span class="stream-badge">SSE</span></td><td class="result-pass">PASS</td><td>0.62</td><td class="details">tool: <code>get_weather</code><br>args: <code>{"city": "London"}</code><br>finish: <code>tool_calls</code></td></tr>
+        <tr><td class="test-name">calc_nonstream</td><td>sync</td><td class="result-pass">PASS</td><td>0.75</td><td class="details">tool: <code>calculate</code><br>args: <code>{"expression": "17 * 23 + 5"}</code><br>finish: <code>tool_calls</code></td></tr>
+        <tr><td class="test-name">calc_stream</td><td><span class="stream-badge">SSE</span></td><td class="result-pass">PASS</td><td>0.71</td><td class="details">tool: <code>calculate</code><br>args: <code>{"expression": "99 * 101"}</code><br>finish: <code>tool_calls</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="parser-section">
+    <div class="parser-header">
+      <div>
+        <h2>Regression: GLM-4.7-Flash-4bit</h2>
+        <div class="model">mlx-community/GLM-4.7-Flash-4bit</div>
+      </div>
+      <span class="parser-badge pass">2/2 PASS</span>
+    </div>
+    <table>
+      <thead><tr><th>Test</th><th>Mode</th><th>Result</th><th>Time</th><th>Details</th></tr></thead>
+      <tbody>
+        <tr><td class="test-name">server_start</td><td>—</td><td class="result-pass">PASS</td><td>—</td><td class="details">Server started successfully</td></tr>
+        <tr><td class="test-name">weather_nonstream</td><td>sync</td><td class="result-pass">PASS</td><td>1.63</td><td class="details">tool: <code>get_weather</code><br>args: <code>{"city": "Tokyo"}</code><br>finish: <code>tool_calls</code></td></tr>
+        <tr><td class="test-name">calc_stream</td><td><span class="stream-badge">SSE</span></td><td class="result-pass">PASS</td><td>0.97</td><td class="details">tool: <code>calculate</code><br>args: <code>{"expression": "99 * 101"}</code><br>finish: <code>tool_calls</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="parser-section">
+    <div class="parser-header">
+      <div>
+        <h2>Regression: Qwen3-30B-A3B-4bit</h2>
+        <div class="model">mlx-community/Qwen3-30B-A3B-4bit</div>
+      </div>
+      <span class="parser-badge pass">2/2 PASS</span>
+    </div>
+    <table>
+      <thead><tr><th>Test</th><th>Mode</th><th>Result</th><th>Time</th><th>Details</th></tr></thead>
+      <tbody>
+        <tr><td class="test-name">server_start</td><td>—</td><td class="result-pass">PASS</td><td>—</td><td class="details">Server started successfully</td></tr>
+        <tr><td class="test-name">weather_nonstream</td><td>sync</td><td class="result-pass">PASS</td><td>1.35</td><td class="details">tool: <code>get_weather</code><br>args: <code>{"city": "Tokyo"}</code><br>finish: <code>tool_calls</code></td></tr>
+        <tr><td class="test-name">calc_stream</td><td><span class="stream-badge">SSE</span></td><td class="result-pass">PASS</td><td>1.21</td><td class="details">tool: <code>calculate</code><br>args: <code>{"expression": "99 * 101"}</code><br>finish: <code>tool_calls</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="parser-section">
+    <div class="parser-header">
+      <div>
+        <h2>Regression: Qwen3-Coder-Next-4bit</h2>
+        <div class="model">mlx-community/Qwen3-Coder-Next-4bit</div>
+      </div>
+      <span class="parser-badge pass">2/2 PASS</span>
+    </div>
+    <table>
+      <thead><tr><th>Test</th><th>Mode</th><th>Result</th><th>Time</th><th>Details</th></tr></thead>
+      <tbody>
+        <tr><td class="test-name">server_start</td><td>—</td><td class="result-pass">PASS</td><td>—</td><td class="details">Server started successfully</td></tr>
+        <tr><td class="test-name">weather_nonstream</td><td>sync</td><td class="result-pass">PASS</td><td>0.67</td><td class="details">tool: <code>get_weather</code><br>args: <code>{"city": "Tokyo"}</code><br>finish: <code>tool_calls</code></td></tr>
+        <tr><td class="test-name">calc_stream</td><td><span class="stream-badge">SSE</span></td><td class="result-pass">PASS</td><td>0.7</td><td class="details">tool: <code>calculate</code><br>args: <code>{"expression": "99 * 101"}</code><br>finish: <code>tool_calls</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <footer>
+    afm tool-call-parser test suite &mdash; <a href="https://github.com/scouzi1966/maclocal-api">maclocal-api</a>
+  </footer>
+</div>
+</body>
+</html>
