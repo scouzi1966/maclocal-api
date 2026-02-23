@@ -177,10 +177,12 @@ struct MlxCommand: ParsableCommand {
     var maxKVSize: Int?
     @Option(name: .long, help: "KV bits (compatibility)")
     var kvBits: Int?
-    @Option(name: .long, help: "Prefill step size (compatibility)")
+    @Option(name: .long, help: "Prefill step size — number of prompt tokens processed per GPU pass (default: 2048)")
     var prefillStepSize: Int?
     @Flag(name: .long, help: "Trust remote code (compatibility)")
     var trustRemoteCode: Bool = false
+    @Flag(name: .long, inversion: .prefixedNo, help: "Enable automatic prefix caching (KV cache reuse across requests)")
+    var enablePrefixCaching: Bool = false
     @Option(name: .long, help: "Chat template (compatibility)")
     var chatTemplate: String?
     @Option(name: .long, help: "Dtype (compatibility)")
@@ -190,6 +192,12 @@ struct MlxCommand: ParsableCommand {
 
     @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible)")
     var guidedJson: String?
+
+    @Option(name: .long, help: "Tool call parser override: hermes, llama3_json, gemma, mistral, qwen3_xml. Forces a custom chat template and tool call format for reliable tool calling.")
+    var toolCallParser: String?
+
+    @Flag(name: .long, help: "Post-process tool call argument names to match the original tool schema (fixes model renaming e.g. path→filePath)")
+    var fixToolArgs: Bool = false
 
     @Flag(name: .long, help: "Print OpenClaw provider config JSON and exit")
     var openclawConfig: Bool = false
@@ -204,6 +212,10 @@ struct MlxCommand: ParsableCommand {
 
         let resolver = MLXCacheResolver()
         let service = MLXModelService(resolver: resolver)
+        service.enablePrefixCaching = enablePrefixCaching
+        service.toolCallParser = toolCallParser
+        service.fixToolArgs = fixToolArgs
+        if let prefillStepSize { service.prefillStepSize = prefillStepSize }
         _ = try service.revalidateRegistry()
 
         let rawModel: String
@@ -489,7 +501,6 @@ struct MlxCommand: ParsableCommand {
         var ignored: [String] = []
         if maxKVSize != nil { ignored.append("--max-kv-size") }
         if kvBits != nil { ignored.append("--kv-bits") }
-        if prefillStepSize != nil { ignored.append("--prefill-step-size") }
         if trustRemoteCode { ignored.append("--trust-remote-code") }
         if chatTemplate != nil { ignored.append("--chat-template") }
         if dtype != nil { ignored.append("--dtype") }

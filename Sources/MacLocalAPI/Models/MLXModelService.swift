@@ -65,6 +65,24 @@ enum MLXServiceError: Error, LocalizedError {
     }
 }
 
+/// Thread-safe container for KV cache state across requests.
+/// Marked @unchecked Sendable because access is serialized through ModelContainer.perform.
+private final class PromptCacheBox: @unchecked Sendable {
+    var promptTokens: [Int] = []
+    var cache: [KVCache] = []
+    var modelID: String = ""
+    var isValid: Bool = false
+
+    func invalidate() {
+        promptTokens = []
+        cache = []
+        modelID = ""
+        isValid = false
+    }
+}
+
+private let debugLogging = ProcessInfo.processInfo.environment["AFM_DEBUG"].map { $0 == "1" } ?? false
+
 final class MLXModelService: @unchecked Sendable {
     private let resolver: MLXCacheResolver
     private let registry = MLXModelRegistry()
@@ -74,6 +92,12 @@ final class MLXModelService: @unchecked Sendable {
     private var activeOperations: Int = 0
     private var isShuttingDown = false
     private var gpuInitialized = false
+    private let promptCache = PromptCacheBox()
+    private var currentToolCallFormat: ToolCallFormat?
+    var enablePrefixCaching: Bool = false
+    var prefillStepSize: Int = 2048
+    var toolCallParser: String?
+    var fixToolArgs: Bool = false
     init(resolver: MLXCacheResolver) {
         self.resolver = resolver
         self.resolver.applyEnvironment()
@@ -153,8 +177,28 @@ final class MLXModelService: @unchecked Sendable {
             throw MLXServiceError.modelNotFoundInCache(modelID)
         }
 
-        let config = ModelConfiguration(directory: directory)
+        var config = ModelConfiguration(directory: directory)
         let isVLM = try isVisionModel(directory: directory)
+
+        // Auto-detect tool call format from model type (vendor LLMModelFactory lost this code)
+        var detectedFormat = inferToolCallFormat(directory: directory)
+        // --tool-call-parser override: force format for the specified parser
+        if let parser = toolCallParser {
+            switch parser {
+            case "qwen3_xml":
+                detectedFormat = .xmlFunction
+            case "hermes", "llama3_json", "mistral":
+                detectedFormat = .json
+            case "gemma":
+                detectedFormat = .gemma
+            default:
+                break
+            }
+            if debugLogging {
+                print("[ToolCallParser] Forcing \(String(describing: detectedFormat)) format for \(parser) parser")
+            }
+        }
+        config.toolCallFormat = detectedFormat
         stage?(.loadingModel)
         do {
             let loaded: ModelContainer
@@ -166,7 +210,9 @@ final class MLXModelService: @unchecked Sendable {
             withStateLock {
                 currentContainer = loaded
                 currentModelID = modelID
+                currentToolCallFormat = detectedFormat
             }
+            promptCache.invalidate()
             try registry.registerModel(modelID)
             stage?(.ready)
             return modelID
@@ -216,15 +262,23 @@ final class MLXModelService: @unchecked Sendable {
             seed: normalizedSeed(seed),
             computeLogprobs: wantLogprobs,
             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
-            prefillStepSize: 2048
+            prefillStepSize: self.prefillStepSize
         )
 
         var collectedLogprobs = [TokenLogprobData]()
         var resolvedLogprobs: [ResolvedLogprob]? = nil
         var collectedToolCalls = [ToolCall]()
         var completionInfo: GenerateCompletionInfo? = nil
+        let promptCache = self.promptCache
         let generated: String = try await container.perform { context in
             let input = try await context.processor.prepare(input: userInput)
+
+            // DEBUG: decode and print the full prompt to see what the template produced
+            if debugLogging {
+                let allTokens = input.text.tokens.reshaped(-1).asArray(Int.self)
+                let decoded = context.tokenizer.decode(tokens: allTokens)
+                print("[DEBUG] Full tokenized prompt (\(allTokens.count) tokens):\n\(decoded)\n[/DEBUG]")
+            }
 
             // If the chat template appended <think>, prepend it so extractors can detect it
             let tokens = input.text.tokens
@@ -240,9 +294,67 @@ final class MLXModelService: @unchecked Sendable {
                 }
             }
 
+            // Prompt caching: determine cache hit/miss
+            let useCache = self.enablePrefixCaching && !self.isMultimodalInput(input)
+            let inputTokens = useCache ? self.extractTokenArray(input) : []
+            var generationCache: [KVCache]
+            var generateInput: LMInput
+
+            if useCache {
+                var prefixLen = self.findPrefixLength(incoming: inputTokens, currentModelID: modelID)
+                if prefixLen > 0 {
+                    // Near/exact match: ensure we re-feed at least minSuffix tokens
+                    // to give the model enough context for stable generation.
+                    // 1 token is fragile (can cause immediate EOS); 16 is a safe margin.
+                    let minSuffix = 16
+                    let maxPrefix = inputTokens.count - minSuffix
+                    if prefixLen > maxPrefix {
+                        prefixLen = max(0, maxPrefix)
+                    }
+                    if prefixLen > 0 {
+                        // Reuse cached KV cache, trimmed to prefix length
+                        generationCache = promptCache.cache
+                        self.trimCacheToLength(generationCache, keepTokens: prefixLen)
+                        // Build suffix-only input
+                        let suffixTokens = Array(inputTokens[prefixLen...])
+                        generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
+                        if debugLogging {
+                            print("[KVCache] Prefix match: \(prefixLen)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix tokens")
+                        }
+                    } else {
+                        // Prefix too short after minSuffix adjustment, do full prefill
+                        generationCache = context.model.newCache(parameters: params)
+                        generateInput = input
+                        if debugLogging {
+                            print("[KVCache] Cache miss (prefix \(self.findPrefixLength(incoming: inputTokens, currentModelID: modelID)) < minSuffix), full prefill for \(inputTokens.count) tokens")
+                        }
+                    }
+                } else {
+                    // Cache miss: fresh cache
+                    generationCache = context.model.newCache(parameters: params)
+                    generateInput = input
+                    if debugLogging {
+                        print("[KVCache] Cache miss, full prefill for \(inputTokens.count) tokens")
+                    }
+                }
+            } else {
+                // Multimodal input: no caching
+                generationCache = context.model.newCache(parameters: params)
+                generateInput = input
+                if debugLogging {
+                    print("[KVCache] Multimodal input, skipping cache")
+                }
+            }
+
             let activeStops = stop?.filter { !$0.isEmpty } ?? []
-            for await piece in try MLXLMCommon.generate(input: input, parameters: params, context: context) {
+            let genStart = Date()
+            var firstTokenTime: Date?
+            for await piece in try MLXLMCommon.generate(input: generateInput, cache: generationCache, parameters: params, context: context) {
+                if debugLogging {
+                    print("[DEBUG] Generation piece: \(piece)")
+                }
                 if case .chunk(let text) = piece {
+                    if firstTokenTime == nil { firstTokenTime = Date() }
                     out += text
                     if !activeStops.isEmpty, let match = activeStops.first(where: { out.contains($0) }) {
                         if let range = out.range(of: match) {
@@ -253,6 +365,9 @@ final class MLXModelService: @unchecked Sendable {
                 } else if case .tokenLogprobs(let lps) = piece {
                     collectedLogprobs.append(contentsOf: lps)
                 } else if case .toolCall(let tc) = piece {
+                    if debugLogging {
+                        print("[DEBUG] Tool call detected: \(tc.function.name)(\(tc.function.arguments))")
+                    }
                     collectedToolCalls.append(tc)
                 } else if case .info(let info) = piece {
                     completionInfo = info
@@ -260,6 +375,18 @@ final class MLXModelService: @unchecked Sendable {
             }
 
             Stream.gpu.synchronize()
+            if debugLogging {
+                let ttft = firstTokenTime.map { $0.timeIntervalSince(genStart) } ?? 0
+                let total = Date().timeIntervalSince(genStart)
+                let promptTok = completionInfo?.promptTokenCount ?? 0
+                let genTok = completionInfo?.generationTokenCount ?? 0
+                print("[KVCache] Timing: TTFT=\(String(format: "%.3f", ttft))s total=\(String(format: "%.3f", total))s prompt_tokens=\(promptTok) gen_tokens=\(genTok)")
+            }
+
+            // Save prompt cache state (trim generation tokens, keep prompt-only)
+            if useCache && !inputTokens.isEmpty {
+                self.savePromptCacheState(cache: generationCache, promptTokens: inputTokens, modelID: modelID)
+            }
 
             if wantLogprobs && !collectedLogprobs.isEmpty {
                 resolvedLogprobs = self.resolveLogprobs(collectedLogprobs, tokenizer: context.tokenizer)
@@ -268,13 +395,45 @@ final class MLXModelService: @unchecked Sendable {
             return out
         }
 
-        let responseToolCalls: [ResponseToolCall]? = collectedToolCalls.isEmpty ? nil : collectedToolCalls.enumerated().map { (i, tc) in
-            Self.convertToolCall(tc, index: i)
+        // If the vendor ToolCallProcessor didn't detect tool calls, try fallback parsing.
+        // Qwen3-Coder outputs <tool_call><function=name>...</function></tool_call> which
+        // the vendor's XMLFunctionParser misses (regex doesn't match multiline content).
+        var finalToolCalls = collectedToolCalls
+        var finalContent = generated
+        if finalToolCalls.isEmpty && tools != nil {
+            let (parsed, remaining) = Self.extractToolCallsFallback(from: generated)
+            if !parsed.isEmpty {
+                finalToolCalls = parsed
+                finalContent = remaining
+            }
+        }
+
+        let responseToolCalls: [ResponseToolCall]? = finalToolCalls.isEmpty ? nil : finalToolCalls.enumerated().map { (i, tc) in
+            var converted = Self.convertToolCall(tc, index: i)
+            if self.fixToolArgs, let requestTools = tools {
+                // Re-parse arguments JSON, remap keys, re-serialize
+                if let data = converted.function.arguments.data(using: .utf8),
+                   let argsDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    var sendableArgs = [String: any Sendable]()
+                    for (k, v) in argsDict { sendableArgs[k] = v }
+                    let remapped = Self.remapArgumentKeys(sendableArgs, toolName: converted.function.name, tools: requestTools)
+                    let remappedAny = remapped.mapValues { $0 as Any }
+                    if let newData = try? JSONSerialization.data(withJSONObject: remappedAny, options: [.sortedKeys]),
+                       let newStr = String(data: newData, encoding: .utf8) {
+                        converted = ResponseToolCall(
+                            id: converted.id,
+                            type: converted.type,
+                            function: ResponseToolCallFunction(name: converted.function.name, arguments: newStr)
+                        )
+                    }
+                }
+            }
+            return converted
         }
 
         let promptTokens = completionInfo?.promptTokenCount ?? estimateTokens(promptText)
         let completionTokens = completionInfo?.generationTokenCount ?? estimateTokens(generated)
-        return (modelID, generated, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls)
+        return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls)
     }
 
     func generateStreaming(
@@ -293,7 +452,7 @@ final class MLXModelService: @unchecked Sendable {
         tools: [RequestTool]? = nil,
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil
-    ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int) {
+    ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int, toolCallStartTag: String?, toolCallEndTag: String?) {
         try beginOperation()
         defer { endOperation() }
 
@@ -319,9 +478,10 @@ final class MLXModelService: @unchecked Sendable {
             seed: normalizedSeed(seed),
             computeLogprobs: wantLogprobs,
             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
-            prefillStepSize: 2048
+            prefillStepSize: self.prefillStepSize
         )
 
+        let promptCache = self.promptCache
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             let task = Task {
                 do {
@@ -342,13 +502,60 @@ final class MLXModelService: @unchecked Sendable {
                             }
                         }
 
+                        // Prompt caching: determine cache hit/miss
+                        let useCache = self.enablePrefixCaching && !self.isMultimodalInput(input)
+                        let inputTokens = useCache ? self.extractTokenArray(input) : []
+                        var generationCache: [KVCache]
+                        var generateInput: LMInput
+
+                        if useCache {
+                            var prefixLen = self.findPrefixLength(incoming: inputTokens, currentModelID: modelID)
+                            if prefixLen > 0 {
+                                // Near/exact match: ensure we re-feed at least minSuffix tokens
+                                let minSuffix = 16
+                                let maxPrefix = inputTokens.count - minSuffix
+                                if prefixLen > maxPrefix {
+                                    prefixLen = max(0, maxPrefix)
+                                }
+                                if prefixLen > 0 {
+                                    generationCache = promptCache.cache
+                                    self.trimCacheToLength(generationCache, keepTokens: prefixLen)
+                                    let suffixTokens = Array(inputTokens[prefixLen...])
+                                    generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
+                                    if debugLogging {
+                                        print("[KVCache] Prefix match: \(prefixLen)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix tokens")
+                                    }
+                                } else {
+                                    generationCache = context.model.newCache(parameters: params)
+                                    generateInput = input
+                                    if debugLogging {
+                                        print("[KVCache] Cache miss (prefix < minSuffix), full prefill for \(inputTokens.count) tokens")
+                                    }
+                                }
+                            } else {
+                                generationCache = context.model.newCache(parameters: params)
+                                generateInput = input
+                                if debugLogging {
+                                    print("[KVCache] Cache miss, full prefill for \(inputTokens.count) tokens")
+                                }
+                            }
+                        } else {
+                            generationCache = context.model.newCache(parameters: params)
+                            generateInput = input
+                            if debugLogging {
+                                print("[KVCache] Multimodal input, skipping cache")
+                            }
+                        }
+
                         let activeStops = stop?.filter { !$0.isEmpty } ?? []
                         // Buffer to handle stop strings that span chunk boundaries
                         let maxStopLen = activeStops.map(\.count).max() ?? 0
                         var stopBuffer = ""
+                        let genStart = Date()
+                        var firstTokenTime: Date?
 
                         var pendingLogprobs: [TokenLogprobData]? = nil
-                        for await piece in try MLXLMCommon.generate(input: input, parameters: params, context: context) {
+                        for await piece in try MLXLMCommon.generate(input: generateInput, cache: generationCache, parameters: params, context: context) {
                             if Task.isCancelled {
                                 print("[MLX] Generation cancelled by client")
                                 break
@@ -356,6 +563,7 @@ final class MLXModelService: @unchecked Sendable {
                             if case .tokenLogprobs(let lps) = piece {
                                 pendingLogprobs = lps
                             } else if case .chunk(let text) = piece {
+                                if firstTokenTime == nil { firstTokenTime = Date() }
                                 let resolved: [ResolvedLogprob]?
                                 if let lps = pendingLogprobs {
                                     resolved = self.resolveLogprobs(lps, tokenizer: context.tokenizer)
@@ -402,6 +610,16 @@ final class MLXModelService: @unchecked Sendable {
                         }
                         // Synchronize GPU after generation completes (or breaks early).
                         Stream.gpu.synchronize()
+                        if debugLogging {
+                            let ttft = firstTokenTime.map { $0.timeIntervalSince(genStart) } ?? 0
+                            let total = Date().timeIntervalSince(genStart)
+                            print("[KVCache] Timing: TTFT=\(String(format: "%.3f", ttft))s total=\(String(format: "%.3f", total))s (streaming)")
+                        }
+
+                        // Save prompt cache state (trim generation tokens, keep prompt-only)
+                        if useCache && !inputTokens.isEmpty && !Task.isCancelled {
+                            self.savePromptCacheState(cache: generationCache, promptTokens: inputTokens, modelID: modelID)
+                        }
                     }
                     continuation.finish()
                 } catch {
@@ -413,7 +631,27 @@ final class MLXModelService: @unchecked Sendable {
             }
         }
 
-        return (modelID, stream, promptTokens)
+        // Derive tool call start/end tags for streaming detection
+        let toolTags: (start: String, end: String)?
+        if let tools, !tools.isEmpty {
+            let format = withStateLock({ currentToolCallFormat })
+            if let format {
+                switch format {
+                case .xmlFunction:
+                    // XMLFunctionParser has nil tags; chat template wraps in <tool_call>
+                    toolTags = ("<tool_call>", "</tool_call>")
+                default:
+                    let parser = format.createParser()
+                    toolTags = (parser.startTag ?? "<tool_call>", parser.endTag ?? "</tool_call>")
+                }
+            } else {
+                toolTags = ("<tool_call>", "</tool_call>")
+            }
+        } else {
+            toolTags = nil
+        }
+
+        return (modelID, stream, promptTokens, toolTags?.start, toolTags?.end)
     }
 
     func shutdownAndReleaseResources(verbose: Bool = false, timeoutSeconds: TimeInterval = 30) async {
@@ -427,6 +665,7 @@ final class MLXModelService: @unchecked Sendable {
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
 
+        promptCache.invalidate()
         autoreleasepool {
             withStateLock {
                 currentContainer = nil
@@ -470,8 +709,20 @@ final class MLXModelService: @unchecked Sendable {
     }
 
     /// Convert a vendor ToolCall to an OpenAI-compatible ResponseToolCall.
-    static func convertToolCall(_ tc: ToolCall, index: Int) -> ResponseToolCall {
-        let argsDict = tc.function.arguments.mapValues { $0.anyValue }
+    static func convertToolCall(_ tc: ToolCall, index: Int, paramNameMapping: [String: String] = [:]) -> ResponseToolCall {
+        // Apply parameter name mapping (e.g. snake_case → camelCase) if provided.
+        // Qwen3-Coder converts camelCase param names to snake_case in XML output.
+        let argsDict: [String: Any]
+        if paramNameMapping.isEmpty {
+            argsDict = tc.function.arguments.mapValues { $0.anyValue }
+        } else {
+            var mapped = [String: Any]()
+            for (key, value) in tc.function.arguments {
+                let mappedKey = paramNameMapping[key] ?? key
+                mapped[mappedKey] = value.anyValue
+            }
+            argsDict = mapped
+        }
         let argsJSON: String
         if let data = try? JSONSerialization.data(withJSONObject: argsDict, options: [.sortedKeys]),
            let str = String(data: data, encoding: .utf8) {
@@ -489,10 +740,272 @@ final class MLXModelService: @unchecked Sendable {
         )
     }
 
+    /// Remap tool call argument keys to match the original tool schema.
+    /// Heuristics (in priority order):
+    /// 1. Exact match — key exists in schema → keep as-is
+    /// 2. Case-insensitive match — e.g. "filepath" → "filePath"
+    /// 3. Snake↔Camel match — e.g. "file_path" → "filePath" or "filePath" → "file_path"
+    /// 4. Suffix match — e.g. "path" matches "filePath" (only if exactly one candidate)
+    static func remapArgumentKeys(_ arguments: [String: any Sendable], toolName: String, tools: [RequestTool]) -> [String: any Sendable] {
+        // Find the matching tool schema
+        guard let tool = tools.first(where: { $0.function.name == toolName }),
+              let paramsAny = tool.function.parameters?.toSendable() as? [String: Any],
+              let props = paramsAny["properties"] as? [String: Any] else {
+            return arguments
+        }
+        let schemaKeys = Array(props.keys)
+        let schemaKeysLower = schemaKeys.map { $0.lowercased() }
+
+        var remapped = [String: any Sendable]()
+        for (key, value) in arguments {
+            // 1. Exact match
+            if props[key] != nil {
+                remapped[key] = value
+                continue
+            }
+
+            // 2. Case-insensitive match
+            let keyLower = key.lowercased()
+            if let idx = schemaKeysLower.firstIndex(of: keyLower) {
+                let mapped = schemaKeys[idx]
+                if debugLogging { print("[ToolCallRemap] \(key) → \(mapped) (case-insensitive)") }
+                remapped[mapped] = value
+                continue
+            }
+
+            // 3. Snake↔Camel conversion
+            // Try converting key from snake_case to camelCase
+            let camelized = snakeToCamel(key)
+            if camelized != key, props[camelized] != nil {
+                if debugLogging { print("[ToolCallRemap] \(key) → \(camelized) (snake→camel)") }
+                remapped[camelized] = value
+                continue
+            }
+            // Try converting key from camelCase to snake_case
+            let snaked = camelToSnake(key)
+            if snaked != key, props[snaked] != nil {
+                if debugLogging { print("[ToolCallRemap] \(key) → \(snaked) (camel→snake)") }
+                remapped[snaked] = value
+                continue
+            }
+
+            // 4. Suffix match — model's key is a suffix of exactly one schema key
+            let suffixCandidates = schemaKeys.filter {
+                $0.lowercased().hasSuffix(keyLower) && $0.count > key.count
+            }
+            if suffixCandidates.count == 1 {
+                let mapped = suffixCandidates[0]
+                if debugLogging { print("[ToolCallRemap] \(key) → \(mapped) (suffix)") }
+                remapped[mapped] = value
+                continue
+            }
+
+            // No match — keep original key
+            remapped[key] = value
+        }
+        return remapped
+    }
+
+    /// Convert snake_case to camelCase: "file_path" → "filePath"
+    private static func snakeToCamel(_ s: String) -> String {
+        let parts = s.split(separator: "_", omittingEmptySubsequences: false)
+        guard parts.count > 1 else { return s }
+        return String(parts[0]) + parts.dropFirst().map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined()
+    }
+
+    /// Convert camelCase to snake_case: "filePath" → "file_path"
+    private static func camelToSnake(_ s: String) -> String {
+        var result = ""
+        for (i, char) in s.enumerated() {
+            if char.isUppercase {
+                if i > 0 { result += "_" }
+                result += char.lowercased()
+            } else {
+                result += String(char)
+            }
+        }
+        return result
+    }
+
     /// Generate a random alphanumeric ID for tool call IDs.
     private static func generateCallID() -> String {
         let chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
         return String((0..<24).map { _ in chars.randomElement()! })
+    }
+
+    /// Fallback tool call extraction for formats the vendor parser misses.
+    /// Handles <tool_call><function=name><parameter=key>value</parameter></function></tool_call>
+    /// and <tool_call>{"name":"func","arguments":{...}}</tool_call> patterns.
+    /// Returns extracted ToolCalls and remaining non-tool-call content.
+    static func extractToolCallsFallback(from text: String) -> ([ToolCall], String) {
+        var toolCalls = [ToolCall]()
+        var remaining = text
+
+        // Match <tool_call>...</tool_call> blocks (dotMatchesLineSeparators for multiline)
+        let toolCallRegex = try! NSRegularExpression(
+            pattern: #"<tool_call>\s*(.*?)\s*</tool_call>"#,
+            options: [.dotMatchesLineSeparators]
+        )
+        let matches = toolCallRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+
+        for match in matches.reversed() {
+            guard let innerRange = Range(match.range(at: 1), in: text) else { continue }
+            let inner = String(text[innerRange])
+
+            // Try XML function format: <function=name><parameter=key>value</parameter></function>
+            if let tc = parseXMLFunction(inner) {
+                toolCalls.insert(tc, at: 0)
+                if let fullRange = Range(match.range, in: remaining) {
+                    remaining.removeSubrange(fullRange)
+                }
+                continue
+            }
+
+            // Try JSON format: {"name":"func","arguments":{...}}
+            if let tc = parseJSONToolCall(inner) {
+                toolCalls.insert(tc, at: 0)
+                if let fullRange = Range(match.range, in: remaining) {
+                    remaining.removeSubrange(fullRange)
+                }
+            }
+        }
+
+        // Fallback: Mistral models may emit [TOOL_CALLS] in various formats
+        if toolCalls.isEmpty {
+            let trimmed = remaining.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("[TOOL_CALLS]") {
+                let afterPrefix = String(trimmed.dropFirst("[TOOL_CALLS]".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+
+                // Format 1: [TOOL_CALLS][{"name":"func","arguments":{...}}]
+                if let data = afterPrefix.data(using: .utf8),
+                   let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                    for item in arr {
+                        if let tc = parseJSONToolCall(String(data: (try? JSONSerialization.data(withJSONObject: item)) ?? Data(), encoding: .utf8) ?? "{}") {
+                            toolCalls.append(tc)
+                        }
+                    }
+                    if !toolCalls.isEmpty {
+                        remaining = ""
+                    }
+                }
+
+                // Format 2: [TOOL_CALLS]func_name[ARGS]{"key":"value"}
+                if toolCalls.isEmpty {
+                    let argsPattern = try! NSRegularExpression(
+                        pattern: #"([a-zA-Z_][a-zA-Z0-9_]*)\[ARGS\](\{[\s\S]*?\})(?:\s|$)"#,
+                        options: [])
+                    let matches = argsPattern.matches(in: afterPrefix, range: NSRange(afterPrefix.startIndex..., in: afterPrefix))
+                    for match in matches {
+                        if let nameRange = Range(match.range(at: 1), in: afterPrefix),
+                           let argsRange = Range(match.range(at: 2), in: afterPrefix) {
+                            let name = String(afterPrefix[nameRange])
+                            let argsStr = String(afterPrefix[argsRange])
+                            if let argsData = argsStr.data(using: .utf8),
+                               let argsDict = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any] {
+                                var args: [String: String] = [:]
+                                for (k, v) in argsDict {
+                                    args[k] = "\(v)"
+                                }
+                                toolCalls.append(ToolCall(function: .init(name: name, arguments: args)))
+                            }
+                        }
+                    }
+                    if !toolCalls.isEmpty {
+                        remaining = ""
+                    }
+                }
+            }
+        }
+
+        // Trim leftover whitespace/think tags from remaining
+        remaining = remaining
+            .replacingOccurrences(of: #"<think>\s*</think>"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return (toolCalls, remaining)
+    }
+
+    /// Parse <function=name><parameter=key>value</parameter></function>
+    private static func parseXMLFunction(_ content: String) -> ToolCall? {
+        let funcRegex = try! NSRegularExpression(
+            pattern: #"<function=([^>]+)>(.*?)</function>"#,
+            options: [.dotMatchesLineSeparators]
+        )
+        guard let funcMatch = funcRegex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
+              let nameRange = Range(funcMatch.range(at: 1), in: content),
+              let bodyRange = Range(funcMatch.range(at: 2), in: content) else {
+            return nil
+        }
+
+        let funcName = String(content[nameRange])
+        let body = String(content[bodyRange])
+
+        var arguments: [String: any Sendable] = [:]
+        let paramRegex = try! NSRegularExpression(
+            pattern: #"<parameter=([^>]+)>(.*?)</parameter>"#,
+            options: [.dotMatchesLineSeparators]
+        )
+        let paramMatches = paramRegex.matches(in: body, range: NSRange(body.startIndex..., in: body))
+        for pm in paramMatches {
+            guard let keyRange = Range(pm.range(at: 1), in: body),
+                  let valRange = Range(pm.range(at: 2), in: body) else { continue }
+            let key = String(body[keyRange])
+            var val = String(body[valRange])
+            if val.hasPrefix("\n") { val = String(val.dropFirst()) }
+            if val.hasSuffix("\n") { val = String(val.dropLast()) }
+            // Keep first non-empty value — Qwen3-Coder-Next sometimes emits
+            // duplicate parameters where the second is malformed/empty.
+            // See: https://github.com/anomalyco/opencode/issues/6918
+            if !val.isEmpty, arguments[key] == nil {
+                arguments[key] = val
+            }
+        }
+
+        // Salvage unclosed parameters (e.g. model hit max_tokens mid-content).
+        // Look for <parameter=KEY>VALUE... without a closing </parameter>.
+        let unclosedRegex = try! NSRegularExpression(
+            pattern: #"<parameter=([^>]+)>([\s\S]+)$"#,
+            options: []
+        )
+        if let unclosedMatch = unclosedRegex.firstMatch(in: body, range: NSRange(body.startIndex..., in: body)),
+           let keyRange = Range(unclosedMatch.range(at: 1), in: body),
+           let valRange = Range(unclosedMatch.range(at: 2), in: body) {
+            let key = String(body[keyRange])
+            if arguments[key] == nil {
+                var val = String(body[valRange])
+                if val.hasPrefix("\n") { val = String(val.dropFirst()) }
+                if val.hasSuffix("\n") { val = String(val.dropLast()) }
+                // Strip any trailing </function> tag that may be part of the parent
+                if let funcEnd = val.range(of: "</function>") {
+                    val = String(val[..<funcEnd.lowerBound])
+                    if val.hasSuffix("\n") { val = String(val.dropLast()) }
+                }
+                if !val.isEmpty {
+                    arguments[key] = val
+                    if debugLogging {
+                        print("[ToolCallParser] Salvaged unclosed parameter '\(key)' (\(val.count) chars)")
+                    }
+                }
+            }
+        }
+
+        return ToolCall(function: .init(name: funcName, arguments: arguments))
+    }
+
+    /// Parse {"name":"func","arguments":{...}} JSON tool call
+    private static func parseJSONToolCall(_ content: String) -> ToolCall? {
+        guard let data = content.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let name = json["name"] as? String else {
+            return nil
+        }
+        var arguments: [String: any Sendable] = [:]
+        if let args = (json["arguments"] as? [String: Any]) ?? (json["parameters"] as? [String: Any]) {
+            for (k, v) in args {
+                arguments[k] = v
+            }
+        }
+        return ToolCall(function: .init(name: name, arguments: arguments))
     }
 
     // MARK: - Private helpers
@@ -533,6 +1046,16 @@ final class MLXModelService: @unchecked Sendable {
         } catch {
             throw MLXServiceError.downloadFailed("\(modelID): \(error.localizedDescription)")
         }
+    }
+
+    private func inferToolCallFormat(directory: URL) -> ToolCallFormat? {
+        let configURL = directory.appendingPathComponent("config.json")
+        guard let data = try? Data(contentsOf: configURL),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let modelType = json["model_type"] as? String else {
+            return nil
+        }
+        return ToolCallFormat.infer(from: modelType)
     }
 
     private func isVisionModel(directory: URL) throws -> Bool {
@@ -641,7 +1164,37 @@ final class MLXModelService: @unchecked Sendable {
             return UserInput(prompt: "")
         }
 
-        return UserInput(chat: chatMessages, processing: .init(resize: .init(width: 1024, height: 1024)), tools: tools)
+        var input = UserInput(chat: chatMessages, processing: .init(resize: .init(width: 1024, height: 1024)), tools: tools)
+
+        // When --tool-call-parser is set and tools are present, override the chat template
+        if let parser = toolCallParser, tools != nil, !tools!.isEmpty {
+            let templateOverride: String?
+            switch parser {
+            case "qwen3_xml":
+                templateOverride = Self.qwen3XMLTemplate
+            case "hermes":
+                templateOverride = Self.hermesTemplate
+            case "llama3_json":
+                templateOverride = Self.llama3JSONTemplate
+            case "mistral":
+                templateOverride = Self.mistralTemplate
+            case "gemma":
+                // Gemma uses the model's built-in template; no override needed
+                templateOverride = nil
+            default:
+                print("Warning: unknown tool-call-parser '\(parser)', using default chat template")
+                templateOverride = nil
+            }
+            if let tpl = templateOverride {
+                input.additionalContext = (input.additionalContext ?? [:])
+                input.additionalContext?["chatTemplateOverride"] = tpl
+            }
+            if debugLogging {
+                print("[ToolCallParser] Using \(parser) chat template override")
+            }
+        }
+
+        return input
     }
 
     private func extractImages(from message: Message) throws -> [UserInput.Image] {
@@ -709,6 +1262,60 @@ final class MLXModelService: @unchecked Sendable {
         }
     }
 
+    // MARK: - Prompt cache helpers
+
+    /// Extract a flat array of token IDs from prepared LMInput.
+    private func extractTokenArray(_ input: LMInput) -> [Int] {
+        input.text.tokens.reshaped(-1).asArray(Int.self)
+    }
+
+    /// Find the length of the common token prefix between incoming tokens and the cached state.
+    /// Returns 0 on cache miss (different model, no cache, or no common prefix).
+    private func findPrefixLength(incoming: [Int], currentModelID: String) -> Int {
+        guard promptCache.isValid,
+              promptCache.modelID == currentModelID,
+              !promptCache.cache.isEmpty,
+              !promptCache.promptTokens.isEmpty else {
+            return 0
+        }
+        let cached = promptCache.promptTokens
+        let limit = min(incoming.count, cached.count)
+        var prefixLen = 0
+        while prefixLen < limit && incoming[prefixLen] == cached[prefixLen] {
+            prefixLen += 1
+        }
+        return prefixLen
+    }
+
+    /// Trim KV cache to keep only the first `keepTokens` tokens across all layers.
+    private func trimCacheToLength(_ cache: [KVCache], keepTokens: Int) {
+        for layer in cache {
+            let excess = layer.offset - keepTokens
+            if excess > 0 {
+                layer.trim(excess)
+            }
+        }
+    }
+
+    /// Save prompt-only cache state after generation completes.
+    /// Trims generation tokens from the cache so only prompt tokens remain.
+    private func savePromptCacheState(cache: [KVCache], promptTokens: [Int], modelID: String) {
+        let promptLen = promptTokens.count
+        trimCacheToLength(cache, keepTokens: promptLen)
+        promptCache.cache = cache
+        promptCache.promptTokens = promptTokens
+        promptCache.modelID = modelID
+        promptCache.isValid = true
+        if debugLogging {
+            print("[KVCache] Saved prompt cache: \(promptLen) tokens for model \(modelID)")
+        }
+    }
+
+    /// Check if the LMInput contains multimodal content (images/video) which we don't cache.
+    private func isMultimodalInput(_ input: LMInput) -> Bool {
+        input.image != nil || input.video != nil
+    }
+
     private func normalizedRepetitionPenalty(_ value: Double?) -> Float? {
         guard let value else { return nil }
         if abs(value - 1.0) < 0.000_001 {
@@ -746,5 +1353,449 @@ final class MLXModelService: @unchecked Sendable {
         guard let value else { return nil }
         return UInt64(max(0, value))
     }
+
+    // MARK: - Tool call parser templates
+
+    /// vLLM's tool_chat_template_qwen3coder.jinja — teaches the model the exact XML tool call format.
+    /// Source: https://github.com/vllm-project/vllm/blob/main/examples/tool_chat_template_qwen3coder.jinja
+    static let qwen3XMLTemplate = """
+    {% macro render_extra_keys(json_dict, handled_keys) %}
+        {%- if json_dict is mapping %}
+            {%- for json_key in json_dict if json_key not in handled_keys %}
+                {%- if json_dict[json_key] is mapping or (json_dict[json_key] is sequence and json_dict[json_key] is not string) %}
+                    {{- '\\n<' ~ json_key ~ '>' ~ (json_dict[json_key] | tojson | safe) ~ '</' ~ json_key ~ '>' }}
+                {%- else %}
+                    {{-'\\n<' ~ json_key ~ '>' ~ (json_dict[json_key] | string) ~ '</' ~ json_key ~ '>' }}
+                {%- endif %}
+            {%- endfor %}
+        {%- endif %}
+    {% endmacro %}
+
+    {%- if messages[0]["role"] == "system" %}
+        {%- set system_message = messages[0]["content"] %}
+        {%- set loop_messages = messages[1:] %}
+    {%- else %}
+        {%- set loop_messages = messages %}
+    {%- endif %}
+
+    {%- if not tools is defined %}
+        {%- set tools = [] %}
+    {%- endif %}
+
+    {%- if system_message is defined %}
+        {{- "<|im_start|>system\\n" + system_message }}
+    {%- else %}
+        {%- if tools is iterable and tools | length > 0 %}
+            {{- "<|im_start|>system\\nYou are Qwen, a helpful AI assistant that can interact with a computer to solve tasks." }}
+        {%- endif %}
+    {%- endif %}
+    {%- if tools is iterable and tools | length > 0 %}
+        {{- "\\n\\n# Tools\\n\\nYou have access to the following functions:\\n\\n" }}
+        {{- "<tools>" }}
+        {%- for tool in tools %}
+            {%- if tool.function is defined %}
+                {%- set tool = tool.function %}
+            {%- endif %}
+            {{- "\\n<function>\\n<name>" ~ tool.name ~ "</name>" }}
+            {%- if tool.description is defined %}
+                {{- '\\n<description>' ~ (tool.description | trim) ~ '</description>' }}
+            {%- endif %}
+            {{- '\\n<parameters>' }}
+            {%- if tool.parameters is defined and tool.parameters is mapping and tool.parameters.properties is defined and tool.parameters.properties is mapping %}
+                {%- for param_name, param_fields in tool.parameters.properties|items %}
+                    {{- '\\n<parameter>' }}
+                    {{- '\\n<name>' ~ param_name ~ '</name>' }}
+                    {%- if param_fields.type is defined %}
+                        {{- '\\n<type>' ~ (param_fields.type | string) ~ '</type>' }}
+                    {%- endif %}
+                    {%- if param_fields.description is defined %}
+                        {{- '\\n<description>' ~ (param_fields.description | trim) ~ '</description>' }}
+                    {%- endif %}
+                    {%- set handled_keys = ['name', 'type', 'description'] %}
+                    {{- render_extra_keys(param_fields, handled_keys) }}
+                    {{- '\\n</parameter>' }}
+                {%- endfor %}
+            {%- endif %}
+            {% set handled_keys = ['type', 'properties'] %}
+            {{- render_extra_keys(tool.parameters, handled_keys) }}
+            {{- '\\n</parameters>' }}
+            {%- set handled_keys = ['type', 'name', 'description', 'parameters'] %}
+            {{- render_extra_keys(tool, handled_keys) }}
+            {{- '\\n</function>' }}
+        {%- endfor %}
+        {{- "\\n</tools>" }}
+        {{- '\\nIf you choose to call a function ONLY reply in the following format with NO suffix:\\n\\n<tool_call>\\n<function=example_function_name>\\n<parameter=example_parameter_1>\\nvalue_1\\n</parameter>\\n<parameter=example_parameter_2>\\nThis is the value for the second parameter\\nthat can span\\nmultiple lines\\n</parameter>\\n</function>\\n</tool_call>\\n\\n<IMPORTANT>\\nReminder:\\n- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags\\n- Required parameters MUST be specified\\n- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after\\n- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls\\n</IMPORTANT>' }}
+    {%- endif %}
+    {%- if system_message is defined %}
+        {{- '<|im_end|>\\n' }}
+    {%- else %}
+        {%- if tools is iterable and tools | length > 0 %}
+            {{- '<|im_end|>\\n' }}
+        {%- endif %}
+    {%- endif %}
+    {%- for message in loop_messages %}
+        {%- if message.role == "assistant" and message.tool_calls is defined and message.tool_calls is iterable and message.tool_calls | length > 0 %}
+            {{- '<|im_start|>' + message.role }}
+            {%- if message.content is defined and message.content is string and message.content | trim | length > 0 %}
+                {{- '\\n' + message.content | trim + '\\n' }}
+            {%- endif %}
+            {%- for tool_call in message.tool_calls %}
+                {%- if tool_call.function is defined %}
+                    {%- set tool_call = tool_call.function %}
+                {%- endif %}
+                {{- '\\n<tool_call>\\n<function=' + tool_call.name + '>\\n' }}
+                {%- if tool_call.arguments is defined %}
+                    {%- for args_name, args_value in tool_call.arguments|items %}
+                        {{- '<parameter=' + args_name + '>\\n' }}
+                        {%- set args_value = args_value | tojson | safe if args_value is mapping or (args_value is sequence and args_value is not string) else args_value | string %}
+                        {{- args_value }}
+                        {{- '\\n</parameter>\\n' }}
+                    {%- endfor %}
+                {%- endif %}
+                {{- '</function>\\n</tool_call>' }}
+            {%- endfor %}
+            {{- '<|im_end|>\\n' }}
+        {%- elif message.role == "user" or message.role == "system" or message.role == "assistant" %}
+            {{- '<|im_start|>' + message.role + '\\n' + message.content + '<|im_end|>' + '\\n' }}
+        {%- elif message.role == "tool" %}
+            {%- if loop.previtem and loop.previtem.role != "tool" %}
+                {{- '<|im_start|>user\\n' }}
+            {%- endif %}
+            {{- '<tool_response>\\n' }}
+            {{- message.content }}
+            {{- '\\n</tool_response>\\n' }}
+            {%- if not loop.last and loop.nextitem.role != "tool" %}
+                {{- '<|im_end|>\\n' }}
+            {%- elif loop.last %}
+                {{- '<|im_end|>\\n' }}
+            {%- endif %}
+        {%- else %}
+            {{- '<|im_start|>' + message.role + '\\n' + message.content + '<|im_end|>\\n' }}
+        {%- endif %}
+    {%- endfor %}
+    {%- if add_generation_prompt %}
+        {{- '<|im_start|>assistant\\n' }}
+    {%- endif %}
+    """
+
+    /// vLLM's tool_chat_template_hermes.jinja — ChatML format with <tool_call> JSON wrapping.
+    /// Source: https://github.com/vllm-project/vllm/blob/main/examples/tool_chat_template_hermes.jinja
+    static let hermesTemplate = """
+    {%- macro json_to_python_type(json_spec) %}
+        {%- set basic_type_map = {
+        "string": "str",
+        "number": "float",
+        "integer": "int",
+        "boolean": "bool"
+    } %}
+        {%- if basic_type_map[json_spec.type] is defined %}
+            {{- basic_type_map[json_spec.type] }}
+        {%- elif json_spec.type == "array" %}
+            {{- "list[" +  json_to_python_type(json_spec|items) + "]" }}
+        {%- elif json_spec.type == "object" %}
+            {%- if json_spec.additionalProperties is defined %}
+                {{- "dict[str, " + json_to_python_type(json_spec.additionalProperties) + ']' }}
+            {%- else %}
+                {{- "dict" }}
+            {%- endif %}
+        {%- elif json_spec.type is iterable %}
+            {{- "Union[" }}
+            {%- for t in json_spec.type %}
+                {{- json_to_python_type({"type": t}) }}
+                {%- if not loop.last %}
+                    {{- "," }}
+                {%- endif %}
+            {%- endfor %}
+            {{- "]" }}
+        {%- else %}
+            {{- "Any" }}
+        {%- endif %}
+    {%- endmacro %}
+
+    {{- bos_token }}
+    {{- "<|im_start|>system\\nYou are a function calling AI model. You are provided with function signatures within <tools></tools> XML tags. You may call one or more functions to assist with the user query. Don't make assumptions about what values to plug into functions. Here are the available tools: <tools> " }}
+    {%- if tools is iterable and tools | length > 0 %}
+        {%- for tool in tools %}
+            {%- if tool.function is defined %}
+                {%- set tool = tool.function %}
+            {%- endif %}
+            {{- '{"type": "function", "function": ' }}
+            {{- '{"name": "' + tool.name + '", ' }}
+            {{- '"description": "' + tool.name + '(' }}
+            {%- for param_name, param_fields in tool.parameters.properties|items %}
+                {{- param_name + ": " + json_to_python_type(param_fields) }}
+                {%- if not loop.last %}
+                    {{- ", " }}
+                {%- endif %}
+            {%- endfor %}
+            {{- ")" }}
+            {%- if tool.return is defined %}
+                {{- " -> " + json_to_python_type(tool.return) }}
+            {%- endif %}
+            {{- " - " + tool.description + "\\n\\n" }}
+            {%- for param_name, param_fields in tool.parameters.properties|items %}
+                {%- if loop.first %}
+                    {{- "    Args:\\n" }}
+                {%- endif %}
+                {{- "        " + param_name + "(" + json_to_python_type(param_fields) + "): " + param_fields.description|trim }}
+            {%- endfor %}
+            {%- if tool.return is defined and tool.return.description is defined %}
+                {{- "\\n    Returns:\\n        " + tool.return.description }}
+            {%- endif %}
+            {{- '"' }}
+            {{- ', "parameters": ' }}
+            {%- if tool.parameters.properties | length == 0 %}
+                {{- "{}" }}
+            {%- else %}
+                {{- tool.parameters|tojson }}
+            {%- endif %}
+            {{- "}" }}
+            {%- if not loop.last %}
+                {{- "\\n" }}
+            {%- endif %}
+        {%- endfor %}
+    {%- endif %}
+    {{- " </tools>" }}
+    {{- 'Use the following pydantic model json schema for each tool call you will make: {"properties": {"name": {"title": "Name", "type": "string"}, "arguments": {"title": "Arguments", "type": "object"}}, "required": ["name", "arguments"], "title": "FunctionCall", "type": "object"}\\n' }}
+    {{- "For each function call return a json object with function name and arguments within <tool_call></tool_call> XML tags as follows:\\n" }}
+    {{- "<tool_call>\\n" }}
+    {{- '{"name": <function-name>, "arguments": <args-dict>}\\n' }}
+    {{- '</tool_call><|im_end|>' }}
+    {%- for message in messages %}
+        {%- if message.role == "user" or message.role == "system" or (message.role == "assistant" and message.tool_calls is not defined) %}
+            {{- '<|im_start|>' + message.role + '\\n' + message.content + '<|im_end|>' + '\\n' }}
+        {%- elif message.role == "assistant" and message.tool_calls is defined %}
+            {{- '<|im_start|>' + message.role }}
+            {%- for tool_call in message.tool_calls %}
+                {{- '\\n<tool_call>\\n' }}
+                {%- if tool_call.function is defined %}
+                    {%- set tool_call = tool_call.function %}
+                {%- endif %}
+                {{- '{' }}
+                {{- '"name": "' }}
+                {{- tool_call.name }}
+                {{- '"' }}
+                {%- if tool_call.arguments is defined %}
+                    {{- ', ' }}
+                    {{- '"arguments": ' }}
+                    {{- tool_call.arguments|tojson }}
+                {%- endif %}
+                {{- '}' }}
+                {{- '\\n</tool_call>' }}
+            {%- endfor %}
+            {{- '<|im_end|>\\n' }}
+        {%- elif message.role == "tool" %}
+            {%- if loop.previtem and loop.previtem.role != "tool" %}
+                {{- '<|im_start|>tool\\n' }}
+            {%- endif %}
+            {{- '<tool_response>\\n' }}
+            {{- message.content }}
+            {%- if not loop.last %}
+                {{- '\\n</tool_response>\\n' }}
+            {%- else %}
+                {{- '\\n</tool_response>' }}
+            {%- endif %}
+            {%- if not loop.last and loop.nextitem.role != "tool" %}
+                {{- '<|im_end|>' }}
+            {%- elif loop.last %}
+                {{- '<|im_end|>' }}
+            {%- endif %}
+        {%- endif %}
+    {%- endfor %}
+    {%- if add_generation_prompt %}
+        {{- '<|im_start|>assistant\\n' }}
+    {%- endif %}
+    """
+
+    /// Adapted from vLLM's tool_chat_template_llama3.1_json.jinja — Llama 3.1/3.3 format.
+    /// Modifications: wraps tool calls in <tool_call>/<\/tool_call> for streaming detection,
+    /// uses "arguments" key, removes raise_exception, hardcodes date fallback.
+    /// Source: https://github.com/vllm-project/vllm/blob/main/examples/tool_chat_template_llama3.1_json.jinja
+    static let llama3JSONTemplate = """
+    {{- bos_token }}
+    {%- if custom_tools is defined %}
+        {%- set tools = custom_tools %}
+    {%- endif %}
+    {%- if not tools_in_user_message is defined %}
+        {%- set tools_in_user_message = true %}
+    {%- endif %}
+    {%- if not date_string is defined %}
+        {%- set date_string = "23 Feb 2026" %}
+    {%- endif %}
+    {%- if not tools is defined %}
+        {%- set tools = none %}
+    {%- endif %}
+
+    {%- if messages[0]['role'] == 'system' %}
+        {%- if messages[0]['content'] is string %}
+            {%- set system_message = messages[0]['content']|trim %}
+        {%- else %}
+            {%- set system_message = messages[0]['content'][0]['text']|trim %}
+        {%- endif %}
+        {%- set messages = messages[1:] %}
+    {%- else %}
+        {%- if tools is not none %}
+            {%- set system_message = "You are a helpful assistant with tool calling capabilities. Only reply with a tool call if the function exists in the library provided by the user. If it doesn't exist, just reply directly in natural language. When you receive a tool call response, use the output to format an answer to the original user question." %}
+        {%- else %}
+            {%- set system_message = "" %}
+        {%- endif %}
+    {%- endif %}
+
+    {{- "<|start_header_id|>system<|end_header_id|>\\n\\n" }}
+    {%- if tools is not none %}
+        {{- "Environment: ipython\\n" }}
+    {%- endif %}
+    {{- "Cutting Knowledge Date: December 2023\\n" }}
+    {{- "Today Date: " + date_string + "\\n\\n" }}
+    {%- if tools is not none and not tools_in_user_message %}
+        {{- "You have access to the following functions. To call a function, please respond with JSON for a function call " }}
+        {{- 'wrapped in <tool_call></tool_call> tags with the keys "name" and "arguments".\\n\\n' }}
+        {%- for t in tools %}
+            {{- t | tojson(indent=4) }}
+            {{- "\\n\\n" }}
+        {%- endfor %}
+    {%- endif %}
+    {{- system_message }}
+    {{- "<|eot_id|>" }}
+
+    {%- if tools_in_user_message and not tools is none %}
+        {%- if messages | length != 0 %}
+            {%- if messages[0]['content'] is string %}
+                {%- set first_user_message = messages[0]['content']|trim %}
+            {%- else %}
+                {%- set first_user_message = messages[0]['content'] | selectattr('type', 'equalto', 'text') | map(attribute='text') | map('trim') | join('\\n') %}
+            {%- endif %}
+            {%- set messages = messages[1:] %}
+        {%- else %}
+            {%- set first_user_message = "" %}
+        {%- endif %}
+        {{- '<|start_header_id|>user<|end_header_id|>\\n\\n' -}}
+        {{- "Given the following functions, please respond with a JSON for a function call " }}
+        {{- 'wrapped in <tool_call></tool_call> tags with the keys "name" and "arguments".\\n\\n' }}
+        {%- for t in tools %}
+            {{- t | tojson(indent=4) }}
+            {{- "\\n\\n" }}
+        {%- endfor %}
+        {{- first_user_message + "<|eot_id|>"}}
+    {%- endif %}
+
+    {%- for message in messages %}
+        {%- if not (message.role == 'ipython' or message.role == 'tool' or 'tool_calls' in message) %}
+            {{- '<|start_header_id|>' + message['role'] + '<|end_header_id|>\\n\\n' }}
+            {%- if message['content'] is string %}
+                {{- message['content'] | trim}}
+            {%- else %}
+                {%- for content in message['content'] %}
+                    {%- if content['type'] == 'text' %}
+                        {{- content['text'] | trim }}
+                    {%- endif %}
+                {%- endfor %}
+            {%- endif %}
+            {{- '<|eot_id|>' }}
+        {%- elif 'tool_calls' in message %}
+            {%- set tool_call = message.tool_calls[0].function %}
+            {{- '<|start_header_id|>assistant<|end_header_id|>\\n\\n' -}}
+            {{- '<tool_call>\\n' }}
+            {{- '{"name": "' + tool_call.name + '", ' }}
+            {{- '"arguments": ' }}
+            {{- tool_call.arguments | tojson }}
+            {{- '}\\n' }}
+            {{- '</tool_call>' }}
+            {{- "<|eot_id|>" }}
+        {%- elif message.role == "tool" or message.role == "ipython" %}
+            {{- "<|start_header_id|>ipython<|end_header_id|>\\n\\n" }}
+            {%- if message.content is string %}
+                {{- message.content }}
+            {%- else %}
+                {%- for content in message['content'] %}
+                    {%- if content['type'] == 'text' %}
+                        {{- content['text'] }}
+                    {%- endif %}
+                {%- endfor %}
+            {%- endif %}
+            {{- "<|eot_id|>" }}
+        {%- endif %}
+    {%- endfor %}
+    {%- if add_generation_prompt %}
+        {{- '<|start_header_id|>assistant<|end_header_id|>\\n\\n' }}
+    {%- endif %}
+    """
+
+    /// Adapted from vLLM's tool_chat_template_mistral.jinja — Mistral v7 format.
+    /// Modifications: wraps tool calls in <tool_call>/<\/tool_call> instead of [TOOL_CALLS],
+    /// removes raise_exception calls, simplified tool_call_id handling.
+    /// Source: https://github.com/vllm-project/vllm/blob/main/examples/tool_chat_template_mistral.jinja
+    static let mistralTemplate = """
+    {%- if messages[0]["role"] == "system" %}
+        {%- set system_message = messages[0]["content"] %}
+        {%- set loop_messages = messages[1:] %}
+    {%- else %}
+        {%- set loop_messages = messages %}
+    {%- endif %}
+    {%- if not tools is defined %}
+        {%- set tools = none %}
+    {%- endif %}
+    {%- set user_messages = loop_messages | selectattr("role", "equalto", "user") | list %}
+
+    {{- bos_token }}
+    {%- for message in loop_messages %}
+        {%- if message["role"] == "user" %}
+            {%- if tools is not none and (message == user_messages[-1]) %}
+                {{- "[AVAILABLE_TOOLS] [" }}
+                {%- for tool in tools %}
+                    {%- set tool = tool.function %}
+                    {{- '{"type": "function", "function": {' }}
+                    {%- for key, val in tool.items() if key != "return" %}
+                        {%- if val is string %}
+                            {{- '"' + key + '": "' + val + '"' }}
+                        {%- else %}
+                            {{- '"' + key + '": ' + val|tojson }}
+                        {%- endif %}
+                        {%- if not loop.last %}
+                            {{- ", " }}
+                        {%- endif %}
+                    {%- endfor %}
+                    {{- "}}" }}
+                    {%- if not loop.last %}
+                        {{- ", " }}
+                    {%- else %}
+                        {{- "]" }}
+                    {%- endif %}
+                {%- endfor %}
+                {{- "[/AVAILABLE_TOOLS]" }}
+            {%- endif %}
+            {%- if loop.last and system_message is defined %}
+                {{- "[INST] " + system_message + "\\n\\n" + message["content"] + "[/INST]" }}
+            {%- else %}
+                {{- "[INST] " + message["content"] + "[/INST]" }}
+            {%- endif %}
+        {%- elif message["role"] == "tool_calls" or message.tool_calls is defined %}
+            {%- if message.tool_calls is defined %}
+                {%- set tool_calls = message.tool_calls %}
+            {%- else %}
+                {%- set tool_calls = message.content %}
+            {%- endif %}
+            {%- for tool_call in tool_calls %}
+                {{- "\\n<tool_call>\\n" }}
+                {%- if tool_call.function is defined %}
+                    {{- tool_call.function|tojson }}
+                {%- else %}
+                    {{- tool_call|tojson }}
+                {%- endif %}
+                {{- "\\n</tool_call>" }}
+            {%- endfor %}
+            {{- eos_token }}
+        {%- elif message["role"] == "assistant" %}
+            {{- " " + message["content"] + eos_token }}
+        {%- elif message["role"] == "tool_results" or message["role"] == "tool" %}
+            {%- if message.content is defined and message.content.content is defined %}
+                {%- set content = message.content.content %}
+            {%- else %}
+                {%- set content = message.content %}
+            {%- endif %}
+            {{- '[TOOL_RESULTS] {"content": ' + content|string + '}[/TOOL_RESULTS]' }}
+        {%- endif %}
+    {%- endfor %}
+    """
 
 }
