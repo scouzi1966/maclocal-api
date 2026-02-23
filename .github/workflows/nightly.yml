@@ -1,0 +1,103 @@
+name: Nightly Build
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # daily at 6am UTC
+  workflow_dispatch:       # manual trigger
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Set up Node.js (for webui)
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Build from scratch
+      run: ./Scripts/build-from-scratch.sh
+
+    - name: Create release package
+      run: |
+        SHORT_SHA=$(git rev-parse --short HEAD)
+        DATE=$(date -u +%Y%m%d)
+        mkdir -p release-package
+
+        # Copy binary
+        BIN=".build/arm64-apple-macosx/release/afm"
+        if [ ! -x "$BIN" ]; then
+          BIN=".build/release/afm"
+        fi
+        cp "$BIN" release-package/
+
+        # Copy webui resources
+        if [ -f "Resources/webui/index.html.gz" ]; then
+          mkdir -p release-package/Resources/webui
+          cp Resources/webui/index.html.gz release-package/Resources/webui/
+        fi
+
+        # Copy metallib resource bundle
+        BUNDLE_DIR=$(dirname "$BIN")/MacLocalAPI_MacLocalAPI.bundle
+        if [ -d "$BUNDLE_DIR" ]; then
+          cp -r "$BUNDLE_DIR" release-package/
+        fi
+
+        cp README.md LICENSE release-package/ 2>/dev/null || true
+
+        tar -czf afm-next-arm64.tar.gz -C release-package .
+
+        echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_ENV"
+        echo "BUILD_DATE=${DATE}" >> "$GITHUB_ENV"
+
+    - name: Update nightly release
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # Delete previous nightly release and tag
+        gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+
+        # Create new nightly release
+        gh release create nightly \
+          --prerelease \
+          --title "afm-next (${BUILD_DATE} · ${SHORT_SHA})" \
+          --notes "$(cat <<EOF
+        Nightly build from \`main\` branch.
+
+        - **Commit:** ${SHORT_SHA}
+        - **Date:** ${BUILD_DATE}
+
+        > This is an unstable development build. For the latest stable release, use \`brew install scouzi1966/afm/afm\`.
+
+        Install via Homebrew:
+        \`\`\`
+        brew install scouzi1966/afm/afm-next
+        \`\`\`
+        EOF
+        )" \
+          --target main \
+          afm-next-arm64.tar.gz
+
+    - name: Update tap formula
+      env:
+        TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+      run: |
+        SHA256=$(shasum -a 256 afm-next-arm64.tar.gz | cut -d' ' -f1)
+        VERSION="0.9.5-next.${BUILD_DATE}"
+
+        git clone https://x-access-token:${TAP_TOKEN}@github.com/scouzi1966/homebrew-afm.git tap
+        cd tap
+
+        # Update version and sha256 in formula
+        sed -i '' "s/version \".*\"/version \"${VERSION}\"/" afm-next.rb
+        sed -i '' "s/sha256 \".*\"/sha256 \"${SHA256}\"/" afm-next.rb
+
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add afm-next.rb
+        git commit -m "afm-next ${VERSION} (${SHORT_SHA})"
+        git push
