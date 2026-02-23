@@ -447,12 +447,15 @@ struct MLXChatCompletionsController: RouteCollection {
                                     }
                                 }
 
-                                // Emit closing "}" for the arguments JSON object.
+                                // Emit closing for the arguments JSON object.
+                                // If no parameters were emitted, send "{}" as a complete object;
+                                // otherwise just close with "}".
+                                let closeArgs = incrementalParamCount == 0 ? "{}" : "}"
                                 let closeDelta = StreamDeltaToolCall(
                                     index: incrementalToolIndex,
                                     id: nil,
                                     type: nil,
-                                    function: StreamDeltaFunction(name: nil, arguments: "}")
+                                    function: StreamDeltaFunction(name: nil, arguments: closeArgs)
                                 )
                                 let closeChunk = ChatCompletionStreamResponse(
                                     id: streamId,
@@ -757,12 +760,14 @@ struct MLXChatCompletionsController: RouteCollection {
                             }
                         }
 
-                        // Close the JSON arguments object we started incrementally
+                        // Close the JSON arguments object we started incrementally.
+                        // If no parameters were emitted, send "{}" as a complete object.
+                        let incCloseArgs = incrementalParamCount == 0 ? "{}" : "}"
                         let closeDelta = StreamDeltaToolCall(
                             index: incrementalToolIndex,
                             id: nil,
                             type: nil,
-                            function: StreamDeltaFunction(name: nil, arguments: "}")
+                            function: StreamDeltaFunction(name: nil, arguments: incCloseArgs)
                         )
                         let closeChunk = ChatCompletionStreamResponse(
                             id: streamId,
@@ -818,7 +823,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 // Post-loop fallback: if tools were present but no tool calls detected
                 // by token-level matching, try full-content regex parsing.
                 // This handles edge cases where tags aren't single tokens.
-                if toolCallStartTag != nil && !hasToolCalls && (fullContent.contains("<tool_call>") || fullContent.contains("[TOOL_CALLS]")) {
+                if let startTag = toolCallStartTag, !hasToolCalls && (fullContent.contains(startTag) || fullContent.contains("[TOOL_CALLS]")) {
                     print("\(Self.gold)[\(Self.timestamp())] SEND tool_call: token-level missed, trying fallback parser\(Self.reset)")
                     fflush(stdout)
                     let (parsed, _) = MLXModelService.extractToolCallsFallback(from: fullContent)

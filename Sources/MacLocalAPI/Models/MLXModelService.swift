@@ -94,7 +94,7 @@ final class MLXModelService: @unchecked Sendable {
     private var gpuInitialized = false
     private let promptCache = PromptCacheBox()
     private var currentToolCallFormat: ToolCallFormat?
-    var enablePrefixCaching: Bool = true
+    var enablePrefixCaching: Bool = false
     var prefillStepSize: Int = 2048
     var toolCallParser: String?
     var fixToolArgs: Bool = false
