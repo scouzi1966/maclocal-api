@@ -672,8 +672,20 @@ final class MLXModelService: @unchecked Sendable {
     }
 
     /// Convert a vendor ToolCall to an OpenAI-compatible ResponseToolCall.
-    static func convertToolCall(_ tc: ToolCall, index: Int) -> ResponseToolCall {
-        let argsDict = tc.function.arguments.mapValues { $0.anyValue }
+    static func convertToolCall(_ tc: ToolCall, index: Int, paramNameMapping: [String: String] = [:]) -> ResponseToolCall {
+        // Apply parameter name mapping (e.g. snake_case → camelCase) if provided.
+        // Qwen3-Coder converts camelCase param names to snake_case in XML output.
+        let argsDict: [String: Any]
+        if paramNameMapping.isEmpty {
+            argsDict = tc.function.arguments.mapValues { $0.anyValue }
+        } else {
+            var mapped = [String: Any]()
+            for (key, value) in tc.function.arguments {
+                let mappedKey = paramNameMapping[key] ?? key
+                mapped[mappedKey] = value.anyValue
+            }
+            argsDict = mapped
+        }
         let argsJSON: String
         if let data = try? JSONSerialization.data(withJSONObject: argsDict, options: [.sortedKeys]),
            let str = String(data: data, encoding: .utf8) {

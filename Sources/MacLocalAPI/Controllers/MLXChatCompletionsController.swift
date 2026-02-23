@@ -67,12 +67,11 @@ struct MLXChatCompletionsController: RouteCollection {
         do {
             let chatRequest = try req.content.decode(ChatCompletionRequest.self)
             if veryVerbose {
-                req.logger.info("\(Self.pink)[\(Self.timestamp())] MLX full request: \(encodeJSON(chatRequest))\(Self.reset)")
-                // Log the user's prompt in red for quick scanning
+                req.logger.info("\(Self.pink)[\(Self.timestamp())] RECV MLX full request:\n\(encodeJSON(chatRequest))\(Self.reset)")
                 if let lastUser = chatRequest.messages.last(where: { $0.role == "user" }) {
                     let prompt = lastUser.textContent
                     let truncated = prompt.count > 500 ? String(prompt.prefix(500)) + "..." : prompt
-                    req.logger.info("\(Self.red)[\(Self.timestamp())] MLX user prompt: \(truncated)\(Self.reset)")
+                    req.logger.info("\(Self.red)[\(Self.timestamp())] RECV MLX user prompt:\n  \(truncated)\(Self.reset)")
                 }
             }
             guard !chatRequest.messages.isEmpty else {
@@ -101,7 +100,7 @@ struct MLXChatCompletionsController: RouteCollection {
             let hasTools = chatRequest.tools != nil && !(chatRequest.tools?.isEmpty ?? true)
             if hasTools {
                 let toolNames = chatRequest.tools!.map { $0.function.name }.joined(separator: ", ")
-                req.logger.info("\(Self.gold)[\(Self.timestamp())] MLX tools: [\(toolNames)]\(Self.reset)")
+                req.logger.info("\(Self.gold)[\(Self.timestamp())] RECV tools: [\(toolNames)]\(Self.reset)")
             }
 
             let isWebUI = req.headers.first(name: .origin) != nil
@@ -123,7 +122,7 @@ struct MLXChatCompletionsController: RouteCollection {
             let promptChars = chatRequest.messages.map { $0.textContent.count }.reduce(0, +)
             let stopDesc = chatRequest.stop.map { $0.map { $0.debugDescription }.joined(separator: ", ") }
             req.logger.info(
-                "\(Self.orange)[\(Self.timestamp())] MLX start: stream=false prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens) temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none") top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none") seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
+                "\(Self.orange)[\(Self.timestamp())] MLX start: stream=false\n  prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens)\n  temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\n  top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none")\n  seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
             )
             let result = try await service.generate(
                 model: modelID,
@@ -150,9 +149,9 @@ struct MLXChatCompletionsController: RouteCollection {
             // If we got tool calls, return a tool_calls response
             if let toolCalls = result.toolCalls, !toolCalls.isEmpty {
                 let toolNames = toolCalls.map { $0.function.name }.joined(separator: ", ")
-                req.logger.info("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok) elapsed=\(String(format: "%.2f", elapsed))s tok/s=\(String(format: "%.1f", tokPerSec)) finish_reason=tool_calls\(Self.reset)")
+                req.logger.info("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false\n  prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok)\n  elapsed=\(String(format: "%.2f", elapsed))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=tool_calls\(Self.reset)")
                 for tc in toolCalls {
-                    print("\(Self.gold)[\(Self.timestamp())] MLX tool_call: \(tc.function.name)(\(tc.function.arguments)) id=\(tc.id)\(Self.reset)")
+                    print("\(Self.gold)[\(Self.timestamp())] SEND tool_call: \(tc.function.name)\n  id=\(tc.id)\n  args=\(tc.function.arguments)\(Self.reset)")
                 }
                 fflush(stdout)
 
@@ -165,13 +164,13 @@ struct MLXChatCompletionsController: RouteCollection {
                     completionTokens: estimateTokens(cleanedContent)
                 )
                 if veryVerbose {
-                    req.logger.info("\(Self.teal)[\(Self.timestamp())] MLX full response: \(encodeJSON(response))\(Self.reset)")
+                    req.logger.info("\(Self.teal)[\(Self.timestamp())] SEND full response:\n\(encodeJSON(response))\(Self.reset)")
                 }
                 return try await createSuccessResponse(req: req, response: response)
             }
 
             let stopReason = completionTok >= effectiveMaxTokens ? "length" : "stop"
-            req.logger.info("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok) elapsed=\(String(format: "%.2f", elapsed))s tok/s=\(String(format: "%.1f", tokPerSec)) finish_reason=\(stopReason)\(Self.reset)")
+            req.logger.info("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false\n  prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok)\n  elapsed=\(String(format: "%.2f", elapsed))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=\(stopReason)\(Self.reset)")
 
             // Extract <think>...</think> tags into reasoning_content
             let finalContent: String
@@ -193,7 +192,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 completionTokens: estimateTokens(cleanedContent)
             )
             if veryVerbose {
-                req.logger.info("\(Self.teal)[\(Self.timestamp())] MLX full response: \(encodeJSON(response))\(Self.reset)")
+                req.logger.info("\(Self.teal)[\(Self.timestamp())] SEND full response:\n\(encodeJSON(response))\(Self.reset)")
             }
             return try await createSuccessResponse(req: req, response: response)
         } catch {
@@ -230,7 +229,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 let promptChars = chatRequest.messages.map { $0.textContent.count }.reduce(0, +)
                 let stopDesc = chatRequest.stop.map { $0.map { $0.debugDescription }.joined(separator: ", ") }
                 req.logger.info(
-                    "\(Self.orange)[\(Self.timestamp())] MLX start: stream=true prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens) temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none") top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none") seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
+                    "\(Self.orange)[\(Self.timestamp())] MLX start: stream=true\n  prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens)\n  temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\n  top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none")\n  seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
                 )
                 let res = try await service.generateStreaming(
                     model: modelID,
@@ -282,6 +281,34 @@ struct MLXChatCompletionsController: RouteCollection {
                 var madeToolCall = false
                 var currentToolText = ""
 
+                // Incremental tool call streaming state (OpenAI-compatible).
+                // Emits function name and argument fragments as XML tags complete,
+                // rather than waiting for the entire tool call body.
+                var incrementalEmittedFirst = false
+                var incrementalCallId = ""
+                var incrementalToolIndex = 0
+                var incrementalParamCount = 0
+                var incrementalEmittedKeys = Set<String>()
+
+                // Build snake_case → original parameter name mapping from tool schemas.
+                // Qwen3-Coder converts camelCase param names (e.g. "filePath") to
+                // snake_case in XML output (e.g. "<parameter=file_path>"), so we need
+                // to map them back to the original names the client expects.
+                var paramNameMapping = [String: String]()  // snake_case → original
+                if let tools = chatRequest.tools {
+                    for tool in tools {
+                        if let paramsAny = tool.function.parameters?.toSendable() as? [String: Any],
+                           let props = paramsAny["properties"] as? [String: Any] {
+                            for key in props.keys {
+                                let snaked = Self.toSnakeCase(key)
+                                if snaked != key {
+                                    paramNameMapping[snaked] = key
+                                }
+                            }
+                        }
+                    }
+                }
+
                 var pendingRawTag: String? = nil
                 for try await streamChunk in res.stream {
                     let piece = streamChunk.text
@@ -296,7 +323,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         madeToolCall = true
                         for tc in tcs {
                             collectedToolCalls.append(tc)
-                            print("\(Self.gold)[\(Self.timestamp())] MLX tool_call: \(tc.function.name)(\(tc.function.arguments)) id=\(tc.id)\(Self.reset)")
+                            print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (vendor): \(tc.function.name)\n  id=\(tc.id)\n  args=\(tc.function.arguments)\(Self.reset)")
                             fflush(stdout)
                             let delta = StreamDeltaToolCall(
                                 index: collectedToolCalls.count - 1,
@@ -327,12 +354,39 @@ struct MLXChatCompletionsController: RouteCollection {
                         inToolCall = true
                         madeToolCall = true
                         fullContent += piece
+                        // Flush any remaining thinkBuffer content BEFORE tool call deltas,
+                        // so clients receive text content before tool_calls (correct ordering).
+                        if extractThinking && !thinkBuffer.isEmpty {
+                            let flushed: String?
+                            let flushedReasoning: String?
+                            if insideThinkBlock {
+                                flushedReasoning = thinkBuffer
+                                flushed = nil
+                            } else {
+                                flushed = thinkBuffer
+                                flushedReasoning = nil
+                            }
+                            thinkBuffer = ""
+                            if flushed != nil || flushedReasoning != nil {
+                                let flushChunk = ChatCompletionStreamResponse(
+                                    id: streamId,
+                                    model: res.modelID,
+                                    content: flushed ?? "",
+                                    reasoningContent: flushedReasoning,
+                                    isFirst: false
+                                )
+                                if let flushData = try? encoder.encode(flushChunk),
+                                   let jsonString = String(data: flushData, encoding: .utf8) {
+                                    try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                                }
+                            }
+                        }
                         // Any text after the start tag begins the tool call body
                         if let range = piece.range(of: startTag) {
                             let after = String(piece[range.upperBound...])
                             if !after.isEmpty { currentToolText += after }
                         }
-                        print("\(Self.gold)[\(Self.timestamp())] MLX stream: detected tool call start tag\(Self.reset)")
+                        print("\(Self.gold)[\(Self.timestamp())] RECV <tool_call> start tag\(Self.reset)")
                         fflush(stdout)
                         continue
                     }
@@ -344,45 +398,227 @@ struct MLXChatCompletionsController: RouteCollection {
                                 let before = String(piece[..<range.lowerBound])
                                 if !before.isEmpty { currentToolText += before }
                             }
-                            print("\(Self.gold)[\(Self.timestamp())] MLX stream: detected tool call end tag, body=\(currentToolText.count) chars\(Self.reset)")
+                            print("\(Self.gold)[\(Self.timestamp())] RECV </tool_call> end tag\n  body=\(currentToolText.count) chars\(Self.reset)")
                             fflush(stdout)
-                            // Parse the buffered tool call body
-                            let wrapped = "\(toolCallStartTag!)\(currentToolText)\(toolCallEndTag!)"
-                            let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
-                            if parsed.isEmpty {
-                                print("\(Self.gold)[\(Self.timestamp())] MLX stream: extractToolCallsFallback found 0 tool calls, body:\(Self.reset)")
-                                print(currentToolText)
-                                fflush(stdout)
-                            }
-                            for tc in parsed {
-                                hasToolCalls = true
-                                let rtc = MLXModelService.convertToolCall(tc, index: collectedToolCalls.count)
-                                collectedToolCalls.append(rtc)
-                                print("\(Self.gold)[\(Self.timestamp())] MLX tool_call: \(rtc.function.name)(\(rtc.function.arguments)) id=\(rtc.id)\(Self.reset)")
-                                fflush(stdout)
-                                let delta = StreamDeltaToolCall(
-                                    index: collectedToolCalls.count - 1,
-                                    id: rtc.id,
-                                    type: rtc.type,
-                                    function: StreamDeltaFunction(
-                                        name: rtc.function.name,
-                                        arguments: rtc.function.arguments
-                                    )
+
+                            if incrementalEmittedFirst {
+                                // Run one final parameter scan on the complete tool body
+                                // to catch parameters that completed in the same token as </tool_call>.
+                                let paramPattern = #"<parameter=([^>]+)>([\s\S]*?)</parameter>"#
+                                if let paramRegex = try? NSRegularExpression(pattern: paramPattern, options: [.dotMatchesLineSeparators]) {
+                                    let nsText = currentToolText as NSString
+                                    let matches = paramRegex.matches(in: currentToolText, range: NSRange(location: 0, length: nsText.length))
+                                    for match in matches {
+                                        guard match.numberOfRanges >= 3,
+                                              let keyRange = Range(match.range(at: 1), in: currentToolText),
+                                              let valRange = Range(match.range(at: 2), in: currentToolText) else { continue }
+                                        let rawKey = String(currentToolText[keyRange])
+                                        if incrementalEmittedKeys.contains(rawKey) { continue }
+                                        var value = String(currentToolText[valRange])
+                                        if value.hasPrefix("\n") { value = String(value.dropFirst()) }
+                                        if value.hasSuffix("\n") { value = String(value.dropLast()) }
+                                        if value.isEmpty { continue }
+                                        incrementalEmittedKeys.insert(rawKey)
+                                        let emitKey = paramNameMapping[rawKey] ?? rawKey
+                                        let jsonValue = Self.jsonEncodeString(value)
+                                        let fragment: String
+                                        if incrementalParamCount == 0 {
+                                            fragment = "{\"\(Self.jsonEscapeKey(emitKey))\":\(jsonValue)"
+                                        } else {
+                                            fragment = ",\"\(Self.jsonEscapeKey(emitKey))\":\(jsonValue)"
+                                        }
+                                        incrementalParamCount += 1
+                                        let paramDelta = StreamDeltaToolCall(
+                                            index: incrementalToolIndex,
+                                            id: nil, type: nil,
+                                            function: StreamDeltaFunction(name: nil, arguments: fragment)
+                                        )
+                                        let paramChunk = ChatCompletionStreamResponse(
+                                            id: streamId, model: res.modelID, toolCalls: [paramDelta]
+                                        )
+                                        let paramData = try encoder.encode(paramChunk)
+                                        if let jsonString = String(data: paramData, encoding: .utf8) {
+                                            try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                                        }
+                                    }
+                                }
+
+                                // Emit closing "}" for the arguments JSON object.
+                                let closeDelta = StreamDeltaToolCall(
+                                    index: incrementalToolIndex,
+                                    id: nil,
+                                    type: nil,
+                                    function: StreamDeltaFunction(name: nil, arguments: "}")
                                 )
-                                let tcChunk = ChatCompletionStreamResponse(
+                                let closeChunk = ChatCompletionStreamResponse(
                                     id: streamId,
                                     model: res.modelID,
-                                    toolCalls: [delta]
+                                    toolCalls: [closeDelta]
                                 )
-                                let tcData = try encoder.encode(tcChunk)
-                                if let jsonString = String(data: tcData, encoding: .utf8) {
+                                let closeData = try encoder.encode(closeChunk)
+                                if let jsonString = String(data: closeData, encoding: .utf8) {
                                     try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                                 }
+                                // Build the full tool call for collectedToolCalls record
+                                let wrapped = "\(toolCallStartTag!)\(currentToolText)\(toolCallEndTag!)"
+                                let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
+                                for tc in parsed {
+                                    hasToolCalls = true
+                                    let rtc = MLXModelService.convertToolCall(tc, index: incrementalToolIndex, paramNameMapping: paramNameMapping)
+                                    // Replace the placeholder we added earlier
+                                    if incrementalToolIndex < collectedToolCalls.count {
+                                        collectedToolCalls[incrementalToolIndex] = rtc
+                                    } else {
+                                        collectedToolCalls.append(rtc)
+                                    }
+                                    print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (incremental): \(rtc.function.name)\n  id=\(rtc.id)\n  args=\(rtc.function.arguments)\(Self.reset)")
+                                    fflush(stdout)
+                                }
+                            } else {
+                                // Incremental parsing never kicked in (non-XML format).
+                                // Fall back to single-chunk emission.
+                                let wrapped = "\(toolCallStartTag!)\(currentToolText)\(toolCallEndTag!)"
+                                let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
+                                if parsed.isEmpty {
+                                    print("\(Self.gold)[\(Self.timestamp())] SEND tool_call fallback: found 0 tool calls\n  body=\(currentToolText)\(Self.reset)")
+                                    fflush(stdout)
+                                }
+                                for tc in parsed {
+                                    hasToolCalls = true
+                                    let rtc = MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping)
+                                    collectedToolCalls.append(rtc)
+                                    print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (fallback): \(rtc.function.name)\n  id=\(rtc.id)\n  args=\(rtc.function.arguments)\(Self.reset)")
+                                    fflush(stdout)
+                                    let delta = StreamDeltaToolCall(
+                                        index: collectedToolCalls.count - 1,
+                                        id: rtc.id,
+                                        type: rtc.type,
+                                        function: StreamDeltaFunction(
+                                            name: rtc.function.name,
+                                            arguments: rtc.function.arguments
+                                        )
+                                    )
+                                    let tcChunk = ChatCompletionStreamResponse(
+                                        id: streamId,
+                                        model: res.modelID,
+                                        toolCalls: [delta]
+                                    )
+                                    let tcData = try encoder.encode(tcChunk)
+                                    if let jsonString = String(data: tcData, encoding: .utf8) {
+                                        try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                                    }
+                                }
                             }
+                            // Reset state for next tool call
                             currentToolText = ""
                             inToolCall = false
+                            incrementalEmittedFirst = false
+                            incrementalCallId = ""
+                            incrementalParamCount = 0
+                            incrementalEmittedKeys = Set<String>()
                         } else {
                             currentToolText += piece
+
+                            // --- Incremental XML tag scanning ---
+                            // Try to detect <function=NAME> and complete <parameter=KEY>...</parameter> pairs
+                            // in the accumulated currentToolText and emit JSON argument fragments.
+
+                            // 1. Detect <function=NAME> — emit first delta with name
+                            if !incrementalEmittedFirst,
+                               let funcRange = currentToolText.range(of: #"<function=([^>]+)>"#, options: .regularExpression) {
+                                let matchStr = String(currentToolText[funcRange])
+                                // Extract function name from <function=NAME>
+                                if let nameRange = matchStr.range(of: "="),
+                                   let closeRange = matchStr.range(of: ">", options: .backwards) {
+                                    let funcName = String(matchStr[nameRange.upperBound..<closeRange.lowerBound])
+                                    incrementalCallId = "call_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(24))"
+                                    incrementalToolIndex = collectedToolCalls.count
+                                    // Add a placeholder to collectedToolCalls
+                                    let placeholder = ResponseToolCall(
+                                        id: incrementalCallId,
+                                        type: "function",
+                                        function: ResponseToolCallFunction(name: funcName, arguments: "")
+                                    )
+                                    collectedToolCalls.append(placeholder)
+                                    hasToolCalls = true
+                                    incrementalEmittedFirst = true
+
+                                    // Emit first delta: id, type, name, empty arguments
+                                    let firstDelta = StreamDeltaToolCall(
+                                        index: incrementalToolIndex,
+                                        id: incrementalCallId,
+                                        type: "function",
+                                        function: StreamDeltaFunction(name: funcName, arguments: "")
+                                    )
+                                    let firstChunk = ChatCompletionStreamResponse(
+                                        id: streamId,
+                                        model: res.modelID,
+                                        toolCalls: [firstDelta]
+                                    )
+                                    let firstData = try encoder.encode(firstChunk)
+                                    if let jsonString = String(data: firstData, encoding: .utf8) {
+                                        try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                                    }
+                                    print("\(Self.gold)[\(Self.timestamp())] SEND tool_call name: \(funcName)\n  id=\(incrementalCallId)\(Self.reset)")
+                                    fflush(stdout)
+                                }
+                            }
+
+                            // 2. Detect complete <parameter=KEY>VALUE</parameter> pairs — emit argument fragments
+                            if incrementalEmittedFirst {
+                                // Scan for all complete parameter tags not yet emitted
+                                let paramPattern = #"<parameter=([^>]+)>([\s\S]*?)</parameter>"#
+                                if let paramRegex = try? NSRegularExpression(pattern: paramPattern, options: [.dotMatchesLineSeparators]) {
+                                    let nsText = currentToolText as NSString
+                                    let matches = paramRegex.matches(in: currentToolText, range: NSRange(location: 0, length: nsText.length))
+                                    for match in matches {
+                                        guard match.numberOfRanges >= 3,
+                                              let keyRange = Range(match.range(at: 1), in: currentToolText),
+                                              let valRange = Range(match.range(at: 2), in: currentToolText) else { continue }
+                                        let rawKey = String(currentToolText[keyRange])
+                                        // Skip duplicate parameters (dedup)
+                                        if incrementalEmittedKeys.contains(rawKey) { continue }
+                                        var value = String(currentToolText[valRange])
+                                        // Strip leading/trailing newlines to match parseXMLFunction behavior
+                                        if value.hasPrefix("\n") { value = String(value.dropFirst()) }
+                                        if value.hasSuffix("\n") { value = String(value.dropLast()) }
+                                        // Skip empty values — Qwen3-Coder sometimes emits
+                                        // an empty duplicate first, then the real value.
+                                        // Match extractToolCallsFallback's "first non-empty" logic.
+                                        if value.isEmpty { continue }
+                                        incrementalEmittedKeys.insert(rawKey)
+
+                                        // Map snake_case back to original camelCase name
+                                        // (Qwen3-Coder converts filePath → file_path in XML output)
+                                        let emitKey = paramNameMapping[rawKey] ?? rawKey
+
+                                        let jsonValue = Self.jsonEncodeString(value)
+                                        let fragment: String
+                                        if incrementalParamCount == 0 {
+                                            fragment = "{\"\(Self.jsonEscapeKey(emitKey))\":\(jsonValue)"
+                                        } else {
+                                            fragment = ",\"\(Self.jsonEscapeKey(emitKey))\":\(jsonValue)"
+                                        }
+                                        incrementalParamCount += 1
+
+                                        let paramDelta = StreamDeltaToolCall(
+                                            index: incrementalToolIndex,
+                                            id: nil,
+                                            type: nil,
+                                            function: StreamDeltaFunction(name: nil, arguments: fragment)
+                                        )
+                                        let paramChunk = ChatCompletionStreamResponse(
+                                            id: streamId,
+                                            model: res.modelID,
+                                            toolCalls: [paramDelta]
+                                        )
+                                        let paramData = try encoder.encode(paramChunk)
+                                        if let jsonString = String(data: paramData, encoding: .utf8) {
+                                            try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                                        }
+                                    }
+                                }
+                            }
                         }
                         continue
                     }
@@ -417,11 +653,11 @@ struct MLXChatCompletionsController: RouteCollection {
                                 if let c = emitContent { verboseContentBuf += c }
                                 // Flush verbose log on newlines or when buffer gets large
                                 if verboseReasoningBuf.hasSuffix("\n") || verboseReasoningBuf.count > 200 {
-                                    req.logger.info("\(Self.purple)[\(Self.timestamp())] MLX reasoning (extracted): \(verboseReasoningBuf)\(Self.reset)")
+                                    req.logger.info("\(Self.purple)[\(Self.timestamp())] SEND reasoning:\n  \(verboseReasoningBuf)\(Self.reset)")
                                     verboseReasoningBuf = ""
                                 }
                                 if verboseContentBuf.hasSuffix("\n") || verboseContentBuf.count > 200 {
-                                    req.logger.info("\(Self.teal)[\(Self.timestamp())] MLX content (extracted): \(verboseContentBuf)\(Self.reset)")
+                                    req.logger.info("\(Self.teal)[\(Self.timestamp())] SEND content (chunk):\n  \(verboseContentBuf)\(Self.reset)")
                                     verboseContentBuf = ""
                                 }
                             }
@@ -466,29 +702,60 @@ struct MLXChatCompletionsController: RouteCollection {
 
                 // Handle incomplete tool call (model hit max tokens mid-tool-call)
                 if inToolCall && !currentToolText.isEmpty {
-                    let wrapped = "\(toolCallStartTag!)\(currentToolText)\(toolCallEndTag!)"
-                    let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
-                    for tc in parsed {
-                        hasToolCalls = true
-                        let rtc = MLXModelService.convertToolCall(tc, index: collectedToolCalls.count)
-                        collectedToolCalls.append(rtc)
-                        let delta = StreamDeltaToolCall(
-                            index: collectedToolCalls.count - 1,
-                            id: rtc.id,
-                            type: rtc.type,
-                            function: StreamDeltaFunction(
-                                name: rtc.function.name,
-                                arguments: rtc.function.arguments
-                            )
+                    if incrementalEmittedFirst {
+                        // Close the JSON arguments object we started incrementally
+                        let closeDelta = StreamDeltaToolCall(
+                            index: incrementalToolIndex,
+                            id: nil,
+                            type: nil,
+                            function: StreamDeltaFunction(name: nil, arguments: "}")
                         )
-                        let tcChunk = ChatCompletionStreamResponse(
+                        let closeChunk = ChatCompletionStreamResponse(
                             id: streamId,
                             model: res.modelID,
-                            toolCalls: [delta]
+                            toolCalls: [closeDelta]
                         )
-                        let tcData = try encoder.encode(tcChunk)
-                        if let jsonString = String(data: tcData, encoding: .utf8) {
+                        let closeData = try encoder.encode(closeChunk)
+                        if let jsonString = String(data: closeData, encoding: .utf8) {
                             try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                        }
+                        // Update the placeholder with final parsed data
+                        let wrapped = "\(toolCallStartTag!)\(currentToolText)\(toolCallEndTag!)"
+                        let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
+                        for tc in parsed {
+                            hasToolCalls = true
+                            let rtc = MLXModelService.convertToolCall(tc, index: incrementalToolIndex, paramNameMapping: paramNameMapping)
+                            if incrementalToolIndex < collectedToolCalls.count {
+                                collectedToolCalls[incrementalToolIndex] = rtc
+                            } else {
+                                collectedToolCalls.append(rtc)
+                            }
+                        }
+                    } else {
+                        let wrapped = "\(toolCallStartTag!)\(currentToolText)\(toolCallEndTag!)"
+                        let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
+                        for tc in parsed {
+                            hasToolCalls = true
+                            let rtc = MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping)
+                            collectedToolCalls.append(rtc)
+                            let delta = StreamDeltaToolCall(
+                                index: collectedToolCalls.count - 1,
+                                id: rtc.id,
+                                type: rtc.type,
+                                function: StreamDeltaFunction(
+                                    name: rtc.function.name,
+                                    arguments: rtc.function.arguments
+                                )
+                            )
+                            let tcChunk = ChatCompletionStreamResponse(
+                                id: streamId,
+                                model: res.modelID,
+                                toolCalls: [delta]
+                            )
+                            let tcData = try encoder.encode(tcChunk)
+                            if let jsonString = String(data: tcData, encoding: .utf8) {
+                                try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                            }
                         }
                     }
                 }
@@ -498,13 +765,13 @@ struct MLXChatCompletionsController: RouteCollection {
                 // by token-level matching, try full-content regex parsing.
                 // This handles edge cases where tags aren't single tokens.
                 if toolCallStartTag != nil && !hasToolCalls && fullContent.contains("<tool_call>") {
-                    print("\(Self.gold)[\(Self.timestamp())] MLX stream: token-level detection missed tool calls, trying fallback parser\(Self.reset)")
+                    print("\(Self.gold)[\(Self.timestamp())] SEND tool_call: token-level missed, trying fallback parser\(Self.reset)")
                     fflush(stdout)
                     let (parsed, _) = MLXModelService.extractToolCallsFallback(from: fullContent)
                     if !parsed.isEmpty {
                         hasToolCalls = true
                         for tc in parsed {
-                            let rtc = MLXModelService.convertToolCall(tc, index: collectedToolCalls.count)
+                            let rtc = MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping)
                             collectedToolCalls.append(rtc)
                             let delta = StreamDeltaToolCall(
                                 index: collectedToolCalls.count - 1,
@@ -530,8 +797,8 @@ struct MLXChatCompletionsController: RouteCollection {
 
                 // === LOG IMMEDIATELY after generation, BEFORE any writer.write() calls ===
                 if self.veryVerbose {
-                    if !verboseReasoningBuf.isEmpty { print("\(Self.purple)[\(Self.timestamp())] MLX reasoning (extracted): \(verboseReasoningBuf)\(Self.reset)") }
-                    if !verboseContentBuf.isEmpty { print("\(Self.teal)[\(Self.timestamp())] MLX content (extracted): \(verboseContentBuf)\(Self.reset)") }
+                    if !verboseReasoningBuf.isEmpty { print("\(Self.purple)[\(Self.timestamp())] SEND reasoning:\n  \(verboseReasoningBuf)\(Self.reset)") }
+                    if !verboseContentBuf.isEmpty { print("\(Self.teal)[\(Self.timestamp())] SEND content (chunk):\n  \(verboseContentBuf)\(Self.reset)") }
                 }
                 let promptTokens = realPromptTokens ?? res.promptTokens
                 let completionTokens = realCompletionTokens ?? self.estimateTokens(fullContent)
@@ -540,19 +807,20 @@ struct MLXChatCompletionsController: RouteCollection {
                 let finishReason: String
                 if hasToolCalls {
                     finishReason = "tool_calls"
-                    print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true prompt_tokens=\(promptTokens) completion_tokens=\(completionTokens) elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec)) finish_reason=tool_calls\(Self.reset)")
+                    print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true\n  prompt_tokens=\(promptTokens) completion_tokens=\(completionTokens)\n  elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=tool_calls\(Self.reset)")
                 } else {
                     finishReason = completionTokens >= effectiveMaxTokens ? "length" : "stop"
                     let (finalAnswer, _) = Self.extractThinkContent(from: fullContent)
                     let trimmedAnswer = finalAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmedAnswer.isEmpty {
-                        print("\(Self.teal)[\(Self.timestamp())] MLX answer: \(trimmedAnswer)\(Self.reset)")
+                    if !trimmedAnswer.isEmpty && !self.veryVerbose {
+                        // Only show full answer in non-verbose mode (verbose already streams fragments above)
+                        print("\(Self.teal)[\(Self.timestamp())] MLX full answer:\n  \(trimmedAnswer)\(Self.reset)")
                     }
-                    print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true prompt_tokens=\(promptTokens) completion_tokens=\(completionTokens) elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec)) finish_reason=\(finishReason)\(Self.reset)")
+                    print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true\n  prompt_tokens=\(promptTokens) completion_tokens=\(completionTokens)\n  elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=\(finishReason)\(Self.reset)")
                 }
                 if self.veryVerbose {
                     let usageLog = StreamUsage(promptTokens: promptTokens, completionTokens: completionTokens, completionTime: generationDuration, promptTime: 0)
-                    print("\(Self.teal)[\(Self.timestamp())] MLX stream final usage: \(self.encodeJSON(usageLog))\(Self.reset)")
+                    print("\(Self.teal)[\(Self.timestamp())] SEND usage:\n  \(self.encodeJSON(usageLog))\(Self.reset)")
                 }
                 fflush(stdout)
 
@@ -613,9 +881,9 @@ struct MLXChatCompletionsController: RouteCollection {
                 let (finalAnswer, _) = Self.extractThinkContent(from: fullContent)
                 let trimmedAnswer = finalAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmedAnswer.isEmpty {
-                    print("\(Self.teal)[\(Self.timestamp())] MLX answer: \(trimmedAnswer)\(Self.reset)")
+                    print("\(Self.teal)[\(Self.timestamp())] MLX full answer (before error):\n  \(trimmedAnswer)\(Self.reset)")
                 }
-                print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true completion_tokens=\(completionTokens) elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec)) error=\(error.localizedDescription)\(Self.reset)")
+                print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true\n  completion_tokens=\(completionTokens)\n  elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec))\n  error=\(error.localizedDescription)\(Self.reset)")
                 fflush(stdout)
                 req.logger.error("[\(Self.timestamp())] MLX stream error: \(error)")
                 let errorChunk = ChatCompletionStreamResponse(
@@ -803,6 +1071,46 @@ struct MLXChatCompletionsController: RouteCollection {
             )
         }
         return ChoiceLogprobs(content: content)
+    }
+
+    /// JSON-encode a string value with proper escaping, including surrounding quotes.
+    static func jsonEncodeString(_ s: String) -> String {
+        // Wrap in array so JSONSerialization accepts it, then strip the brackets.
+        if let data = try? JSONSerialization.data(withJSONObject: [s]),
+           let str = String(data: data, encoding: .utf8),
+           str.hasPrefix("["), str.hasSuffix("]") {
+            // str is e.g. ["hello \"world\""] — strip [ and ]
+            let inner = str.dropFirst().dropLast()
+            return String(inner)
+        }
+        // Fallback: manual escaping
+        let escaped = s.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\t", with: "\\t")
+        return "\"\(escaped)\""
+    }
+
+    /// Escape a JSON object key (minimal: just backslash and quote).
+    static func jsonEscapeKey(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\")
+         .replacingOccurrences(of: "\"", with: "\\\"")
+    }
+
+    /// Convert camelCase to snake_case (e.g. "filePath" → "file_path").
+    /// Used to build reverse mapping for Qwen3-Coder's parameter name conversion.
+    static func toSnakeCase(_ s: String) -> String {
+        var result = ""
+        for (i, char) in s.enumerated() {
+            if char.isUppercase {
+                if i > 0 { result += "_" }
+                result += char.lowercased()
+            } else {
+                result += String(char)
+            }
+        }
+        return result
     }
 
     private func encodeJSON<T: Encodable>(_ value: T) -> String {
