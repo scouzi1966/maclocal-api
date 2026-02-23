@@ -433,6 +433,10 @@ class FoundationModelService {
 
     /// Generate a guided (structured) streaming response using constrained decoding.
     /// Converts the OpenAI JSON Schema to Apple's GenerationSchema internally.
+    ///
+    /// Note: Apple's guided generation streams partial JSON *snapshots* (the entire
+    /// structure mutates, not just appends). We diff successive snapshots to emit
+    /// append-only deltas that are compatible with SSE streaming consumers.
     func generateGuidedStreamingResponse(
         for messages: [Message],
         jsonSchema: ResponseJsonSchema,
@@ -460,11 +464,21 @@ class FoundationModelService {
 
                 do {
                     let options = try self.createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
-                    // Guided generation streams partial JSON snapshots where the structure
-                    // mutates (not just appends), so we collect and yield the final result.
-                    let response = try await session.streamResponse(to: prompt, schema: schema, options: options).collect()
-                    let jsonString = response.content.jsonString
-                    continuation.yield(jsonString)
+                    let stream = session.streamResponse(to: prompt, schema: schema, options: options)
+                    var previousJson = ""
+                    for try await partialResponse in stream {
+                        let currentJson = partialResponse.content.jsonString
+                        // Emit only the new suffix (delta) when the snapshot extends
+                        if currentJson.count > previousJson.count && currentJson.hasPrefix(previousJson) {
+                            let delta = String(currentJson.dropFirst(previousJson.count))
+                            continuation.yield(delta)
+                        } else if currentJson != previousJson {
+                            // Structure mutated (not a simple append) — emit full snapshot
+                            // This is rare but possible with guided generation
+                            continuation.yield(currentJson)
+                        }
+                        previousJson = currentJson
+                    }
                     continuation.finish()
                 } catch {
                     if let contextError = FoundationModelError.parseContextWindowError(error) {

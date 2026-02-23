@@ -99,8 +99,40 @@ enum JSONSchemaConverter {
             return DynamicGenerationSchema(name: anyOfName, anyOf: converted)
         }
 
-        // Get the type field
-        guard let typeVal = obj["type"], case .string(let type) = typeVal else {
+        // Get the type field — supports both string and array forms
+        let type: String
+        if let typeVal = obj["type"] {
+            if case .string(let t) = typeVal {
+                type = t
+            } else if case .array(let types) = typeVal {
+                // Union type e.g. ["string", "null"] — convert to anyOf
+                let nonNullTypes = types.compactMap { v -> String? in
+                    if case .string(let s) = v, s != "null" { return s }
+                    return nil
+                }
+                let hasNull = types.contains { if case .string(let s) = $0 { return s == "null" } else { return false } }
+
+                if nonNullTypes.isEmpty {
+                    throw SchemaConversionError.unsupportedType("null (Apple Foundation Models does not support null type)")
+                }
+                if nonNullTypes.count == 1 && !hasNull {
+                    // Single-element array like ["string"] — treat as plain type
+                    type = nonNullTypes[0]
+                } else {
+                    // Build anyOf from the non-null types, wrapping each as a schema node
+                    var variants: [DynamicGenerationSchema] = []
+                    for t in nonNullTypes {
+                        var childObj = obj
+                        childObj["type"] = .string(t)
+                        variants.append(try convertSchema(.object(childObj), name: name, defs: defs))
+                    }
+                    let anyOfName = name.isEmpty ? "nullable" : name
+                    return DynamicGenerationSchema(name: anyOfName, anyOf: variants)
+                }
+            } else {
+                throw SchemaConversionError.missingRequiredField("type")
+            }
+        } else {
             throw SchemaConversionError.missingRequiredField("type")
         }
 
@@ -126,9 +158,7 @@ enum JSONSchemaConverter {
             return try convertArray(obj, description: description, defs: defs)
 
         case "null":
-            // Null type — represent as a string enum with empty value
-            let nullName = name.isEmpty ? "null" : name
-            return DynamicGenerationSchema(name: nullName, anyOf: [""])
+            throw SchemaConversionError.unsupportedType("null (Apple Foundation Models does not support null type)")
 
         default:
             throw SchemaConversionError.unsupportedType(type)
