@@ -188,6 +188,9 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "VLM hint (compatibility)")
     var vlm: Bool = false
 
+    @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible)")
+    var guidedJson: String?
+
     @Flag(name: .long, help: "Print OpenClaw provider config JSON and exit")
     var openclawConfig: Bool = false
 
@@ -351,13 +354,19 @@ struct MlxCommand: ParsableCommand {
                 var messages = [Message]()
                 messages.append(Message(role: "system", content: self.instructions))
                 messages.append(Message(role: "user", content: prompt))
+                var responseFormat: ResponseFormat? = nil
+                if let guidedJson = self.guidedJson {
+                    let schema = try parseGuidedJsonSchema(guidedJson)
+                    responseFormat = ResponseFormat(type: "json_schema", jsonSchema: schema)
+                }
                 let res = try await service.generate(
                     model: modelID,
                     messages: messages,
                     temperature: temperature,
                     maxTokens: maxTokens,
                     topP: topP,
-                    repetitionPenalty: repetitionPenalty
+                    repetitionPenalty: repetitionPenalty,
+                    responseFormat: responseFormat
                 )
                 output = .success(res.content)
             } catch {
@@ -513,28 +522,28 @@ struct RootCommand: ParsableCommand {
         version: MacLocalAPI.buildVersion,
         subcommands: [MlxCommand.self, VisionCommand.self]
     )
-    
+
     @Option(name: [.customShort("s"), .long], help: "Run a single prompt without starting the server")
     var singlePrompt: String?
-    
+
     @Option(name: [.short, .long], help: "Custom instructions for the AI assistant")
     var instructions: String = "You are a helpful assistant"
-    
+
     @Flag(name: .shortAndLong, help: "Enable verbose logging")
     var verbose: Bool = false
 
     @Flag(name: [.customShort("V"), .long], help: "Enable very verbose logging (full requests/responses and all parameters)")
     var veryVerbose: Bool = false
-    
+
     @Flag(name: .long, help: "Disable streaming responses (streaming is enabled by default)")
     var noStreaming: Bool = false
-    
+
     @Option(name: [.customShort("a"), .long], help: "Path to a .fmadapter file for LoRA adapter fine-tuning")
     var adapter: String?
-    
+
     @Option(name: .shortAndLong, help: "Port to run the server on")
     var port: Int = 9999
-    
+
     @Option(name: [.customShort("H"), .long], help: "Hostname to bind server to")
     var hostname: String = "127.0.0.1"
 
@@ -552,6 +561,9 @@ struct RootCommand: ParsableCommand {
 
     @Flag(name: [.customShort("g"), .long], help: "Enable API gateway mode: discover and proxy to local LLM backends (Ollama, LM Studio, Jan, etc.)")
     var gateway: Bool = false
+
+    @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible)")
+    var guidedJson: String?
 
     @Option(name: .long, help: "Pre-warm the model on server startup for faster first response (y/n, default: y)")
     var prewarm: String = "y"
@@ -935,7 +947,13 @@ extension RootCommand {
                     DebugLogger.log("FoundationModelService initialized successfully")
                     let message = Message(role: "user", content: prompt)
                     DebugLogger.log("Generating response...")
-                    let response = try await foundationService.generateResponse(for: [message], temperature: temperature, randomness: randomness)
+                    let response: String
+                    if let guidedJson = self.guidedJson {
+                        let schema = try parseGuidedJsonSchema(guidedJson)
+                        response = try await foundationService.generateGuidedResponse(for: [message], jsonSchema: schema, temperature: temperature, randomness: randomness)
+                    } else {
+                        response = try await foundationService.generateResponse(for: [message], temperature: temperature, randomness: randomness)
+                    }
                     DebugLogger.log("Response generated successfully")
                     result = .success(response)
                 } else {
@@ -966,4 +984,20 @@ extension RootCommand {
             throw ExitCode.failure
         }
     }
+}
+
+// MARK: - Guided JSON schema parsing
+
+func parseGuidedJsonSchema(_ jsonString: String) throws -> ResponseJsonSchema {
+    guard let data = jsonString.data(using: .utf8),
+          let jsonObj = try? JSONSerialization.jsonObject(with: data),
+          jsonObj is [String: Any] else {
+        throw ValidationError("Invalid JSON schema: must be a valid JSON object")
+    }
+    return ResponseJsonSchema(
+        name: "guided",
+        description: nil,
+        schema: AnyCodable(jsonObj),
+        strict: true
+    )
 }

@@ -108,6 +108,7 @@ enum FoundationModelError: Error, LocalizedError {
     case invalidRandomnessParameter(String)
     case contextWindowExceeded(provided: Int, maximum: Int)
     case guardrailViolation(String)
+    case schemaConversionFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -125,6 +126,8 @@ enum FoundationModelError: Error, LocalizedError {
             return "Context window exceeded: Your conversation has \(provided) tokens but the maximum is \(maximum). Please start a new conversation or reduce the message length."
         case .guardrailViolation(let message):
             return "Content policy violation: \(message)"
+        case .schemaConversionFailed(let message):
+            return "Schema conversion failed: \(message)"
         }
     }
 
@@ -387,6 +390,98 @@ class FoundationModelService {
         }
     }
     
+    /// Generate a guided (structured) response using constrained decoding.
+    /// Converts the OpenAI JSON Schema to Apple's GenerationSchema internally.
+    func generateGuidedResponse(
+        for messages: [Message],
+        jsonSchema: ResponseJsonSchema,
+        temperature: Double? = nil,
+        randomness: String? = nil,
+        maxTokens: Int? = nil
+    ) async throws -> String {
+        #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
+        guard let session = session else {
+            throw FoundationModelError.sessionCreationFailed
+        }
+
+        let schema: GenerationSchema
+        do {
+            schema = try JSONSchemaConverter.convert(jsonSchema)
+        } catch {
+            throw FoundationModelError.schemaConversionFailed(error.localizedDescription)
+        }
+
+        let prompt = formatMessagesAsPrompt(messages)
+
+        do {
+            let options = try createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
+            let response = try await session.respond(to: prompt, schema: schema, options: options)
+            return response.content.jsonString
+        } catch {
+            if let contextError = FoundationModelError.parseContextWindowError(error) {
+                throw contextError
+            }
+            if let guardrailError = FoundationModelError.parseGuardrailError(error) {
+                throw guardrailError
+            }
+            throw FoundationModelError.responseGenerationFailed(error.localizedDescription)
+        }
+        #else
+        throw FoundationModelError.notAvailable
+        #endif
+    }
+
+    /// Generate a guided (structured) streaming response using constrained decoding.
+    /// Converts the OpenAI JSON Schema to Apple's GenerationSchema internally.
+    func generateGuidedStreamingResponse(
+        for messages: [Message],
+        jsonSchema: ResponseJsonSchema,
+        temperature: Double? = nil,
+        randomness: String? = nil,
+        maxTokens: Int? = nil
+    ) -> AsyncThrowingStream<String, Error> {
+        return AsyncThrowingStream { continuation in
+            Task {
+                #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
+                guard let session = self.session else {
+                    continuation.finish(throwing: FoundationModelError.sessionCreationFailed)
+                    return
+                }
+
+                let schema: GenerationSchema
+                do {
+                    schema = try JSONSchemaConverter.convert(jsonSchema)
+                } catch {
+                    continuation.finish(throwing: FoundationModelError.schemaConversionFailed(error.localizedDescription))
+                    return
+                }
+
+                let prompt = self.formatMessagesAsPrompt(messages)
+
+                do {
+                    let options = try self.createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
+                    // Guided generation streams partial JSON snapshots where the structure
+                    // mutates (not just appends), so we collect and yield the final result.
+                    let response = try await session.streamResponse(to: prompt, schema: schema, options: options).collect()
+                    let jsonString = response.content.jsonString
+                    continuation.yield(jsonString)
+                    continuation.finish()
+                } catch {
+                    if let contextError = FoundationModelError.parseContextWindowError(error) {
+                        continuation.finish(throwing: contextError)
+                    } else if let guardrailError = FoundationModelError.parseGuardrailError(error) {
+                        continuation.finish(throwing: guardrailError)
+                    } else {
+                        continuation.finish(throwing: FoundationModelError.responseGenerationFailed(error.localizedDescription))
+                    }
+                }
+                #else
+                continuation.finish(throwing: FoundationModelError.notAvailable)
+                #endif
+            }
+        }
+    }
+
     #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
     private func createGenerationOptions(temperature: Double?, randomness: String?, maxTokens: Int? = nil) throws -> GenerationOptions {
         // Default to 2000 tokens when max_tokens is absent or non-positive.
