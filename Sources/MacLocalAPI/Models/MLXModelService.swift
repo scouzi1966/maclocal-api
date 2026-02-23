@@ -65,6 +65,24 @@ enum MLXServiceError: Error, LocalizedError {
     }
 }
 
+/// Thread-safe container for KV cache state across requests.
+/// Marked @unchecked Sendable because access is serialized through ModelContainer.perform.
+private final class PromptCacheBox: @unchecked Sendable {
+    var promptTokens: [Int] = []
+    var cache: [KVCache] = []
+    var modelID: String = ""
+    var isValid: Bool = false
+
+    func invalidate() {
+        promptTokens = []
+        cache = []
+        modelID = ""
+        isValid = false
+    }
+}
+
+private let debugLogging = ProcessInfo.processInfo.environment["AFM_DEBUG"].map { $0 == "1" } ?? false
+
 final class MLXModelService: @unchecked Sendable {
     private let resolver: MLXCacheResolver
     private let registry = MLXModelRegistry()
@@ -74,6 +92,10 @@ final class MLXModelService: @unchecked Sendable {
     private var activeOperations: Int = 0
     private var isShuttingDown = false
     private var gpuInitialized = false
+    private let promptCache = PromptCacheBox()
+    private var currentToolCallFormat: ToolCallFormat?
+    var enablePrefixCaching: Bool = true
+    var prefillStepSize: Int = 2048
     init(resolver: MLXCacheResolver) {
         self.resolver = resolver
         self.resolver.applyEnvironment()
@@ -153,8 +175,12 @@ final class MLXModelService: @unchecked Sendable {
             throw MLXServiceError.modelNotFoundInCache(modelID)
         }
 
-        let config = ModelConfiguration(directory: directory)
+        var config = ModelConfiguration(directory: directory)
         let isVLM = try isVisionModel(directory: directory)
+
+        // Auto-detect tool call format from model type (vendor LLMModelFactory lost this code)
+        let detectedFormat = inferToolCallFormat(directory: directory)
+        config.toolCallFormat = detectedFormat
         stage?(.loadingModel)
         do {
             let loaded: ModelContainer
@@ -166,7 +192,9 @@ final class MLXModelService: @unchecked Sendable {
             withStateLock {
                 currentContainer = loaded
                 currentModelID = modelID
+                currentToolCallFormat = detectedFormat
             }
+            promptCache.invalidate()
             try registry.registerModel(modelID)
             stage?(.ready)
             return modelID
@@ -216,15 +244,23 @@ final class MLXModelService: @unchecked Sendable {
             seed: normalizedSeed(seed),
             computeLogprobs: wantLogprobs,
             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
-            prefillStepSize: 2048
+            prefillStepSize: self.prefillStepSize
         )
 
         var collectedLogprobs = [TokenLogprobData]()
         var resolvedLogprobs: [ResolvedLogprob]? = nil
         var collectedToolCalls = [ToolCall]()
         var completionInfo: GenerateCompletionInfo? = nil
+        let promptCache = self.promptCache
         let generated: String = try await container.perform { context in
             let input = try await context.processor.prepare(input: userInput)
+
+            // DEBUG: decode and print the full prompt to see what the template produced
+            if debugLogging {
+                let allTokens = input.text.tokens.reshaped(-1).asArray(Int.self)
+                let decoded = context.tokenizer.decode(tokens: allTokens)
+                print("[DEBUG] Full tokenized prompt (\(allTokens.count) tokens):\n\(decoded)\n[/DEBUG]")
+            }
 
             // If the chat template appended <think>, prepend it so extractors can detect it
             let tokens = input.text.tokens
@@ -240,9 +276,67 @@ final class MLXModelService: @unchecked Sendable {
                 }
             }
 
+            // Prompt caching: determine cache hit/miss
+            let useCache = self.enablePrefixCaching && !self.isMultimodalInput(input)
+            let inputTokens = useCache ? self.extractTokenArray(input) : []
+            var generationCache: [KVCache]
+            var generateInput: LMInput
+
+            if useCache {
+                var prefixLen = self.findPrefixLength(incoming: inputTokens, currentModelID: modelID)
+                if prefixLen > 0 {
+                    // Near/exact match: ensure we re-feed at least minSuffix tokens
+                    // to give the model enough context for stable generation.
+                    // 1 token is fragile (can cause immediate EOS); 16 is a safe margin.
+                    let minSuffix = 16
+                    let maxPrefix = inputTokens.count - minSuffix
+                    if prefixLen > maxPrefix {
+                        prefixLen = max(0, maxPrefix)
+                    }
+                    if prefixLen > 0 {
+                        // Reuse cached KV cache, trimmed to prefix length
+                        generationCache = promptCache.cache
+                        self.trimCacheToLength(generationCache, keepTokens: prefixLen)
+                        // Build suffix-only input
+                        let suffixTokens = Array(inputTokens[prefixLen...])
+                        generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
+                        if debugLogging {
+                            print("[KVCache] Prefix match: \(prefixLen)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix tokens")
+                        }
+                    } else {
+                        // Prefix too short after minSuffix adjustment, do full prefill
+                        generationCache = context.model.newCache(parameters: params)
+                        generateInput = input
+                        if debugLogging {
+                            print("[KVCache] Cache miss (prefix \(self.findPrefixLength(incoming: inputTokens, currentModelID: modelID)) < minSuffix), full prefill for \(inputTokens.count) tokens")
+                        }
+                    }
+                } else {
+                    // Cache miss: fresh cache
+                    generationCache = context.model.newCache(parameters: params)
+                    generateInput = input
+                    if debugLogging {
+                        print("[KVCache] Cache miss, full prefill for \(inputTokens.count) tokens")
+                    }
+                }
+            } else {
+                // Multimodal input: no caching
+                generationCache = context.model.newCache(parameters: params)
+                generateInput = input
+                if debugLogging {
+                    print("[KVCache] Multimodal input, skipping cache")
+                }
+            }
+
             let activeStops = stop?.filter { !$0.isEmpty } ?? []
-            for await piece in try MLXLMCommon.generate(input: input, parameters: params, context: context) {
+            let genStart = Date()
+            var firstTokenTime: Date?
+            for await piece in try MLXLMCommon.generate(input: generateInput, cache: generationCache, parameters: params, context: context) {
+                if debugLogging {
+                    print("[DEBUG] Generation piece: \(piece)")
+                }
                 if case .chunk(let text) = piece {
+                    if firstTokenTime == nil { firstTokenTime = Date() }
                     out += text
                     if !activeStops.isEmpty, let match = activeStops.first(where: { out.contains($0) }) {
                         if let range = out.range(of: match) {
@@ -253,6 +347,9 @@ final class MLXModelService: @unchecked Sendable {
                 } else if case .tokenLogprobs(let lps) = piece {
                     collectedLogprobs.append(contentsOf: lps)
                 } else if case .toolCall(let tc) = piece {
+                    if debugLogging {
+                        print("[DEBUG] Tool call detected: \(tc.function.name)(\(tc.function.arguments))")
+                    }
                     collectedToolCalls.append(tc)
                 } else if case .info(let info) = piece {
                     completionInfo = info
@@ -260,6 +357,18 @@ final class MLXModelService: @unchecked Sendable {
             }
 
             Stream.gpu.synchronize()
+            if debugLogging {
+                let ttft = firstTokenTime.map { $0.timeIntervalSince(genStart) } ?? 0
+                let total = Date().timeIntervalSince(genStart)
+                let promptTok = completionInfo?.promptTokenCount ?? 0
+                let genTok = completionInfo?.generationTokenCount ?? 0
+                print("[KVCache] Timing: TTFT=\(String(format: "%.3f", ttft))s total=\(String(format: "%.3f", total))s prompt_tokens=\(promptTok) gen_tokens=\(genTok)")
+            }
+
+            // Save prompt cache state (trim generation tokens, keep prompt-only)
+            if useCache && !inputTokens.isEmpty {
+                self.savePromptCacheState(cache: generationCache, promptTokens: inputTokens, modelID: modelID)
+            }
 
             if wantLogprobs && !collectedLogprobs.isEmpty {
                 resolvedLogprobs = self.resolveLogprobs(collectedLogprobs, tokenizer: context.tokenizer)
@@ -268,13 +377,26 @@ final class MLXModelService: @unchecked Sendable {
             return out
         }
 
-        let responseToolCalls: [ResponseToolCall]? = collectedToolCalls.isEmpty ? nil : collectedToolCalls.enumerated().map { (i, tc) in
+        // If the vendor ToolCallProcessor didn't detect tool calls, try fallback parsing.
+        // Qwen3-Coder outputs <tool_call><function=name>...</function></tool_call> which
+        // the vendor's XMLFunctionParser misses (regex doesn't match multiline content).
+        var finalToolCalls = collectedToolCalls
+        var finalContent = generated
+        if finalToolCalls.isEmpty && tools != nil {
+            let (parsed, remaining) = Self.extractToolCallsFallback(from: generated)
+            if !parsed.isEmpty {
+                finalToolCalls = parsed
+                finalContent = remaining
+            }
+        }
+
+        let responseToolCalls: [ResponseToolCall]? = finalToolCalls.isEmpty ? nil : finalToolCalls.enumerated().map { (i, tc) in
             Self.convertToolCall(tc, index: i)
         }
 
         let promptTokens = completionInfo?.promptTokenCount ?? estimateTokens(promptText)
         let completionTokens = completionInfo?.generationTokenCount ?? estimateTokens(generated)
-        return (modelID, generated, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls)
+        return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls)
     }
 
     func generateStreaming(
@@ -293,7 +415,7 @@ final class MLXModelService: @unchecked Sendable {
         tools: [RequestTool]? = nil,
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil
-    ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int) {
+    ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int, toolCallStartTag: String?, toolCallEndTag: String?) {
         try beginOperation()
         defer { endOperation() }
 
@@ -319,9 +441,10 @@ final class MLXModelService: @unchecked Sendable {
             seed: normalizedSeed(seed),
             computeLogprobs: wantLogprobs,
             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
-            prefillStepSize: 2048
+            prefillStepSize: self.prefillStepSize
         )
 
+        let promptCache = self.promptCache
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             let task = Task {
                 do {
@@ -342,13 +465,60 @@ final class MLXModelService: @unchecked Sendable {
                             }
                         }
 
+                        // Prompt caching: determine cache hit/miss
+                        let useCache = self.enablePrefixCaching && !self.isMultimodalInput(input)
+                        let inputTokens = useCache ? self.extractTokenArray(input) : []
+                        var generationCache: [KVCache]
+                        var generateInput: LMInput
+
+                        if useCache {
+                            var prefixLen = self.findPrefixLength(incoming: inputTokens, currentModelID: modelID)
+                            if prefixLen > 0 {
+                                // Near/exact match: ensure we re-feed at least minSuffix tokens
+                                let minSuffix = 16
+                                let maxPrefix = inputTokens.count - minSuffix
+                                if prefixLen > maxPrefix {
+                                    prefixLen = max(0, maxPrefix)
+                                }
+                                if prefixLen > 0 {
+                                    generationCache = promptCache.cache
+                                    self.trimCacheToLength(generationCache, keepTokens: prefixLen)
+                                    let suffixTokens = Array(inputTokens[prefixLen...])
+                                    generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
+                                    if debugLogging {
+                                        print("[KVCache] Prefix match: \(prefixLen)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix tokens")
+                                    }
+                                } else {
+                                    generationCache = context.model.newCache(parameters: params)
+                                    generateInput = input
+                                    if debugLogging {
+                                        print("[KVCache] Cache miss (prefix < minSuffix), full prefill for \(inputTokens.count) tokens")
+                                    }
+                                }
+                            } else {
+                                generationCache = context.model.newCache(parameters: params)
+                                generateInput = input
+                                if debugLogging {
+                                    print("[KVCache] Cache miss, full prefill for \(inputTokens.count) tokens")
+                                }
+                            }
+                        } else {
+                            generationCache = context.model.newCache(parameters: params)
+                            generateInput = input
+                            if debugLogging {
+                                print("[KVCache] Multimodal input, skipping cache")
+                            }
+                        }
+
                         let activeStops = stop?.filter { !$0.isEmpty } ?? []
                         // Buffer to handle stop strings that span chunk boundaries
                         let maxStopLen = activeStops.map(\.count).max() ?? 0
                         var stopBuffer = ""
+                        let genStart = Date()
+                        var firstTokenTime: Date?
 
                         var pendingLogprobs: [TokenLogprobData]? = nil
-                        for await piece in try MLXLMCommon.generate(input: input, parameters: params, context: context) {
+                        for await piece in try MLXLMCommon.generate(input: generateInput, cache: generationCache, parameters: params, context: context) {
                             if Task.isCancelled {
                                 print("[MLX] Generation cancelled by client")
                                 break
@@ -356,6 +526,7 @@ final class MLXModelService: @unchecked Sendable {
                             if case .tokenLogprobs(let lps) = piece {
                                 pendingLogprobs = lps
                             } else if case .chunk(let text) = piece {
+                                if firstTokenTime == nil { firstTokenTime = Date() }
                                 let resolved: [ResolvedLogprob]?
                                 if let lps = pendingLogprobs {
                                     resolved = self.resolveLogprobs(lps, tokenizer: context.tokenizer)
@@ -402,6 +573,16 @@ final class MLXModelService: @unchecked Sendable {
                         }
                         // Synchronize GPU after generation completes (or breaks early).
                         Stream.gpu.synchronize()
+                        if debugLogging {
+                            let ttft = firstTokenTime.map { $0.timeIntervalSince(genStart) } ?? 0
+                            let total = Date().timeIntervalSince(genStart)
+                            print("[KVCache] Timing: TTFT=\(String(format: "%.3f", ttft))s total=\(String(format: "%.3f", total))s (streaming)")
+                        }
+
+                        // Save prompt cache state (trim generation tokens, keep prompt-only)
+                        if useCache && !inputTokens.isEmpty && !Task.isCancelled {
+                            self.savePromptCacheState(cache: generationCache, promptTokens: inputTokens, modelID: modelID)
+                        }
                     }
                     continuation.finish()
                 } catch {
@@ -413,7 +594,27 @@ final class MLXModelService: @unchecked Sendable {
             }
         }
 
-        return (modelID, stream, promptTokens)
+        // Derive tool call start/end tags for streaming detection
+        let toolTags: (start: String, end: String)?
+        if let tools, !tools.isEmpty {
+            let format = withStateLock({ currentToolCallFormat })
+            if let format {
+                switch format {
+                case .xmlFunction:
+                    // XMLFunctionParser has nil tags; chat template wraps in <tool_call>
+                    toolTags = ("<tool_call>", "</tool_call>")
+                default:
+                    let parser = format.createParser()
+                    toolTags = (parser.startTag ?? "<tool_call>", parser.endTag ?? "</tool_call>")
+                }
+            } else {
+                toolTags = ("<tool_call>", "</tool_call>")
+            }
+        } else {
+            toolTags = nil
+        }
+
+        return (modelID, stream, promptTokens, toolTags?.start, toolTags?.end)
     }
 
     func shutdownAndReleaseResources(verbose: Bool = false, timeoutSeconds: TimeInterval = 30) async {
@@ -427,6 +628,7 @@ final class MLXModelService: @unchecked Sendable {
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
 
+        promptCache.invalidate()
         autoreleasepool {
             withStateLock {
                 currentContainer = nil
@@ -495,6 +697,106 @@ final class MLXModelService: @unchecked Sendable {
         return String((0..<24).map { _ in chars.randomElement()! })
     }
 
+    /// Fallback tool call extraction for formats the vendor parser misses.
+    /// Handles <tool_call><function=name><parameter=key>value</parameter></function></tool_call>
+    /// and <tool_call>{"name":"func","arguments":{...}}</tool_call> patterns.
+    /// Returns extracted ToolCalls and remaining non-tool-call content.
+    static func extractToolCallsFallback(from text: String) -> ([ToolCall], String) {
+        var toolCalls = [ToolCall]()
+        var remaining = text
+
+        // Match <tool_call>...</tool_call> blocks (dotMatchesLineSeparators for multiline)
+        let toolCallRegex = try! NSRegularExpression(
+            pattern: #"<tool_call>\s*(.*?)\s*</tool_call>"#,
+            options: [.dotMatchesLineSeparators]
+        )
+        let matches = toolCallRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+
+        for match in matches.reversed() {
+            guard let innerRange = Range(match.range(at: 1), in: text) else { continue }
+            let inner = String(text[innerRange])
+
+            // Try XML function format: <function=name><parameter=key>value</parameter></function>
+            if let tc = parseXMLFunction(inner) {
+                toolCalls.insert(tc, at: 0)
+                if let fullRange = Range(match.range, in: remaining) {
+                    remaining.removeSubrange(fullRange)
+                }
+                continue
+            }
+
+            // Try JSON format: {"name":"func","arguments":{...}}
+            if let tc = parseJSONToolCall(inner) {
+                toolCalls.insert(tc, at: 0)
+                if let fullRange = Range(match.range, in: remaining) {
+                    remaining.removeSubrange(fullRange)
+                }
+            }
+        }
+
+        // Trim leftover whitespace/think tags from remaining
+        remaining = remaining
+            .replacingOccurrences(of: #"<think>\s*</think>"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return (toolCalls, remaining)
+    }
+
+    /// Parse <function=name><parameter=key>value</parameter></function>
+    private static func parseXMLFunction(_ content: String) -> ToolCall? {
+        let funcRegex = try! NSRegularExpression(
+            pattern: #"<function=([^>]+)>(.*?)</function>"#,
+            options: [.dotMatchesLineSeparators]
+        )
+        guard let funcMatch = funcRegex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
+              let nameRange = Range(funcMatch.range(at: 1), in: content),
+              let bodyRange = Range(funcMatch.range(at: 2), in: content) else {
+            return nil
+        }
+
+        let funcName = String(content[nameRange])
+        let body = String(content[bodyRange])
+
+        var arguments: [String: any Sendable] = [:]
+        let paramRegex = try! NSRegularExpression(
+            pattern: #"<parameter=([^>]+)>(.*?)</parameter>"#,
+            options: [.dotMatchesLineSeparators]
+        )
+        let paramMatches = paramRegex.matches(in: body, range: NSRange(body.startIndex..., in: body))
+        for pm in paramMatches {
+            guard let keyRange = Range(pm.range(at: 1), in: body),
+                  let valRange = Range(pm.range(at: 2), in: body) else { continue }
+            let key = String(body[keyRange])
+            var val = String(body[valRange])
+            if val.hasPrefix("\n") { val = String(val.dropFirst()) }
+            if val.hasSuffix("\n") { val = String(val.dropLast()) }
+            // Keep first non-empty value — Qwen3-Coder-Next sometimes emits
+            // duplicate parameters where the second is malformed/empty.
+            // See: https://github.com/anomalyco/opencode/issues/6918
+            if !val.isEmpty, arguments[key] == nil {
+                arguments[key] = val
+            }
+        }
+
+        return ToolCall(function: .init(name: funcName, arguments: arguments))
+    }
+
+    /// Parse {"name":"func","arguments":{...}} JSON tool call
+    private static func parseJSONToolCall(_ content: String) -> ToolCall? {
+        guard let data = content.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let name = json["name"] as? String else {
+            return nil
+        }
+        var arguments: [String: any Sendable] = [:]
+        if let args = json["arguments"] as? [String: Any] {
+            for (k, v) in args {
+                arguments[k] = v
+            }
+        }
+        return ToolCall(function: .init(name: name, arguments: arguments))
+    }
+
     // MARK: - Private helpers
 
     private func beginOperation() throws {
@@ -533,6 +835,16 @@ final class MLXModelService: @unchecked Sendable {
         } catch {
             throw MLXServiceError.downloadFailed("\(modelID): \(error.localizedDescription)")
         }
+    }
+
+    private func inferToolCallFormat(directory: URL) -> ToolCallFormat? {
+        let configURL = directory.appendingPathComponent("config.json")
+        guard let data = try? Data(contentsOf: configURL),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let modelType = json["model_type"] as? String else {
+            return nil
+        }
+        return ToolCallFormat.infer(from: modelType)
     }
 
     private func isVisionModel(directory: URL) throws -> Bool {
@@ -707,6 +1019,60 @@ final class MLXModelService: @unchecked Sendable {
                 topTokens: topTokens
             )
         }
+    }
+
+    // MARK: - Prompt cache helpers
+
+    /// Extract a flat array of token IDs from prepared LMInput.
+    private func extractTokenArray(_ input: LMInput) -> [Int] {
+        input.text.tokens.reshaped(-1).asArray(Int.self)
+    }
+
+    /// Find the length of the common token prefix between incoming tokens and the cached state.
+    /// Returns 0 on cache miss (different model, no cache, or no common prefix).
+    private func findPrefixLength(incoming: [Int], currentModelID: String) -> Int {
+        guard promptCache.isValid,
+              promptCache.modelID == currentModelID,
+              !promptCache.cache.isEmpty,
+              !promptCache.promptTokens.isEmpty else {
+            return 0
+        }
+        let cached = promptCache.promptTokens
+        let limit = min(incoming.count, cached.count)
+        var prefixLen = 0
+        while prefixLen < limit && incoming[prefixLen] == cached[prefixLen] {
+            prefixLen += 1
+        }
+        return prefixLen
+    }
+
+    /// Trim KV cache to keep only the first `keepTokens` tokens across all layers.
+    private func trimCacheToLength(_ cache: [KVCache], keepTokens: Int) {
+        for layer in cache {
+            let excess = layer.offset - keepTokens
+            if excess > 0 {
+                layer.trim(excess)
+            }
+        }
+    }
+
+    /// Save prompt-only cache state after generation completes.
+    /// Trims generation tokens from the cache so only prompt tokens remain.
+    private func savePromptCacheState(cache: [KVCache], promptTokens: [Int], modelID: String) {
+        let promptLen = promptTokens.count
+        trimCacheToLength(cache, keepTokens: promptLen)
+        promptCache.cache = cache
+        promptCache.promptTokens = promptTokens
+        promptCache.modelID = modelID
+        promptCache.isValid = true
+        if debugLogging {
+            print("[KVCache] Saved prompt cache: \(promptLen) tokens for model \(modelID)")
+        }
+    }
+
+    /// Check if the LMInput contains multimodal content (images/video) which we don't cache.
+    private func isMultimodalInput(_ input: LMInput) -> Bool {
+        input.image != nil || input.video != nil
     }
 
     private func normalizedRepetitionPenalty(_ value: Double?) -> Float? {

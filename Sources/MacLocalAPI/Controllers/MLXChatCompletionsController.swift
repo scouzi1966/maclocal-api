@@ -272,7 +272,16 @@ struct MLXChatCompletionsController: RouteCollection {
                 var realPromptTokens: Int? = nil
                 var realCompletionTokens: Int? = nil
 
-                // True token streaming: forward every chunk as it is generated.
+                // Token-level tool call detection (mlx-lm style).
+                // Instead of buffering ALL content when tools are present, detect
+                // tool call start/end tags per-token. Content outside tool calls
+                // streams normally; only the tool call body is buffered and parsed.
+                let toolCallStartTag = res.toolCallStartTag
+                let toolCallEndTag = res.toolCallEndTag
+                var inToolCall = false
+                var madeToolCall = false
+                var currentToolText = ""
+
                 var pendingRawTag: String? = nil
                 for try await streamChunk in res.stream {
                     let piece = streamChunk.text
@@ -281,14 +290,14 @@ struct MLXChatCompletionsController: RouteCollection {
                     if let pt = streamChunk.promptTokens { realPromptTokens = pt }
                     if let ct = streamChunk.completionTokens { realCompletionTokens = ct }
 
-                    // Handle tool call chunks from the service
+                    // Handle tool call chunks from the vendor parser
                     if let tcs = streamChunk.toolCalls, !tcs.isEmpty {
                         hasToolCalls = true
+                        madeToolCall = true
                         for tc in tcs {
                             collectedToolCalls.append(tc)
                             print("\(Self.gold)[\(Self.timestamp())] MLX tool_call: \(tc.function.name)(\(tc.function.arguments)) id=\(tc.id)\(Self.reset)")
                             fflush(stdout)
-                            // Emit tool call delta: first chunk has id+type+name, then arguments
                             let delta = StreamDeltaToolCall(
                                 index: collectedToolCalls.count - 1,
                                 id: tc.id,
@@ -307,6 +316,73 @@ struct MLXChatCompletionsController: RouteCollection {
                             if let jsonString = String(data: tcData, encoding: .utf8) {
                                 try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                             }
+                        }
+                        continue
+                    }
+
+                    // Token-level tool call tag detection (before think extraction).
+                    // Uses contains() for robustness: detokenizer may merge tokens
+                    // or add whitespace around special tokens.
+                    if let startTag = toolCallStartTag, !inToolCall, piece.contains(startTag) {
+                        inToolCall = true
+                        madeToolCall = true
+                        fullContent += piece
+                        // Any text after the start tag begins the tool call body
+                        if let range = piece.range(of: startTag) {
+                            let after = String(piece[range.upperBound...])
+                            if !after.isEmpty { currentToolText += after }
+                        }
+                        print("\(Self.gold)[\(Self.timestamp())] MLX stream: detected tool call start tag\(Self.reset)")
+                        fflush(stdout)
+                        continue
+                    }
+                    if inToolCall {
+                        fullContent += piece
+                        if let endTag = toolCallEndTag, piece.contains(endTag) {
+                            // Text before end tag is part of tool call body
+                            if let range = piece.range(of: endTag) {
+                                let before = String(piece[..<range.lowerBound])
+                                if !before.isEmpty { currentToolText += before }
+                            }
+                            print("\(Self.gold)[\(Self.timestamp())] MLX stream: detected tool call end tag, body=\(currentToolText.count) chars\(Self.reset)")
+                            fflush(stdout)
+                            // Parse the buffered tool call body
+                            let wrapped = "\(toolCallStartTag!)\(currentToolText)\(toolCallEndTag!)"
+                            let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
+                            if parsed.isEmpty {
+                                print("\(Self.gold)[\(Self.timestamp())] MLX stream: extractToolCallsFallback found 0 tool calls, body:\(Self.reset)")
+                                print(currentToolText)
+                                fflush(stdout)
+                            }
+                            for tc in parsed {
+                                hasToolCalls = true
+                                let rtc = MLXModelService.convertToolCall(tc, index: collectedToolCalls.count)
+                                collectedToolCalls.append(rtc)
+                                print("\(Self.gold)[\(Self.timestamp())] MLX tool_call: \(rtc.function.name)(\(rtc.function.arguments)) id=\(rtc.id)\(Self.reset)")
+                                fflush(stdout)
+                                let delta = StreamDeltaToolCall(
+                                    index: collectedToolCalls.count - 1,
+                                    id: rtc.id,
+                                    type: rtc.type,
+                                    function: StreamDeltaFunction(
+                                        name: rtc.function.name,
+                                        arguments: rtc.function.arguments
+                                    )
+                                )
+                                let tcChunk = ChatCompletionStreamResponse(
+                                    id: streamId,
+                                    model: res.modelID,
+                                    toolCalls: [delta]
+                                )
+                                let tcData = try encoder.encode(tcChunk)
+                                if let jsonString = String(data: tcData, encoding: .utf8) {
+                                    try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                                }
+                            }
+                            currentToolText = ""
+                            inToolCall = false
+                        } else {
+                            currentToolText += piece
                         }
                         continue
                     }
@@ -333,7 +409,9 @@ struct MLXChatCompletionsController: RouteCollection {
                         let emitReasoning = extracted.reasoning
 
                         // Only emit a chunk if we have something to send
-                        if emitContent != nil || emitReasoning != nil {
+                        let hasReasoning = emitReasoning != nil
+                        let hasContent = emitContent != nil
+                        if hasReasoning || hasContent {
                             if self.veryVerbose {
                                 if let r = emitReasoning { verboseReasoningBuf += r }
                                 if let c = emitContent { verboseContentBuf += c }
@@ -386,6 +464,70 @@ struct MLXChatCompletionsController: RouteCollection {
                     }
                 }
 
+                // Handle incomplete tool call (model hit max tokens mid-tool-call)
+                if inToolCall && !currentToolText.isEmpty {
+                    let wrapped = "\(toolCallStartTag!)\(currentToolText)\(toolCallEndTag!)"
+                    let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
+                    for tc in parsed {
+                        hasToolCalls = true
+                        let rtc = MLXModelService.convertToolCall(tc, index: collectedToolCalls.count)
+                        collectedToolCalls.append(rtc)
+                        let delta = StreamDeltaToolCall(
+                            index: collectedToolCalls.count - 1,
+                            id: rtc.id,
+                            type: rtc.type,
+                            function: StreamDeltaFunction(
+                                name: rtc.function.name,
+                                arguments: rtc.function.arguments
+                            )
+                        )
+                        let tcChunk = ChatCompletionStreamResponse(
+                            id: streamId,
+                            model: res.modelID,
+                            toolCalls: [delta]
+                        )
+                        let tcData = try encoder.encode(tcChunk)
+                        if let jsonString = String(data: tcData, encoding: .utf8) {
+                            try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                        }
+                    }
+                }
+                if madeToolCall { hasToolCalls = true }
+
+                // Post-loop fallback: if tools were present but no tool calls detected
+                // by token-level matching, try full-content regex parsing.
+                // This handles edge cases where tags aren't single tokens.
+                if toolCallStartTag != nil && !hasToolCalls && fullContent.contains("<tool_call>") {
+                    print("\(Self.gold)[\(Self.timestamp())] MLX stream: token-level detection missed tool calls, trying fallback parser\(Self.reset)")
+                    fflush(stdout)
+                    let (parsed, _) = MLXModelService.extractToolCallsFallback(from: fullContent)
+                    if !parsed.isEmpty {
+                        hasToolCalls = true
+                        for tc in parsed {
+                            let rtc = MLXModelService.convertToolCall(tc, index: collectedToolCalls.count)
+                            collectedToolCalls.append(rtc)
+                            let delta = StreamDeltaToolCall(
+                                index: collectedToolCalls.count - 1,
+                                id: rtc.id,
+                                type: rtc.type,
+                                function: StreamDeltaFunction(
+                                    name: rtc.function.name,
+                                    arguments: rtc.function.arguments
+                                )
+                            )
+                            let tcChunk = ChatCompletionStreamResponse(
+                                id: streamId,
+                                model: res.modelID,
+                                toolCalls: [delta]
+                            )
+                            let tcData = try encoder.encode(tcChunk)
+                            if let jsonString = String(data: tcData, encoding: .utf8) {
+                                try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                            }
+                        }
+                    }
+                }
+
                 // === LOG IMMEDIATELY after generation, BEFORE any writer.write() calls ===
                 if self.veryVerbose {
                     if !verboseReasoningBuf.isEmpty { print("\(Self.purple)[\(Self.timestamp())] MLX reasoning (extracted): \(verboseReasoningBuf)\(Self.reset)") }
@@ -415,6 +557,8 @@ struct MLXChatCompletionsController: RouteCollection {
                 fflush(stdout)
 
                 // === Now flush remaining buffer to client (writer calls may hang/throw) ===
+                // Flush remaining thinkBuffer content (tool call tags are handled
+                // above and never enter the thinkBuffer, so this is safe).
                 if extractThinking && !thinkBuffer.isEmpty {
                     let remaining: String?
                     let remainingReasoning: String?
