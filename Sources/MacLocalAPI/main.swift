@@ -190,6 +190,12 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "VLM hint (compatibility)")
     var vlm: Bool = false
 
+    @Option(name: .long, help: "Tool call parser override: hermes, llama3_json, gemma, mistral, qwen3_xml. Forces a custom chat template and tool call format for reliable tool calling.")
+    var toolCallParser: String?
+
+    @Flag(name: .long, help: "Post-process tool call argument names to match the original tool schema (fixes model renaming e.g. path→filePath)")
+    var fixToolArgs: Bool = false
+
     @Flag(name: .long, help: "Print OpenClaw provider config JSON and exit")
     var openclawConfig: Bool = false
 
@@ -204,6 +210,8 @@ struct MlxCommand: ParsableCommand {
         let resolver = MLXCacheResolver()
         let service = MLXModelService(resolver: resolver)
         service.enablePrefixCaching = enablePrefixCaching
+        service.toolCallParser = toolCallParser
+        service.fixToolArgs = fixToolArgs
         if let prefillStepSize { service.prefillStepSize = prefillStepSize }
         _ = try service.revalidateRegistry()
 

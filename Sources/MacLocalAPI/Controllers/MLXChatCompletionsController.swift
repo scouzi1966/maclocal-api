@@ -290,11 +290,11 @@ struct MLXChatCompletionsController: RouteCollection {
                 var incrementalParamCount = 0
                 var incrementalEmittedKeys = Set<String>()
 
-                // Build snake_case → original parameter name mapping from tool schemas.
-                // Qwen3-Coder converts camelCase param names (e.g. "filePath") to
-                // snake_case in XML output (e.g. "<parameter=file_path>"), so we need
-                // to map them back to the original names the client expects.
-                var paramNameMapping = [String: String]()  // snake_case → original
+                // Build parameter name mapping from tool schemas.
+                // When --fix-tool-args is enabled, we build a comprehensive mapping
+                // that handles case-insensitive, snake↔camel, and suffix matches.
+                // Otherwise, just the basic snake_case → camelCase mapping for Qwen3-Coder.
+                var paramNameMapping = [String: String]()  // model-emitted-key → original
                 if let tools = chatRequest.tools {
                     for tool in tools {
                         if let paramsAny = tool.function.parameters?.toSendable() as? [String: Any],
@@ -419,7 +419,11 @@ struct MLXChatCompletionsController: RouteCollection {
                                         if value.hasSuffix("\n") { value = String(value.dropLast()) }
                                         if value.isEmpty { continue }
                                         incrementalEmittedKeys.insert(rawKey)
-                                        let emitKey = paramNameMapping[rawKey] ?? rawKey
+                                        var emitKey = paramNameMapping[rawKey] ?? rawKey
+                                        if emitKey == rawKey {
+                                            let funcName = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
+                                            emitKey = self.remapSingleKey(rawKey, toolName: funcName, tools: chatRequest.tools)
+                                        }
                                         let jsonValue = Self.jsonEncodeString(value)
                                         let fragment: String
                                         if incrementalParamCount == 0 {
@@ -464,7 +468,7 @@ struct MLXChatCompletionsController: RouteCollection {
                                 let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
                                 for tc in parsed {
                                     hasToolCalls = true
-                                    let rtc = MLXModelService.convertToolCall(tc, index: incrementalToolIndex, paramNameMapping: paramNameMapping)
+                                    let rtc = self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: incrementalToolIndex, paramNameMapping: paramNameMapping), tools: chatRequest.tools)
                                     // Replace the placeholder we added earlier
                                     if incrementalToolIndex < collectedToolCalls.count {
                                         collectedToolCalls[incrementalToolIndex] = rtc
@@ -485,7 +489,7 @@ struct MLXChatCompletionsController: RouteCollection {
                                 }
                                 for tc in parsed {
                                     hasToolCalls = true
-                                    let rtc = MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping)
+                                    let rtc = self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools)
                                     collectedToolCalls.append(rtc)
                                     print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (fallback): \(rtc.function.name)\n  id=\(rtc.id)\n  args=\(rtc.function.arguments)\(Self.reset)")
                                     fflush(stdout)
@@ -588,9 +592,14 @@ struct MLXChatCompletionsController: RouteCollection {
                                         if value.isEmpty { continue }
                                         incrementalEmittedKeys.insert(rawKey)
 
-                                        // Map snake_case back to original camelCase name
-                                        // (Qwen3-Coder converts filePath → file_path in XML output)
-                                        let emitKey = paramNameMapping[rawKey] ?? rawKey
+                                        // Map model-emitted key back to original schema name.
+                                        // Basic: snake_case→camelCase (Qwen3-Coder converts filePath → file_path).
+                                        // With --fix-tool-args: also case-insensitive, camel→snake, and suffix match.
+                                        var emitKey = paramNameMapping[rawKey] ?? rawKey
+                                        if emitKey == rawKey {
+                                            let funcName = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
+                                            emitKey = self.remapSingleKey(rawKey, toolName: funcName, tools: chatRequest.tools)
+                                        }
 
                                         let jsonValue = Self.jsonEncodeString(value)
                                         let fragment: String
@@ -703,6 +712,51 @@ struct MLXChatCompletionsController: RouteCollection {
                 // Handle incomplete tool call (model hit max tokens mid-tool-call)
                 if inToolCall && !currentToolText.isEmpty {
                     if incrementalEmittedFirst {
+                        // Salvage unclosed parameter (e.g. model hit max_tokens mid-content).
+                        // Look for <parameter=KEY>VALUE... without a closing </parameter>.
+                        let unclosedPattern = #"<parameter=([^>]+)>([\s\S]+)$"#
+                        if let unclosedRegex = try? NSRegularExpression(pattern: unclosedPattern, options: []),
+                           let unclosedMatch = unclosedRegex.firstMatch(in: currentToolText, range: NSRange(currentToolText.startIndex..., in: currentToolText)),
+                           let keyRange = Range(unclosedMatch.range(at: 1), in: currentToolText),
+                           let valRange = Range(unclosedMatch.range(at: 2), in: currentToolText) {
+                            let rawKey = String(currentToolText[keyRange])
+                            if !incrementalEmittedKeys.contains(rawKey) {
+                                var value = String(currentToolText[valRange])
+                                if value.hasPrefix("\n") { value = String(value.dropFirst()) }
+                                if value.hasSuffix("\n") { value = String(value.dropLast()) }
+                                if !value.isEmpty {
+                                    incrementalEmittedKeys.insert(rawKey)
+                                    var emitKey = paramNameMapping[rawKey] ?? rawKey
+                                    if emitKey == rawKey {
+                                        let funcName = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
+                                        emitKey = self.remapSingleKey(rawKey, toolName: funcName, tools: chatRequest.tools)
+                                    }
+                                    let jsonValue = Self.jsonEncodeString(value)
+                                    let fragment: String
+                                    if incrementalParamCount == 0 {
+                                        fragment = "{\"\(Self.jsonEscapeKey(emitKey))\":\(jsonValue)"
+                                    } else {
+                                        fragment = ",\"\(Self.jsonEscapeKey(emitKey))\":\(jsonValue)"
+                                    }
+                                    incrementalParamCount += 1
+                                    let paramDelta = StreamDeltaToolCall(
+                                        index: incrementalToolIndex,
+                                        id: nil, type: nil,
+                                        function: StreamDeltaFunction(name: nil, arguments: fragment)
+                                    )
+                                    let paramChunk = ChatCompletionStreamResponse(
+                                        id: streamId, model: res.modelID, toolCalls: [paramDelta]
+                                    )
+                                    let paramData = try encoder.encode(paramChunk)
+                                    if let jsonString = String(data: paramData, encoding: .utf8) {
+                                        try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                                    }
+                                    print("\(Self.gold)[\(Self.timestamp())] SEND salvaged unclosed param '\(rawKey)' (\(value.count) chars)\(Self.reset)")
+                                    fflush(stdout)
+                                }
+                            }
+                        }
+
                         // Close the JSON arguments object we started incrementally
                         let closeDelta = StreamDeltaToolCall(
                             index: incrementalToolIndex,
@@ -724,7 +778,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
                         for tc in parsed {
                             hasToolCalls = true
-                            let rtc = MLXModelService.convertToolCall(tc, index: incrementalToolIndex, paramNameMapping: paramNameMapping)
+                            let rtc = self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: incrementalToolIndex, paramNameMapping: paramNameMapping), tools: chatRequest.tools)
                             if incrementalToolIndex < collectedToolCalls.count {
                                 collectedToolCalls[incrementalToolIndex] = rtc
                             } else {
@@ -736,7 +790,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
                         for tc in parsed {
                             hasToolCalls = true
-                            let rtc = MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping)
+                            let rtc = self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools)
                             collectedToolCalls.append(rtc)
                             let delta = StreamDeltaToolCall(
                                 index: collectedToolCalls.count - 1,
@@ -764,14 +818,14 @@ struct MLXChatCompletionsController: RouteCollection {
                 // Post-loop fallback: if tools were present but no tool calls detected
                 // by token-level matching, try full-content regex parsing.
                 // This handles edge cases where tags aren't single tokens.
-                if toolCallStartTag != nil && !hasToolCalls && fullContent.contains("<tool_call>") {
+                if toolCallStartTag != nil && !hasToolCalls && (fullContent.contains("<tool_call>") || fullContent.contains("[TOOL_CALLS]")) {
                     print("\(Self.gold)[\(Self.timestamp())] SEND tool_call: token-level missed, trying fallback parser\(Self.reset)")
                     fflush(stdout)
                     let (parsed, _) = MLXModelService.extractToolCallsFallback(from: fullContent)
                     if !parsed.isEmpty {
                         hasToolCalls = true
                         for tc in parsed {
-                            let rtc = MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping)
+                            let rtc = self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools)
                             collectedToolCalls.append(rtc)
                             let delta = StreamDeltaToolCall(
                                 index: collectedToolCalls.count - 1,
@@ -901,6 +955,34 @@ struct MLXChatCompletionsController: RouteCollection {
         })
 
         return httpResponse
+    }
+
+    /// Remap a single argument key using the full heuristic chain when --fix-tool-args is enabled.
+    /// Returns the original key if no match or fixToolArgs is off.
+    private func remapSingleKey(_ key: String, toolName: String, tools: [RequestTool]?) -> String {
+        guard service.fixToolArgs, let tools, !tools.isEmpty else { return key }
+        // Build a single-entry dict, remap, return the (possibly changed) key
+        let dummy: [String: any Sendable] = [key: "" as String]
+        let remapped = MLXModelService.remapArgumentKeys(dummy, toolName: toolName, tools: tools)
+        return remapped.keys.first ?? key
+    }
+
+    /// Apply heuristic argument key remapping to a ResponseToolCall when --fix-tool-args is enabled.
+    private func applyFixToolArgs(_ rtc: ResponseToolCall, tools: [RequestTool]?) -> ResponseToolCall {
+        guard service.fixToolArgs, let tools, !tools.isEmpty else { return rtc }
+        guard let data = rtc.function.arguments.data(using: .utf8),
+              let argsDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return rtc }
+        var sendableArgs = [String: any Sendable]()
+        for (k, v) in argsDict { sendableArgs[k] = v }
+        let remapped = MLXModelService.remapArgumentKeys(sendableArgs, toolName: rtc.function.name, tools: tools)
+        let remappedAny = remapped.mapValues { $0 as Any }
+        guard let newData = try? JSONSerialization.data(withJSONObject: remappedAny, options: [.sortedKeys]),
+              let newStr = String(data: newData, encoding: .utf8) else { return rtc }
+        return ResponseToolCall(
+            id: rtc.id,
+            type: rtc.type,
+            function: ResponseToolCallFunction(name: rtc.function.name, arguments: newStr)
+        )
     }
 
     private func normalizedMaxTokens(_ requested: Int?) -> Int {
