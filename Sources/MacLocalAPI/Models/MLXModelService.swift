@@ -1084,8 +1084,12 @@ final class MLXModelService: @unchecked Sendable {
         if json["text_config"] != nil && json["vision_config"] != nil {
             return true
         }
-        // Some VLMs (e.g. Qwen3.5-MoE) have vision token IDs without a vision_config block
-        if json["image_token_id"] != nil || json["vision_start_token_id"] != nil {
+        // Vision token IDs only count as VLM if vision_config is also present.
+        // Text-only variants (e.g. gemma-3n-*-lm) may inherit image_token_id
+        // from the base multimodal config without actually being VLMs.
+        if json["vision_config"] != nil
+            && (json["image_token_id"] != nil || json["vision_start_token_id"] != nil)
+        {
             return true
         }
         return false

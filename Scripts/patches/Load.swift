@@ -84,7 +84,7 @@ public func loadWeights(
 
     // quantize if needed
     if quantization != nil || perLayerQuantization != nil {
-        quantize(model: model) { path, module in
+        quantize(model: model, filter: { path, module in
             if weights["\(path).scales"] != nil {
                 if let perLayerQuantization {
                     return perLayerQuantization.quantization(layer: path)?.asTuple
@@ -94,7 +94,20 @@ public func loadWeights(
             } else {
                 return nil
             }
-        }
+        }, apply: { module, groupSize, bits, mode in
+            // Workaround for mlx-swift bug: QuantizedLinear.init calls
+            // MLX.quantized() without passing mode, producing non-nil biases
+            // even for MXFP4 (which requires biases=nil). Use the direct init
+            // with explicit biases:nil for MXFP4 quantization.
+            if mode == .mxfp4, let linear = module as? Linear {
+                let (qw, scales, _) = MLX.quantized(
+                    linear.weight, groupSize: groupSize, bits: bits, mode: mode)
+                return QuantizedLinear(
+                    weight: qw, bias: linear.bias, scales: scales, biases: nil,
+                    groupSize: groupSize, bits: bits, mode: mode)
+            }
+            return quantizeSingle(layer: module, groupSize: groupSize, bits: bits, mode: mode)
+        })
     }
 
     // apply the loaded weights

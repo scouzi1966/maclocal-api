@@ -52,6 +52,30 @@ jobs:
         echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_ENV"
         echo "BUILD_DATE=${DATE}" >> "$GITHUB_ENV"
 
+    - name: Generate changelog
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # Get the commit SHA from the previous nightly release
+        PREV_SHA=$(gh release view nightly --json body -q '.body' 2>/dev/null \
+          | grep -oE '\*\*Commit:\*\* [a-f0-9]+' | awk '{print $2}') || true
+
+        if [ -n "$PREV_SHA" ] && git cat-file -e "${PREV_SHA}^{commit}" 2>/dev/null; then
+          CHANGELOG=$(git log --pretty=format:"- %s (\`%h\`)" "${PREV_SHA}..HEAD" -- . ':!vendor' 2>/dev/null)
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="- No changes since previous build"
+          fi
+        else
+          # First build or previous SHA not found — show last 10 commits
+          CHANGELOG=$(git log --pretty=format:"- %s (\`%h\`)" -10 -- . ':!vendor' 2>/dev/null)
+        fi
+
+        # Save for next step (use file to preserve newlines)
+        echo "$CHANGELOG" > /tmp/changelog.txt
+        echo "CHANGELOG<<CHANGELOG_EOF" >> "$GITHUB_ENV"
+        cat /tmp/changelog.txt >> "$GITHUB_ENV"
+        echo "CHANGELOG_EOF" >> "$GITHUB_ENV"
+
     - name: Update nightly release
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -71,9 +95,19 @@ jobs:
 
         > This is an unstable development build. For the latest stable release, use \`brew install scouzi1966/afm/afm\`.
 
-        Install via Homebrew:
+        ### Changes since last build
+        ${CHANGELOG}
+
+        ### Install via Homebrew
         \`\`\`
+        brew unlink afm
         brew install scouzi1966/afm/afm-next
+        \`\`\`
+
+        To switch back to stable later:
+        \`\`\`
+        brew unlink afm-next
+        brew link afm
         \`\`\`
         EOF
         )" \

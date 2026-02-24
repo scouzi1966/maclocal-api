@@ -161,7 +161,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     toolCalls: toolCalls,
                     logprobs: choiceLogprobs,
                     promptTokens: result.promptTokens,
-                    completionTokens: estimateTokens(cleanedContent)
+                    completionTokens: completionTok
                 )
                 if veryVerbose {
                     req.logger.info("\(Self.teal)[\(Self.timestamp())] SEND full response:\n\(encodeJSON(response))\(Self.reset)")
@@ -189,7 +189,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 reasoningContent: reasoningContent,
                 logprobs: choiceLogprobs,
                 promptTokens: result.promptTokens,
-                completionTokens: estimateTokens(cleanedContent)
+                completionTokens: completionTok
             )
             if veryVerbose {
                 req.logger.info("\(Self.teal)[\(Self.timestamp())] SEND full response:\n\(encodeJSON(response))\(Self.reset)")
