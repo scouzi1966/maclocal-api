@@ -102,16 +102,34 @@ jobs:
         ### Changes since last build
         ${CHANGELOG}
 
-        ### Install via Homebrew
+        ### Install / Upgrade via Homebrew
+
+        **Fresh install** (first time):
+        \`\`\`
+        brew tap scouzi1966/afm
+        brew install scouzi1966/afm/afm-next
+        \`\`\`
+
+        **Upgrade** (already installed):
+        \`\`\`
+        brew upgrade afm-next
+        \`\`\`
+
+        **If you have stable \`afm\` installed**, unlink it first:
         \`\`\`
         brew unlink afm
         brew install scouzi1966/afm/afm-next
         \`\`\`
 
-        To switch back to stable later:
+        **Switch back to stable**:
         \`\`\`
         brew unlink afm-next
         brew link afm
+        \`\`\`
+
+        **Force reinstall** (same version, new build):
+        \`\`\`
+        brew reinstall afm-next
         \`\`\`
         EOF
         )" \
