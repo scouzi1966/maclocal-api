@@ -97,11 +97,9 @@ jobs:
         - **Commit:** ${SHORT_SHA}
         - **Date:** ${BUILD_DATE}
         - **Version:** ${VERSION}
-        - **Changes since:** \`${PREV_SHA}\`
-
         > This is an unstable development build. For the latest stable release, use \`brew install scouzi1966/afm/afm\`.
 
-        ### Changes since \`${PREV_SHA}\`
+        ### Changes since last build (\`${PREV_SHA}\`)
         ${CHANGELOG}
 
         ### Install / Upgrade via Homebrew
