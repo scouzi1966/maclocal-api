@@ -2,8 +2,9 @@
 # Publish afm-next: build, package, upload release, update tap formula
 #
 # Usage:
-#   ./Scripts/publish-next.sh              # full build + publish
-#   ./Scripts/publish-next.sh --skip-build # package + publish (assumes already built)
+#   ./Scripts/publish-next.sh                      # full build + publish
+#   ./Scripts/publish-next.sh --skip-build         # package + publish (assumes already built)
+#   ./Scripts/publish-next.sh --since abc1234      # changelog from specific commit
 #
 # Prerequisites:
 #   - gh CLI authenticated
@@ -17,6 +18,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TAP_DIR="${TAP_DIR:-$ROOT_DIR/../homebrew-afm}"
 REPO="scouzi1966/maclocal-api"
 DO_BUILD=true
+SINCE_SHA=""
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -27,15 +29,28 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-for arg in "$@"; do
-  case "$arg" in
+while [ $# -gt 0 ]; do
+  case "$1" in
     --skip-build) DO_BUILD=false ;;
+    --since)
+      shift
+      SINCE_SHA="$1"
+      if [ -z "$SINCE_SHA" ]; then
+        log_error "--since requires a commit SHA"
+        exit 1
+      fi
+      ;;
     -h|--help)
-      echo "Usage: ./Scripts/publish-next.sh [--skip-build]"
+      echo "Usage: ./Scripts/publish-next.sh [--skip-build] [--since <commit-sha>]"
+      echo ""
+      echo "Options:"
+      echo "  --skip-build        Package + publish (assumes already built)"
+      echo "  --since <sha>       Generate changelog from this commit instead of auto-detecting"
       exit 0
       ;;
-    *) log_error "Unknown option: $arg"; exit 1 ;;
+    *) log_error "Unknown option: $1"; exit 1 ;;
   esac
+  shift
 done
 
 cd "$ROOT_DIR"
@@ -117,9 +132,14 @@ log_info "Tarball: $TARBALL ($(du -h "$TARBALL" | cut -f1 | xargs))"
 
 # Step 4: Generate changelog
 log_info "Generating changelog..."
-# Find the most recent nightly-* release to diff against
-PREV_SHA=$(gh release list --repo "$REPO" --limit 20 -q '.[].tagName' --json tagName 2>/dev/null \
-  | grep '^nightly-' | head -1 | grep -oE '[a-f0-9]+$') || true
+if [ -n "$SINCE_SHA" ]; then
+  PREV_SHA="$SINCE_SHA"
+  log_info "Changelog since: $PREV_SHA (--since)"
+else
+  # Find the most recent nightly-* release to diff against
+  PREV_SHA=$(gh release list --repo "$REPO" --limit 20 -q '.[].tagName' --json tagName 2>/dev/null \
+    | grep '^nightly-' | head -1 | grep -oE '[a-f0-9]+$') || true
+fi
 
 if [ -n "$PREV_SHA" ] && git cat-file -e "${PREV_SHA}^{commit}" 2>/dev/null; then
   CHANGELOG=$(git log --pretty=format:"- %s (\`%h\`)" "${PREV_SHA}..HEAD" -- . ':!vendor' 2>/dev/null)
