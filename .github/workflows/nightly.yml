@@ -1,9 +1,7 @@
 name: Nightly Build
 
 on:
-  schedule:
-    - cron: '0 6 * * *'  # daily at 6am UTC
-  workflow_dispatch:       # manual trigger
+  workflow_dispatch:  # manual trigger only
 
 jobs:
   build:
