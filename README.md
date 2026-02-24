@@ -13,6 +13,19 @@ If you find this useful, please ⭐ the repo!
 ## - Proper Tool calling
 ## - Prefill cache (OpenCode has a large system prompt that is taxing for local AI)
 
+### Try the nightly build (main branch)
+
+```bash
+ brew unlink afm                                                                                                                                                                                                                                                        
+ brew install scouzi1966/afm/afm-next
+```                                                                                                                                                                                                                                                                         
+ To switch back to stable later:
+
+```bash
+ brew unlink afm-next
+ brew link afm
+```
+
 
 **afm now supports MLX models!** Run Qwen, Gemma, Llama, DeepSeek, GLM, and 28+ tested models directly on Apple Silicon. No Python environment, no conda, no venv — just one command. Built entirely in Swift with MLX for maximum Metal GPU performance.
 
