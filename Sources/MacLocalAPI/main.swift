@@ -637,8 +637,22 @@ if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
 } else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "vision" {
     let args = Array(CommandLine.arguments.dropFirst(2))
     do {
-        var cmd = try VisionCommand.parseAsRoot(args)
-        try cmd.run()
+        let cmd = try VisionCommand.parse(args)
+        let group = DispatchGroup()
+        var caughtError: Error?
+        group.enter()
+        Task {
+            do {
+                try await cmd.run()
+            } catch {
+                caughtError = error
+            }
+            group.leave()
+        }
+        group.wait()
+        if let error = caughtError {
+            throw error
+        }
     } catch {
         VisionCommand.exit(withError: error)
     }
