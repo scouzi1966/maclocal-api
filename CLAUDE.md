@@ -43,6 +43,8 @@ Commands: `--check` (verify), `--revert` (restore originals), no flag (apply).
 
 ## Build
 
+**IMPORTANT:** Always run the full build with ALL steps (submodules, patches, webui) unless the user explicitly asks to skip a step. Never add `--skip-webui`, `--skip-patches`, or `--skip-submodules` on your own.
+
 ```bash
 swift build                              # Debug build
 swift build -c release                   # Release build

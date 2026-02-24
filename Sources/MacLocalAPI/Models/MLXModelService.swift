@@ -917,6 +917,18 @@ final class MLXModelService: @unchecked Sendable {
             }
         }
 
+        // Fallback: bare JSON tool call (no wrapper tags)
+        // e.g. {"name":"get_weather","arguments":{"city":"Tokyo"}} or with "parameters"
+        if toolCalls.isEmpty {
+            let trimmed = remaining.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("{") && trimmed.hasSuffix("}") {
+                if let tc = parseJSONToolCall(trimmed) {
+                    toolCalls.append(tc)
+                    remaining = ""
+                }
+            }
+        }
+
         // Trim leftover whitespace/think tags from remaining
         remaining = remaining
             .replacingOccurrences(of: #"<think>\s*</think>"#, with: "", options: .regularExpression)

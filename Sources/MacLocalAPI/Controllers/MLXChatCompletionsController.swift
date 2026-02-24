@@ -823,7 +823,13 @@ struct MLXChatCompletionsController: RouteCollection {
                 // Post-loop fallback: if tools were present but no tool calls detected
                 // by token-level matching, try full-content regex parsing.
                 // This handles edge cases where tags aren't single tokens.
-                if let startTag = toolCallStartTag, !hasToolCalls && (fullContent.contains(startTag) || fullContent.contains("[TOOL_CALLS]")) {
+                let trimmedFull = fullContent.trimmingCharacters(in: .whitespacesAndNewlines)
+                let looksLikeBareJsonToolCall = trimmedFull.hasPrefix("{") && trimmedFull.contains("\"name\"")
+                if !hasToolCalls && (
+                    (toolCallStartTag != nil && fullContent.contains(toolCallStartTag!)) ||
+                    fullContent.contains("[TOOL_CALLS]") ||
+                    (chatRequest.tools != nil && looksLikeBareJsonToolCall)
+                ) {
                     print("\(Self.gold)[\(Self.timestamp())] SEND tool_call: token-level missed, trying fallback parser\(Self.reset)")
                     fflush(stdout)
                     let (parsed, _) = MLXModelService.extractToolCallsFallback(from: fullContent)
