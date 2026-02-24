@@ -56,9 +56,10 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        # Get the commit SHA from the previous nightly release
-        PREV_SHA=$(gh release view nightly --json body -q '.body' 2>/dev/null \
-          | grep -oE '\*\*Commit:\*\* [a-f0-9]+' | awk '{print $2}') || true
+        # Find the most recent nightly-* release to diff against
+        PREV_SHA=$(gh release list --repo scouzi1966/maclocal-api --limit 20 \
+          -q '.[].tagName' --json tagName 2>/dev/null \
+          | grep '^nightly-' | head -1 | grep -oE '[a-f0-9]+$') || true
 
         if [ -n "$PREV_SHA" ] && git cat-file -e "${PREV_SHA}^{commit}" 2>/dev/null; then
           CHANGELOG=$(git log --pretty=format:"- %s (\`%h\`)" "${PREV_SHA}..HEAD" -- . ':!vendor' 2>/dev/null)
@@ -76,15 +77,17 @@ jobs:
         cat /tmp/changelog.txt >> "$GITHUB_ENV"
         echo "CHANGELOG_EOF" >> "$GITHUB_ENV"
 
-    - name: Update nightly release
+        # Set release tag for unique naming
+        RELEASE_TAG="nightly-${BUILD_DATE}-${SHORT_SHA}"
+        echo "RELEASE_TAG=${RELEASE_TAG}" >> "$GITHUB_ENV"
+        VERSION="0.9.5-next.${BUILD_DATE}"
+        echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+    - name: Create nightly release
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        # Delete previous nightly release and tag
-        gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
-
-        # Create new nightly release
-        gh release create nightly \
+        gh release create "${RELEASE_TAG}" \
           --prerelease \
           --title "afm-next (${BUILD_DATE} · ${SHORT_SHA})" \
           --notes "$(cat <<EOF
@@ -92,6 +95,7 @@ jobs:
 
         - **Commit:** ${SHORT_SHA}
         - **Date:** ${BUILD_DATE}
+        - **Version:** ${VERSION}
 
         > This is an unstable development build. For the latest stable release, use \`brew install scouzi1966/afm/afm\`.
 
@@ -114,17 +118,22 @@ jobs:
           --target main \
           afm-next-arm64.tar.gz
 
+        # Update the 'nightly' tag to point to this release (latest pointer)
+        git tag -f nightly HEAD
+        git push origin nightly --force 2>/dev/null || true
+
     - name: Update tap formula
       env:
         TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
       run: |
         SHA256=$(shasum -a 256 afm-next-arm64.tar.gz | cut -d' ' -f1)
-        VERSION="0.9.5-next.${BUILD_DATE}"
 
         git clone https://x-access-token:${TAP_TOKEN}@github.com/scouzi1966/homebrew-afm.git tap
         cd tap
 
-        # Update version and sha256 in formula
+        # Update URL to point to the unique release tag, plus version and sha256
+        DOWNLOAD_URL="https://github.com/scouzi1966/maclocal-api/releases/download/${RELEASE_TAG}/afm-next-arm64.tar.gz"
+        sed -i '' "s|url \".*\"|url \"${DOWNLOAD_URL}\"|" afm-next.rb
         sed -i '' "s/version \".*\"/version \"${VERSION}\"/" afm-next.rb
         sed -i '' "s/sha256 \".*\"/sha256 \"${SHA256}\"/" afm-next.rb
 

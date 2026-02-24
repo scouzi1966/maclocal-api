@@ -117,8 +117,9 @@ log_info "Tarball: $TARBALL ($(du -h "$TARBALL" | cut -f1 | xargs))"
 
 # Step 4: Generate changelog
 log_info "Generating changelog..."
-PREV_SHA=$(gh release view nightly --json body -q '.body' --repo "$REPO" 2>/dev/null \
-  | grep -oE '\*\*Commit:\*\* [a-f0-9]+' | awk '{print $2}') || true
+# Find the most recent nightly-* release to diff against
+PREV_SHA=$(gh release list --repo "$REPO" --limit 20 -q '.[].tagName' --json tagName 2>/dev/null \
+  | grep '^nightly-' | head -1 | grep -oE '[a-f0-9]+$') || true
 
 if [ -n "$PREV_SHA" ] && git cat-file -e "${PREV_SHA}^{commit}" 2>/dev/null; then
   CHANGELOG=$(git log --pretty=format:"- %s (\`%h\`)" "${PREV_SHA}..HEAD" -- . ':!vendor' 2>/dev/null)
@@ -129,10 +130,10 @@ else
   CHANGELOG=$(git log --pretty=format:"- %s (\`%h\`)" -10 -- . ':!vendor' 2>/dev/null)
 fi
 
-# Step 5: Upload to GitHub release
-log_info "Uploading nightly release..."
-gh release delete nightly --yes --cleanup-tag --repo "$REPO" 2>/dev/null || true
-gh release create nightly \
+# Step 5: Upload to GitHub release (unique tag per build, keep history)
+RELEASE_TAG="nightly-${DATE}-${SHORT_SHA}"
+log_info "Creating release: $RELEASE_TAG"
+gh release create "$RELEASE_TAG" \
   --prerelease \
   --title "afm-next (${DATE} · ${SHORT_SHA})" \
   --notes "$(cat <<EOF
@@ -140,6 +141,7 @@ Nightly build from \`main\` branch.
 
 - **Commit:** ${SHORT_SHA}
 - **Date:** ${DATE}
+- **Version:** ${VERSION}
 
 > This is an unstable development build. For the latest stable release, use \`brew install scouzi1966/afm/afm\`.
 
@@ -163,7 +165,11 @@ EOF
   --repo "$REPO" \
   "$TARBALL"
 
-log_info "Release uploaded"
+log_info "Release uploaded: $RELEASE_TAG"
+
+# Update the 'nightly' tag to point to this release (latest pointer)
+git tag -f nightly HEAD
+git push origin nightly --force 2>/dev/null || true
 
 # Step 6: Update tap formula
 log_info "Updating tap formula..."
@@ -172,6 +178,8 @@ SHA256=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)
 cd "$TAP_DIR"
 git pull --ff-only
 
+DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${RELEASE_TAG}/afm-next-arm64.tar.gz"
+sed -i '' "s|url \".*\"|url \"${DOWNLOAD_URL}\"|" afm-next.rb
 sed -i '' "s/version \".*\"/version \"${VERSION}\"/" afm-next.rb
 sed -i '' "s/sha256 \".*\"/sha256 \"${SHA256}\"/" afm-next.rb
 
