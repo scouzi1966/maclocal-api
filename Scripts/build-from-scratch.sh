@@ -145,6 +145,14 @@ fi
 log_step "Resolving Swift packages"
 swift package resolve
 
+log_step "Injecting build commit into BuildInfo.swift"
+BUILD_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILDINFO="$ROOT_DIR/Sources/MacLocalAPI/BuildInfo.swift"
+if [ -f "$BUILDINFO" ]; then
+  sed -i '' "s/static let commit: String? = nil/static let commit: String? = \"${BUILD_COMMIT}\"/" "$BUILDINFO"
+  log_info "Commit: $BUILD_COMMIT"
+fi
+
 log_step "Building afm ($BUILD_CONFIG)"
 if [ "$BUILD_CONFIG" = "release" ]; then
   swift build -c release \
@@ -171,6 +179,11 @@ fi
 if [ "$BUILD_CONFIG" = "release" ]; then
   strip "$FINAL_BIN"
   log_info "Stripped debug symbols"
+fi
+
+# Restore BuildInfo.swift to committed state (keep working tree clean)
+if [ -f "$BUILDINFO" ]; then
+  git checkout -- "$BUILDINFO" 2>/dev/null || true
 fi
 
 FINAL_DIR="$(dirname "$FINAL_BIN")"

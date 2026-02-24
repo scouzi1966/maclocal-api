@@ -512,10 +512,7 @@ struct MlxCommand: ParsableCommand {
 }
 
 struct MacLocalAPI: ParsableCommand {
-    static let buildVersion: String = {
-        // Check if BuildVersion.swift exists with generated version
-        return BuildInfo.version ?? "dev-build"
-    }()
+    static let buildVersion: String = BuildInfo.fullVersion
     
     static let configuration = CommandConfiguration(
         commandName: "afm",
