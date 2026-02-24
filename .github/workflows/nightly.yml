@@ -82,6 +82,7 @@ jobs:
         echo "RELEASE_TAG=${RELEASE_TAG}" >> "$GITHUB_ENV"
         VERSION="0.9.5-next.${SHORT_SHA}.${BUILD_DATE}"
         echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+        echo "PREV_SHA=${PREV_SHA:-first build}" >> "$GITHUB_ENV"
 
     - name: Create nightly release
       env:
@@ -96,10 +97,11 @@ jobs:
         - **Commit:** ${SHORT_SHA}
         - **Date:** ${BUILD_DATE}
         - **Version:** ${VERSION}
+        - **Changes since:** \`${PREV_SHA}\`
 
         > This is an unstable development build. For the latest stable release, use \`brew install scouzi1966/afm/afm\`.
 
-        ### Changes since last build
+        ### Changes since \`${PREV_SHA}\`
         ${CHANGELOG}
 
         ### Install / Upgrade via Homebrew

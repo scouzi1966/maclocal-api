@@ -162,10 +162,11 @@ Nightly build from \`main\` branch.
 - **Commit:** ${SHORT_SHA}
 - **Date:** ${DATE}
 - **Version:** ${VERSION}
+- **Changes since:** \`${PREV_SHA:-first build}\`
 
 > This is an unstable development build. For the latest stable release, use \`brew install scouzi1966/afm/afm\`.
 
-### Changes since last build
+### Changes since \`${PREV_SHA:-first build}\`
 ${CHANGELOG}
 
 ### Install / Upgrade via Homebrew
