@@ -80,7 +80,7 @@ jobs:
         # Set release tag for unique naming
         RELEASE_TAG="nightly-${BUILD_DATE}-${SHORT_SHA}"
         echo "RELEASE_TAG=${RELEASE_TAG}" >> "$GITHUB_ENV"
-        VERSION="0.9.5-next.${BUILD_DATE}"
+        VERSION="0.9.5-next.${SHORT_SHA}.${BUILD_DATE}"
         echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
     - name: Create nightly release

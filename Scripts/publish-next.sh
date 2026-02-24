@@ -60,7 +60,7 @@ fi
 
 SHORT_SHA=$(git rev-parse --short HEAD)
 DATE=$(date -u +%Y%m%d)
-VERSION="0.9.5-next.${DATE}"
+VERSION="0.9.5-next.${SHORT_SHA}.${DATE}"
 
 log_info "Building afm-next"
 log_info "  Commit: ${SHORT_SHA}"
