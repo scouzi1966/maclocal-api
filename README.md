@@ -8,7 +8,7 @@ If you find this useful, please ⭐ the repo!
 # NEW IN v0.9.4!
 # Run ANY Open-Source MLX LLM on Your Mac — 100% Local, 100% Swift, Zero Python. Yes that's right, install with pip but no python required after
 
-# Available NOW in afm-next nightly (v0.9.5)
+# Available NOW in afm-next nightly (future stable version of afm)
 # Qwen3.5-35B-A3B MoE now supported! Run a 35B model locally with only 3B active parameters
 ## - Full tool calling support (Qwen3-Coder, Gemma, GLM, and more)
 ## - Prompt prefix caching for faster repeat inference
