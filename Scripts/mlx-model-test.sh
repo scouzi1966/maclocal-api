@@ -112,6 +112,10 @@
 
 set -uo pipefail
 
+# Unset CLAUDECODE so that `claude` CLI can be invoked from within a Claude Code session
+# (e.g. when this script is launched via --smart from an active Claude Code terminal)
+unset CLAUDECODE 2>/dev/null || true
+
 AFM="${AFM_BIN:-afm}"
 export MACAFM_MLX_MODEL_CACHE="${MACAFM_MLX_MODEL_CACHE:-/Volumes/edata/models/vesta-test-cache}"
 PORT=9877
