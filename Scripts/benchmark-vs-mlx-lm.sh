@@ -183,8 +183,18 @@ echo ""
 echo "=== Starting mlx_lm.server on port $MLX_LM_PORT ==="
 kill_port $MLX_LM_PORT
 
-# mlx_lm uses HF cache by default; point to same cache if possible
-HF_HUB_CACHE="$CACHE_DIR" python3 -m mlx_lm server --model "$CACHE_DIR/$MODEL" --port $MLX_LM_PORT --temp "$TEMPERATURE" > /tmp/bench-mlx-lm.log 2>&1 &
+# Use HF model ID; patch strict=False for models with extra weights (e.g. vision tower)
+python3 -c "
+import mlx.nn as nn
+_orig = nn.Module.load_weights
+def _patched(self, *a, strict=True, **kw):
+    return _orig(self, *a, strict=False, **kw)
+nn.Module.load_weights = _patched
+from mlx_lm.server import main
+import sys
+sys.argv = ['mlx_lm.server', '--model', '$MODEL', '--port', '$MLX_LM_PORT', '--temp', '$TEMPERATURE']
+main()
+" > /tmp/bench-mlx-lm.log 2>&1 &
 MLX_LM_PID=$!
 
 if ! wait_for_server $MLX_LM_PORT 120; then

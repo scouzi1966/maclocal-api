@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLX Model Test Report — 2026-02-25 15:34</title>
+<!-- MathJax for LaTeX rendering -->
+<script>
+MathJax = {
+  tex: {
+    inlineMath: [['$', '$'], ['\\(', '\\)']],
+    displayMath: [['$$', '$$'], ['\\[', '\\]']],
+    processEscapes: true
+  },
+  svg: { fontCache: 'global' },
+  startup: { typeset: false }
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" async></script>
+<!-- marked.js for Markdown rendering -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; padding: 2rem; }
+  h1 { color: #58a6ff; margin-bottom: 0.5rem; }
+  h2 { color: #58a6ff; margin: 2rem 0 1rem; border-bottom: 1px solid #21262d; padding-bottom: 0.5rem; }
+  .summary { display: flex; gap: 1.5rem; margin: 1.5rem 0; flex-wrap: wrap; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1.2rem 1.5rem; min-width: 160px; }
+  .card .label { font-size: 0.85rem; color: #8b949e; margin-bottom: 0.3rem; }
+  .card .value { font-size: 1.8rem; font-weight: 700; }
+  .card .value.green { color: #3fb950; }
+  .card .value.red { color: #f85149; }
+  .card .value.blue { color: #58a6ff; }
+  .card .value.yellow { color: #d29922; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  th { background: #161b22; color: #58a6ff; text-align: left; padding: 0.7rem 1rem; font-weight: 600; border-bottom: 2px solid #30363d; position: sticky; top: 0; z-index: 10; }
+  td { padding: 0.6rem 1rem; border-bottom: 1px solid #21262d; }
+  tr:hover { background: #161b22; }
+  .status-ok { color: #3fb950; font-weight: 600; }
+  .status-fail { color: #f85149; font-weight: 600; }
+  .bar { background: #21262d; border-radius: 4px; height: 20px; position: relative; overflow: hidden; min-width: 60px; }
+  .bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+  .bar-label { position: absolute; right: 6px; top: 1px; font-size: 0.75rem; color: #c9d1d9; font-weight: 600; }
+  .mono { font-family: 'SF Mono', Menlo, monospace; font-size: 0.85rem; }
+  .preview { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem; color: #8b949e; }
+  .error-text { color: #f85149; font-size: 0.85rem; max-width: 500px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { color: #8b949e; font-size: 0.9rem; margin-bottom: 1.5rem; }
+  .rank { color: #8b949e; font-size: 0.85rem; width: 30px; text-align: center; }
+  .ai-score { text-align: center; font-size: 1rem; width: 35px; }
+
+  /* Config badges */
+  .config-panel { margin-bottom: 1rem; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .config-badge { display: inline-block; font-size: 0.75rem; padding: 0.2rem 0.6rem; border: 1px solid #30363d; border-radius: 12px; color: #c9d1d9; font-family: 'SF Mono', Menlo, monospace; white-space: nowrap; }
+  .config-badge strong { color: #e6edf3; }
+
+  /* Prompt box */
+  .prompt-box { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 0.8rem 1rem; margin-bottom: 1rem; font-size: 0.85rem; color: #c9d1d9; line-height: 1.5; }
+  .prompt-label { display: inline-block; background: #58a6ff; color: #0d1117; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 3px; margin-right: 0.5rem; vertical-align: middle; letter-spacing: 0.05em; }
+
+  /* Variant / AFM tags */
+  .variant-tag { display: inline-block; font-size: 0.7rem; padding: 0.1rem 0.4rem; background: #a371f7; color: #0d1117; border-radius: 3px; margin-left: 0.4rem; font-weight: 600; font-family: -apple-system, sans-serif; }
+  .afm-tag { display: inline-block; font-size: 0.7rem; padding: 0.1rem 0.4rem; background: #21262d; border: 1px solid #f0883e; color: #f0883e; border-radius: 3px; font-family: 'SF Mono', Menlo, monospace; }
+  .temp-tag { display: inline-block; font-size: 0.7rem; padding: 0.1rem 0.4rem; background: #21262d; border: 1px solid #d29922; color: #d29922; border-radius: 3px; font-family: 'SF Mono', Menlo, monospace; }
+
+  /* Response sections */
+  .response-section { margin: 0.5rem 0; border: 1px solid #21262d; border-radius: 8px; overflow: hidden; }
+  .response-header { display: flex; align-items: center; gap: 0.8rem; padding: 0.8rem 1.2rem; background: #161b22; cursor: pointer; user-select: none; color: #c9d1d9; font-size: 0.95rem; font-weight: 500; }
+  .response-header:hover { background: #1c2129; }
+  .toggle-icon { font-size: 0.7rem; color: #8b949e; transition: transform 0.2s; display: inline-block; width: 1rem; }
+  .toggle-icon.open { transform: rotate(90deg); }
+  .response-meta { margin-left: auto; color: #8b949e; font-size: 0.8rem; font-family: -apple-system, sans-serif; }
+  .response-body { padding: 1.5rem; background: #0d1117; border-top: 1px solid #21262d; }
+
+  /* Rendered markdown content */
+  .rendered-content { line-height: 1.7; font-size: 0.95rem; }
+  .rendered-content h1, .rendered-content h2, .rendered-content h3 { color: #58a6ff; margin: 1.2rem 0 0.6rem; }
+  .rendered-content h1 { font-size: 1.4rem; border-bottom: 1px solid #21262d; padding-bottom: 0.3rem; }
+  .rendered-content h2 { font-size: 1.2rem; }
+  .rendered-content h3 { font-size: 1.05rem; }
+  .rendered-content p { margin: 0.6rem 0; }
+  .rendered-content ul, .rendered-content ol { margin: 0.6rem 0 0.6rem 1.5rem; }
+  .rendered-content li { margin: 0.3rem 0; }
+  .rendered-content code { background: #161b22; padding: 0.15rem 0.4rem; border-radius: 4px; font-family: 'SF Mono', Menlo, monospace; font-size: 0.85em; color: #e6edf3; }
+  .rendered-content pre { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 1rem; overflow-x: auto; margin: 0.8rem 0; }
+  .rendered-content pre code { background: none; padding: 0; }
+  .rendered-content blockquote { border-left: 3px solid #30363d; padding-left: 1rem; color: #8b949e; margin: 0.6rem 0; }
+  .rendered-content strong { color: #e6edf3; }
+  .rendered-content hr { border: none; border-top: 1px solid #21262d; margin: 1rem 0; }
+  .rendered-content table { border: 1px solid #30363d; }
+  .rendered-content th, .rendered-content td { border: 1px solid #30363d; padding: 0.4rem 0.8rem; }
+
+  /* MathJax overrides for dark theme */
+  mjx-container { color: #c9d1d9 !important; }
+  mjx-container svg { fill: #c9d1d9; }
+
+  .expand-all { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.85rem; margin-bottom: 1rem; }
+  .expand-all:hover { background: #30363d; }
+</style>
+</head>
+<body>
+<h1>MLX Model Test Report</h1>
+<p class="meta">Generated 2026-02-25 15:34 &middot; AFM MLX Backend &middot; <strong>v0.9.5-0cfba17</strong></p>
+<p class="meta" style="margin-top:0.3rem"><code style="background:#161b22;padding:0.3rem 0.6rem;border-radius:4px;font-size:0.8rem">mlx-model-test.sh --prompts Scripts/test-stop-sequences.txt --smart claude,codex</code></p>
+
+<div class="summary">
+  <div class="card"><div class="label">Test Runs</div><div class="value blue">34</div></div>
+  <div class="card"><div class="label">Passed</div><div class="value green">28</div></div>
+  <div class="card"><div class="label">Failed</div><div class="value red">6</div></div>
+  <div class="card"><div class="label">Best tok/s</div><div class="value yellow">47.4</div></div>
+  <div class="card"><div class="label">Fastest</div><div class="value" style="font-size:1rem;color:#d29922">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-code-fence</div></div>
+</div>
+
+<h2>Performance Ranking (by tokens/sec)</h2>
+<p style="color:#8b949e;font-size:0.85rem;margin-bottom:0.5rem">Click a row to jump to its full response below.</p>
+<table>
+<tr>
+  <th>#</th>
+  <th>Model / Config</th>
+  <th>Status</th>
+  <th title="codex score">codex</th><th title="claude score">claude</th>
+  <th>Temp</th>
+  <th>Load (s)</th>
+  <th>Tokens</th>
+  <th>Gen (s)</th>
+  <th style="min-width:200px">Tokens/sec</th>
+  <th>Prompt</th>
+</tr>
+<tr onclick="scrollToResponse(0)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">1</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-code-fence <span class="variant-tag">stop-code-fence</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#3fb950;font-weight:700">5</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>122</td>
+  <td>2.57</td>
+  <td><div class="bar"><div class="bar-fill" style="width:100%;background:#3fb950"></div><div class="bar-label">47.4</div></div></td>
+  <td class="preview" title="Write a Python function that computes factorial, inside a code block.">Write a Python function that computes factorial, inside a co...</td>
+</tr>
+<tr onclick="scrollToResponse(1)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">2</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-guided-json-no-match <span class="variant-tag">stop-guided-json-no-match</span><br><span class="afm-tag">--guided-json &#x27;{&quot;type&quot;:&quot;object&quot;,&quot;properties&quot;:{&quot;name&quot;:{&quot;type&quot;:&quot;string&quot;},&quot;age&quot;:{&quot;type&quot;:&quot;integer&quot;}},&quot;required&quot;:[&quot;name&quot;,&quot;age&quot;]}&#x27;</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#3fb950;font-weight:700">5</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>1150</td>
+  <td>26.63</td>
+  <td><div class="bar"><div class="bar-fill" style="width:91%;background:#3fb950"></div><div class="bar-label">43.2</div></div></td>
+  <td class="preview" title="Generate a person record for Bob aged 25.">Generate a person record for Bob aged 25.</td>
+</tr>
+<tr onclick="scrollToResponse(2)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">3</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-guided-json-brace <span class="variant-tag">stop-guided-json-brace</span><br><span class="afm-tag">--guided-json &#x27;{&quot;type&quot;:&quot;object&quot;,&quot;properties&quot;:{&quot;color&quot;:{&quot;type&quot;:&quot;string&quot;},&quot;hex&quot;:{&quot;type&quot;:&quot;string&quot;}},&quot;required&quot;:[&quot;color&quot;,&quot;hex&quot;]}&#x27;</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#d29922;font-weight:700">3</td><td class="ai-score" style="color:#3fb950;font-weight:700">5</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>819</td>
+  <td>18.99</td>
+  <td><div class="bar"><div class="bar-fill" style="width:91%;background:#3fb950"></div><div class="bar-label">43.1</div></div></td>
+  <td class="preview" title="Describe the color blue with its hex code.">Describe the color blue with its hex code.</td>
+</tr>
+<tr onclick="scrollToResponse(3)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">4</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-no-match <span class="variant-tag">stop-no-match</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>134</td>
+  <td>3.3</td>
+  <td><div class="bar"><div class="bar-fill" style="width:86%;background:#3fb950"></div><div class="bar-label">40.6</div></div></td>
+  <td class="preview" title="What is 2+2? Answer briefly.">What is 2+2? Answer briefly.</td>
+</tr>
+<tr onclick="scrollToResponse(4)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">5</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-api-word <span class="variant-tag">stop-api-word</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>90</td>
+  <td>2.27</td>
+  <td><div class="bar"><div class="bar-fill" style="width:84%;background:#3fb950"></div><div class="bar-label">39.7</div></div></td>
+  <td class="preview" title="Name 5 programming languages and briefly describe each one.">Name 5 programming languages and briefly describe each one.</td>
+</tr>
+<tr onclick="scrollToResponse(5)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">6</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-system-numbered <span class="variant-tag">stop-system-numbered</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>138</td>
+  <td>3.74</td>
+  <td><div class="bar"><div class="bar-fill" style="width:78%;background:#3fb950"></div><div class="bar-label">36.9</div></div></td>
+  <td class="preview" title="What are the main benefits of exercise?">What are the main benefits of exercise?</td>
+</tr>
+<tr onclick="scrollToResponse(6)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">7</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-system-pirate <span class="variant-tag">stop-system-pirate</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>374</td>
+  <td>10.18</td>
+  <td><div class="bar"><div class="bar-fill" style="width:77%;background:#3fb950"></div><div class="bar-label">36.7</div></div></td>
+  <td class="preview" title="Tell me about treasure hunting on the high seas.">Tell me about treasure hunting on the high seas.</td>
+</tr>
+<tr onclick="scrollToResponse(7)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">8</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-four-max <span class="variant-tag">stop-four-max</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>102</td>
+  <td>2.89</td>
+  <td><div class="bar"><div class="bar-fill" style="width:74%;background:#3fb950"></div><div class="bar-label">35.3</div></div></td>
+  <td class="preview" title="List 10 items, numbered 1 through 10. One per line.">List 10 items, numbered 1 through 10. One per line.</td>
+</tr>
+<tr onclick="scrollToResponse(8)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">9</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-non-streaming <span class="variant-tag">stop-non-streaming</span><br><span class="afm-tag">--no-streaming</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>161</td>
+  <td>4.61</td>
+  <td><div class="bar"><div class="bar-fill" style="width:74%;background:#3fb950"></div><div class="bar-label">34.9</div></div></td>
+  <td class="preview" title="List 10 planets or celestial objects, numbered 1 through 10, one per line.">List 10 planets or celestial objects, numbered 1 through 10,...</td>
+</tr>
+<tr onclick="scrollToResponse(9)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">10</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-streaming <span class="variant-tag">stop-streaming</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f85149;font-weight:700">1</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>161</td>
+  <td>4.74</td>
+  <td><div class="bar"><div class="bar-fill" style="width:72%;background:#3fb950"></div><div class="bar-label">34.0</div></div></td>
+  <td class="preview" title="List 10 planets or celestial objects, numbered 1 through 10, one per line.">List 10 planets or celestial objects, numbered 1 through 10,...</td>
+</tr>
+<tr onclick="scrollToResponse(10)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">11</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-multi-word <span class="variant-tag">stop-multi-word</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>111</td>
+  <td>3.35</td>
+  <td><div class="bar"><div class="bar-fill" style="width:70%;background:#3fb950"></div><div class="bar-label">33.2</div></div></td>
+  <td class="preview" title="Write a 5-step recipe for making tea. Label each step as &quot;Step 1&quot;, &quot;Step 2&quot;, etc.">Write a 5-step recipe for making tea. Label each step as &quot;St...</td>
+</tr>
+<tr onclick="scrollToResponse(11)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">12</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-top-p <span class="variant-tag">stop-top-p</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#8b949e">—</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>111</td>
+  <td>3.44</td>
+  <td><div class="bar"><div class="bar-fill" style="width:68%;background:#3fb950"></div><div class="bar-label">32.3</div></div></td>
+  <td class="preview" title="List 10 rivers, numbered 1 through 10, one per line.">List 10 rivers, numbered 1 through 10, one per line.</td>
+</tr>
+<tr onclick="scrollToResponse(12)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">13</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-high-temp <span class="variant-tag">stop-high-temp</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>1.0</td>
+  <td>1.0</td>
+  <td>94</td>
+  <td>2.98</td>
+  <td><div class="bar"><div class="bar-fill" style="width:66%;background:#3fb950"></div><div class="bar-label">31.5</div></div></td>
+  <td class="preview" title="List 10 random words, numbered 1 through 10, one per line.">List 10 random words, numbered 1 through 10, one per line.</td>
+</tr>
+<tr onclick="scrollToResponse(13)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">14</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-html-tag <span class="variant-tag">stop-html-tag</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>107</td>
+  <td>3.42</td>
+  <td><div class="bar"><div class="bar-fill" style="width:66%;background:#3fb950"></div><div class="bar-label">31.3</div></div></td>
+  <td class="preview" title="Write an HTML unordered list of 5 fruits using &lt;ul&gt; and &lt;li&gt; tags.">Write an HTML unordered list of 5 fruits using &lt;ul&gt; and &lt;li&gt;...</td>
+</tr>
+<tr onclick="scrollToResponse(14)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">15</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-guided-json-comma <span class="variant-tag">stop-guided-json-comma</span><br><span class="afm-tag">--guided-json &#x27;{&quot;type&quot;:&quot;object&quot;,&quot;properties&quot;:{&quot;name&quot;:{&quot;type&quot;:&quot;string&quot;},&quot;age&quot;:{&quot;type&quot;:&quot;integer&quot;},&quot;city&quot;:{&quot;type&quot;:&quot;string&quot;}},&quot;required&quot;:[&quot;name&quot;,&quot;age&quot;,&quot;city&quot;]}&#x27;</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>58</td>
+  <td>1.85</td>
+  <td><div class="bar"><div class="bar-fill" style="width:66%;background:#3fb950"></div><div class="bar-label">31.3</div></div></td>
+  <td class="preview" title="Generate a person profile for someone named Alice who is 30 and lives in Paris.">Generate a person profile for someone named Alice who is 30 ...</td>
+</tr>
+<tr onclick="scrollToResponse(15)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">16</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-guided-json-value <span class="variant-tag">stop-guided-json-value</span><br><span class="afm-tag">--guided-json &#x27;{&quot;type&quot;:&quot;object&quot;,&quot;properties&quot;:{&quot;cities&quot;:{&quot;type&quot;:&quot;array&quot;,&quot;items&quot;:{&quot;type&quot;:&quot;string&quot;}}},&quot;required&quot;:[&quot;cities&quot;]}&#x27;</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>38</td>
+  <td>1.23</td>
+  <td><div class="bar"><div class="bar-fill" style="width:65%;background:#3fb950"></div><div class="bar-label">30.9</div></div></td>
+  <td class="preview" title="List 5 major world cities as a JSON array. Include Tokyo.">List 5 major world cities as a JSON array. Include Tokyo.</td>
+</tr>
+<tr onclick="scrollToResponse(16)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">17</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-seed-run2 <span class="variant-tag">stop-seed-run2</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#8b949e">—</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>80</td>
+  <td>2.63</td>
+  <td><div class="bar"><div class="bar-fill" style="width:64%;background:#3fb950"></div><div class="bar-label">30.4</div></div></td>
+  <td class="preview" title="List 10 flowers, numbered 1 through 10, one per line.">List 10 flowers, numbered 1 through 10, one per line.</td>
+</tr>
+<tr onclick="scrollToResponse(17)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">18</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-seed-run1 <span class="variant-tag">stop-seed-run1</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>80</td>
+  <td>2.64</td>
+  <td><div class="bar"><div class="bar-fill" style="width:64%;background:#3fb950"></div><div class="bar-label">30.4</div></div></td>
+  <td class="preview" title="List 10 flowers, numbered 1 through 10, one per line.">List 10 flowers, numbered 1 through 10, one per line.</td>
+</tr>
+<tr onclick="scrollToResponse(18)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">19</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-api-multi <span class="variant-tag">stop-api-multi</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>98</td>
+  <td>3.25</td>
+  <td><div class="bar"><div class="bar-fill" style="width:64%;background:#3fb950"></div><div class="bar-label">30.1</div></div></td>
+  <td class="preview" title="List 10 animals, numbered 1 through 10, one per line.">List 10 animals, numbered 1 through 10, one per line.</td>
+</tr>
+<tr onclick="scrollToResponse(19)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">20</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-api-single <span class="variant-tag">stop-api-single</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#d29922;font-weight:700">3</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>7.0</td>
+  <td>90</td>
+  <td>3.0</td>
+  <td><div class="bar"><div class="bar-fill" style="width:63%;background:#3fb950"></div><div class="bar-label">30.0</div></div></td>
+  <td class="preview" title="List 10 colors, numbered 1 through 10, one per line.">List 10 colors, numbered 1 through 10, one per line.</td>
+</tr>
+<tr onclick="scrollToResponse(20)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">21</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-unicode <span class="variant-tag">stop-unicode</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>38</td>
+  <td>1.28</td>
+  <td><div class="bar"><div class="bar-fill" style="width:62%;background:#3fb950"></div><div class="bar-label">29.6</div></div></td>
+  <td class="preview" title="List 5 items about space using bullet points (•).">List 5 items about space using bullet points (•).</td>
+</tr>
+<tr onclick="scrollToResponse(21)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">22</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-long-phrase <span class="variant-tag">stop-long-phrase</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f85149;font-weight:700">1</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>44</td>
+  <td>1.5</td>
+  <td><div class="bar"><div class="bar-fill" style="width:62%;background:#3fb950"></div><div class="bar-label">29.4</div></div></td>
+  <td class="preview" title="Write a 3-paragraph essay about renewable energy. Start the last paragraph with &quot;In conclusion&quot;.">Write a 3-paragraph essay about renewable energy. Start the ...</td>
+</tr>
+<tr onclick="scrollToResponse(22)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">23</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-low-max-tokens <span class="variant-tag">stop-low-max-tokens</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#8b949e">—</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>40</td>
+  <td>1.46</td>
+  <td><div class="bar"><div class="bar-fill" style="width:58%;background:#d29922"></div><div class="bar-label">27.5</div></div></td>
+  <td class="preview" title="List 10 mountains, numbered 1 through 10, one per line.">List 10 mountains, numbered 1 through 10, one per line.</td>
+</tr>
+<tr onclick="scrollToResponse(23)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">24</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-immediate <span class="variant-tag">stop-immediate</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#3fb950;font-weight:700">5</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>8</td>
+  <td>0.42</td>
+  <td><div class="bar"><div class="bar-fill" style="width:41%;background:#d29922"></div><div class="bar-label">19.2</div></div></td>
+  <td class="preview" title="What is the capital of Japan?">What is the capital of Japan?</td>
+</tr>
+<tr onclick="scrollToResponse(24)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">25</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-api-double-newline <span class="variant-tag">stop-api-double-newline</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>6</td>
+  <td>0.34</td>
+  <td><div class="bar"><div class="bar-fill" style="width:37%;background:#d29922"></div><div class="bar-label">17.6</div></div></td>
+  <td class="preview" title="Write a short paragraph about the ocean. Then write a second paragraph about mountains.">Write a short paragraph about the ocean. Then write a second...</td>
+</tr>
+<tr onclick="scrollToResponse(25)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">26</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-api-period <span class="variant-tag">stop-api-period</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>6</td>
+  <td>0.35</td>
+  <td><div class="bar"><div class="bar-fill" style="width:36%;background:#d29922"></div><div class="bar-label">17.1</div></div></td>
+  <td class="preview" title="Tell me about the sun in three sentences.">Tell me about the sun in three sentences.</td>
+</tr>
+<tr onclick="scrollToResponse(26)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">27</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-special-chars <span class="variant-tag">stop-special-chars</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>7</td>
+  <td>0.44</td>
+  <td><div class="bar"><div class="bar-fill" style="width:34%;background:#d29922"></div><div class="bar-label">16.0</div></div></td>
+  <td class="preview" title="List 3 facts about the moon. Use **bold** markdown for emphasis.">List 3 facts about the moon. Use **bold** markdown for empha...</td>
+</tr>
+<tr onclick="scrollToResponse(27)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">28</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-api-newline <span class="variant-tag">stop-api-newline</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f0883e;font-weight:700">2</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>6</td>
+  <td>0.45</td>
+  <td><div class="bar"><div class="bar-fill" style="width:28%;background:#da6d28"></div><div class="bar-label">13.3</div></div></td>
+  <td class="preview" title="What is the capital of France? Answer in one sentence.">What is the capital of France? Answer in one sentence.</td>
+</tr>
+
+</table>
+
+<h2>Failed Runs</h2>
+<table>
+<tr><th>Model</th><th>Error</th><th title="codex score">codex</th><th title="claude score">claude</th><th>Config</th><th>Load (s)</th></tr>
+<tr>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-cli-only <span class="variant-tag">stop-cli-only
+</span></td>
+  <td class="error-text" title="Error: Unknown option &#x27;--stop&#x27;. Did you mean &#x27;--top-p&#x27;?">Error: Unknown option &#x27;--stop&#x27;. Did you mean &#x27;--top-p&#x27;?</td>
+  <td class="ai-score" style="color:#f0883e;font-weight:700">2</td><td class="ai-score" style="color:#f85149;font-weight:700">1</td>
+  <td><span class="temp-tag">t=0.0</span> <span class="afm-tag">--stop &quot;3.&quot;
+</span></td>
+  <td>1</td>
+</tr>
+<tr>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-cli-multi <span class="variant-tag">stop-cli-multi
+</span></td>
+  <td class="error-text" title="Error: Unknown option &#x27;--stop&#x27;. Did you mean &#x27;--top-p&#x27;?">Error: Unknown option &#x27;--stop&#x27;. Did you mean &#x27;--top-p&#x27;?</td>
+  <td class="ai-score" style="color:#f85149;font-weight:700">1</td><td class="ai-score" style="color:#f85149;font-weight:700">1</td>
+  <td><span class="temp-tag">t=0.0</span> <span class="afm-tag">--stop &quot;```,END&quot;
+</span></td>
+  <td>1</td>
+</tr>
+<tr>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-cli-api-merge <span class="variant-tag">stop-cli-api-merge
+</span></td>
+  <td class="error-text" title="Error: Unknown option &#x27;--stop&#x27;. Did you mean &#x27;--top-p&#x27;?">Error: Unknown option &#x27;--stop&#x27;. Did you mean &#x27;--top-p&#x27;?</td>
+  <td class="ai-score" style="color:#f85149;font-weight:700">1</td><td class="ai-score" style="color:#f85149;font-weight:700">1</td>
+  <td><span class="temp-tag">t=0.0</span> <span class="afm-tag">--stop &quot;5.&quot;
+</span></td>
+  <td>1</td>
+</tr>
+<tr>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-cli-api-dedup <span class="variant-tag">stop-cli-api-dedup
+</span></td>
+  <td class="error-text" title="Error: Unknown option &#x27;--stop&#x27;. Did you mean &#x27;--top-p&#x27;?">Error: Unknown option &#x27;--stop&#x27;. Did you mean &#x27;--top-p&#x27;?</td>
+  <td class="ai-score" style="color:#f85149;font-weight:700">1</td><td class="ai-score" style="color:#f85149;font-weight:700">1</td>
+  <td><span class="temp-tag">t=0.0</span> <span class="afm-tag">--stop &quot;3.&quot;
+</span></td>
+  <td>1</td>
+</tr>
+<tr>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-json-object-key <span class="variant-tag">stop-json-object-key</span></td>
+  <td class="error-text" title="Error code: 400 - {&#x27;error&#x27;: {&#x27;type&#x27;: &#x27;mlx_error&#x27;, &#x27;message&#x27;: &#x27;The operation couldn’t be completed. (Jinja.TemplateException error 1.)&#x27;}}">Error code: 400 - {&#x27;error&#x27;: {&#x27;type&#x27;: &#x27;mlx_error&#x27;, &#x27;message&#x27;: &#x27;The operation couldn’t be completed. (Jinja.TemplateException error 1.)&#x27;}}</td>
+  <td class="ai-score" style="color:#58a6ff;font-weight:700">4</td><td class="ai-score" style="color:#f85149;font-weight:700">1</td>
+  <td><span class="temp-tag">t=0.0</span> </td>
+  <td>1.0</td>
+</tr>
+<tr>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-json-object-no-match <span class="variant-tag">stop-json-object-no-match</span></td>
+  <td class="error-text" title="Error code: 400 - {&#x27;error&#x27;: {&#x27;type&#x27;: &#x27;mlx_error&#x27;, &#x27;message&#x27;: &#x27;The operation couldn’t be completed. (Jinja.TemplateException error 1.)&#x27;}}">Error code: 400 - {&#x27;error&#x27;: {&#x27;type&#x27;: &#x27;mlx_error&#x27;, &#x27;message&#x27;: &#x27;The operation couldn’t be completed. (Jinja.TemplateException error 1.)&#x27;}}</td>
+  <td class="ai-score" style="color:#f85149;font-weight:700">1</td><td class="ai-score" style="color:#f85149;font-weight:700">1</td>
+  <td><span class="temp-tag">t=0.0</span> </td>
+  <td>1.0</td>
+</tr>
+</table>
+
+<h2>AI Analysis (--smart)</h2>
+
+<div class="response-section">
+  <h3 class="response-header" onclick="toggleSmart_0()">
+    <span class="toggle-icon" id="smart-icon-0">&#9654;</span>
+    <span>codex Analysis &middot; avg score: 2.0/5</span>
+  </h3>
+  <div class="response-body" id="smart-body-0" style="display:none">
+    <div class="rendered-content" id="smart-content-0"></div>
+  </div>
+</div>
+<script>
+var smartData_0 = "## Compatibility QA Report (AFM `v0.9.5-0cfba17`, run: 2026-02-25)\n\n### 1) Broken Models\nAll failures are the same model family (`mlx-community/Qwen3.5-35B-A3B-4bit`) under specific variants.\n\n| Error type | Variants | Count | Likely cause | AFM bug vs model |\n|---|---|---:|---|---|\n| CLI option parse failure (`Unknown option '--stop'`) | `stop-cli-only`, `stop-cli-multi`, `stop-cli-api-merge`, `stop-cli-api-dedup` | 4 | Binary/test mismatch or CLI wiring regression (`main.swift` `MlxCommand`/dispatch) | **Likely AFM/tooling bug** (not model incompat) |\n| HTTP 400 `Jinja.TemplateException` with `response_format=json_object` + `stop` | `stop-json-object-key`, `stop-json-object-no-match` | 2 | Template/message assembly bug in JSON-format path | **AFM bug** (`MLXModelService.swift` around JSON instruction injection) |\n\n### 2) Anomalies & Red Flags\n1. **Major degradation pattern: empty `content`, only `reasoning_content` in most OK runs** (26/28 OK lines).  \n   Representative snippets:\n   - `\"Thinking Process:\\n\\n1.  **Analyze the Request:**\\n    *   Task: List 10 colors...\"`  \n   - `\"Thinking Process:\"`  \n   This suggests stop strings are frequently matching planning text before final answer.\n2. **Stop sequences likely applied at wrong stage/channel** (stopping before user-visible answer).  \n   Seen in many stop tests (`stop-api-*`, `stop-system-*`, `stop-high-temp`, etc.).\n3. **Guided JSON path unstable with stop**:\n   - `stop-guided-json-value`: `is_valid_json=false`, truncated planning.\n   - `stop-guided-json-comma`: truncated planning.\n   - `stop-guided-json-no-match`: huge reasoning (1150 tokens), output ignores schema.\n   - `stop-guided-json-brace`: coherent text but not schema-constrained JSON.\n4. **Suspicious tok/s outliers tied to poor outputs**:\n   - Very high: `stop-code-fence` 47.43 tok/s (empty content).\n   - Very low: `stop-api-newline` 13.31 tok/s (immediate truncation).\n5. **Thinking-budget exhaustion pattern**: **Not observed** (no empty-content case near `max_tokens` ceiling).\n\n### 3) Variant Comparison\n| Variant pair/group | Result |\n|---|---|\n| `stop-streaming` vs `stop-non-streaming` | Behavior identical (same reasoning-only truncation), similar speed (33.97 vs 34.93 tok/s). Good stream parity, same core bug. |\n| `stop-seed-run1` vs `stop-seed-run2` (seed=42) | Deterministic and identical outputs/timing. |\n| `stop-guided-json-*` | Mixed failures: early truncation, invalid JSON, or unconstrained plain text. No reliable schema adherence under stop constraints. |\n| `stop-no-match` vs most `stop-*` | `stop-no-match` is the only clearly correct short answer (`\"4\"`). Many other stop strings trigger too early in reasoning/planning. |\n\n### 4) Quality Assessment (Coherence/Relevance 1-5)\nFlagged below 3 on either metric.\n\n| Variant | Coherence | Relevance | Flag |\n|---|---:|---:|---|\n| stop-api-single | 2 | 1 | \u26a0\ufe0f |\n| stop-api-multi | 2 | 1 | \u26a0\ufe0f |\n| stop-api-newline | 1 | 1 | \u26a0\ufe0f |\n| stop-api-double-newline | 1 | 1 | \u26a0\ufe0f |\n| stop-api-word | 2 | 1 | \u26a0\ufe0f |\n| stop-api-period | 1 | 1 | \u26a0\ufe0f |\n| stop-streaming | 2 | 1 | \u26a0\ufe0f |\n| stop-non-streaming | 2 | 1 | \u26a0\ufe0f |\n| stop-guided-json-value | 1 | 1 | \u26a0\ufe0f |\n| stop-guided-json-comma | 2 | 1 | \u26a0\ufe0f |\n| stop-guided-json-no-match | 3 | 3 |  |\n| stop-guided-json-brace | 4 | 4 |  |\n| stop-long-phrase | 2 | 1 | \u26a0\ufe0f |\n| stop-multi-word | 2 | 1 | \u26a0\ufe0f |\n| stop-code-fence | 2 | 1 | \u26a0\ufe0f |\n| stop-no-match | 5 | 5 |  |\n| stop-immediate | 1 | 1 | \u26a0\ufe0f |\n| stop-special-chars | 1 | 1 | \u26a0\ufe0f |\n| stop-html-tag | 2 | 1 | \u26a0\ufe0f |\n| stop-unicode | 2 | 1 | \u26a0\ufe0f |\n| stop-four-max | 2 | 1 | \u26a0\ufe0f |\n| stop-system-pirate | 2 | 1 | \u26a0\ufe0f |\n| stop-system-numbered | 2 | 1 | \u26a0\ufe0f |\n| stop-high-temp | 2 | 1 | \u26a0\ufe0f |\n| stop-seed-run1 | 2 | 1 | \u26a0\ufe0f |\n| stop-seed-run2 | 2 | 1 | \u26a0\ufe0f |\n| stop-top-p | 2 | 1 | \u26a0\ufe0f |\n| stop-low-max-tokens | 2 | 1 | \u26a0\ufe0f |\n\n### 5) Performance Summary (sorted by tok/s)\n| Variant | tok/s | Note |\n|---|---:|---|\n| stop-code-fence | 47.43 | suspiciously fast + empty content |\n| stop-guided-json-no-match | 43.18 | high throughput, long reasoning dump |\n| stop-guided-json-brace | 43.13 | high |\n| stop-no-match | 40.59 | healthy |\n| stop-api-word | 39.66 | high but poor answering |\n| stop-system-numbered | 36.93 |  |\n| stop-system-pirate | 36.73 |  |\n| stop-four-max | 35.30 |  |\n| stop-non-streaming | 34.93 |  |\n| stop-streaming | 33.97 |  |\n| stop-multi-word | 33.16 |  |\n| stop-top-p | 32.28 |  |\n| stop-high-temp | 31.54 |  |\n| stop-html-tag | 31.31 |  |\n| stop-guided-json-comma | 31.28 |  |\n| stop-guided-json-value | 30.94 |  |\n| stop-seed-run2 | 30.38 | deterministic pair |\n| stop-seed-run1 | 30.36 | deterministic pair |\n| stop-api-multi | 30.12 |  |\n| stop-api-single | 30.02 |  |\n| stop-unicode | 29.59 |  |\n| stop-long-phrase | 29.42 |  |\n| stop-low-max-tokens | 27.48 |  |\n| stop-immediate | 19.21 | short-circuit |\n| stop-api-double-newline | 17.58 | short-circuit |\n| stop-api-period | 17.06 | short-circuit |\n| stop-special-chars | 16.03 | short-circuit |\n| stop-api-newline | 13.31 | slowest + immediate truncation |\n\n### 6) Recommendations (prioritized)\n\n**Likely AFM bug**\n1. **Fix stop handling vs reasoning separation**: stop matching is terminating before answer content.  \n   Check `Sources/MacLocalAPI/Models/MLXModelService.swift` stop logic (`~351-376`, `~572-647`) and content/reasoning extraction path in `MLXChatCompletionsController`.\n2. **Fix `json_object + stop` 400 crash**: reproduce with `stop-json-object-key/no-match`; patch template assembly/instruction injection in `MLXModelService.swift` (`~1187+`) to avoid `Jinja.TemplateException`.\n3. **Resolve CLI `--stop` regression**: code defines `--stop` in `main.swift` (`MlxCommand`), but runtime reports unknown option. Verify installed binary (`/opt/homebrew/bin/afm`) matches source build and subcommand path used by `mlx-model-test.sh`.\n4. **Strengthen guided-json enforcement under stop**: stop+schema combinations currently return invalid/unconstrained output. Add regression tests in `Scripts/test-stop-sequences.txt` + `Scripts/tests/test-structured-outputs.sh`.\n\n**Model quality issue**\n1. No clear model-inherent failure evidence here; issues look infrastructure-side.\n\n**Working well**\n1. `stop-no-match` (correct direct answer).\n2. Streaming/non-streaming parity.\n3. Seed reproducibility (`run1`/`run2`).";
+var smartRendered_0 = false;
+function toggleSmart_0() {
+  var body = document.getElementById('smart-body-0');
+  var icon = document.getElementById('smart-icon-0');
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    icon.classList.add('open');
+    if (!smartRendered_0) {
+      smartRendered_0 = true;
+      var el = document.getElementById('smart-content-0');
+      if (typeof marked !== 'undefined') {
+        el.innerHTML = marked.parse(smartData_0);
+      } else {
+        el.innerHTML = '<pre>' + smartData_0.replace(/</g, '&lt;') + '</pre>';
+      }
+    }
+  } else {
+    body.style.display = 'none';
+    icon.classList.remove('open');
+  }
+}
+</script>
+
+<div class="response-section">
+  <h3 class="response-header" onclick="toggleSmart_1()">
+    <span class="toggle-icon" id="smart-icon-1">&#9654;</span>
+    <span>claude Analysis &middot; avg score: 2.1/5</span>
+  </h3>
+  <div class="response-body" id="smart-body-1" style="display:none">
+    <div class="rendered-content" id="smart-content-1"></div>
+  </div>
+</div>
+<script>
+var smartData_1 = "# Stop Sequences Test Report \u2014 Qwen3.5-35B-A3B-4bit\n\n**AFM Version:** v0.9.5-0cfba17 | **Model:** mlx-community/Qwen3.5-35B-A3B-4bit | **Date:** 2026-02-25\n\n## 1. Broken Models\n\n| Variant | Error | Type |\n|---------|-------|------|\n| `stop-cli-only` | `Unknown option '--stop'. Did you mean '--top-p'?` | **AFM bug** |\n| `stop-cli-multi` | `Unknown option '--stop'. Did you mean '--top-p'?` | **AFM bug** |\n| `stop-cli-api-merge` | `Unknown option '--stop'. Did you mean '--top-p'?` | **AFM bug** |\n| `stop-cli-api-dedup` | `Unknown option '--stop'. Did you mean '--top-p'?` | **AFM bug** |\n| `stop-json-object-key` | `Jinja.TemplateException error 1` | **Known AFM bug** |\n| `stop-json-object-no-match` | `Jinja.TemplateException error 1` | **Known AFM bug** |\n\n**CLI `--stop` flag (lines 7-10):** The `--stop` CLI flag is not recognized by the `afm mlx` subcommand. The ArgumentParser doesn't have a `--stop` option defined. This is a **known issue** per MEMORY.md \u2014 the flag was previously identified as needing to be wired to the MLX controller.\n\n**Jinja template errors (lines 16-17):** These occur when `response_format: json_object` is combined with stop sequences. Per MEMORY.md, this is the known Qwen3.5 bug where JSON system message injection creates a second `.system()` message that the chat template rejects.\n\n## 2. Anomalies & Red Flags\n\n### Critical: Stop sequences fire inside `<think>` reasoning, not just visible content\n\nNearly every API stop sequence test produces **empty `content`** with reasoning truncated mid-thought. The stop strings are matching against the `reasoning_content` (inside `<think>` tags), not waiting for visible output.\n\n| Variant | Stop string | Where it matched | Evidence |\n|---------|------------|-----------------|----------|\n| `stop-api-newline` | `\\n` | First newline in reasoning | Only 6 tokens, reasoning = `\"Thinking Process:\"` |\n| `stop-api-double-newline` | `\\n\\n` | First double-newline in reasoning | Only 6 tokens |\n| `stop-api-period` | `.` | First period in reasoning (`\"1\"` \u2192 `\"1.\"`) | Only 6 tokens, reasoning = `\"Thinking Process:\\n\\n1\"` |\n| `stop-api-word` | `\"Python\"` | Would appear in reasoning about programming languages | 90 tokens, stopped in reasoning |\n| `stop-immediate` | `\"The\"`, `\"I\"`, `\"A\"` | Common words in reasoning | 8 tokens |\n| `stop-special-chars` | `**` | Markdown bold in reasoning | 7 tokens |\n| `stop-unicode` | `\u2022` | Bullet character in reasoning | 38 tokens |\n| `stop-long-phrase` | `\"In conclusion\"` | Quoted in reasoning analysis | 44 tokens |\n| `stop-code-fence` | `` ``` `` | Never reached visible content | 122 tokens of reasoning only |\n| `stop-html-tag` | `</li>` | Appeared in reasoning HTML example | 107 tokens |\n| `stop-system-pirate` | `\"Arrr\"` | Pirate vocabulary in reasoning | 374 tokens of reasoning only |\n\n**This is the primary bug.** Stop sequences must only match against visible content (after `</think>`), not reasoning tokens. Per MEMORY.md, this was previously identified and fixed \u2014 but these results suggest the fix is incomplete or regressed.\n\n### Thinking-Budget Exhaustion Cases\n\nSeveral tests stopped early because the stop string was encountered in reasoning, producing no visible `content`. These are NOT budget exhaustion \u2014 they're stop-sequence-in-reasoning bugs.\n\n### One legitimate success\n\n| Variant | Stop | Result |\n|---------|------|--------|\n| `stop-no-match` (line 20) | `\"XYZZY_NEVER_MATCH\"` | Content = `\"4\"` \u2014 correct answer, stop never triggered |\n| `stop-guided-json-no-match` (line 14) | `\"XYZZY\"` | Full response with JSON \u2014 stop never triggered, worked correctly |\n| `stop-guided-json-brace` (line 15) | `\"}\"` | Full prose response \u2014 stop fired on `}` after visible content was emitted |\n\n## 3. Variant Comparison\n\n### Streaming vs Non-Streaming (lines 10-11)\nBoth `stop-streaming` and `stop-non-streaming` with stop=`[\"3.\"]` produced identical results: empty content, 161 reasoning tokens, stop fired in reasoning. **Both paths have the same bug.**\n\n### Seed Reproducibility (lines 27-28)\n`stop-seed-run1` and `stop-seed-run2` (seed=42) are **identical** \u2014 same token counts (80), same tok/s (~30.3), same content. Deterministic generation works.\n\n### Temperature Effect (line 26)\n`stop-high-temp` (temp=1.0) vs `stop-api-single` (temp=0.0) with same stop=`[\"3.\"]`: Both stopped in reasoning. Temperature doesn't affect the bug.\n\n## 4. Quality Assessment\n\n| Line | Variant | Coherence | Relevance | Notes |\n|------|---------|-----------|-----------|-------|\n| 1 | stop-api-single | 4 | 1 | Good reasoning, but no visible answer produced |\n| 2 | stop-api-multi | 4 | 1 | Reasoning shows correct list started, but no content |\n| 3 | stop-api-newline | 1 | 1 | Only \"Thinking Process:\" \u2014 effectively empty |\n| 4 | stop-api-double-newline | 1 | 1 | Same \u2014 trivially truncated |\n| 5 | stop-api-word | 3 | 1 | Decent reasoning analysis, no answer |\n| 6 | stop-api-period | 1 | 1 | Only \"Thinking Process:\\n\\n1\" |\n| 14 | stop-guided-json-no-match | 5 | 5 | Full, correct response |\n| 15 | stop-guided-json-brace | 5 | 5 | Full, correct response with hex code |\n| 20 | stop-no-match | 5 | 5 | Clean, correct \"4\" |\n\n## 5. Performance Summary\n\n| Line | Variant | Tokens | Time (s) | tok/s | Notes |\n|------|---------|--------|----------|-------|-------|\n| 15 | stop-guided-json-brace | 849 | 19.0 | 43.13 | Normal |\n| 14 | stop-guided-json-no-match | 1182 | 26.6 | 43.18 | Normal |\n| 20 | stop-no-match | 165 | 3.3 | 40.59 | Normal |\n| 5 | stop-api-word | 106 | 2.3 | 39.66 | Normal |\n| 19 | stop-multi-word | 133 | 3.4 | 33.16 | Normal |\n| 25 | stop-system-numbered | 166 | 3.7 | 36.93 | Normal |\n| 10 | stop-streaming | 181 | 4.7 | 33.97 | Normal |\n| 11 | stop-non-streaming | 181 | 4.6 | 34.93 | Normal |\n| 3 | stop-api-newline | 21 | 0.5 | 13.31 | Low \u2014 stopped very early |\n| 6 | stop-api-period | 18 | 0.4 | 17.06 | Low \u2014 stopped very early |\n| 23 | stop-special-chars | 24 | 0.4 | 16.03 | Low \u2014 stopped very early |\n\nLow tok/s on short generations is expected (startup overhead dominates). No suspicious outliers.\n\n## 6. Recommendations\n\n### Likely AFM Bug \u2014 High Priority\n\n1. **Stop sequences matching inside `<think>` reasoning (CRITICAL)**\n   - **File:** `Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift`\n   - **Issue:** Stop sequence matching applies to ALL generated text including reasoning tokens inside `<think>...</think>`. It must only match against visible content after `</think>`.\n   - **Fix:** In both streaming and non-streaming paths, the stop-sequence buffer/matcher must be gated by the `insideThink` state. Only start checking stop sequences once `</think>` has been emitted and visible content is being produced. Per MEMORY.md, a previous fix existed for this \u2014 check if it regressed or was incomplete.\n   - **Affected tests:** Lines 1-6, 10-13, 18-19, 21-28 (nearly all)\n\n2. **CLI `--stop` flag not implemented for MLX subcommand**\n   - **File:** `Sources/MacLocalAPI/main.swift` (ArgumentParser definition for MLX subcommand)\n   - **Issue:** `--stop` is not a recognized option. Per MEMORY.md, this was previously identified.\n   - **Fix:** Add `@Option var stop: String?` to the MLX command, wire it through `mergeStopSequences()` to the controller.\n   - **Affected tests:** Lines 7-10\n\n3. **`response_format: json_object` + Qwen3.5 template error**\n   - **File:** `Sources/MacLocalAPI/Models/MLXModelService.swift` (system message injection)\n   - **Issue:** JSON format instruction creates a second system message that Qwen3.5's Jinja template rejects.\n   - **Fix:** Append JSON instruction to existing system message instead of adding a new one. (Known issue per MEMORY.md.)\n   - **Affected tests:** Lines 16-17\n\n### Working Well\n\n| Variant | Notes |\n|---------|-------|\n| `stop-no-match` (line 20) | Stop string never appears, full correct response |\n| `stop-guided-json-no-match` (line 14) | Full response, guided JSON works when stop doesn't match |\n| `stop-guided-json-brace` (line 15) | Stop fires on `}` in visible content correctly |\n| `stop-seed-run1/run2` (lines 27-28) | Deterministic generation confirmed |\n\n### Model Quality Issue\n\nNone \u2014 Qwen3.5-35B-A3B-4bit generates coherent, well-structured reasoning. The issues are entirely AFM server bugs.\n\n---\n\n**Bottom line:** The #1 fix needed is gating stop-sequence matching to only apply after `</think>` in thinking models. This single bug causes 20+ test failures. The CLI `--stop` flag and `json_object` template issues are secondary but also need fixing.";
+var smartRendered_1 = false;
+function toggleSmart_1() {
+  var body = document.getElementById('smart-body-1');
+  var icon = document.getElementById('smart-icon-1');
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    icon.classList.add('open');
+    if (!smartRendered_1) {
+      smartRendered_1 = true;
+      var el = document.getElementById('smart-content-1');
+      if (typeof marked !== 'undefined') {
+        el.innerHTML = marked.parse(smartData_1);
+      } else {
+        el.innerHTML = '<pre>' + smartData_1.replace(/</g, '&lt;') + '</pre>';
+      }
+    }
+  } else {
+    body.style.display = 'none';
+    icon.classList.remove('open');
+  }
+}
+</script>
+
+
+<h2>Full Responses</h2>
+<button class="expand-all" onclick="toggleAll()">Expand / Collapse All</button>
+
+<script>var responseData = {};</script>
+
+<div class="response-section" id="resp-0">
+  <h3 class="response-header" onclick="toggleResponse(0)">
+    <span class="toggle-icon" id="icon-0">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-code-fence</span>
+    <span class="response-meta">122 tokens &middot; 47.4 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-0" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-code-fence</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>```</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>2.57s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>18</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>122</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>47.4</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Write a Python function that computes factorial, inside a code block.</div>
+    <div class="rendered-content" id="content-0"></div>
+  </div>
+</div>
+<script>responseData[0] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThe user wants me to write a Python function that computes factorial. I should provide this inside a code block as requested.\n\nLet me write a clear, well-documented function that calculates the factorial of a number. I'll include:\n1. Input validation\n2. The factorial calculation\n3. Some example usage\n\nI'll provide both an iterative and recursive approach, or just one clear solution. Let me go with a clean iterative approach as it's more efficient for larger numbers.\n\n</details>\n\nThe user wants me to write a Python function that computes factorial. I should provide this inside a code block as requested.  Let me write a clear, well-documented function that calculates the factorial of a number. I'll include: 1. Input validation 2. The factorial calculation 3. Some example usag";</script>
+
+<div class="response-section" id="resp-1">
+  <h3 class="response-header" onclick="toggleResponse(1)">
+    <span class="toggle-icon" id="icon-1">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-guided-json-no-match</span>
+    <span class="response-meta">1150 tokens &middot; 43.2 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-1" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-guided-json-no-match</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>XYZZY</strong></span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--guided-json &#x27;{&quot;type&quot;:&quot;object&quot;,&quot;properties&quot;:{&quot;name&quot;:{&quot;type&quot;:&quot;string&quot;},&quot;age&quot;:{&quot;type&quot;:&quot;integer&quot;}},&quot;required&quot;:[&quot;name&quot;,&quot;age&quot;]}&#x27;</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>26.63s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>32</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>1150</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>43.2</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Generate a person record for Bob aged 25.</div>
+    <div class="rendered-content" id="content-1"></div>
+  </div>
+</div>
+<script>responseData[1] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Task: Generate a person record.\n    *   Subject: Bob.\n    *   Age: 25.\n    *   Goal: Create a structured or formatted representation of a person's data.\n\n2.  **Determine the Format:**\n    *   There's no specific format requested (e.g., JSON, SQL, CSV, plain text).\n    *   Best approach: Provide a clear, common format like JSON or a simple key-value list, as these are standard for \"records.\" I'll provide a few common formats to be helpful.\n\n3.  **Draft Content:**\n    *   Name: Bob\n    *   Age: 25\n    *   Need to add some plausible additional fields to make it a realistic \"record\" (e.g., ID, Email, Address, Date of Birth).\n    *   *Self-Correction:* Keep it simple but realistic. Don't invent too much sensitive data, but enough to look like a record.\n\n4.  **Drafting the Record:**\n    *   *Option 1 (JSON):* Good for programming contexts.\n    *   *Option 2 (SQL/Database):* Good for database contexts.\n    *   *Option 3 (Plain Text):* Good for general reading.\n\n    Let's go with a JSON-like structure as it's very common for \"records\" in tech contexts, but also offer a plain text version for clarity.\n\n    *   Name: Bob\n    *   Age: 25\n    *   ID: (Generate a dummy ID)\n    *   Email: (Generate a dummy email)\n    *   Status: Active\n\n5.  **Refining the Output:**\n    *   Make it look professional.\n    *   Ensure the age is exactly 25 as requested.\n\n6.  **Final Polish:**\n    *   Create a JSON object.\n    *   Add a brief explanation.\n\n    *Draft:*\n    ```json\n    {\n      \"id\": 1001,\n      \"first_name\": \"Bob\",\n      \"last_name\": \"Smith\",\n      \"age\": 25,\n      \"email\": \"bob.smith@example.com\",\n      \"created_at\": \"2023-10-27\"\n    }\n    ```\n\n7.  **Final Decision:** Provide a clear, structured JSON format as it's the most standard way to represent a \"record\" in modern contexts, but keep the data generic enough.\n\n    *Wait, keep it simple.* Just a clear text block or JSON is fine. I'll provide a JSON format as it's the most versatile \"record\" format.\n\n    *Revised Plan:*\n    1.  State the record.\n    *   Use JSON format.\n    *   Include basic fields (ID, Name, Age, Email, Status).\n\n8.  **Execution:** (Writing the response)\n    *   Header: Person Record\n    *   Content: JSON block.\n    *   Ensure \"Bob\" and \"25\" are prominent.\n\n    *Wait, one more check:* Is there any safety concern? No, generating a dummy record for \"Bob\" is harmless.\n\n    *Let's make it slightly more detailed to be useful.*\n    Fields: ID, First Name, Last Name, Age, Email, Address, Created Date.\n\n    *Let's write it.*\n    ```json\n    {\n      \"id\": \"USR-2023-001\",\n      \"first_name\": \"Bob\",\n      \"last_name\": \"Smith\",\n      \"age\": 25,\n      \"email\": \"bob.smith@example.com\",\n      \"status\": \"active\"\n    }\n    ```\n\n    *Actually, let's keep it even simpler to directly answer the prompt without over-engineering.*\n    Just a clear representation.\n\n    *Decision:* I will provide a JSON format as it is the standard for data records.\n\n9.  **Final Output Generation:** (Matches the thought process above).\n    *   Name: Bob\n    *   Age: 25\n    *   Add dummy fields for completeness.\n\n    *Wait, I should check if there are any constraints I missed.* No.\n    *Okay, proceed.*\n\n    *Wait, I need to make sure I don't hallucinate specific real-world data.* Use placeholders or generic data.\n\n    *Okay, ready to generate.*\n\n</details>\n\nHere is a sample person record for Bob, formatted in JSON:\n\n```json\n{\n  \"id\": \"P-2023-8492\",\n  \"first_name\": \"Bob\",\n  \"last_name\": \"Smith\",\n  \"age\": 25,\n  \"email\": \"bob.smith@example.com\",\n  \"status\": \"active\",\n  \"created_at\": \"2023-10-27T14:30:00Z\"\n}\n```\n\n**Plain Text Version:**\n*   **ID:** P-2023-8492\n*   **Name:** Bob Smith\n*   **Age:** 25\n*   **Email:** bob.smith@example.com\n*   **Status:** Active";</script>
+
+<div class="response-section" id="resp-2">
+  <h3 class="response-header" onclick="toggleResponse(2)">
+    <span class="toggle-icon" id="icon-2">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-guided-json-brace</span>
+    <span class="response-meta">819 tokens &middot; 43.1 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-2" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-guided-json-brace</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>}</strong></span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--guided-json &#x27;{&quot;type&quot;:&quot;object&quot;,&quot;properties&quot;:{&quot;color&quot;:{&quot;type&quot;:&quot;string&quot;},&quot;hex&quot;:{&quot;type&quot;:&quot;string&quot;}},&quot;required&quot;:[&quot;color&quot;,&quot;hex&quot;]}&#x27;</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>18.99s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>30</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>819</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>43.1</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Describe the color blue with its hex code.</div>
+    <div class="rendered-content" id="content-2"></div>
+  </div>
+</div>
+<script>responseData[2] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Task: Describe the color blue.\n    *   Requirement: Include its hex code.\n    *   Tone: Helpful, informative.\n\n2.  **Identify the Color:**\n    *   Color: Blue.\n    *   Hex Code: There isn't just one \"blue.\" There are many shades (royal blue, navy, sky blue, etc.). However, the standard \"blue\" in web colors (HTML/CSS) is usually `#0000FF`. I should mention that there are variations but provide the standard one.\n\n3.  **Draft the Description:**\n    *   *Visual/Emotional:* Cool, calm, trustworthy, vast (sky, ocean), cold, serene.\n    *   *Technical:* Hex code `#0000FF`.\n    *   *Context:* Primary color, subtractive color model (CMYK), etc.\n\n4.  **Refine the Output:**\n    *   Make it clear and concise.\n    *   Provide the standard hex code.\n    *   Add some descriptive flair about what blue represents.\n\n5.  **Drafting the Content:**\n    *   Start with the hex code.\n    *   Describe the visual appearance (pure blue).\n    *   Add symbolic meaning (calm, depth).\n    *   Mention variations (optional but helpful).\n\n6.  **Final Polish:**\n    *   \"Blue is a primary color often associated with the sky and the ocean.\"\n    *   \"Its standard hex code is #0000FF.\"\n    *   Combine into a cohesive paragraph.\n\n7.  **Final Review:** Does it meet all constraints? Yes.\n\n    *   *Self-Correction on Hex Code:* While `#0000FF` is the web standard \"Blue,\" sometimes people mean a generic blue. I should specify that this is the pure spectral blue used in digital design.\n\n8.  **Final Output Generation:** (Matches the drafted thought process).\n    *   Hex: #0000FF\n    *   Description: Cool, deep, digital blue.\n\n    *Wait, let's make it a bit more descriptive.*\n    \"Blue is a cool, calming color...\"\n    \"Hex Code: #0000FF\"\n\n    Let's combine for a nice response.\n\n    *Revised Plan:*\n    1. State the hex code clearly.\n    *   Describe the visual and emotional qualities.\n    *   Mention it's a primary color.\n\n    *Draft:*\n    Blue is a primary color that evokes feelings of calmness, stability, and trust. It is often associated with the sky and the sea. In digital design, the standard web color for blue is represented by the hex code **#0000FF**. This specific shade is a vivid, saturated blue that sits between cyan and violet on the color spectrum.\n\n    *Wait, keep it simple as per the prompt \"Describe the color blue with its hex code.\"*\n\n    *Final Version:*\n    Blue is a primary color associated with the sky, the ocean, and depth. It is often perceived as cool, serene, and trustworthy.\n\n    **Hex Code:** `#0000FF`\n\n    This specific code represents pure, saturated blue in the RGB color model.\n\n    *Looks good.*\n\n9.  **Final Output Construction:** (Proceed to generate response).\n\n</details>\n\nBlue is a primary color often associated with the sky, the ocean, and depth. It is typically perceived as cool, calm, and trustworthy, making it a popular choice for branding and design.\n\n**Hex Code:** `#0000FF`\n\nThis specific code represents pure, saturated blue in the RGB color model used for screens and the web.";</script>
+
+<div class="response-section" id="resp-3">
+  <h3 class="response-header" onclick="toggleResponse(3)">
+    <span class="toggle-icon" id="icon-3">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-no-match</span>
+    <span class="response-meta">134 tokens &middot; 40.6 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-3" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>256</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-no-match</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>XYZZY_NEVER_MATCH</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>3.3s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>31</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>134</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>40.6</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> What is 2+2? Answer briefly.</div>
+    <div class="rendered-content" id="content-3"></div>
+  </div>
+</div>
+<script>responseData[3] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Question: \"What is 2+2?\"\n    *   Constraint: \"Answer briefly.\"\n\n2.  **Determine the Answer:**\n    *   Mathematical fact: 2 + 2 = 4.\n\n3.  **Formulate the Output:**\n    *   Keep it short and direct.\n    *   Draft: \"4.\" or \"The answer is 4.\"\n\n4.  **Final Selection:** \"4.\" is the briefest and most accurate.\n\n5.  **Output:** 4.cw\n\n</details>\n\n4";</script>
+
+<div class="response-section" id="resp-4">
+  <h3 class="response-header" onclick="toggleResponse(4)">
+    <span class="toggle-icon" id="icon-4">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-api-word</span>
+    <span class="response-meta">90 tokens &middot; 39.7 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-4" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-api-word</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>Python</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>2.27s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>16</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>90</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>39.7</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Name 5 programming languages and briefly describe each one.</div>
+    <div class="rendered-content" id="content-4"></div>
+  </div>
+</div>
+<script>responseData[4] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Task: Name 5 programming languages.\n    *   Requirement: Briefly describe each one.\n    *   Constraint: Keep it concise and informative.\n\n2.  **Select Programming Languages:**\n    *   I need to choose 5 popular, distinct, and widely recognized languages to provide a good overview.\n    *   Options:\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Task: Name 5 programming languages.     *   Requirement: Briefly describe each one.     *   Constraint: Keep it concise and informative.  2.  **Select Programming Languages:**     *   I need to choose 5 popular, distinct, and widely recognized ";</script>
+
+<div class="response-section" id="resp-5">
+  <h3 class="response-header" onclick="toggleResponse(5)">
+    <span class="toggle-icon" id="icon-5">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-system-numbered</span>
+    <span class="response-meta">138 tokens &middot; 36.9 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-5" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-system-numbered</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>4.</strong></span> <span class="config-badge" style="border-color:#3fb950">system: <strong>Always respond with numbered lists. Never use bullet points.</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>3.74s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>28</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>138</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>36.9</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> What are the main benefits of exercise?</div>
+    <div class="rendered-content" id="content-5"></div>
+  </div>
+</div>
+<script>responseData[5] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Topic: Main benefits of exercise.\n    *   Constraint 1: Always respond with numbered lists.\n    *   Constraint 2: Never use bullet points.\n\n2.  **Identify the Content:**\n    *   I need to list the key benefits of exercising.\n    *   Common benefits include: physical health (weight, heart, muscles), mental health (mood, stress), longevity, sleep, energy, etc.\n\n3.  **Format the Output:**\n    *   Must be a numbered list (1., 2., 3., ...).\n    *   Must NOT use bullet points (-, *, etc.).\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Topic: Main benefits of exercise.     *   Constraint 1: Always respond with numbered lists.     *   Constraint 2: Never use bullet points.  2.  **Identify the Content:**     *   I need to list the key benefits of exercising.     *   Common bene";</script>
+
+<div class="response-section" id="resp-6">
+  <h3 class="response-header" onclick="toggleResponse(6)">
+    <span class="toggle-icon" id="icon-6">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-system-pirate</span>
+    <span class="response-meta">374 tokens &middot; 36.7 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-6" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-system-pirate</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>Arrr</strong></span> <span class="config-badge" style="border-color:#3fb950">system: <strong>You are a pirate. Speak like a pirate in all responses.</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>10.18s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>29</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>374</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>36.7</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Tell me about treasure hunting on the high seas.</div>
+    <div class="rendered-content" id="content-6"></div>
+  </div>
+</div>
+<script>responseData[6] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   **User:** Asks about \"treasure hunting on the high seas.\"\n    *   **Constraint:** \"Speak like a pirate in all responses.\"\n    *   **Role:** Pirate.\n    *   **Task:** Provide information about treasure hunting while maintaining the pirate persona.\n\n2.  **Adopt the Persona:**\n    *   **Tone:** Rough, adventurous, nautical, enthusiastic, slightly archaic (but understandable), using pirate slang (ahoy, matey, arrr, ship, sea, gold, doubloons, etc.).\n    *   **Vocabulary:** Sea, waves, compass, map, chest, gold, doubloons, kraken, mutiny, captain, crew, loot, plunder, etc.\n    *   **Grammar/Syntax:** Informal, maybe some dropped 'g's, direct address (\"ye\", \"ye scallywag\", \"ye landlubber\").\n    *   **Attitude:** Passionate about the sea, treasure, and the life of a pirate.\n\n3.  **Drafting the Content:**\n    *   *Greeting:* Ahoy! Welcome aboard, matey!\n    *   *Topic:* Treasure hunting.\n    *   *Key Points to Cover:*\n        *   The thrill of the hunt.\n        *   Tools needed (maps, compass, shovel).\n        *   Dangers (storms, navy, other pirates).\n        *   The reward (gold, jewels, freedom).\n        *   Warning/Advice (don't get caught).\n    *   *Closing:* A pirate sign-off.\n\n4.  **Refining the Voice (Iterative Process):**\n    *   *Draft 1:* Ahoy matey. I know about treasure. You need a map. Look for X marks the spot. Be careful of the navy.\n    *   *Critique 1:* Too plain. Needs more flavor.\n    *   *Draft 2:*\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   **User:** Asks about \"treasure hunting on the high seas.\"     *   **Constraint:** \"Speak like a pirate in all responses.\"     *   **Role:** Pirate.     *   **Task:** Provide information about treasure hunting while maintaining the pirate person";</script>
+
+<div class="response-section" id="resp-7">
+  <h3 class="response-header" onclick="toggleResponse(7)">
+    <span class="toggle-icon" id="icon-7">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-four-max</span>
+    <span class="response-meta">102 tokens &middot; 35.3 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-7" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-four-max</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>3., three, Third, III</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>2.89s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>14</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>102</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>35.3</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> List 10 items, numbered 1 through 10. One per line.</div>
+    <div class="rendered-content" id="content-7"></div>
+  </div>
+</div>
+<script>responseData[7] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Task: List 10 items.\n    *   Format: Numbered 1 through 10.\n    *   Constraint: One item per line.\n\n2.  **Determine the Content:**\n    *   The prompt doesn't specify *what* kind of items (e.g., fruits, numbers, objects).\n    *   Decision: I'll choose common, generic items to ensure clarity and usefulness. Let's use everyday objects or concepts.\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Task: List 10 items.     *   Format: Numbered 1 through 10.     *   Constraint: One item per line.  2.  **Determine the Content:**     *   The prompt doesn't specify *what* kind of items (e.g., fruits, numbers, objects).     *   Decision: I'll ";</script>
+
+<div class="response-section" id="resp-8">
+  <h3 class="response-header" onclick="toggleResponse(8)">
+    <span class="toggle-icon" id="icon-8">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-non-streaming</span>
+    <span class="response-meta">161 tokens &middot; 34.9 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-8" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-non-streaming</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>3.</strong></span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--no-streaming</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>4.61s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>20</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>161</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>34.9</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> List 10 planets or celestial objects, numbered 1 through 10, one per line.</div>
+    <div class="rendered-content" id="content-8"></div>
+  </div>
+</div>
+<script>responseData[8] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Task: List 10 planets or celestial objects.\n    *   Format: Numbered 1 through 10.\n    *   Constraint: One per line.\n\n2.  **Identify Candidates:**\n    *   Planets in our solar system: Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune. (8 total)\n    *   Other celestial objects: Pluto (dwarf planet), Moon (Earth's), Sun (star), Mars' moons (Phobos, Deimos), Jupiter's moons (Io, Europa, etc.), Comets, Asteroids, Exoplanets, etc.\n    *   Selection: I need 10 items. I can use the 8 planets plus 2 other notable celestial objects (like the Sun and the Moon, or Pluto).\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Task: List 10 planets or celestial objects.     *   Format: Numbered 1 through 10.     *   Constraint: One per line.  2.  **Identify Candidates:**     *   Planets in our solar system: Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptun";</script>
+
+<div class="response-section" id="resp-9">
+  <h3 class="response-header" onclick="toggleResponse(9)">
+    <span class="toggle-icon" id="icon-9">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-streaming</span>
+    <span class="response-meta">161 tokens &middot; 34.0 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-9" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-streaming</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>3.</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>4.74s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>20</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>161</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>34.0</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> List 10 planets or celestial objects, numbered 1 through 10, one per line.</div>
+    <div class="rendered-content" id="content-9"></div>
+  </div>
+</div>
+<script>responseData[9] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Task: List 10 planets or celestial objects.\n    *   Format: Numbered 1 through 10.\n    *   Constraint: One per line.\n\n2.  **Identify Candidates:**\n    *   Planets in our solar system: Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune. (8 total)\n    *   Other celestial objects: Pluto (dwarf planet), Moon (Earth's), Sun (star), Mars' moons (Phobos, Deimos), Jupiter's moons (Io, Europa, etc.), Comets, Asteroids, Exoplanets, etc.\n    *   Selection: I need 10 items. I can use the 8 planets plus 2 other notable celestial objects (like the Sun and the Moon, or Pluto).\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Task: List 10 planets or celestial objects.     *   Format: Numbered 1 through 10.     *   Constraint: One per line.  2.  **Identify Candidates:**     *   Planets in our solar system: Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptun";</script>
+
+<div class="response-section" id="resp-10">
+  <h3 class="response-header" onclick="toggleResponse(10)">
+    <span class="toggle-icon" id="icon-10">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-multi-word</span>
+    <span class="response-meta">111 tokens &middot; 33.2 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-10" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-multi-word</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>Step 3</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>3.35s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>22</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>111</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>33.2</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Write a 5-step recipe for making tea. Label each step as &quot;Step 1&quot;, &quot;Step 2&quot;, etc.</div>
+    <div class="rendered-content" id="content-10"></div>
+  </div>
+</div>
+<script>responseData[10] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Task: Write a 5-step recipe for making tea.\n    *   Constraint: Label each step as \"Step 1\", \"Step 2\", etc.\n    *   Goal: Provide clear, actionable instructions for making tea.\n\n2.  **Determine the Content:**\n    *   What are the essential steps for making a standard cup of tea (e.g., black or green tea)?\n    *   Step 1: Boil water.\n    *   Step 2: Prepare the cup/teapot.\n    *\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Task: Write a 5-step recipe for making tea.     *   Constraint: Label each step as \"Step 1\", \"Step 2\", etc.     *   Goal: Provide clear, actionable instructions for making tea.  2.  **Determine the Content:**     *   What are the essential step";</script>
+
+<div class="response-section" id="resp-11">
+  <h3 class="response-header" onclick="toggleResponse(11)">
+    <span class="toggle-icon" id="icon-11">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-top-p</span>
+    <span class="response-meta">111 tokens &middot; 32.3 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-11" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-top-p</strong></span> <span class="config-badge" style="border-color:#58a6ff">top_p: <strong>0.9</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>3.</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>3.44s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>14</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>111</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>32.3</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> List 10 rivers, numbered 1 through 10, one per line.</div>
+    <div class="rendered-content" id="content-11"></div>
+  </div>
+</div>
+<script>responseData[11] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Task: List 10 rivers.\n    *   Format: Numbered 1 through 10.\n    *   Constraint: One river per line.\n\n2.  **Select Rivers:**\n    *   I need 10 well-known rivers to ensure accuracy and recognition.\n    *   Options: Nile, Amazon, Yangtze, Mississippi, Congo, Yenisei, Yellow, Ob, Parana, Ganges. (Or mix of continents).\n    *   Selection:\n        1.  Nile\n        2.  Amazon\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Task: List 10 rivers.     *   Format: Numbered 1 through 10.     *   Constraint: One river per line.  2.  **Select Rivers:**     *   I need 10 well-known rivers to ensure accuracy and recognition.     *   Options: Nile, Amazon, Yangtze, Mississ";</script>
+
+<div class="response-section" id="resp-12">
+  <h3 class="response-header" onclick="toggleResponse(12)">
+    <span class="toggle-icon" id="icon-12">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-high-temp</span>
+    <span class="response-meta">94 tokens &middot; 31.5 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-12" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>1.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-high-temp</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>3.</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>2.98s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>16</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>94</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>31.5</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> List 10 random words, numbered 1 through 10, one per line.</div>
+    <div class="rendered-content" id="content-12"></div>
+  </div>
+</div>
+<script>responseData[12] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Task: List 10 random words.\n    *   Format: Numbered 1 through 10.\n    *   Structure: One word per line.\n\n2.  **Generate Content:**\n    *   I need to come up with 10 distinct, random words.\n    *   They should be ordinary English words.\n    *   List them with numbers.\n\n    Draft list:\n    1. Apple\n    2. River\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Task: List 10 random words.     *   Format: Numbered 1 through 10.     *   Structure: One word per line.  2.  **Generate Content:**     *   I need to come up with 10 distinct, random words.     *   They should be ordinary English words.     *  ";</script>
+
+<div class="response-section" id="resp-13">
+  <h3 class="response-header" onclick="toggleResponse(13)">
+    <span class="toggle-icon" id="icon-13">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-html-tag</span>
+    <span class="response-meta">107 tokens &middot; 31.3 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-13" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-html-tag</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>&lt;/li&gt;</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>3.42s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>18</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>107</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>31.3</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Write an HTML unordered list of 5 fruits using &lt;ul&gt; and &lt;li&gt; tags.</div>
+    <div class="rendered-content" id="content-13"></div>
+  </div>
+</div>
+<script>responseData[13] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Task: Write an HTML unordered list.\n    *   Content: 5 fruits.\n    *   Tags required:<ul>` (unordered list) and<li>` (list item).\n    *   Quantity: 5 items.\n\n2.  **Determine the Content:**\n    *   Need 5 fruit names.\n    *   Examples: Apple, Banana, Orange, Grape, Strawberry.\n\n3.  **Construct the HTML:**\n    *   Opening tag:<ul>`\n    *   Items:\n        *  <li>Apple\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Task: Write an HTML unordered list.     *   Content: 5 fruits.     *   Tags required:<ul>` (unordered list) and<li>` (list item).     *   Quantity: 5 items.  2.  **Determine the Content:**     *   Need 5 fruit names.     *   Examples: Apple, Ba";</script>
+
+<div class="response-section" id="resp-14">
+  <h3 class="response-header" onclick="toggleResponse(14)">
+    <span class="toggle-icon" id="icon-14">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-guided-json-comma</span>
+    <span class="response-meta">58 tokens &middot; 31.3 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-14" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-guided-json-comma</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>,</strong></span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--guided-json &#x27;{&quot;type&quot;:&quot;object&quot;,&quot;properties&quot;:{&quot;name&quot;:{&quot;type&quot;:&quot;string&quot;},&quot;age&quot;:{&quot;type&quot;:&quot;integer&quot;},&quot;city&quot;:{&quot;type&quot;:&quot;string&quot;}},&quot;required&quot;:[&quot;name&quot;,&quot;age&quot;,&quot;city&quot;]}&#x27;</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>1.85s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>21</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>58</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>31.3</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Generate a person profile for someone named Alice who is 30 and lives in Paris.</div>
+    <div class="rendered-content" id="content-14"></div>
+  </div>
+</div>
+<script>responseData[14] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   **Task:** Generate a person profile.\n    *   **Name:** Alice.\n    *   **Age:** 30.\n    *   **Location:** Paris.\n    *   **Implicit Needs:** The profile should be realistic\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   **Task:** Generate a person profile.     *   **Name:** Alice.     *   **Age:** 30.     *   **Location:** Paris.     *   **Implicit Needs:** The profile should be realistic";</script>
+
+<div class="response-section" id="resp-15">
+  <h3 class="response-header" onclick="toggleResponse(15)">
+    <span class="toggle-icon" id="icon-15">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-guided-json-value</span>
+    <span class="response-meta">38 tokens &middot; 30.9 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-15" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-guided-json-value</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>Tokyo</strong></span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--guided-json &#x27;{&quot;type&quot;:&quot;object&quot;,&quot;properties&quot;:{&quot;cities&quot;:{&quot;type&quot;:&quot;array&quot;,&quot;items&quot;:{&quot;type&quot;:&quot;string&quot;}}},&quot;required&quot;:[&quot;cities&quot;]}&#x27;</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#f85149">json: <strong>INVALID</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>1.23s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>16</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>38</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>30.9</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> List 5 major world cities as a JSON array. Include Tokyo.</div>
+    <div class="rendered-content" id="content-15"></div>
+  </div>
+</div>
+<script>responseData[15] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Task: List 5 major world cities.\n    *   Format: JSON array.\n    *   Constraint: Include\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Task: List 5 major world cities.     *   Format: JSON array.     *   Constraint: Include";</script>
+
+<div class="response-section" id="resp-16">
+  <h3 class="response-header" onclick="toggleResponse(16)">
+    <span class="toggle-icon" id="icon-16">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-seed-run2</span>
+    <span class="response-meta">80 tokens &middot; 30.4 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-16" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-seed-run2</strong></span> <span class="config-badge" style="border-color:#a371f7">seed: <strong>42</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>3.</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>2.63s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>14</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>80</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>30.4</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> List 10 flowers, numbered 1 through 10, one per line.</div>
+    <div class="rendered-content" id="content-16"></div>
+  </div>
+</div>
+<script>responseData[16] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Task: List 10 flowers.\n    *   Format: Numbered 1 through 10.\n    *   Constraint: One per line.\n\n2.  **Generate Content:**\n    *   I need 10 distinct flower names.\n    *   Examples: Rose, Tulip, Sunflower, Daisy, Lily, Orchid, Violet, Iris, Peony, Carnation.\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Task: List 10 flowers.     *   Format: Numbered 1 through 10.     *   Constraint: One per line.  2.  **Generate Content:**     *   I need 10 distinct flower names.     *   Examples: Rose, Tulip, Sunflower, Daisy, Lily, Orchid, Violet, Iris, Peo";</script>
+
+<div class="response-section" id="resp-17">
+  <h3 class="response-header" onclick="toggleResponse(17)">
+    <span class="toggle-icon" id="icon-17">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-seed-run1</span>
+    <span class="response-meta">80 tokens &middot; 30.4 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-17" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-seed-run1</strong></span> <span class="config-badge" style="border-color:#a371f7">seed: <strong>42</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>3.</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>2.64s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>14</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>80</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>30.4</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> List 10 flowers, numbered 1 through 10, one per line.</div>
+    <div class="rendered-content" id="content-17"></div>
+  </div>
+</div>
+<script>responseData[17] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Task: List 10 flowers.\n    *   Format: Numbered 1 through 10.\n    *   Constraint: One per line.\n\n2.  **Generate Content:**\n    *   I need 10 distinct flower names.\n    *   Examples: Rose, Tulip, Sunflower, Daisy, Lily, Orchid, Violet, Iris, Peony, Carnation.\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Task: List 10 flowers.     *   Format: Numbered 1 through 10.     *   Constraint: One per line.  2.  **Generate Content:**     *   I need 10 distinct flower names.     *   Examples: Rose, Tulip, Sunflower, Daisy, Lily, Orchid, Violet, Iris, Peo";</script>
+
+<div class="response-section" id="resp-18">
+  <h3 class="response-header" onclick="toggleResponse(18)">
+    <span class="toggle-icon" id="icon-18">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-api-multi</span>
+    <span class="response-meta">98 tokens &middot; 30.1 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-18" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-api-multi</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>4., five</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>3.25s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>14</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>98</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>30.1</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> List 10 animals, numbered 1 through 10, one per line.</div>
+    <div class="rendered-content" id="content-18"></div>
+  </div>
+</div>
+<script>responseData[18] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Task: List 10 animals.\n    *   Format: Numbered 1 through 10.\n    *   Constraint: One animal per line.\n\n2.  **Draft the Content:**\n    *   Need 10 distinct animals.\n    *   Need to number them 1 to 10.\n    *   Need to ensure each is on a new line.\n\n    *   Draft list:\n        1. Lion\n        2. Elephant\n        3. Tiger\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Task: List 10 animals.     *   Format: Numbered 1 through 10.     *   Constraint: One animal per line.  2.  **Draft the Content:**     *   Need 10 distinct animals.     *   Need to number them 1 to 10.     *   Need to ensure each is on a new li";</script>
+
+<div class="response-section" id="resp-19">
+  <h3 class="response-header" onclick="toggleResponse(19)">
+    <span class="toggle-icon" id="icon-19">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-api-single</span>
+    <span class="response-meta">90 tokens &middot; 30.0 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-19" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-api-single</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>3.</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>7.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>3.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>14</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>90</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>30.0</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> List 10 colors, numbered 1 through 10, one per line.</div>
+    <div class="rendered-content" id="content-19"></div>
+  </div>
+</div>
+<script>responseData[19] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Task: List 10 colors.\n    *   Format: Numbered 1 through 10.\n    *   Constraint: One color per line.\n\n2.  **Generate Content:**\n    *   I need 10 distinct colors.\n    *   Common colors: Red, Blue, Green, Yellow, Orange, Purple, Pink, Brown, Black, White.\n    *   Let's make them clear and distinct.\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Task: List 10 colors.     *   Format: Numbered 1 through 10.     *   Constraint: One color per line.  2.  **Generate Content:**     *   I need 10 distinct colors.     *   Common colors: Red, Blue, Green, Yellow, Orange, Purple, Pink, Brown, Bla";</script>
+
+<div class="response-section" id="resp-20">
+  <h3 class="response-header" onclick="toggleResponse(20)">
+    <span class="toggle-icon" id="icon-20">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-unicode</span>
+    <span class="response-meta">38 tokens &middot; 29.6 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-20" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-unicode</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>•</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>1.28s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>13</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>38</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>29.6</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> List 5 items about space using bullet points (•).</div>
+    <div class="rendered-content" id="content-20"></div>
+  </div>
+</div>
+<script>responseData[20] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Topic: Space.\n    *   Quantity: 5 items.\n    *   Format: Bullet points using the symbol \"\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Topic: Space.     *   Quantity: 5 items.     *   Format: Bullet points using the symbol \"";</script>
+
+<div class="response-section" id="resp-21">
+  <h3 class="response-header" onclick="toggleResponse(21)">
+    <span class="toggle-icon" id="icon-21">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-long-phrase</span>
+    <span class="response-meta">44 tokens &middot; 29.4 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-21" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-long-phrase</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>In conclusion</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>1.5s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>25</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>44</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>29.4</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Write a 3-paragraph essay about renewable energy. Start the last paragraph with &quot;In conclusion&quot;.</div>
+    <div class="rendered-content" id="content-21"></div>
+  </div>
+</div>
+<script>responseData[21] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Topic: Renewable energy.\n    *   Format: 3-paragraph essay.\n    *   Constraint: The last paragraph must start with \"\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Topic: Renewable energy.     *   Format: 3-paragraph essay.     *   Constraint: The last paragraph must start with \"";</script>
+
+<div class="response-section" id="resp-22">
+  <h3 class="response-header" onclick="toggleResponse(22)">
+    <span class="toggle-icon" id="icon-22">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-low-max-tokens</span>
+    <span class="response-meta">40 tokens &middot; 27.5 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-22" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>100</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-low-max-tokens</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>2.</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>1.46s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>15</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>40</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>27.5</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> List 10 mountains, numbered 1 through 10, one per line.</div>
+    <div class="rendered-content" id="content-22"></div>
+  </div>
+</div>
+<script>responseData[22] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Task: List 10 mountains.\n    *   Format: Numbered 1 through 10.\n    *   Constraint: One per line.\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Task: List 10 mountains.     *   Format: Numbered 1 through 10.     *   Constraint: One per line.";</script>
+
+<div class="response-section" id="resp-23">
+  <h3 class="response-header" onclick="toggleResponse(23)">
+    <span class="toggle-icon" id="icon-23">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-immediate</span>
+    <span class="response-meta">8 tokens &middot; 19.2 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-23" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-immediate</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>The, I, A</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>0.42s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>9</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>8</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>19.2</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> What is the capital of Japan?</div>
+    <div class="rendered-content" id="content-23"></div>
+  </div>
+</div>
+<script>responseData[23] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **\n\n</details>\n\nThinking Process:  1.  **";</script>
+
+<div class="response-section" id="resp-24">
+  <h3 class="response-header" onclick="toggleResponse(24)">
+    <span class="toggle-icon" id="icon-24">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-api-double-newline</span>
+    <span class="response-meta">6 tokens &middot; 17.6 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-24" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-api-double-newline</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>
+
+</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>0.34s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>23</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>6</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>17.6</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Write a short paragraph about the ocean. Then write a second paragraph about mountains.</div>
+    <div class="rendered-content" id="content-24"></div>
+  </div>
+</div>
+<script>responseData[24] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n</details>\n\nThinking Process:";</script>
+
+<div class="response-section" id="resp-25">
+  <h3 class="response-header" onclick="toggleResponse(25)">
+    <span class="toggle-icon" id="icon-25">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-api-period</span>
+    <span class="response-meta">6 tokens &middot; 17.1 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-25" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-api-period</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>.</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>0.35s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>12</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>6</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>17.1</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Tell me about the sun in three sentences.</div>
+    <div class="rendered-content" id="content-25"></div>
+  </div>
+</div>
+<script>responseData[25] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1\n\n</details>\n\nThinking Process:  1";</script>
+
+<div class="response-section" id="resp-26">
+  <h3 class="response-header" onclick="toggleResponse(26)">
+    <span class="toggle-icon" id="icon-26">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-special-chars</span>
+    <span class="response-meta">7 tokens &middot; 16.0 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-26" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-special-chars</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>**</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>0.44s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>17</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>7</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>16.0</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> List 3 facts about the moon. Use **bold** markdown for emphasis.</div>
+    <div class="rendered-content" id="content-26"></div>
+  </div>
+</div>
+<script>responseData[26] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.\n\n</details>\n\nThinking Process:  1.";</script>
+
+<div class="response-section" id="resp-27">
+  <h3 class="response-header" onclick="toggleResponse(27)">
+    <span class="toggle-icon" id="icon-27">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ stop-api-newline</span>
+    <span class="response-meta">6 tokens &middot; 13.3 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-27" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>stop-api-newline</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>
+</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>0.45s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>15</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>6</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>13.3</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> What is the capital of France? Answer in one sentence.</div>
+    <div class="rendered-content" id="content-27"></div>
+  </div>
+</div>
+<script>responseData[27] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n</details>\n\nThinking Process:";</script>
+
+
+<script>
+// Toggle individual response
+function toggleResponse(idx) {
+  var body = document.getElementById('body-' + idx);
+  var icon = document.getElementById('icon-' + idx);
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    icon.classList.add('open');
+    renderContent(idx);
+  } else {
+    body.style.display = 'none';
+    icon.classList.remove('open');
+  }
+}
+
+// Scroll from perf table to response
+function scrollToResponse(idx) {
+  var el = document.getElementById('resp-' + idx);
+  var body = document.getElementById('body-' + idx);
+  var icon = document.getElementById('icon-' + idx);
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    icon.classList.add('open');
+    renderContent(idx);
+  }
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Expand/collapse all
+var allExpanded = false;
+function toggleAll() {
+  allExpanded = !allExpanded;
+  for (var key in responseData) {
+    var body = document.getElementById('body-' + key);
+    var icon = document.getElementById('icon-' + key);
+    if (allExpanded) {
+      body.style.display = 'block';
+      icon.classList.add('open');
+      renderContent(parseInt(key));
+    } else {
+      body.style.display = 'none';
+      icon.classList.remove('open');
+    }
+  }
+}
+
+// Render markdown + LaTeX for a response
+var rendered = {};
+function renderContent(idx) {
+  if (rendered[idx]) return;
+  rendered[idx] = true;
+  var raw = responseData[idx] || '';
+
+  // Strip <think>...</think> blocks (some models emit reasoning)
+  raw = raw.replace(/<think>[\s\S]*?<\/think>/g, '');
+  // Strip channel markers like <|channel|>analysis<|message|>
+  raw = raw.replace(/<\|channel\|>[^<]*<\|message\|>/g, '');
+
+  var el = document.getElementById('content-' + idx);
+
+  // Use marked to parse markdown
+  if (typeof marked !== 'undefined') {
+    el.innerHTML = marked.parse(raw);
+  } else {
+    el.innerHTML = '<pre>' + raw.replace(/</g, '&lt;') + '</pre>';
+  }
+
+  // Typeset MathJax
+  if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+    MathJax.typesetPromise([el]).catch(function(err) { console.warn('MathJax error:', err); });
+  }
+}
+</script>
+
+</body>
+</html>

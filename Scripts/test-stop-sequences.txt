@@ -1,0 +1,272 @@
+# ══════════════════════════════════════════════════════════════════════
+# STOP SEQUENCE TEST SUITE
+# MODEL: mlx-community/Qwen3.5-35B-A3B-4bit
+# ══════════════════════════════════════════════════════════════════════
+#
+# PURPOSE
+# -------
+# Comprehensive validation of stop sequence support across all modes:
+#   - API-level stop (OpenAI SDK `stop` parameter)
+#   - CLI-level stop (`--stop` flag on afm/afm mlx)
+#   - Streaming and non-streaming
+#   - Combined with guided-json (constrained decoding)
+#   - Edge cases: unicode, multi-token, overlapping, empty
+#
+# Tests cover both MLX backend (afm mlx) and Foundation Model backend
+# (afm) where applicable. The model chosen (Qwen3.5-35B-A3B-4bit) is
+# a reasoning-capable MoE model that generates verbose output, making
+# it a good stress test for stop sequence detection.
+#
+# WHAT TO CHECK
+# -------------
+# For each test, verify:
+#   1. Output does NOT contain the stop sequence or anything after it
+#   2. Output before the stop point is coherent (not truncated mid-word
+#      unless the stop string is mid-word)
+#   3. finish_reason is "stop" (not "length")
+#   4. Streaming and non-streaming produce equivalent truncation points
+#
+# RUN
+# ---
+# mlx-model-test.sh --prompts Scripts/test-stop-sequences.txt
+# ══════════════════════════════════════════════════════════════════════
+
+max_tokens: 4096
+temperature: 0.0
+
+# ══════════════════════════════════════════════════════════════════════
+# 1. BASIC API-LEVEL STOP (OpenAI SDK `stop` parameter)
+# ══════════════════════════════════════════════════════════════════════
+
+# Single stop string — numbered list should stop before item 3
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-api-single]
+stop: ["3."]
+List 10 colors, numbered 1 through 10, one per line.
+
+# Multiple stop strings — should stop at whichever comes first
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-api-multi]
+stop: ["4.", "five"]
+List 10 animals, numbered 1 through 10, one per line.
+
+# Stop on newline — force single-line output
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-api-newline]
+stop: ["\n"]
+What is the capital of France? Answer in one sentence.
+
+# Stop on double newline — allow one paragraph only
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-api-double-newline]
+stop: ["\n\n"]
+Write a short paragraph about the ocean. Then write a second paragraph about mountains.
+
+# Stop on a word boundary
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-api-word]
+stop: ["Python"]
+Name 5 programming languages and briefly describe each one.
+
+# Stop on punctuation
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-api-period]
+stop: ["."]
+Tell me about the sun in three sentences.
+
+# ══════════════════════════════════════════════════════════════════════
+# 2. CLI-LEVEL STOP (`--stop` flag)
+# The afm: keyword passes flags to the server. These tests verify
+# that --stop on the CLI works and is merged with API-level stop.
+# ══════════════════════════════════════════════════════════════════════
+
+# CLI stop only — no API-level stop parameter
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-cli-only]
+afm: --stop "3."
+List 10 fruits, numbered 1 through 10, one per line.
+
+# CLI stop with multiple comma-separated sequences
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-cli-multi]
+afm: --stop "```,END"
+Write a Python hello world in a code block, then write END.
+
+# CLI + API merge — both contribute stop sequences, earliest wins
+# CLI provides "5.", API provides "3." — should stop at 3.
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-cli-api-merge]
+stop: ["3."]
+afm: --stop "5."
+List 10 countries, numbered 1 through 10, one per line.
+
+# CLI + API with duplicate — dedup, should behave same as single
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-cli-api-dedup]
+stop: ["3."]
+afm: --stop "3."
+List 10 cities, numbered 1 through 10, one per line.
+
+# ══════════════════════════════════════════════════════════════════════
+# 3. STREAMING VS NON-STREAMING
+# Verify identical truncation behavior in both modes.
+# ══════════════════════════════════════════════════════════════════════
+
+# Streaming (default) — stop at "3."
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-streaming]
+stop: ["3."]
+List 10 planets or celestial objects, numbered 1 through 10, one per line.
+
+# Non-streaming — same prompt, same stop, should produce identical output
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-non-streaming]
+afm: --no-streaming
+stop: ["3."]
+List 10 planets or celestial objects, numbered 1 through 10, one per line.
+
+# ══════════════════════════════════════════════════════════════════════
+# 4. STOP + GUIDED JSON (constrained decoding)
+# Per OpenAI spec, stop sequences apply to structured output too.
+# The model generates JSON constrained by schema, but should still
+# stop if the stop string appears in the JSON content.
+# ══════════════════════════════════════════════════════════════════════
+
+# Guided JSON + stop on a value — stop when "Tokyo" appears in output
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-guided-json-value]
+stop: ["Tokyo"]
+afm: --guided-json '{"type":"object","properties":{"cities":{"type":"array","items":{"type":"string"}}},"required":["cities"]}'
+List 5 major world cities as a JSON array. Include Tokyo.
+
+# Guided JSON + stop on JSON structural token — stop at first comma
+# This tests that stop sequences apply to the raw output including JSON syntax
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-guided-json-comma]
+stop: [","]
+afm: --guided-json '{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"},"city":{"type":"string"}},"required":["name","age","city"]}'
+Generate a person profile for someone named Alice who is 30 and lives in Paris.
+
+# Guided JSON + stop that should NOT trigger — stop string not in output
+# Output should be complete valid JSON since "XYZZY" won't appear
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-guided-json-no-match]
+stop: ["XYZZY"]
+afm: --guided-json '{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"}},"required":["name","age"]}'
+Generate a person record for Bob aged 25.
+
+# Guided JSON + stop on closing brace — truncate before JSON is complete
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-guided-json-brace]
+stop: ["}"]
+afm: --guided-json '{"type":"object","properties":{"color":{"type":"string"},"hex":{"type":"string"}},"required":["color","hex"]}'
+Describe the color blue with its hex code.
+
+# ══════════════════════════════════════════════════════════════════════
+# 5. STOP + RESPONSE FORMAT (json_object mode)
+# Tests stop sequences with response_format: json_object which uses
+# prompt injection rather than constrained decoding.
+# ══════════════════════════════════════════════════════════════════════
+
+# response_format json_object + stop on a key name
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-json-object-key]
+response_format: json_object
+stop: ["age"]
+Generate a JSON object with keys "name", "age", and "city" for a person named Carol.
+
+# response_format json_object + stop that won't match — full JSON output
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-json-object-no-match]
+response_format: json_object
+stop: ["XYZZY"]
+Generate a JSON object with keys "fruit" and "color" for an apple. Respond only with JSON.
+
+# ══════════════════════════════════════════════════════════════════════
+# 6. MULTI-TOKEN AND LONG STOP SEQUENCES
+# Tests stop strings that span multiple tokens or are longer phrases.
+# ══════════════════════════════════════════════════════════════════════
+
+# Long phrase stop — should stop when the exact phrase appears
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-long-phrase]
+stop: ["In conclusion"]
+Write a 3-paragraph essay about renewable energy. Start the last paragraph with "In conclusion".
+
+# Multi-word stop
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-multi-word]
+stop: ["Step 3"]
+Write a 5-step recipe for making tea. Label each step as "Step 1", "Step 2", etc.
+
+# Code block stop — stop at closing code fence
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-code-fence]
+stop: ["```"]
+Write a Python function that computes factorial, inside a code block.
+
+# ══════════════════════════════════════════════════════════════════════
+# 7. EDGE CASES
+# ══════════════════════════════════════════════════════════════════════
+
+# Stop string that never appears — output should be complete (limited by max_tokens)
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-no-match]
+max_tokens: 256
+stop: ["XYZZY_NEVER_MATCH"]
+What is 2+2? Answer briefly.
+
+# Empty-ish generation — stop on very first possible token
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-immediate]
+stop: ["The", "I", "A"]
+What is the capital of Japan?
+
+# Stop with special characters
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-special-chars]
+stop: ["**"]
+List 3 facts about the moon. Use **bold** markdown for emphasis.
+
+# Stop on HTML-like tag (common in structured output)
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-html-tag]
+stop: ["</li>"]
+Write an HTML unordered list of 5 fruits using <ul> and <li> tags.
+
+# Unicode stop sequence
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-unicode]
+stop: ["\u2022"]
+List 5 items about space using bullet points (•).
+
+# Four stop sequences — max allowed by OpenAI spec
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-four-max]
+stop: ["3.", "three", "Third", "III"]
+List 10 items, numbered 1 through 10. One per line.
+
+# ══════════════════════════════════════════════════════════════════════
+# 8. STOP + SYSTEM PROMPT INTERACTION
+# Verify stop sequences work correctly with various system prompts.
+# ══════════════════════════════════════════════════════════════════════
+
+# System prompt persona + stop — pirate should still be stopped
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-system-pirate]
+system: You are a pirate. Speak like a pirate in all responses.
+stop: ["Arrr"]
+Tell me about treasure hunting on the high seas.
+
+# System prompt with instructions + stop
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-system-numbered]
+system: Always respond with numbered lists. Never use bullet points.
+stop: ["4."]
+What are the main benefits of exercise?
+
+# ══════════════════════════════════════════════════════════════════════
+# 9. STOP + SAMPLING PARAMETERS
+# Verify stop sequences work correctly with different sampling configs.
+# ══════════════════════════════════════════════════════════════════════
+
+# Stop + high temperature — stop should still trigger despite randomness
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-high-temp]
+temperature: 1.0
+stop: ["3."]
+List 10 random words, numbered 1 through 10, one per line.
+
+# Stop + seed — deterministic output should be truncated at same point
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-seed-run1]
+seed: 42
+stop: ["3."]
+List 10 flowers, numbered 1 through 10, one per line.
+
+# Same seed, same stop — verify identical output
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-seed-run2]
+seed: 42
+stop: ["3."]
+List 10 flowers, numbered 1 through 10, one per line.
+
+# Stop + top_p
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-top-p]
+top_p: 0.9
+stop: ["3."]
+List 10 rivers, numbered 1 through 10, one per line.
+
+# Stop + low max_tokens — stop should trigger before max_tokens if it appears
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-low-max-tokens]
+max_tokens: 100
+stop: ["2."]
+List 10 mountains, numbered 1 through 10, one per line.
