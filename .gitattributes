@@ -1,0 +1,3 @@
+# Exclude generated test reports from GitHub language statistics
+test-reports/*.html linguist-generated
+test-reports/*.jsonl linguist-generated
