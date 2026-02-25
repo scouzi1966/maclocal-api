@@ -66,6 +66,55 @@ public func loadTokenizerConfig(configuration: ModelConfiguration, hub: HubApi) 
 
     tokenizerConfig = updateTokenizerConfig(tokenizerConfig)
 
+    // If chat_template is missing from tokenizer_config.json, try loading from
+    // chat_template.jinja file (newer HF convention used by Qwen3.5, etc.)
+    // The file may already be in the model directory, or we may need to download it.
+    if tokenizerConfig.chatTemplate == nil || tokenizerConfig.chatTemplate?.string() == nil {
+        let jinjaURL = modelDir.appending(path: "chat_template.jinja")
+        var jinjaContent: String? = nil
+
+        // Try local file first
+        if FileManager.default.fileExists(atPath: jinjaURL.path) {
+            jinjaContent = try? String(contentsOf: jinjaURL, encoding: .utf8)
+        }
+
+        // If not found locally, try downloading from HF
+        if jinjaContent == nil {
+            var repoId: String? = nil
+            switch configuration.id {
+            case .id(let id, _):
+                repoId = configuration.tokenizerId ?? id
+            case .directory(let directory):
+                // Infer repo ID from directory path (e.g. .../mlx-community/ModelName → mlx-community/ModelName)
+                let parent = directory.deletingLastPathComponent().lastPathComponent
+                let name = directory.lastPathComponent
+                if !parent.isEmpty && parent != "/" {
+                    repoId = "\(parent)/\(name)"
+                }
+            }
+            if let repoId {
+                let repo = Hub.Repo(id: repoId)
+                if let downloaded = try? await hub.snapshot(
+                    from: repo, matching: "chat_template.jinja")
+                {
+                    let downloadedJinja = downloaded.appending(path: "chat_template.jinja")
+                    jinjaContent = try? String(contentsOf: downloadedJinja, encoding: .utf8)
+                    // Also copy to model directory for future loads
+                    if let content = jinjaContent {
+                        try? content.write(to: jinjaURL, atomically: true, encoding: .utf8)
+                    }
+                }
+            }
+        }
+
+        if let jinjaContent, !jinjaContent.isEmpty,
+           var dictionary = tokenizerConfig.dictionary()
+        {
+            dictionary["chat_template"] = .init(jinjaContent)
+            tokenizerConfig = Config(dictionary)
+        }
+    }
+
     return (tokenizerConfig, tokenizerData)
 }
 
