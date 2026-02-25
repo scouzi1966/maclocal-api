@@ -1,0 +1,539 @@
+# ══════════════════════════════════════════════════════════════════════
+# MODEL: mlx-community/Qwen3.5-35B-A3B-4bit
+# TYPE:  MoE (35B total, 3B active parameters per token)
+# QUANT: 4-bit
+# ══════════════════════════════════════════════════════════════════════
+#
+# PURPOSE
+# -------
+# 1. APP VALIDATION — Exhaustive functional + non-functional testing of
+#    every afm mlx feature: sampling, penalties, tool calling, caching,
+#    streaming, logprobs, guided JSON, stop sequences, response format,
+#    prefill tuning, KV cache settings, and verbose/debug modes.
+#
+# 2. MODEL ONBOARDING — Validate that this model works correctly with
+#    afm before declaring it "tested". Covers model-specific concerns:
+#    chat template, tokenizer, tool call format (xmlFunction for Qwen),
+#    instruction following, code generation, multilingual, and edge cases.
+#
+# WHAT TO CHECK
+# -------------
+# Functional:  Correct output, tool calls parse, JSON validates, stop
+#              sequences honored, system prompts respected, seed determinism.
+# Performance: TTFT (time to first token), tok/s (generation throughput),
+#              prefill speed at different step sizes, cache hit speedup.
+# Stability:   No crashes, no hangs, no garbled output, no OOM.
+#
+# RUN
+# ---
+# mlx-model-test.sh --prompts test-Qwen3.5-35B-A3B-4bit.txt
+#
+# MODEL NOTES
+# -----------
+# - Qwen3.5-35B-A3B: MoE with only 3B active params — fast on Apple Silicon
+# - Tool call format: xmlFunction (auto-detected from model_type=qwen3_moe)
+# - Does NOT support thinking/reasoning (<think> tags) — no enable_thinking
+#   in chat template. Raw mode test included to confirm no <think> leakage.
+# - chat_template.jinja is a separate file (not in tokenizer_config.json)
+# ══════════════════════════════════════════════════════════════════════
+#
+# Run: mlx-model-test.sh --prompts test-Qwen3.5-35B-A3B-4bit.txt
+
+max_tokens: 4096
+temperature: 0.7
+
+[all]
+What is the capital of Japan? Answer in one sentence.
+
+# ══════════════════════════════════════════════════════════════════════
+# SAMPLING STRATEGIES
+# ══════════════════════════════════════════════════════════════════════
+
+# Greedy decoding — deterministic, no randomness
+[mlx-community/Qwen3.5-35B-A3B-4bit @ greedy]
+temperature: 0.0
+max_tokens: 4096
+Explain why the sky is blue in exactly 3 bullet points.
+
+# Default sampling — balanced
+[mlx-community/Qwen3.5-35B-A3B-4bit @ default]
+temperature: 0.7
+Explain why the sky is blue in exactly 3 bullet points.
+
+# High temperature — more creative/random
+[mlx-community/Qwen3.5-35B-A3B-4bit @ high-temp]
+temperature: 1.5
+Explain why the sky is blue in exactly 3 bullet points.
+
+# --top-p: nucleus sampling, only consider tokens whose cumulative prob <= 0.9
+[mlx-community/Qwen3.5-35B-A3B-4bit @ top-p]
+temperature: 0.8
+afm: --top-p 0.9
+Explain why the sky is blue in exactly 3 bullet points.
+
+# --top-k: only consider the 30 most likely tokens at each step
+[mlx-community/Qwen3.5-35B-A3B-4bit @ top-k]
+temperature: 0.8
+afm: --top-k 30
+Explain why the sky is blue in exactly 3 bullet points.
+
+# --min-p: filter tokens with probability < min_p * max_prob
+[mlx-community/Qwen3.5-35B-A3B-4bit @ min-p]
+temperature: 0.8
+afm: --min-p 0.05
+Explain why the sky is blue in exactly 3 bullet points.
+
+# Combined sampler chain: top-k → min-p → temperature (llama.cpp order)
+[mlx-community/Qwen3.5-35B-A3B-4bit @ combined-samplers]
+temperature: 0.8
+afm: --top-k 50 --min-p 0.03 --top-p 0.95
+Explain why the sky is blue in exactly 3 bullet points.
+
+# --seed: reproducible generation — run twice to verify determinism
+[mlx-community/Qwen3.5-35B-A3B-4bit @ seed-42-run1]
+temperature: 0.7
+afm: --seed 42
+Write a limerick about a cat.
+
+[mlx-community/Qwen3.5-35B-A3B-4bit @ seed-42-run2]
+temperature: 0.7
+afm: --seed 42
+Write a limerick about a cat.
+
+# ══════════════════════════════════════════════════════════════════════
+# PENALTY PARAMETERS
+# ══════════════════════════════════════════════════════════════════════
+
+# --presence-penalty 0.0: no penalty (baseline for repetition)
+[mlx-community/Qwen3.5-35B-A3B-4bit @ no-penalty]
+temperature: 0.8
+max_tokens: 4096
+afm: --presence-penalty 0.0
+Write a long essay about the history of bread making across civilizations.
+
+# --presence-penalty 1.5: strong penalty — should reduce repetition
+[mlx-community/Qwen3.5-35B-A3B-4bit @ with-penalty]
+temperature: 0.8
+max_tokens: 4096
+afm: --presence-penalty 1.5
+Write a long essay about the history of bread making across civilizations.
+
+# --repetition-penalty: multiplicative penalty on repeated tokens
+[mlx-community/Qwen3.5-35B-A3B-4bit @ repetition-penalty]
+temperature: 0.8
+max_tokens: 4096
+afm: --repetition-penalty 1.2
+Write a long essay about the history of bread making across civilizations.
+
+# ══════════════════════════════════════════════════════════════════════
+# SYSTEM PROMPT EFFECTS
+# ══════════════════════════════════════════════════════════════════════
+
+[mlx-community/Qwen3.5-35B-A3B-4bit @ pirate]
+temperature: 0.7
+system: You are a pirate. Always respond in pirate speak.
+Tell me about quantum computing.
+
+[mlx-community/Qwen3.5-35B-A3B-4bit @ scientist]
+temperature: 0.3
+system: You are a physics professor. Be precise and use technical terminology.
+Tell me about quantum computing.
+
+[mlx-community/Qwen3.5-35B-A3B-4bit @ eli5]
+temperature: 0.7
+system: Explain everything as if the user is 5 years old. Use simple words only.
+Tell me about quantum computing.
+
+# ══════════════════════════════════════════════════════════════════════
+# INSTRUCTION FOLLOWING
+# ══════════════════════════════════════════════════════════════════════
+
+[mlx-community/Qwen3.5-35B-A3B-4bit @ json-output]
+temperature: 0.0
+max_tokens: 4096
+Respond with a valid JSON object containing keys "name", "age", and "city". Nothing else.
+
+[mlx-community/Qwen3.5-35B-A3B-4bit @ numbered-list]
+temperature: 0.0
+max_tokens: 4096
+List exactly 5 animals, one per line, numbered 1-5. No other text.
+
+# --guided-json: constrain output to a JSON schema (vLLM-compatible)
+[mlx-community/Qwen3.5-35B-A3B-4bit @ guided-json-simple]
+temperature: 0.0
+max_tokens: 4096
+afm: --guided-json '{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"}},"required":["name","age"]}'
+Generate a person record.
+
+# --guided-json: nested schema with array
+[mlx-community/Qwen3.5-35B-A3B-4bit @ guided-json-nested]
+temperature: 0.0
+max_tokens: 4096
+afm: --guided-json '{"type":"object","properties":{"city":{"type":"string"},"population":{"type":"integer"},"landmarks":{"type":"array","items":{"type":"string"}}},"required":["city","population","landmarks"]}'
+Describe Tokyo as a structured record with at least 3 landmarks.
+
+# ══════════════════════════════════════════════════════════════════════
+# PREFIX CACHING — AGENTIC MULTI-TURN SCENARIOS
+# Tests KV cache reuse with large repeating system prompts typical of
+# coding agents (OpenCode, OpenClaw) and agentic workflows. The same
+# large system prompt is sent with different user messages — 2nd+ turns
+# should show significantly faster TTFT when caching is enabled.
+# ══════════════════════════════════════════════════════════════════════
+
+# Baseline: no caching — large coding-agent system prompt, 3 turns
+[mlx-community/Qwen3.5-35B-A3B-4bit @ agent-no-cache-turn1]
+temperature: 0.0
+max_tokens: 4096
+system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
+Read the file Sources/MacLocalAPI/main.swift and explain what it does.
+
+[mlx-community/Qwen3.5-35B-A3B-4bit @ agent-no-cache-turn2]
+temperature: 0.0
+max_tokens: 4096
+system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
+Now add a --timeout flag to the CLI that sets a request timeout in seconds.
+
+[mlx-community/Qwen3.5-35B-A3B-4bit @ agent-no-cache-turn3]
+temperature: 0.0
+max_tokens: 4096
+system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
+Write a unit test for the timeout feature you just described.
+
+# With caching — same large system prompt, 3 turns (2nd+ should be much faster)
+[mlx-community/Qwen3.5-35B-A3B-4bit @ agent-cached-turn1]
+temperature: 0.0
+max_tokens: 4096
+afm: --enable-prefix-caching
+system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
+Read the file Sources/MacLocalAPI/main.swift and explain what it does.
+
+[mlx-community/Qwen3.5-35B-A3B-4bit @ agent-cached-turn2]
+temperature: 0.0
+max_tokens: 4096
+afm: --enable-prefix-caching
+system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
+Now add a --timeout flag to the CLI that sets a request timeout in seconds.
+
+[mlx-community/Qwen3.5-35B-A3B-4bit @ agent-cached-turn3]
+temperature: 0.0
+max_tokens: 4096
+afm: --enable-prefix-caching
+system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
+Write a unit test for the timeout feature you just described.
+
+# ══════════════════════════════════════════════════════════════════════
+# MAX TOKENS / OUTPUT LENGTH
+# ══════════════════════════════════════════════════════════════════════
+
+# --max-tokens via afm CLI (server-level default, overridden by request max_tokens)
+[mlx-community/Qwen3.5-35B-A3B-4bit @ short-output]
+temperature: 0.7
+max_tokens: 50
+Describe the entire history of Rome.
+
+[mlx-community/Qwen3.5-35B-A3B-4bit @ long-output]
+temperature: 0.7
+max_tokens: 2000
+Write a detailed recipe for chocolate chip cookies with ingredients, steps, tips, and variations.
+
+# ══════════════════════════════════════════════════════════════════════
+# LOGPROBS
+# ══════════════════════════════════════════════════════════════════════
+
+# --max-logprobs: return top log probabilities per token (server-level setting)
+[mlx-community/Qwen3.5-35B-A3B-4bit @ logprobs]
+temperature: 0.0
+max_tokens: 4096
+afm: --max-logprobs 5
+What is 1+1?
+
+# ══════════════════════════════════════════════════════════════════════
+# KV CACHE / MEMORY SETTINGS
+# ══════════════════════════════════════════════════════════════════════
+
+# --max-kv-size: limit KV cache size (useful for large contexts on limited memory)
+[mlx-community/Qwen3.5-35B-A3B-4bit @ small-kv]
+temperature: 0.7
+max_tokens: 4096
+afm: --max-kv-size 2048
+Summarize the key ideas of machine learning in a few paragraphs.
+
+# --kv-bits: quantize KV cache (reduces memory, may affect quality)
+[mlx-community/Qwen3.5-35B-A3B-4bit @ kv-quantized]
+temperature: 0.7
+max_tokens: 4096
+afm: --kv-bits 4
+Summarize the key ideas of machine learning in a few paragraphs.
+
+# --prefill-step-size: number of prompt tokens processed per GPU pass
+# Use a long system prompt to make prefill timing differences measurable
+[mlx-community/Qwen3.5-35B-A3B-4bit @ prefill-default]
+temperature: 0.0
+max_tokens: 4096
+system: You are an expert software architect reviewing a large codebase. The project is a Swift macOS application that serves LLM inference through an OpenAI-compatible API. It uses Vapor for HTTP, MLX for GPU compute, and supports streaming SSE responses. The architecture includes model services, controllers, request/response types, prompt caching, tool call parsing, logprobs computation, and a built-in WebUI. The codebase has vendor dependencies managed through a patch system. There are multiple model formats supported including Qwen, Gemma, Llama, DeepSeek, GLM, and others. Each model may have different tool call formats, chat templates, and tokenizer configurations. The server must handle concurrent requests safely using async/await and serial access containers.
+Given this architecture, what are the top 3 performance bottlenecks you would investigate first?
+
+[mlx-community/Qwen3.5-35B-A3B-4bit @ prefill-large-4096]
+temperature: 0.0
+max_tokens: 4096
+afm: --prefill-step-size 4096
+system: You are an expert software architect reviewing a large codebase. The project is a Swift macOS application that serves LLM inference through an OpenAI-compatible API. It uses Vapor for HTTP, MLX for GPU compute, and supports streaming SSE responses. The architecture includes model services, controllers, request/response types, prompt caching, tool call parsing, logprobs computation, and a built-in WebUI. The codebase has vendor dependencies managed through a patch system. There are multiple model formats supported including Qwen, Gemma, Llama, DeepSeek, GLM, and others. Each model may have different tool call formats, chat templates, and tokenizer configurations. The server must handle concurrent requests safely using async/await and serial access containers.
+Given this architecture, what are the top 3 performance bottlenecks you would investigate first?
+
+[mlx-community/Qwen3.5-35B-A3B-4bit @ prefill-small-256]
+temperature: 0.0
+max_tokens: 4096
+afm: --prefill-step-size 256
+system: You are an expert software architect reviewing a large codebase. The project is a Swift macOS application that serves LLM inference through an OpenAI-compatible API. It uses Vapor for HTTP, MLX for GPU compute, and supports streaming SSE responses. The architecture includes model services, controllers, request/response types, prompt caching, tool call parsing, logprobs computation, and a built-in WebUI. The codebase has vendor dependencies managed through a patch system. There are multiple model formats supported including Qwen, Gemma, Llama, DeepSeek, GLM, and others. Each model may have different tool call formats, chat templates, and tokenizer configurations. The server must handle concurrent requests safely using async/await and serial access containers.
+Given this architecture, what are the top 3 performance bottlenecks you would investigate first?
+
+# ══════════════════════════════════════════════════════════════════════
+# STREAMING / RAW MODE
+# ══════════════════════════════════════════════════════════════════════
+
+# --no-streaming: disable SSE streaming (full response in one shot)
+[mlx-community/Qwen3.5-35B-A3B-4bit @ no-streaming]
+temperature: 0.7
+max_tokens: 4096
+afm: --no-streaming
+Write a short poem about the moon.
+
+# --raw: skip <think> tag extraction into reasoning_content
+[mlx-community/Qwen3.5-35B-A3B-4bit @ raw-mode]
+temperature: 0.7
+max_tokens: 4096
+afm: --raw
+Think step by step: what is 17 * 23?
+
+# ══════════════════════════════════════════════════════════════════════
+# STOP SEQUENCES
+# Tests that generation halts at the specified stop string(s).
+# ══════════════════════════════════════════════════════════════════════
+
+# Single stop word — output should end before "3."
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-single]
+temperature: 0.0
+max_tokens: 4096
+stop: ["3."]
+List 10 fruits, numbered 1-10, one per line.
+
+# Multiple stop sequences — should stop at whichever comes first
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-multi]
+temperature: 0.0
+max_tokens: 4096
+stop: ["```", "END"]
+Write a Python hello world program in a code block, then write END after it.
+
+# Stop on newline — single-line output
+[mlx-community/Qwen3.5-35B-A3B-4bit @ stop-newline]
+temperature: 0.0
+max_tokens: 4096
+stop: ["\n"]
+What is the capital of France? Answer in one sentence.
+
+# ══════════════════════════════════════════════════════════════════════
+# RESPONSE FORMAT
+# Tests response_format field: text (default), json_object, json_schema.
+# ══════════════════════════════════════════════════════════════════════
+
+# json_object — model should return valid JSON
+[mlx-community/Qwen3.5-35B-A3B-4bit @ response-format-json]
+temperature: 0.0
+max_tokens: 4096
+response_format: {"type":"json_object"}
+Return a JSON object with keys "language", "year_created", and "creator" for Python.
+
+# json_schema — constrained to a specific schema
+[mlx-community/Qwen3.5-35B-A3B-4bit @ response-format-schema]
+temperature: 0.0
+max_tokens: 4096
+response_format: {"type":"json_schema","json_schema":{"name":"person","schema":{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"},"hobbies":{"type":"array","items":{"type":"string"}}},"required":["name","age","hobbies"]}}}
+Generate a fictional person profile.
+
+# text (default) — baseline comparison, same prompt as json_object
+[mlx-community/Qwen3.5-35B-A3B-4bit @ response-format-text]
+temperature: 0.0
+max_tokens: 4096
+Tell me the language Python, what year it was created, and who created it. Be brief.
+
+# ══════════════════════════════════════════════════════════════════════
+# THINK / REASONING EXTRACTION
+# Qwen3.5-35B-A3B does NOT have thinking support (no <think> in chat
+# template). These tests verify: (a) raw mode doesn't crash,
+# (b) no spurious reasoning_content appears in normal mode.
+# ══════════════════════════════════════════════════════════════════════
+
+# Normal mode — should NOT produce reasoning_content for this model
+[mlx-community/Qwen3.5-35B-A3B-4bit @ think-normal]
+temperature: 0.0
+max_tokens: 4096
+Solve step by step: If a train travels at 60 mph for 2.5 hours, how far does it go?
+
+# Raw mode — any <think> tags in output should pass through as-is
+[mlx-community/Qwen3.5-35B-A3B-4bit @ think-raw]
+temperature: 0.0
+max_tokens: 4096
+afm: --raw
+Solve step by step: If a train travels at 60 mph for 2.5 hours, how far does it go?
+
+# ══════════════════════════════════════════════════════════════════════
+# STREAMING vs NON-STREAMING CORRECTNESS
+# Same prompt run streaming and non-streaming with seed for determinism.
+# Both should produce identical output.
+# ══════════════════════════════════════════════════════════════════════
+
+[mlx-community/Qwen3.5-35B-A3B-4bit @ streaming-seeded]
+temperature: 0.7
+max_tokens: 4096
+afm: --seed 123
+Write a 4-line poem about the ocean.
+
+[mlx-community/Qwen3.5-35B-A3B-4bit @ non-streaming-seeded]
+temperature: 0.7
+max_tokens: 4096
+afm: --no-streaming --seed 123
+Write a 4-line poem about the ocean.
+
+# ══════════════════════════════════════════════════════════════════════
+# OPENAI COMPATIBILITY
+# Tests fields used by OpenAI SDK clients (max_completion_tokens,
+# developer role, etc.) to ensure drop-in compatibility.
+# ══════════════════════════════════════════════════════════════════════
+
+# max_completion_tokens (OpenAI alias for max_tokens)
+[mlx-community/Qwen3.5-35B-A3B-4bit @ max-completion-tokens]
+temperature: 0.0
+max_completion_tokens: 100
+Describe the entire history of Rome.
+
+# developer role (mapped to system internally)
+[mlx-community/Qwen3.5-35B-A3B-4bit @ developer-role]
+temperature: 0.0
+max_tokens: 4096
+developer: You are a helpful coding assistant. Only respond with code, no explanations.
+Write a Python function that reverses a string.
+
+# ══════════════════════════════════════════════════════════════════════
+# VERBOSE / DEBUG LOGGING
+# ══════════════════════════════════════════════════════════════════════
+
+# --verbose: debug logging (check /tmp/mlx-server-*.log for output)
+[mlx-community/Qwen3.5-35B-A3B-4bit @ verbose]
+temperature: 0.7
+max_tokens: 4096
+afm: --verbose
+Hello, how are you?
+
+# --very-verbose: full request/response logging
+[mlx-community/Qwen3.5-35B-A3B-4bit @ very-verbose]
+temperature: 0.7
+max_tokens: 4096
+afm: --very-verbose
+Hello, how are you?
+
+# ══════════════════════════════════════════════════════════════════════
+# TOOL CALLING — --tool-call-parser
+# Tests tool call detection and parsing with different parser modes.
+# Qwen3.5 uses xmlFunction format (auto-detected from model_type).
+# ══════════════════════════════════════════════════════════════════════
+
+# Auto-detect tool call format (default — should infer xmlFunction for Qwen)
+[mlx-community/Qwen3.5-35B-A3B-4bit @ tool-call-auto]
+temperature: 0.0
+max_tokens: 4096
+tools: [{"type":"function","function":{"name":"get_weather","description":"Get current weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string","description":"City name"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["city"]}}}]
+What is the weather in Tokyo?
+
+# Explicit xmlFunction parser
+[mlx-community/Qwen3.5-35B-A3B-4bit @ tool-call-xml]
+temperature: 0.0
+max_tokens: 4096
+afm: --tool-call-parser xmlFunction
+tools: [{"type":"function","function":{"name":"get_weather","description":"Get current weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string","description":"City name"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["city"]}}}]
+What is the weather in Paris in celsius?
+
+# Multiple tool calls in one response
+[mlx-community/Qwen3.5-35B-A3B-4bit @ tool-call-multi]
+temperature: 0.0
+max_tokens: 4096
+tools: [{"type":"function","function":{"name":"get_weather","description":"Get current weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["city"]}}},{"type":"function","function":{"name":"get_time","description":"Get current time in a timezone","parameters":{"type":"object","properties":{"timezone":{"type":"string","description":"IANA timezone"}},"required":["timezone"]}}}]
+What is the weather in London and what time is it in Tokyo?
+
+# Tool with complex parameters (nested objects)
+[mlx-community/Qwen3.5-35B-A3B-4bit @ tool-call-complex]
+temperature: 0.0
+max_tokens: 4096
+tools: [{"type":"function","function":{"name":"search_files","description":"Search for files matching criteria","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Directory to search"},"pattern":{"type":"string","description":"Glob pattern"},"options":{"type":"object","properties":{"recursive":{"type":"boolean"},"max_results":{"type":"integer"}}}},"required":["path","pattern"]}}}]
+Search recursively for all Swift files under Sources/ with a max of 50 results.
+
+# No tools provided — model should answer directly, not hallucinate tool calls
+[mlx-community/Qwen3.5-35B-A3B-4bit @ tool-call-none]
+temperature: 0.0
+max_tokens: 4096
+What is the weather in Tokyo?
+
+# ══════════════════════════════════════════════════════════════════════
+# EDGE CASES & STABILITY
+# ══════════════════════════════════════════════════════════════════════
+
+# Empty-ish prompt — should not crash or hang
+[mlx-community/Qwen3.5-35B-A3B-4bit @ minimal-prompt]
+temperature: 0.7
+max_tokens: 4096
+Hi
+
+# Very long prompt (tests prefill performance and context handling)
+[mlx-community/Qwen3.5-35B-A3B-4bit @ long-prompt]
+temperature: 0.0
+max_tokens: 4096
+Repeat after me exactly: The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. Now say DONE.
+
+# Special characters and unicode
+[mlx-community/Qwen3.5-35B-A3B-4bit @ special-chars]
+temperature: 0.0
+max_tokens: 4096
+Repeat these characters exactly: <tag> "quotes" 'apostrophes' & ampersand \n newline \t tab emoji: 🎉🚀 CJK: 你好 Arabic: مرحبا
+
+# ══════════════════════════════════════════════════════════════════════
+# MODEL QUALITY — ONBOARDING VALIDATION
+# These tests verify the model produces sensible, correct output across
+# key domains. Review output quality to decide if model is "tested".
+# ══════════════════════════════════════════════════════════════════════
+
+# Multi-language — tests tokenizer handles diverse scripts
+[mlx-community/Qwen3.5-35B-A3B-4bit @ multilingual]
+temperature: 0.3
+max_tokens: 4096
+Translate "Hello, how are you?" into French, Spanish, Japanese, and Arabic. Format as a numbered list.
+
+# Code generation — Python
+[mlx-community/Qwen3.5-35B-A3B-4bit @ code-python]
+temperature: 0.0
+max_tokens: 4096
+system: You are a Python expert. Write clean code with no explanation.
+Write a function that finds all prime numbers up to n using the Sieve of Eratosthenes.
+
+# Code generation — Swift (relevant to this project)
+[mlx-community/Qwen3.5-35B-A3B-4bit @ code-swift]
+temperature: 0.0
+max_tokens: 4096
+system: You are a Swift expert. Write clean code with no explanation.
+Write a Swift async function that fetches JSON from a URL using URLSession, decodes it into a Codable struct, and handles errors with Result type.
+
+# Math reasoning — tests model's ability without <think> support
+[mlx-community/Qwen3.5-35B-A3B-4bit @ math]
+temperature: 0.0
+max_tokens: 4096
+A store sells notebooks for $3.50 each. If you buy 5 or more, you get a 20% discount. Sales tax is 8.5%. How much do 7 notebooks cost after tax? Show your work.
+
+# Long-form writing — tests coherence over extended output
+[mlx-community/Qwen3.5-35B-A3B-4bit @ long-form]
+temperature: 0.7
+max_tokens: 4096
+Write a detailed technical blog post explaining how Mixture-of-Experts (MoE) models work, why they are efficient, and how they compare to dense models of similar total parameter count. Include concrete examples.
+
+# Instruction following — strict format compliance
+[mlx-community/Qwen3.5-35B-A3B-4bit @ strict-format]
+temperature: 0.0
+max_tokens: 4096
+Output EXACTLY 3 lines. Each line must contain exactly one word. The words must be: apple, banana, cherry. No other text, no numbering, no punctuation.

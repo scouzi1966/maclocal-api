@@ -2,11 +2,16 @@
 import json, html, datetime, re, os, sys, shutil, subprocess
 
 results = []
+run_meta = {}
 with open("/tmp/mlx-test-results.jsonl") as f:
     for line in f:
         line = line.strip()
         if line:
-            results.append(json.loads(line))
+            obj = json.loads(line)
+            if obj.get("_meta"):
+                run_meta = obj
+            else:
+                results.append(obj)
 
 # Tag each result with its original JSONL line index
 for idx, r in enumerate(results):
@@ -439,7 +444,8 @@ MathJax = {{
 </head>
 <body>
 <h1>MLX Model Test Report</h1>
-<p class="meta">Generated {now} &middot; AFM MLX Backend</p>
+<p class="meta">Generated {now} &middot; AFM MLX Backend{f' &middot; <strong>{html.escape(run_meta.get("afm_version", ""))}</strong>' if run_meta.get("afm_version") else ''}</p>
+{f'<p class="meta" style="margin-top:0.3rem"><code style="background:#161b22;padding:0.3rem 0.6rem;border-radius:4px;font-size:0.8rem">{html.escape(run_meta.get("test_command", ""))}</code></p>' if run_meta.get("test_command") else ''}
 
 <div class="summary">
   <div class="card"><div class="label">Test Runs</div><div class="value blue">{len(results)}</div></div>

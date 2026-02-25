@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/opt/homebrew/bin/bash
 #
 # ── LLM INSTRUCTIONS ─────────────────────────────────────────────────────────
 # If you are an LLM (Claude, GPT, etc.) generating test cases for this script:
@@ -377,6 +377,14 @@ if [ -n "$STALE_PID" ]; then
 fi
 
 > "$RESULTS_FILE"
+
+# ── Capture test run metadata (version, command) ─────────────────────────────
+AFM_VERSION=$("$AFM" --version 2>/dev/null || echo "unknown")
+TEST_COMMAND="mlx-model-test.sh $*"
+export AFM_VERSION TEST_COMMAND
+
+# Write metadata record as first JSONL line
+echo "{\"_meta\":true,\"afm_version\":\"$AFM_VERSION\",\"test_command\":\"$TEST_COMMAND\",\"afm_binary\":\"$(which "$AFM" 2>/dev/null || echo "$AFM")\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> "$RESULTS_FILE"
 
 # ── Parse prompts file into JSON config ───────────────────────────────────────
 
