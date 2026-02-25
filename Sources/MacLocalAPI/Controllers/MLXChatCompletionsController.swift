@@ -98,7 +98,7 @@ struct MLXChatCompletionsController: RouteCollection {
             }
 
             let hasTools = chatRequest.tools != nil && !(chatRequest.tools?.isEmpty ?? true)
-            if hasTools {
+            if hasTools && veryVerbose {
                 let toolNames = chatRequest.tools!.map { $0.function.name }.joined(separator: ", ")
                 req.logger.info("\(Self.gold)[\(Self.timestamp())] RECV tools: [\(toolNames)]\(Self.reset)")
             }
@@ -119,11 +119,13 @@ struct MLXChatCompletionsController: RouteCollection {
             let effectivePresencePenalty = chatRequest.presencePenalty ?? presencePenalty
             let effectiveSeed = chatRequest.seed ?? seed
             let started = Date()
-            let promptChars = chatRequest.messages.map { $0.textContent.count }.reduce(0, +)
-            let stopDesc = chatRequest.stop.map { $0.map { $0.debugDescription }.joined(separator: ", ") }
-            req.logger.info(
-                "\(Self.orange)[\(Self.timestamp())] MLX start: stream=false\n  prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens)\n  temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\n  top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none")\n  seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
-            )
+            if veryVerbose {
+                let promptChars = chatRequest.messages.map { $0.textContent.count }.reduce(0, +)
+                let stopDesc = chatRequest.stop.map { $0.map { $0.debugDescription }.joined(separator: ", ") }
+                req.logger.info(
+                    "\(Self.orange)[\(Self.timestamp())] MLX start: stream=false\n  prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens)\n  temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\n  top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none")\n  seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
+                )
+            }
             let result = try await service.generate(
                 model: modelID,
                 messages: chatRequest.messages,
@@ -148,12 +150,14 @@ struct MLXChatCompletionsController: RouteCollection {
 
             // If we got tool calls, return a tool_calls response
             if let toolCalls = result.toolCalls, !toolCalls.isEmpty {
-                let toolNames = toolCalls.map { $0.function.name }.joined(separator: ", ")
-                req.logger.info("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false\n  prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok)\n  elapsed=\(String(format: "%.2f", elapsed))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=tool_calls\(Self.reset)")
-                for tc in toolCalls {
-                    print("\(Self.gold)[\(Self.timestamp())] SEND tool_call: \(tc.function.name)\n  id=\(tc.id)\n  args=\(tc.function.arguments)\(Self.reset)")
+                if veryVerbose {
+                    let toolNames = toolCalls.map { $0.function.name }.joined(separator: ", ")
+                    req.logger.info("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false\n  prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok)\n  elapsed=\(String(format: "%.2f", elapsed))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=tool_calls\(Self.reset)")
+                    for tc in toolCalls {
+                        print("\(Self.gold)[\(Self.timestamp())] SEND tool_call: \(tc.function.name)\n  id=\(tc.id)\n  args=\(tc.function.arguments)\(Self.reset)")
+                    }
+                    fflush(stdout)
                 }
-                fflush(stdout)
 
                 let choiceLogprobs = buildChoiceLogprobs(result.tokenLogprobs)
                 let response = ChatCompletionResponse(
@@ -170,7 +174,9 @@ struct MLXChatCompletionsController: RouteCollection {
             }
 
             let stopReason = completionTok >= effectiveMaxTokens ? "length" : "stop"
-            req.logger.info("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false\n  prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok)\n  elapsed=\(String(format: "%.2f", elapsed))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=\(stopReason)\(Self.reset)")
+            if veryVerbose {
+                req.logger.info("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false\n  prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok)\n  elapsed=\(String(format: "%.2f", elapsed))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=\(stopReason)\(Self.reset)")
+            }
 
             // Extract <think>...</think> tags into reasoning_content
             let finalContent: String
@@ -226,11 +232,13 @@ struct MLXChatCompletionsController: RouteCollection {
             let effectiveSeed = chatRequest.seed ?? self.seed
 
             do {
-                let promptChars = chatRequest.messages.map { $0.textContent.count }.reduce(0, +)
-                let stopDesc = chatRequest.stop.map { $0.map { $0.debugDescription }.joined(separator: ", ") }
-                req.logger.info(
-                    "\(Self.orange)[\(Self.timestamp())] MLX start: stream=true\n  prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens)\n  temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\n  top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none")\n  seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
-                )
+                if self.veryVerbose {
+                    let promptChars = chatRequest.messages.map { $0.textContent.count }.reduce(0, +)
+                    let stopDesc = chatRequest.stop.map { $0.map { $0.debugDescription }.joined(separator: ", ") }
+                    req.logger.info(
+                        "\(Self.orange)[\(Self.timestamp())] MLX start: stream=true\n  prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens)\n  temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\n  top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none")\n  seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
+                    )
+                }
                 let res = try await service.generateStreaming(
                     model: modelID,
                     messages: chatRequest.messages,
@@ -323,8 +331,10 @@ struct MLXChatCompletionsController: RouteCollection {
                         madeToolCall = true
                         for tc in tcs {
                             collectedToolCalls.append(tc)
-                            print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (vendor): \(tc.function.name)\n  id=\(tc.id)\n  args=\(tc.function.arguments)\(Self.reset)")
-                            fflush(stdout)
+                            if self.veryVerbose {
+                                print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (vendor): \(tc.function.name)\n  id=\(tc.id)\n  args=\(tc.function.arguments)\(Self.reset)")
+                                fflush(stdout)
+                            }
                             let delta = StreamDeltaToolCall(
                                 index: collectedToolCalls.count - 1,
                                 id: tc.id,
@@ -386,8 +396,10 @@ struct MLXChatCompletionsController: RouteCollection {
                             let after = String(piece[range.upperBound...])
                             if !after.isEmpty { currentToolText += after }
                         }
-                        print("\(Self.gold)[\(Self.timestamp())] RECV <tool_call> start tag\(Self.reset)")
-                        fflush(stdout)
+                        if self.veryVerbose {
+                            print("\(Self.gold)[\(Self.timestamp())] RECV <tool_call> start tag\(Self.reset)")
+                            fflush(stdout)
+                        }
                         continue
                     }
                     if inToolCall {
@@ -398,8 +410,10 @@ struct MLXChatCompletionsController: RouteCollection {
                                 let before = String(piece[..<range.lowerBound])
                                 if !before.isEmpty { currentToolText += before }
                             }
-                            print("\(Self.gold)[\(Self.timestamp())] RECV </tool_call> end tag\n  body=\(currentToolText.count) chars\(Self.reset)")
-                            fflush(stdout)
+                            if self.veryVerbose {
+                                print("\(Self.gold)[\(Self.timestamp())] RECV </tool_call> end tag\n  body=\(currentToolText.count) chars\(Self.reset)")
+                                fflush(stdout)
+                            }
 
                             if incrementalEmittedFirst {
                                 // Run one final parameter scan on the complete tool body
@@ -478,8 +492,10 @@ struct MLXChatCompletionsController: RouteCollection {
                                     } else {
                                         collectedToolCalls.append(rtc)
                                     }
-                                    print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (incremental): \(rtc.function.name)\n  id=\(rtc.id)\n  args=\(rtc.function.arguments)\(Self.reset)")
-                                    fflush(stdout)
+                                    if self.veryVerbose {
+                                        print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (incremental): \(rtc.function.name)\n  id=\(rtc.id)\n  args=\(rtc.function.arguments)\(Self.reset)")
+                                        fflush(stdout)
+                                    }
                                 }
                             } else {
                                 // Incremental parsing never kicked in (non-XML format).
@@ -487,15 +503,19 @@ struct MLXChatCompletionsController: RouteCollection {
                                 let wrapped = "\(toolCallStartTag!)\(currentToolText)\(toolCallEndTag!)"
                                 let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
                                 if parsed.isEmpty {
-                                    print("\(Self.gold)[\(Self.timestamp())] SEND tool_call fallback: found 0 tool calls\n  body=\(currentToolText)\(Self.reset)")
-                                    fflush(stdout)
+                                    if self.veryVerbose {
+                                        print("\(Self.gold)[\(Self.timestamp())] SEND tool_call fallback: found 0 tool calls\n  body=\(currentToolText)\(Self.reset)")
+                                        fflush(stdout)
+                                    }
                                 }
                                 for tc in parsed {
                                     hasToolCalls = true
                                     let rtc = self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools)
                                     collectedToolCalls.append(rtc)
-                                    print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (fallback): \(rtc.function.name)\n  id=\(rtc.id)\n  args=\(rtc.function.arguments)\(Self.reset)")
-                                    fflush(stdout)
+                                    if self.veryVerbose {
+                                        print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (fallback): \(rtc.function.name)\n  id=\(rtc.id)\n  args=\(rtc.function.arguments)\(Self.reset)")
+                                        fflush(stdout)
+                                    }
                                     let delta = StreamDeltaToolCall(
                                         index: collectedToolCalls.count - 1,
                                         id: rtc.id,
@@ -566,8 +586,10 @@ struct MLXChatCompletionsController: RouteCollection {
                                     if let jsonString = String(data: firstData, encoding: .utf8) {
                                         try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                                     }
-                                    print("\(Self.gold)[\(Self.timestamp())] SEND tool_call name: \(funcName)\n  id=\(incrementalCallId)\(Self.reset)")
-                                    fflush(stdout)
+                                    if self.veryVerbose {
+                                        print("\(Self.gold)[\(Self.timestamp())] SEND tool_call name: \(funcName)\n  id=\(incrementalCallId)\(Self.reset)")
+                                        fflush(stdout)
+                                    }
                                 }
                             }
 
@@ -754,8 +776,10 @@ struct MLXChatCompletionsController: RouteCollection {
                                     if let jsonString = String(data: paramData, encoding: .utf8) {
                                         try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                                     }
-                                    print("\(Self.gold)[\(Self.timestamp())] SEND salvaged unclosed param '\(rawKey)' (\(value.count) chars)\(Self.reset)")
-                                    fflush(stdout)
+                                    if self.veryVerbose {
+                                        print("\(Self.gold)[\(Self.timestamp())] SEND salvaged unclosed param '\(rawKey)' (\(value.count) chars)\(Self.reset)")
+                                        fflush(stdout)
+                                    }
                                 }
                             }
                         }
@@ -830,8 +854,10 @@ struct MLXChatCompletionsController: RouteCollection {
                     fullContent.contains("[TOOL_CALLS]") ||
                     (chatRequest.tools != nil && looksLikeBareJsonToolCall)
                 ) {
-                    print("\(Self.gold)[\(Self.timestamp())] SEND tool_call: token-level missed, trying fallback parser\(Self.reset)")
-                    fflush(stdout)
+                    if self.veryVerbose {
+                        print("\(Self.gold)[\(Self.timestamp())] SEND tool_call: token-level missed, trying fallback parser\(Self.reset)")
+                        fflush(stdout)
+                    }
                     let (parsed, _) = MLXModelService.extractToolCallsFallback(from: fullContent)
                     if !parsed.isEmpty {
                         hasToolCalls = true
@@ -872,16 +898,19 @@ struct MLXChatCompletionsController: RouteCollection {
                 let finishReason: String
                 if hasToolCalls {
                     finishReason = "tool_calls"
-                    print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true\n  prompt_tokens=\(promptTokens) completion_tokens=\(completionTokens)\n  elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=tool_calls\(Self.reset)")
+                    if self.veryVerbose {
+                        print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true\n  prompt_tokens=\(promptTokens) completion_tokens=\(completionTokens)\n  elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=tool_calls\(Self.reset)")
+                    }
                 } else {
                     finishReason = completionTokens >= effectiveMaxTokens ? "length" : "stop"
-                    let (finalAnswer, _) = Self.extractThinkContent(from: fullContent)
-                    let trimmedAnswer = finalAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmedAnswer.isEmpty && !self.veryVerbose {
-                        // Only show full answer in non-verbose mode (verbose already streams fragments above)
-                        print("\(Self.teal)[\(Self.timestamp())] MLX full answer:\n  \(trimmedAnswer)\(Self.reset)")
+                    if self.veryVerbose {
+                        let (finalAnswer, _) = Self.extractThinkContent(from: fullContent)
+                        let trimmedAnswer = finalAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmedAnswer.isEmpty {
+                            print("\(Self.teal)[\(Self.timestamp())] MLX full answer:\n  \(trimmedAnswer)\(Self.reset)")
+                        }
+                        print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true\n  prompt_tokens=\(promptTokens) completion_tokens=\(completionTokens)\n  elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=\(finishReason)\(Self.reset)")
                     }
-                    print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true\n  prompt_tokens=\(promptTokens) completion_tokens=\(completionTokens)\n  elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=\(finishReason)\(Self.reset)")
                 }
                 if self.veryVerbose {
                     let usageLog = StreamUsage(promptTokens: promptTokens, completionTokens: completionTokens, completionTime: generationDuration, promptTime: 0)
@@ -943,13 +972,15 @@ struct MLXChatCompletionsController: RouteCollection {
                 let completionTokens = self.estimateTokens(fullContent)
                 let generationDuration = max(Date().timeIntervalSince(started), 0.001)
                 let tokPerSec = generationDuration > 0 ? Double(completionTokens) / generationDuration : 0
-                let (finalAnswer, _) = Self.extractThinkContent(from: fullContent)
-                let trimmedAnswer = finalAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmedAnswer.isEmpty {
-                    print("\(Self.teal)[\(Self.timestamp())] MLX full answer (before error):\n  \(trimmedAnswer)\(Self.reset)")
+                if self.veryVerbose {
+                    let (finalAnswer, _) = Self.extractThinkContent(from: fullContent)
+                    let trimmedAnswer = finalAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmedAnswer.isEmpty {
+                        print("\(Self.teal)[\(Self.timestamp())] MLX full answer (before error):\n  \(trimmedAnswer)\(Self.reset)")
+                    }
+                    print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true\n  completion_tokens=\(completionTokens)\n  elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec))\n  error=\(error.localizedDescription)\(Self.reset)")
+                    fflush(stdout)
                 }
-                print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true\n  completion_tokens=\(completionTokens)\n  elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec))\n  error=\(error.localizedDescription)\(Self.reset)")
-                fflush(stdout)
                 req.logger.error("[\(Self.timestamp())] MLX stream error: \(error)")
                 let errorChunk = ChatCompletionStreamResponse(
                     id: streamId,
