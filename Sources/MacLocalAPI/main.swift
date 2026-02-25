@@ -309,6 +309,7 @@ struct MlxCommand: ParsableCommand {
                     temperature: temperature,
                     randomness: nil,
                     permissiveGuardrails: false,
+                    stop: stop,
                     webuiEnabled: webui,
                     gatewayEnabled: false,
                     prewarmEnabled: false,
