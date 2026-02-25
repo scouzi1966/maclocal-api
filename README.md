@@ -5,6 +5,37 @@ If you find this useful, please ⭐ the repo!
 
 ## Latest app release --> https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.4
 
+> [!TIP]
+> ### Install stable version
+>
+> ### Homebrew
+> ```bash
+> brew tap scouzi1966/afm
+> brew install afm
+>
+> brew upgrade afm (From an earlier install with brew)
+>
+> single command
+> brew install scouzi1966/afm/afm
+> ```
+>
+> > ### OR with PIP!
+> ```bash
+> pip install macafm
+> ```
+> To start a webchat:
+>
+> afm -w
+
+> [!TIP]
+>
+> ### Install with pip
+> ```bash
+> pip install macafm
+>
+> pip install --upgrade macafm (from an earlier install with pip)
+> ```
+
 # NEW IN v0.9.4!
 # Run ANY Open-Source MLX LLM on Your Mac — 100% Local, 100% Swift, Zero Python. Yes that's right, install with pip but no python required after
 
@@ -151,36 +182,6 @@ afm mlx -m Qwen3-Coder-Next-4bit -t 1.0 --top-p 0.95 --max-tokens 8192
 >
 > Please comment for feature requests, bugs, anything! Star if you enjoy the app.
 
-> [!TIP]
-> ### TLDR Chose ONE of 2 methods to install
->
-> ### TLDR install with Homebrew
-> ```bash
-> brew tap scouzi1966/afm
-> brew install afm
->
-> brew upgrade afm (From an earlier install with brew)
->
-> single command
-> brew install scouzi1966/afm/afm
-> ```
->
-> > ### OR NEW METHOD WITH PIP! 
-> ```bash
-> pip install macafm
-> ```
-> To start a webchat:
->
-> afm -w
-
-> [!TIP]
->
-> ### TLDR install with pip
-> ```bash
-> pip install macafm
->
-> pip install --upgrade macafm (from an earlier install with pip)
-> ```
 
 # MacLocalAPI is the repo for the afm command on macOS 26 Tahoe. The afm command (cli) allows one to access the on-device Apple LLM Foundation model from the command line in a single prompt or in API mode. It allows integration with other OS command line tools using standard Unix pipes.
 
