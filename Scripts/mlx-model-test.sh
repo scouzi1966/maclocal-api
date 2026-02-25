@@ -1048,9 +1048,9 @@ print(f'local afm_args={shlex.quote(c.get(\"afm_args\", \"\"))}')
   if [ -n "$sys_prompt" ]; then
     SERVER_EXTRA_ARGS+=(-i "$sys_prompt")
   fi
-  # Append custom afm CLI args (word-split intentionally)
+  # Append custom afm CLI args (shell-aware split to handle quoted values)
   if [ -n "$afm_args" ]; then
-    read -ra AFM_EXTRA <<< "$afm_args"
+    eval "AFM_EXTRA=($afm_args)"
     SERVER_EXTRA_ARGS+=("${AFM_EXTRA[@]}")
   fi
 
