@@ -8,22 +8,43 @@ If you find this useful, please ⭐ the repo!
 # NEW IN v0.9.4!
 # Run ANY Open-Source MLX LLM on Your Mac — 100% Local, 100% Swift, Zero Python. Yes that's right, install with pip but no python required after
 
-# COMING VERY SOON IN v0.9.5!
-# OpenCode better integration with MLX Qwen/Qwen3-Coder-Next
-## - Proper Tool calling
-## - Prefill cache (OpenCode has a large system prompt that is taxing for local AI)
+# COMING IN v0.9.5 (afm-next nightly)
+# Qwen3.5-35B-A3B MoE now supported! Run a 35B model locally with only 3B active parameters
+## - Full tool calling support (Qwen3-Coder, Gemma, GLM, and more)
+## - Prompt prefix caching for faster repeat inference
+## - Qwen3.5, Gemma 3n, Kimi-K2.5, and other new model architectures
 
-### Try the nightly build (main branch)
+### Try afm-next (nightly build from main branch)
 
+**Fresh install:**
 ```bash
- brew unlink afm                                                                                                                                                                                                                                                        
- brew install scouzi1966/afm/afm-next
-```                                                                                                                                                                                                                                                                         
- To switch back to stable later:
+brew install scouzi1966/afm/afm-next
+```
 
+**If you have stable `afm` installed, switch to nightly:**
 ```bash
- brew unlink afm-next
- brew link afm
+brew unlink afm
+brew install scouzi1966/afm/afm-next
+```
+
+**Quick start with WebUI:**
+```bash
+# Run Qwen3.5-35B MoE (only 3B active params — fast on Apple Silicon!)
+afm mlx -m mlx-community/Qwen3.5-35B-A3B-4bit -w
+
+# Or any other MLX model
+afm mlx -m mlx-community/gemma-3-4b-it-8bit -w
+```
+
+**Switch back to stable:**
+```bash
+brew unlink afm-next
+brew link afm
+```
+
+**Update to latest nightly:**
+```bash
+brew update && brew upgrade afm-next
 ```
 
 
@@ -618,7 +639,7 @@ If you encounter any issues or have questions:
 - [x] Multiple model support (API gateway mode)
 - [x] Web UI for testing (llama.cpp WebUI integration)
 - [x] Vision OCR subcommand
-- [ ] Function/tool calling implementation
+- [x] Function/tool calling (OpenAI-compatible, multiple formats)
 - [ ] Performance optimizations
 - [ ] Docker containerization (when supported)
 
