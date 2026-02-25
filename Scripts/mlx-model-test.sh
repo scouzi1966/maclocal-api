@@ -469,7 +469,12 @@ with open(filepath) as f:
             elif line.startswith('frequency_penalty:'):
                 config['defaults']['frequency_penalty'] = float(line.split(':', 1)[1].strip())
             elif line.startswith('stop:'):
-                config['defaults']['stop'] = [s.strip() for s in line.split(':', 1)[1].split(',')]
+                raw = line.split(':', 1)[1].strip()
+                try:
+                    parsed = json.loads(raw)
+                    config['defaults']['stop'] = parsed if isinstance(parsed, list) else [str(parsed)]
+                except (json.JSONDecodeError, ValueError):
+                    config['defaults']['stop'] = [s.strip() for s in raw.split(',')]
             elif line.startswith('response_format:'):
                 config['defaults']['response_format'] = line.split(':', 1)[1].strip()
             elif line.startswith('system:'):
@@ -510,7 +515,12 @@ with open(filepath) as f:
         elif line.startswith('frequency_penalty:'):
             sec['params']['frequency_penalty'] = float(line.split(':', 1)[1].strip())
         elif line.startswith('stop:'):
-            sec['params']['stop'] = [s.strip() for s in line.split(':', 1)[1].split(',')]
+            raw = line.split(':', 1)[1].strip()
+            try:
+                parsed = json.loads(raw)
+                sec['params']['stop'] = parsed if isinstance(parsed, list) else [str(parsed)]
+            except (json.JSONDecodeError, ValueError):
+                sec['params']['stop'] = [s.strip() for s in raw.split(',')]
         elif line.startswith('response_format:'):
             sec['params']['response_format'] = line.split(':', 1)[1].strip()
         elif line.startswith('system:'):
@@ -905,6 +915,7 @@ try:
     completion_tokens = usage.completion_tokens if usage else 0
     total_tokens = usage.total_tokens if usage else 0
     tps = completion_tokens / gen_time if gen_time > 0 else 0
+    tps_note = 'calculated'  # wall-clock / reported tokens (not engine-provided)
     content_preview = full_content[:300].replace('\n', ' ')
 
     # Feature verification fields
@@ -938,6 +949,7 @@ try:
         'completion_tokens': completion_tokens,
         'total_tokens': total_tokens,
         'tokens_per_sec': round(tps, 2),
+        'tokens_per_sec_note': tps_note,
         'temperature': temperature,
         'max_tokens': max_tokens,
         'system_prompt': system_prompt,
@@ -1288,6 +1300,15 @@ Produce a concise markdown report covering:
    - "Likely AFM bug" (model works elsewhere, fails here)
    - "Model quality issue" (model itself is poor)
    - "Working well" (no action needed)
+
+WORKFLOW CONTEXT: This analysis is part of an iterative debug loop. A developer
+or AI coding agent runs tests, reads your analysis, fixes the issues, then re-runs
+the same tests until all issues are resolved. Your report is the primary input to
+that loop — write recommendations as concrete, actionable next steps that can be
+executed directly by an AI agent or human developer. Distinguish clearly between
+AFM server bugs (fixable in code) and model-inherent behavior (requires workarounds
+or documentation). When possible, name the specific file, module, or code path
+that likely needs attention.
 
 Format as clean markdown with tables where appropriate. Be specific — quote
 problematic output snippets (first 100 chars) when flagging issues. Keep the

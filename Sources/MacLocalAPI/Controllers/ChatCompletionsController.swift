@@ -9,7 +9,8 @@ struct ChatCompletionsController: RouteCollection {
     private let randomness: String?
     private let permissiveGuardrails: Bool
     private let veryVerbose: Bool
-    
+    private let stop: String?
+
     init(
         streamingEnabled: Bool = true,
         instructions: String = "You are a helpful assistant",
@@ -17,7 +18,8 @@ struct ChatCompletionsController: RouteCollection {
         temperature: Double? = nil,
         randomness: String? = nil,
         permissiveGuardrails: Bool,
-        veryVerbose: Bool = false
+        veryVerbose: Bool = false,
+        stop: String? = nil
     ) {
         self.streamingEnabled = streamingEnabled
         self.instructions = instructions
@@ -26,6 +28,7 @@ struct ChatCompletionsController: RouteCollection {
         self.randomness = randomness
         self.permissiveGuardrails = permissiveGuardrails
         self.veryVerbose = veryVerbose
+        self.stop = stop
     }
     func boot(routes: RoutesBuilder) throws {
         let v1 = routes.grouped("v1")
@@ -102,6 +105,7 @@ struct ChatCompletionsController: RouteCollection {
             // Use temperature from API request if provided, otherwise use CLI parameter
             let effectiveTemperature = chatRequest.temperature ?? temperature
             let effectiveRandomness = randomness
+            let effectiveStop = mergeStopSequences(cliStop: stop, apiStop: chatRequest.stop)
 
             // Check for structured output (json_schema with strict: true)
             let content: String
@@ -111,10 +115,11 @@ struct ChatCompletionsController: RouteCollection {
                     jsonSchema: jsonSchema,
                     temperature: effectiveTemperature,
                     randomness: effectiveRandomness,
-                    maxTokens: chatRequest.effectiveMaxTokens
+                    maxTokens: chatRequest.effectiveMaxTokens,
+                    stop: effectiveStop
                 )
             } else {
-                content = try await foundationService.generateResponse(for: processedMessages, temperature: effectiveTemperature, randomness: effectiveRandomness, maxTokens: chatRequest.effectiveMaxTokens)
+                content = try await foundationService.generateResponse(for: processedMessages, temperature: effectiveTemperature, randomness: effectiveRandomness, maxTokens: chatRequest.effectiveMaxTokens, stop: effectiveStop)
             }
 
             let promptTokens = estimateTokens(for: processedMessages)
@@ -192,17 +197,34 @@ struct ChatCompletionsController: RouteCollection {
         // - 1 token ≈ 4 characters of English text
         // - 1 token ≈ ¾ words
         // - 100 tokens ≈ 75 words
-        
+
         let wordCount = text.components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }.count
-        
+
         // Use the more conservative estimate
         let charBasedTokens = Double(text.count) / 4.0
         let wordBasedTokens = Double(wordCount) / 0.75
-        
+
         return Int(max(charBasedTokens, wordBasedTokens))
     }
-    
+
+    /// Merge CLI stop sequences (comma-separated) with API request stop sequences.
+    /// Returns nil if no stop sequences are specified.
+    private func mergeStopSequences(cliStop: String?, apiStop: [String]?) -> [String]? {
+        var merged: [String] = []
+        if let cliStopString = cliStop {
+            let cliArray = cliStopString.split(separator: ",").map { String($0.trimmingCharacters(in: .whitespaces)) }
+            merged.append(contentsOf: cliArray)
+        }
+        if let apiArray = apiStop {
+            merged.append(contentsOf: apiArray)
+        }
+        guard !merged.isEmpty else { return nil }
+        // Remove duplicates while preserving order
+        var seen = Set<String>()
+        return merged.filter { seen.insert($0).inserted }
+    }
+
     private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, processedMessages: [Message], foundationService: FoundationModelService) async throws -> Response {
         let httpResponse = Response(status: .ok)
         httpResponse.headers.add(name: .contentType, value: "text/event-stream")
@@ -222,6 +244,7 @@ struct ChatCompletionsController: RouteCollection {
                 // Use temperature from API request if provided, otherwise use CLI parameter
                 let effectiveTemperature = chatRequest.temperature ?? self.temperature
                 let effectiveRandomness = self.randomness
+                let effectiveStop = self.mergeStopSequences(cliStop: self.stop, apiStop: chatRequest.stop)
 
                 // Use native streaming — guided if json_schema + strict, otherwise normal
                 let promptStartTime = Date()
@@ -232,14 +255,16 @@ struct ChatCompletionsController: RouteCollection {
                         jsonSchema: jsonSchema,
                         temperature: effectiveTemperature,
                         randomness: effectiveRandomness,
-                        maxTokens: chatRequest.effectiveMaxTokens
+                        maxTokens: chatRequest.effectiveMaxTokens,
+                        stop: effectiveStop
                     )
                 } else {
                     stream = foundationService.generateNativeStreamingResponse(
                         for: processedMessages,
                         temperature: effectiveTemperature,
                         randomness: effectiveRandomness,
-                        maxTokens: chatRequest.effectiveMaxTokens
+                        maxTokens: chatRequest.effectiveMaxTokens,
+                        stop: effectiveStop
                     )
                 }
 

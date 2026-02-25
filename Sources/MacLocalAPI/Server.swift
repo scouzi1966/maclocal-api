@@ -39,6 +39,7 @@ class Server {
     private let temperature: Double?
     private let randomness: String?
     private let permissiveGuardrails: Bool
+    private let stop: String?
     private let webuiEnabled: Bool
     private let webuiPath: String?
     private let gatewayEnabled: Bool
@@ -55,7 +56,7 @@ class Server {
     private let mlxSeed: Int?
     private let mlxMaxLogprobs: Int
 
-    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil) async throws {
+    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -66,6 +67,7 @@ class Server {
         self.temperature = temperature
         self.randomness = randomness
         self.permissiveGuardrails = permissiveGuardrails
+        self.stop = stop
         self.webuiEnabled = webuiEnabled
         self.webuiPath = Server.findWebuiPath()
         self.gatewayEnabled = gatewayEnabled
@@ -240,7 +242,8 @@ class Server {
                 seed: mlxSeed,
                 maxLogprobs: mlxMaxLogprobs,
                 veryVerbose: veryVerbose,
-                rawOutput: mlxRawOutput
+                rawOutput: mlxRawOutput,
+                stop: stop
             )
             try app.register(collection: mlxController)
         } else {
@@ -251,7 +254,8 @@ class Server {
                 temperature: temperature,
                 randomness: randomness,
                 permissiveGuardrails: permissiveGuardrails,
-                veryVerbose: veryVerbose
+                veryVerbose: veryVerbose,
+                stop: stop
             )
             try app.register(collection: chatController)
         }

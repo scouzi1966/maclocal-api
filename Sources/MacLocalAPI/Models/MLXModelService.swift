@@ -285,12 +285,14 @@ final class MLXModelService: @unchecked Sendable {
             let ndim = tokens.ndim
             let seqLen = tokens.dim(ndim - 1)
             var out = ""
+            var templateInjectedThink = false
             if seqLen >= 2 {
                 let flat = tokens.reshaped(-1)
                 let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
                 let decoded = context.tokenizer.decode(tokens: lastTwo)
                 if decoded.contains("<think>") {
                     out = "<think>"
+                    templateInjectedThink = true
                 }
             }
 
@@ -347,6 +349,8 @@ final class MLXModelService: @unchecked Sendable {
             }
 
             let activeStops = stop?.filter { !$0.isEmpty } ?? []
+            var insideThink = templateInjectedThink
+            var visibleContentStart: String.Index? = nil  // Index where content after </think> begins
             let genStart = Date()
             var firstTokenTime: Date?
             for await piece in try MLXLMCommon.generate(input: generateInput, cache: generationCache, parameters: params, context: context) {
@@ -355,12 +359,28 @@ final class MLXModelService: @unchecked Sendable {
                 }
                 if case .chunk(let text) = piece {
                     if firstTokenTime == nil { firstTokenTime = Date() }
+                    // Track <think> boundaries — stop sequences only apply outside
+                    if text.contains("<think>") { insideThink = true }
+                    if text.contains("</think>") { insideThink = false }
                     out += text
-                    if !activeStops.isEmpty, let match = activeStops.first(where: { out.contains($0) }) {
-                        if let range = out.range(of: match) {
-                            out = String(out[..<range.lowerBound])
+                    // Record where visible content starts (after </think>)
+                    if !insideThink && visibleContentStart == nil {
+                        if let thinkEnd = out.range(of: "</think>") {
+                            visibleContentStart = thinkEnd.upperBound
+                        } else {
+                            visibleContentStart = out.startIndex
                         }
-                        break
+                    }
+                    // Only check stop sequences against visible content (after </think>)
+                    if !activeStops.isEmpty && !insideThink, let vcStart = visibleContentStart {
+                        let visibleContent = String(out[vcStart...])
+                        if let match = activeStops.first(where: { visibleContent.contains($0) }) {
+                            if let range = visibleContent.range(of: match) {
+                                let keepEnd = out.index(vcStart, offsetBy: visibleContent.distance(from: visibleContent.startIndex, to: range.lowerBound))
+                                out = String(out[..<keepEnd])
+                            }
+                            break
+                        }
                     }
                 } else if case .tokenLogprobs(let lps) = piece {
                     collectedLogprobs.append(contentsOf: lps)
@@ -490,6 +510,7 @@ final class MLXModelService: @unchecked Sendable {
 
                         // If the chat template appended <think> to the prompt, inject it
                         // into the stream so the reasoning extractor can detect it.
+                        var templateInjectedThink = false
                         let tokens = input.text.tokens
                         let ndim = tokens.ndim
                         let seqLen = tokens.dim(ndim - 1)
@@ -499,6 +520,7 @@ final class MLXModelService: @unchecked Sendable {
                             let decoded = context.tokenizer.decode(tokens: lastTwo)
                             if decoded.contains("<think>") {
                                 continuation.yield(StreamChunk(text: "<think>"))
+                                templateInjectedThink = true
                             }
                         }
 
@@ -548,9 +570,13 @@ final class MLXModelService: @unchecked Sendable {
                         }
 
                         let activeStops = stop?.filter { !$0.isEmpty } ?? []
-                        // Buffer to handle stop strings that span chunk boundaries
+                        // Buffer to handle stop strings that span chunk boundaries.
+                        // Stop sequences only apply to content OUTSIDE <think> blocks —
+                        // thinking models emit reasoning inside <think>...</think> tags
+                        // and stop strings like "3." or "\n" commonly appear in reasoning.
                         let maxStopLen = activeStops.map(\.count).max() ?? 0
                         var stopBuffer = ""
+                        var insideThink = templateInjectedThink
                         let genStart = Date()
                         var firstTokenTime: Date?
 
@@ -571,8 +597,21 @@ final class MLXModelService: @unchecked Sendable {
                                     resolved = nil
                                 }
 
-                                if !activeStops.isEmpty {
-                                    stopBuffer += text
+                                // Track <think> boundaries for stop sequence scoping
+                                let wasInsideThink = insideThink
+                                if text.contains("<think>") { insideThink = true }
+                                if text.contains("</think>") { insideThink = false }
+
+                                if !activeStops.isEmpty && !insideThink {
+                                    // If we just transitioned out of think, only buffer text after </think>
+                                    if wasInsideThink, let thinkEndRange = text.range(of: "</think>") {
+                                        let afterThink = String(text[thinkEndRange.upperBound...])
+                                        if !afterThink.isEmpty {
+                                            stopBuffer += afterThink
+                                        }
+                                    } else {
+                                        stopBuffer += text
+                                    }
                                     // Check for a complete stop string match
                                     if let match = activeStops.first(where: { stopBuffer.contains($0) }) {
                                         // Emit text up to the stop string
@@ -592,6 +631,7 @@ final class MLXModelService: @unchecked Sendable {
                                         continuation.yield(StreamChunk(text: flushText, logprobs: resolved))
                                     }
                                 } else {
+                                    // Inside <think> or no stop sequences — pass through
                                     continuation.yield(StreamChunk(text: text, logprobs: resolved))
                                 }
                                 pendingLogprobs = nil
@@ -1172,7 +1212,14 @@ final class MLXModelService: @unchecked Sendable {
                 jsonInstruction = nil
             }
             if let instruction = jsonInstruction {
-                chatMessages.append(.system(instruction))
+                // Append to existing system message rather than adding a second one,
+                // because some chat templates (e.g. Qwen3.5) don't support multiple
+                // system messages and throw Jinja.TemplateException.
+                if let sysIdx = chatMessages.firstIndex(where: { $0.role == .system }) {
+                    chatMessages[sysIdx] = .system(chatMessages[sysIdx].content + "\n\n" + instruction)
+                } else {
+                    chatMessages.insert(.system(instruction), at: 0)
+                }
             }
         }
 

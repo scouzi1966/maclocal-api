@@ -50,6 +50,9 @@ struct ServeCommand: ParsableCommand {
     @Flag(name: [.customShort("P"), .long], help: "Permissive guardrails for unsafe or inappropriate responses")
     var permissiveGuardrails: Bool = false
 
+    @Option(name: .long, help: "Stop sequences - comma-separated strings where generation should stop (e.g., '###,END')")
+    var stop: String?
+
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
 
@@ -95,7 +98,7 @@ struct ServeCommand: ParsableCommand {
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: port, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled)
+                let server = try await Server(port: port, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -189,6 +192,9 @@ struct MlxCommand: ParsableCommand {
     var dtype: String?
     @Flag(name: .long, help: "VLM hint (compatibility)")
     var vlm: Bool = false
+
+    @Option(name: .long, help: "Stop sequences - comma-separated strings where generation should stop (e.g., '###,END')")
+    var stop: String?
 
     @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible)")
     var guidedJson: String?
@@ -371,6 +377,7 @@ struct MlxCommand: ParsableCommand {
                     let schema = try parseGuidedJsonSchema(guidedJson)
                     responseFormat = ResponseFormat(type: "json_schema", jsonSchema: schema)
                 }
+                let stopSequences: [String]? = stop.map { $0.split(separator: ",").map { String($0.trimmingCharacters(in: .whitespaces)) } }
                 let res = try await service.generate(
                     model: modelID,
                     messages: messages,
@@ -378,6 +385,7 @@ struct MlxCommand: ParsableCommand {
                     maxTokens: maxTokens,
                     topP: topP,
                     repetitionPenalty: repetitionPenalty,
+                    stop: stopSequences,
                     responseFormat: responseFormat
                 )
                 output = .success(res.content)
@@ -573,6 +581,9 @@ struct RootCommand: ParsableCommand {
     @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible)")
     var guidedJson: String?
 
+    @Option(name: .long, help: "Stop sequences - comma-separated strings where generation should stop (e.g., '###,END')")
+    var stop: String?
+
     @Option(name: .long, help: "Pre-warm the model on server startup for faster first response (y/n, default: y)")
     var prewarm: String = "y"
 
@@ -617,6 +628,7 @@ struct RootCommand: ParsableCommand {
         serveCommand.temperature = temperature
         serveCommand.randomness = randomness
         serveCommand.permissiveGuardrails = permissiveGuardrails
+        serveCommand.stop = stop
         serveCommand.webui = webui
         serveCommand.gateway = gateway
         serveCommand.prewarm = prewarm

@@ -16,6 +16,7 @@ struct MLXChatCompletionsController: RouteCollection {
     private let maxLogprobs: Int
     private let veryVerbose: Bool
     private let rawOutput: Bool
+    private let stop: String?
 
     init(
         streamingEnabled: Bool = true,
@@ -31,7 +32,8 @@ struct MLXChatCompletionsController: RouteCollection {
         seed: Int? = nil,
         maxLogprobs: Int = 20,
         veryVerbose: Bool = false,
-        rawOutput: Bool = false
+        rawOutput: Bool = false,
+        stop: String? = nil
     ) {
         self.streamingEnabled = streamingEnabled
         self.modelID = modelID
@@ -47,6 +49,20 @@ struct MLXChatCompletionsController: RouteCollection {
         self.maxLogprobs = maxLogprobs
         self.veryVerbose = veryVerbose
         self.rawOutput = rawOutput
+        self.stop = stop
+    }
+
+    /// Merge CLI --stop sequences with API-level stop sequences, deduplicating.
+    private func mergeStopSequences(cliStop: String?, apiStop: [String]?) -> [String]? {
+        var merged: [String] = []
+        if let cliStopString = cliStop {
+            let cliArray = cliStopString.split(separator: ",").map { String($0.trimmingCharacters(in: .whitespaces)) }
+            merged.append(contentsOf: cliArray)
+        }
+        if let apiArray = apiStop { merged.append(contentsOf: apiArray) }
+        guard !merged.isEmpty else { return nil }
+        var seen = Set<String>()
+        return merged.filter { seen.insert($0).inserted }
     }
 
     func boot(routes: RoutesBuilder) throws {
@@ -118,10 +134,11 @@ struct MLXChatCompletionsController: RouteCollection {
             let effectiveMinP = chatRequest.minP ?? minP
             let effectivePresencePenalty = chatRequest.presencePenalty ?? presencePenalty
             let effectiveSeed = chatRequest.seed ?? seed
+            let effectiveStop = mergeStopSequences(cliStop: stop, apiStop: chatRequest.stop)
             let started = Date()
             if veryVerbose {
                 let promptChars = chatRequest.messages.map { $0.textContent.count }.reduce(0, +)
-                let stopDesc = chatRequest.stop.map { $0.map { $0.debugDescription }.joined(separator: ", ") }
+                let stopDesc = effectiveStop.map { $0.map { $0.debugDescription }.joined(separator: ", ") }
                 req.logger.info(
                     "\(Self.orange)[\(Self.timestamp())] MLX start: stream=false\n  prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens)\n  temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\n  top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none")\n  seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
                 )
@@ -140,7 +157,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 logprobs: chatRequest.logprobs,
                 topLogprobs: chatRequest.topLogprobs,
                 tools: chatRequest.tools,
-                stop: chatRequest.stop,
+                stop: effectiveStop,
                 responseFormat: chatRequest.responseFormat
             )
             let cleanedContent = sanitizeDegenerateTail(result.content)
@@ -230,11 +247,12 @@ struct MLXChatCompletionsController: RouteCollection {
             let effectiveMinP = chatRequest.minP ?? self.minP
             let effectivePresencePenalty = chatRequest.presencePenalty ?? self.presencePenalty
             let effectiveSeed = chatRequest.seed ?? self.seed
+            let effectiveStop = self.mergeStopSequences(cliStop: self.stop, apiStop: chatRequest.stop)
 
             do {
                 if self.veryVerbose {
                     let promptChars = chatRequest.messages.map { $0.textContent.count }.reduce(0, +)
-                    let stopDesc = chatRequest.stop.map { $0.map { $0.debugDescription }.joined(separator: ", ") }
+                    let stopDesc = effectiveStop.map { $0.map { $0.debugDescription }.joined(separator: ", ") }
                     req.logger.info(
                         "\(Self.orange)[\(Self.timestamp())] MLX start: stream=true\n  prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens)\n  temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\n  top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none")\n  seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
                     )
@@ -253,7 +271,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     logprobs: chatRequest.logprobs,
                     topLogprobs: chatRequest.topLogprobs,
                     tools: chatRequest.tools,
-                    stop: chatRequest.stop,
+                    stop: effectiveStop,
                     responseFormat: chatRequest.responseFormat
                 )
                 // Emit an initial assistant delta so clients always open a response container.
