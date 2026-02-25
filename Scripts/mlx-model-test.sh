@@ -1050,7 +1050,7 @@ print(f'local afm_args={shlex.quote(c.get(\"afm_args\", \"\"))}')
   fi
   # Append custom afm CLI args (shell-aware split to handle quoted values)
   if [ -n "$afm_args" ]; then
-    eval "AFM_EXTRA=($afm_args)"
+    readarray -t AFM_EXTRA < <(printf '%s' "$afm_args" | python3 -c "import shlex,sys; [print(x) for x in shlex.split(sys.stdin.read())]")
     SERVER_EXTRA_ARGS+=("${AFM_EXTRA[@]}")
   fi
 
