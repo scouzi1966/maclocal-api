@@ -23,7 +23,7 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 
 > [!IMPORTANT]
 > The nightly build is the future stable release. It includes everything in v0.9.4 plus:
-> - **Qwen3.5-35B-A3B MoE** — run a 35B model with only 3B active parameters
+> - **Qwen3.5-35B-A3B MoE** — run a 35B model with only 3B active parameters (--vlm for image,video)
 > - **Full tool calling** — Qwen3-Coder, Gemma, GLM, Kimi-K2.5, and more
 > - **Prompt prefix caching** for faster repeat inference
 > - **Stop sequences** with `<think>` model support
