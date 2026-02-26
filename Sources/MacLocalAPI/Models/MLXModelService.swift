@@ -1,4 +1,5 @@
 import Foundation
+import CoreImage
 import MLX
 import Cmlx
 import MLXLLM
@@ -1145,7 +1146,7 @@ final class MLXModelService: @unchecked Sendable {
         var hasSystemMessage = false
         for m in messages {
             let text = m.textContent
-            let images = try extractImages(from: m)
+            let media = try extractMedia(from: m)
             switch m.role {
             case "system", "developer":
                 hasSystemMessage = true
@@ -1175,7 +1176,7 @@ final class MLXModelService: @unchecked Sendable {
                 }
                 chatMessages.append(.tool(toolContent))
             default:
-                chatMessages.append(.user(text, images: images))
+                chatMessages.append(.user(text, images: media.images, videos: media.videos))
             }
         }
 
@@ -1261,22 +1262,55 @@ final class MLXModelService: @unchecked Sendable {
         return input
     }
 
-    private func extractImages(from message: Message) throws -> [UserInput.Image] {
-        guard let content = message.content, case .parts(let parts) = content else { return [] }
+    private static let videoExtensions: Set<String> = ["mp4", "mov", "avi", "mkv", "webm", "m4v"]
+
+    private func extractMedia(from message: Message) throws -> (images: [UserInput.Image], videos: [UserInput.Video]) {
+        guard let content = message.content, case .parts(let parts) = content else { return ([], []) }
         var images: [UserInput.Image] = []
+        var videos: [UserInput.Video] = []
         for part in parts where part.type == "image_url" {
-            guard let raw = part.image_url?.url, let url = URL(string: raw) else { continue }
-            if let scheme = url.scheme, scheme == "http" || scheme == "https" {
+            guard let raw = part.image_url?.url else { continue }
+            if raw.hasPrefix("data:") {
+                // Parse "data:<mime>;base64,..." data URLs
+                guard let commaIndex = raw.firstIndex(of: ",") else { continue }
+                let header = raw[raw.startIndex..<commaIndex]
+                let payload = String(raw[raw.index(after: commaIndex)...])
+                guard let decoded = Data(base64Encoded: payload, options: .ignoreUnknownCharacters),
+                      !decoded.isEmpty else { continue }
+                // Check MIME type to route image vs video
+                if header.hasPrefix("data:video/") {
+                    // Video: extract extension from MIME (e.g. "video/mp4" → "mp4"), write temp file
+                    let ext: String
+                    if let slash = header.firstIndex(of: "/") {
+                        let sub = header[header.index(after: slash)...].prefix(while: { $0 != ";" && $0 != "," })
+                        ext = sub.isEmpty ? "mp4" : String(sub)
+                    } else { ext = "mp4" }
+                    let temp = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("afm_mlx_video_\(UUID().uuidString).\(ext)")
+                    try decoded.write(to: temp)
+                    videos.append(.url(temp))
+                } else {
+                    // Image: decode to CIImage directly (no temp file)
+                    guard let ciImage = CIImage(data: decoded) else { continue }
+                    images.append(.ciImage(ciImage))
+                }
+            } else if let url = URL(string: raw),
+                      let scheme = url.scheme, scheme == "http" || scheme == "https" {
                 let (data, _) = try awaitURL(url: url)
                 let temp = FileManager.default.temporaryDirectory
                     .appendingPathComponent("afm_mlx_image_\(UUID().uuidString).\(url.pathExtension.isEmpty ? "jpg" : url.pathExtension)")
                 try data.write(to: temp)
                 images.append(.url(temp))
-            } else {
-                images.append(.url(url))
+            } else if let url = URL(string: raw) {
+                let ext = url.pathExtension.lowercased()
+                if Self.videoExtensions.contains(ext) {
+                    videos.append(.url(url))
+                } else {
+                    images.append(.url(url))
+                }
             }
         }
-        return images
+        return (images, videos)
     }
 
     private func awaitURL(url: URL) throws -> (Data, URLResponse) {

@@ -193,6 +193,9 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Load as vision model (VLM). Default: text-only LLM for better performance")
     var vlm: Bool = false
 
+    @Option(name: .long, parsing: .upToNextOption, help: "Media file paths (images/videos) for single-prompt VLM mode. Implies --vlm.")
+    var media: [String] = []
+
     @Option(name: .long, help: "Stop sequences - comma-separated strings where generation should stop (e.g., '###,END')")
     var stop: String?
 
@@ -221,7 +224,7 @@ struct MlxCommand: ParsableCommand {
         service.enablePrefixCaching = enablePrefixCaching
         service.toolCallParser = toolCallParser
         service.fixToolArgs = fixToolArgs
-        service.forceVLM = vlm
+        service.forceVLM = vlm || !media.isEmpty
         if let prefillStepSize { service.prefillStepSize = prefillStepSize }
         _ = try service.revalidateRegistry()
 
@@ -263,15 +266,34 @@ struct MlxCommand: ParsableCommand {
         print("MLX model: \(selectedModel)")
         try ensureMLXMetalLibraryAvailable(verbose: verbose)
 
+        // Resolve and validate --media paths early (before model load)
+        var resolvedMedia: [String] = []
+        let shellCWD = ProcessInfo.processInfo.environment["PWD"] ?? FileManager.default.currentDirectoryPath
+        for path in media {
+            let expanded = NSString(string: path).expandingTildeInPath
+            let absPath = expanded.hasPrefix("/") ? expanded : shellCWD + "/" + expanded
+            let resolved = URL(fileURLWithPath: absPath).standardized.path
+            guard FileManager.default.fileExists(atPath: resolved) else {
+                print("Error: Media file not found: \(path)")
+                throw ExitCode.failure
+            }
+            resolvedMedia.append(resolved)
+        }
+
         // Backward compatibility: support piped input in mlx mode too
         if let stdinContent = try readFromStdin() {
-            try runSinglePrompt(stdinContent, service: service, modelID: selectedModel)
+            try runSinglePrompt(stdinContent, service: service, modelID: selectedModel, mediaPaths: resolvedMedia)
             return
         }
 
         if let prompt = singlePrompt {
-            try runSinglePrompt(prompt, service: service, modelID: selectedModel)
+            try runSinglePrompt(prompt, service: service, modelID: selectedModel, mediaPaths: resolvedMedia)
             return
+        }
+
+        if !media.isEmpty {
+            print("Error: --media requires -s (single prompt mode)")
+            throw ExitCode.failure
         }
 
         let explicitPort = port != nil
@@ -345,7 +367,7 @@ struct MlxCommand: ParsableCommand {
         print("Server shutdown complete.")
     }
 
-    private func runSinglePrompt(_ prompt: String, service: MLXModelService, modelID: String) throws {
+    private func runSinglePrompt(_ prompt: String, service: MLXModelService, modelID: String, mediaPaths: [String] = []) throws {
         defer {
             let cleanup = DispatchGroup()
             cleanup.enter()
@@ -373,7 +395,18 @@ struct MlxCommand: ParsableCommand {
 
                 var messages = [Message]()
                 messages.append(Message(role: "system", content: self.instructions))
-                messages.append(Message(role: "user", content: prompt))
+
+                if mediaPaths.isEmpty {
+                    messages.append(Message(role: "user", content: prompt))
+                } else {
+                    // Build multipart message with text + media references
+                    var parts: [ContentPart] = [ContentPart(type: "text", text: prompt, image_url: nil)]
+                    for path in mediaPaths {
+                        let fileURL = URL(fileURLWithPath: path)
+                        parts.append(ContentPart(type: "image_url", text: nil, image_url: ImageURL(url: fileURL.absoluteString, detail: nil)))
+                    }
+                    messages.append(Message(role: "user", content: .parts(parts)))
+                }
                 var responseFormat: ResponseFormat? = nil
                 if let guidedJson = self.guidedJson {
                     let schema = try parseGuidedJsonSchema(guidedJson)

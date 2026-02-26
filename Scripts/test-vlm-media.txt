@@ -1,0 +1,109 @@
+# ══════════════════════════════════════════════════════════════════════
+# VLM MEDIA TESTS
+# MODEL: mlx-community/Qwen3.5-35B-A3B-4bit (VLM capable)
+# ══════════════════════════════════════════════════════════════════════
+#
+# PURPOSE
+# -------
+# Test VLM (Vision Language Model) inference with image and video inputs
+# sent via the OpenAI SDK as base64 data URLs. Validates:
+#   1. Image description — general, no hints (base64 PNG via API)
+#   2. Image + sampling params (temperature, max_tokens)
+#   3. Image + system prompt interaction
+#   4. Image + guided JSON (structured output from visual input)
+#   5. Image + stop sequences
+#   6. Video description (base64 MP4 via API)
+#
+# NOTE: This model uses <think> tags. High max_tokens gives the model
+# room for both thinking (reasoning_content) and the actual reply (content).
+#
+# PREREQUISITES
+# -------------
+# - media/image.png and media/video-43D1392C.mp4 must exist in repo root
+# - Model must support vision (VLM)
+#
+# RUN
+# ---
+# mlx-model-test.sh --prompts test-vlm-media.txt
+#
+# ══════════════════════════════════════════════════════════════════════
+
+max_tokens: 4096
+temperature: 0.7
+
+# ══════════════════════════════════════════════════════════════════════
+# IMAGE — general description (no hints about content)
+# ══════════════════════════════════════════════════════════════════════
+
+# Open-ended description — no hints about what the image contains.
+# Success = model identifies the subject and provides meaningful detail.
+[mlx-community/Qwen3.5-35B-A3B-4bit @ image-describe]
+media: media/image.png
+Describe this image in detail.
+
+# ══════════════════════════════════════════════════════════════════════
+# IMAGE — targeted question
+# ══════════════════════════════════════════════════════════════════════
+
+# Ask a specific question — answer should be a single word
+[mlx-community/Qwen3.5-35B-A3B-4bit @ image-question]
+media: media/image.png
+What animal is in this image? Answer in one word.
+
+# ══════════════════════════════════════════════════════════════════════
+# IMAGE — with system prompt
+# ══════════════════════════════════════════════════════════════════════
+
+# System prompt should influence the style of description
+[mlx-community/Qwen3.5-35B-A3B-4bit @ image-system-prompt]
+media: media/image.png
+system: You are a veterinarian. Describe animals using proper breed terminology.
+Describe the animal in this image. What breed might it be?
+
+# ══════════════════════════════════════════════════════════════════════
+# IMAGE — greedy decoding
+# ══════════════════════════════════════════════════════════════════════
+
+# Deterministic output with temperature 0
+[mlx-community/Qwen3.5-35B-A3B-4bit @ image-greedy]
+media: media/image.png
+temperature: 0.0
+What is in this image? Reply in one sentence.
+
+# ══════════════════════════════════════════════════════════════════════
+# IMAGE — guided JSON (structured output from visual input)
+# ══════════════════════════════════════════════════════════════════════
+
+# Extract structured data from the image as JSON
+[mlx-community/Qwen3.5-35B-A3B-4bit @ image-guided-json]
+media: media/image.png
+response_format: json_object
+Analyze this image and return a JSON object with the following fields: "subject" (what is the main subject), "colors" (array of dominant colors), "setting" (indoor/outdoor), "mood" (one word).
+
+# ══════════════════════════════════════════════════════════════════════
+# IMAGE — stop sequence interaction
+# ══════════════════════════════════════════════════════════════════════
+
+# Stop sequences should still work with VLM responses
+[mlx-community/Qwen3.5-35B-A3B-4bit @ image-stop]
+media: media/image.png
+stop: ["."]
+Describe this image in detail
+
+# ══════════════════════════════════════════════════════════════════════
+# VIDEO — basic description
+# ══════════════════════════════════════════════════════════════════════
+
+# Describe a video — model should describe what happens in it
+[mlx-community/Qwen3.5-35B-A3B-4bit @ video-describe]
+media: media/video-43D1392C.mp4
+Describe what happens in this video.
+
+# ══════════════════════════════════════════════════════════════════════
+# IMAGE — OCR (text extraction from screenshot)
+# ══════════════════════════════════════════════════════════════════════
+
+# VLM should be able to read text from a screenshot
+[mlx-community/Qwen3.5-35B-A3B-4bit @ image-ocr]
+media: media/ocr.png
+Read all the text in this image. Output it exactly as written.
