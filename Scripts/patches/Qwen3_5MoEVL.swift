@@ -440,7 +440,8 @@ private func vlGatedDeltaKernel(
     }
 
     guard let kernel else {
-        fatalError("VL Gated delta Metal kernel not available")
+        // Metal kernel unavailable — fall back to pure MLX ops
+        return vlGatedDeltaOps(q: q, k: k, v: v, g: g, beta: beta, state: state, mask: mask)
     }
 
     let outputs = kernel(

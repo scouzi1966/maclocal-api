@@ -248,7 +248,8 @@ final class MLXModelService: @unchecked Sendable {
 
         let promptText = buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools)
-        let userInput = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat)
+        let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat)
+        defer { cleanupTempFiles(mediaTempFiles) }
         let wantLogprobs = logprobs == true
         let params = GenerateParameters(
             maxTokens: maxTokens ?? 2000,
@@ -483,7 +484,7 @@ final class MLXModelService: @unchecked Sendable {
 
         let promptText = buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools)
-        let userInput = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat)
+        let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat)
         let promptTokens = estimateTokens(promptText)
         let wantLogprobs = logprobs == true
         let params = GenerateParameters(
@@ -663,8 +664,10 @@ final class MLXModelService: @unchecked Sendable {
                             self.savePromptCacheState(cache: generationCache, promptTokens: inputTokens, modelID: modelID)
                         }
                     }
+                    self.cleanupTempFiles(mediaTempFiles)
                     continuation.finish()
                 } catch {
+                    self.cleanupTempFiles(mediaTempFiles)
                     continuation.finish(throwing: error)
                 }
             }
@@ -1141,12 +1144,14 @@ final class MLXModelService: @unchecked Sendable {
         messages.map { "\($0.role): \($0.textContent)" }.joined(separator: "\n")
     }
 
-    private func buildUserInput(from messages: [Message], tools: [ToolSpec]? = nil, responseFormat: ResponseFormat? = nil) throws -> UserInput {
+    private func buildUserInput(from messages: [Message], tools: [ToolSpec]? = nil, responseFormat: ResponseFormat? = nil) throws -> (UserInput, tempFiles: [URL]) {
         var chatMessages: [Chat.Message] = []
         var hasSystemMessage = false
+        var allTempFiles: [URL] = []
         for m in messages {
             let text = m.textContent
             let media = try extractMedia(from: m)
+            allTempFiles.append(contentsOf: media.tempFiles)
             switch m.role {
             case "system", "developer":
                 hasSystemMessage = true
@@ -1226,7 +1231,7 @@ final class MLXModelService: @unchecked Sendable {
         }
 
         if chatMessages.isEmpty {
-            return UserInput(prompt: "")
+            return (UserInput(prompt: ""), tempFiles: allTempFiles)
         }
 
         var input = UserInput(chat: chatMessages, processing: .init(resize: .init(width: 1024, height: 1024)), tools: tools)
@@ -1259,15 +1264,23 @@ final class MLXModelService: @unchecked Sendable {
             }
         }
 
-        return input
+        return (input, tempFiles: allTempFiles)
+    }
+
+    /// Remove temp files created during media extraction.
+    private func cleanupTempFiles(_ files: [URL]) {
+        for file in files {
+            try? FileManager.default.removeItem(at: file)
+        }
     }
 
     private static let videoExtensions: Set<String> = ["mp4", "mov", "avi", "mkv", "webm", "m4v"]
 
-    private func extractMedia(from message: Message) throws -> (images: [UserInput.Image], videos: [UserInput.Video]) {
-        guard let content = message.content, case .parts(let parts) = content else { return ([], []) }
+    private func extractMedia(from message: Message) throws -> (images: [UserInput.Image], videos: [UserInput.Video], tempFiles: [URL]) {
+        guard let content = message.content, case .parts(let parts) = content else { return ([], [], []) }
         var images: [UserInput.Image] = []
         var videos: [UserInput.Video] = []
+        var tempFiles: [URL] = []
         for part in parts where part.type == "image_url" {
             guard let raw = part.image_url?.url else { continue }
             if raw.hasPrefix("data:") {
@@ -1289,6 +1302,7 @@ final class MLXModelService: @unchecked Sendable {
                         .appendingPathComponent("afm_mlx_video_\(UUID().uuidString).\(ext)")
                     try decoded.write(to: temp)
                     videos.append(.url(temp))
+                    tempFiles.append(temp)
                 } else {
                     // Image: decode to CIImage directly (no temp file)
                     guard let ciImage = CIImage(data: decoded) else { continue }
@@ -1301,6 +1315,7 @@ final class MLXModelService: @unchecked Sendable {
                     .appendingPathComponent("afm_mlx_image_\(UUID().uuidString).\(url.pathExtension.isEmpty ? "jpg" : url.pathExtension)")
                 try data.write(to: temp)
                 images.append(.url(temp))
+                tempFiles.append(temp)
             } else if let url = URL(string: raw) {
                 let ext = url.pathExtension.lowercased()
                 if Self.videoExtensions.contains(ext) {
@@ -1310,7 +1325,7 @@ final class MLXModelService: @unchecked Sendable {
                 }
             }
         }
-        return (images, videos)
+        return (images, videos, tempFiles)
     }
 
     private func awaitURL(url: URL) throws -> (Data, URLResponse) {

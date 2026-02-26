@@ -107,3 +107,17 @@ Describe what happens in this video.
 [mlx-community/Qwen3.5-35B-A3B-4bit @ image-ocr]
 media: media/ocr.png
 Read all the text in this image. Output it exactly as written.
+
+# ══════════════════════════════════════════════════════════════════════
+# LLM — text-only (no media, verifies LLM mode still works)
+# ══════════════════════════════════════════════════════════════════════
+
+# Simple factual question — no images, pure LLM inference
+[mlx-community/Qwen3.5-35B-A3B-4bit @ llm-factual]
+max_tokens: 512
+What is the capital of Japan? Answer in one sentence.
+
+# Creative writing — different style, still text-only
+[mlx-community/Qwen3.5-35B-A3B-4bit @ llm-creative]
+max_tokens: 512
+Write a haiku about the ocean.
