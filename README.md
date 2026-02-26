@@ -28,6 +28,13 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 > - **Prompt prefix caching** for faster repeat inference
 > - **Stop sequences** with `<think>` model support
 > - **New architectures** — Qwen3.5, Gemma 3n, Kimi-K2.5, MiniMax M2.5, Nemotron
+> - --guided-json for structured output
+> - Stop sequences through API
+> - Pass image objects to API (using OpenAI APi SDK standards)
+> - logprobs for agentic interpretability testing
+> - top-k, min-p and presence penalty parameters
+> - --tool-call-parser (experimental) hermes, llama3_json, gemma, mistral, qwen3_xml
+> - Many more! afm mlx -h (not all features are wired at the moment)
 
 ## Quick Start
 
