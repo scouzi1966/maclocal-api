@@ -100,6 +100,7 @@ final class MLXModelService: @unchecked Sendable {
     var toolCallParser: String?
     var fixToolArgs: Bool = false
     var forceVLM: Bool = false
+    var kvBits: Int?
     init(resolver: MLXCacheResolver) {
         self.resolver = resolver
         self.resolver.applyEnvironment()
@@ -253,6 +254,7 @@ final class MLXModelService: @unchecked Sendable {
         let wantLogprobs = logprobs == true
         let params = GenerateParameters(
             maxTokens: maxTokens ?? 2000,
+            kvBits: self.kvBits,
             kvGroupSize: 64,
             quantizedKVStart: 0,
             temperature: normalizedTemperature(temperature),
@@ -489,6 +491,7 @@ final class MLXModelService: @unchecked Sendable {
         let wantLogprobs = logprobs == true
         let params = GenerateParameters(
             maxTokens: maxTokens ?? 2000,
+            kvBits: self.kvBits,
             kvGroupSize: 64,
             quantizedKVStart: 0,
             temperature: normalizedTemperature(temperature),

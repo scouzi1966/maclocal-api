@@ -491,6 +491,8 @@ public struct TokenIterator: Sequence, IteratorProtocol {
     let kvBits: Int?
     let kvGroupSize: Int
     let quantizedKVStart: Int
+    let shouldQuantizeCache: Bool
+
 
     // Internal metrics
     var promptPrefillTime: TimeInterval = 0.0
@@ -503,6 +505,16 @@ public struct TokenIterator: Sequence, IteratorProtocol {
     public private(set) var lastLogprobInfo: TokenLogprobData?
     /// Logprob info computed during `convertToToken()`, pending for the next `next()` return.
     private var pendingLogprobInfo: TokenLogprobData?
+
+    // Performance instrumentation (enabled by AFM_PERF=1)
+    static let perfEnabled = ProcessInfo.processInfo.environment["AFM_PERF"] == "1"
+    var perfModelNs: UInt64 = 0        // cumulative: model() graph construction
+    var perfConvertNs: UInt64 = 0      // cumulative: convertToToken (logit processing)
+    var perfAsyncEvalNs: UInt64 = 0    // cumulative: asyncEval() call
+    var perfItemNs: UInt64 = 0         // cumulative: .item() GPU→CPU sync
+    var perfTotalNextNs: UInt64 = 0    // cumulative: total next() wall-clock
+    var perfGpuSyncNs: UInt64 = 0      // cumulative: GPU sync after asyncEval (measures actual GPU time)
+    var perfTokenCount: Int = 0
 
     /// Initialize a `TokenIterator` with the given tokens. Note: this has been
     /// replaced with ``init(input:model:cache:parameters:)``.
@@ -528,6 +540,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         self.kvBits = parameters.kvBits
         self.kvGroupSize = parameters.kvGroupSize
         self.quantizedKVStart = parameters.quantizedKVStart
+        self.shouldQuantizeCache = parameters.kvBits != nil
 
         self.computeLogprobs = parameters.computeLogprobs
         self.topLogprobsCount = parameters.topLogprobsCount
@@ -565,6 +578,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         self.kvBits = parameters.kvBits
         self.kvGroupSize = parameters.kvGroupSize
         self.quantizedKVStart = parameters.quantizedKVStart
+        self.shouldQuantizeCache = parameters.kvBits != nil
 
         self.computeLogprobs = parameters.computeLogprobs
         self.topLogprobsCount = parameters.topLogprobsCount
@@ -602,6 +616,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         self.kvBits = nil
         self.kvGroupSize = 64
         self.quantizedKVStart = 0
+        self.shouldQuantizeCache = false
 
         self.computeLogprobs = false
         self.topLogprobsCount = 0
@@ -630,6 +645,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
 
             break
         }
+
     }
 
     mutating func convertToToken(logits: MLXArray) -> MLXArray {
@@ -687,25 +703,42 @@ public struct TokenIterator: Sequence, IteratorProtocol {
 
     /// Evaluate the next token and return the new token (y), updating cache state
     mutating func step(previous: LMInput.Text) -> MLXArray {
+        let t0: UInt64 = Self.perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
+
         let result = model(
             previous[text: .newAxis], cache: cache.isEmpty ? nil : cache, state: state)
         self.state = result.state
+        let logits = result.logits
 
-        // Apply dynamic cache quantization after each step
-        maybeQuantizeKVCache(
-            cache: &cache,
-            kvBits: kvBits,
-            kvGroupSize: kvGroupSize,
-            quantizedKVStart: quantizedKVStart
-        )
+        let t1: UInt64 = Self.perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
 
-        return convertToToken(logits: result.logits)
+        // Apply dynamic cache quantization after each step (skip entirely when kvBits is nil)
+        if shouldQuantizeCache {
+            maybeQuantizeKVCache(
+                cache: &cache,
+                kvBits: kvBits,
+                kvGroupSize: kvGroupSize,
+                quantizedKVStart: quantizedKVStart
+            )
+        }
+
+        let token = convertToToken(logits: logits)
+
+        if Self.perfEnabled {
+            let t2 = DispatchTime.now().uptimeNanoseconds
+            perfModelNs += (t1 - t0)
+            perfConvertNs += (t2 - t1)
+        }
+
+        return token
     }
 
     mutating public func next() -> Int? {
         if let maxTokens, tokenCount >= maxTokens {
             return nil
         }
+
+        let tStart: UInt64 = Self.perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
 
         // Promote pending logprob info: the logprob computed during the PREVIOUS
         // step() corresponds to the token we are about to return (previousY).
@@ -717,17 +750,73 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         // compute the next state and async eval the next token
         let token = step(previous: previousY)
         y = .init(tokens: token)
-        asyncEval(token)
+
+        let tEval0: UInt64 = Self.perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
+        // Eval token + all cache arrays together to maximize GPU pipeline depth.
+        // This prevents the next step()'s model() from stalling on unevaluated cache.
+        var toEval: [MLXArray] = [token]
+        for c in cache {
+            toEval.append(contentsOf: c.innerState())
+        }
+        asyncEval(toEval)
+        let tEval1: UInt64 = Self.perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
 
         tokenCount += 1
 
         // Periodically clear GPU memory cache to prevent fragmentation,
-        // especially important for large MoE models. Matches mlx_lm behavior.
-        if tokenCount % 256 == 0 {
+        // especially important for large MoE models. Higher interval reduces
+        // allocator churn at the cost of slightly more fragmentation.
+        if tokenCount % 512 == 0 {
             Memory.clearCache()
         }
 
-        return previousY.tokens.item(Int.self)
+        let tItem0: UInt64 = Self.perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
+        let result = previousY.tokens.item(Int.self)
+        let tItem1: UInt64 = Self.perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
+
+        if Self.perfEnabled {
+            let tEnd = DispatchTime.now().uptimeNanoseconds
+            perfAsyncEvalNs += (tEval1 - tEval0)
+            perfItemNs += (tItem1 - tItem0)
+            perfTotalNextNs += (tEnd - tStart)
+            perfTokenCount += 1
+
+            // Every 100 tokens, sample GPU sync time to see if asyncEval is truly async
+            if perfTokenCount == 100 {
+                // One-shot: time a synchronize to see GPU queue depth
+                let syncStart = DispatchTime.now().uptimeNanoseconds
+                Stream.gpu.synchronize()
+                let syncEnd = DispatchTime.now().uptimeNanoseconds
+                perfGpuSyncNs = syncEnd - syncStart
+            }
+        }
+
+        return result
+    }
+
+    /// Print performance summary (call after generation loop completes)
+    public func printPerfSummary() {
+        guard Self.perfEnabled, perfTokenCount > 0 else { return }
+        let toMs = { (ns: UInt64) -> Double in Double(ns) / 1_000_000.0 }
+        let totalMs = toMs(perfTotalNextNs)
+        let modelMs = toMs(perfModelNs)
+        let convertMs = toMs(perfConvertNs)
+        let evalMs = toMs(perfAsyncEvalNs)
+        let itemMs = toMs(perfItemNs)
+        let overheadMs = totalMs - modelMs - convertMs - evalMs - itemMs
+        let tokPerSec = Double(perfTokenCount) / (totalMs / 1000.0)
+
+        let pct = { (ms: Double) -> String in String(format: "%.1f%%", ms / totalMs * 100) }
+
+        print("""
+        [PERF] Token generation breakdown (\(perfTokenCount) tokens, \(String(format: "%.1f", totalMs))ms total, \(String(format: "%.1f", tokPerSec)) tok/s):
+        [PERF]   model()       : \(String(format: "%8.1f", modelMs))ms  \(pct(modelMs))  (\(String(format: "%.3f", modelMs / Double(perfTokenCount)))ms/tok)
+        [PERF]   convertToToken: \(String(format: "%8.1f", convertMs))ms  \(pct(convertMs))  (\(String(format: "%.3f", convertMs / Double(perfTokenCount)))ms/tok)
+        [PERF]   asyncEval()   : \(String(format: "%8.1f", evalMs))ms  \(pct(evalMs))  (\(String(format: "%.3f", evalMs / Double(perfTokenCount)))ms/tok)
+        [PERF]   .item() sync  : \(String(format: "%8.1f", itemMs))ms  \(pct(itemMs))  (\(String(format: "%.3f", itemMs / Double(perfTokenCount)))ms/tok)
+        [PERF]   overhead      : \(String(format: "%8.1f", overheadMs))ms  \(pct(overheadMs))  (\(String(format: "%.3f", overheadMs / Double(perfTokenCount)))ms/tok)
+        [PERF]   GPU sync probe@100: \(String(format: "%.3f", toMs(perfGpuSyncNs)))ms (0=async working, >0=GPU was still busy)
+        """)
     }
 }
 
@@ -1158,8 +1247,16 @@ public func generateTask(
             format: modelConfiguration.toolCallFormat ?? .json
         )
         var pendingLogprobs = [TokenLogprobData]()
+        let perfEnabled = TokenIterator.perfEnabled
+        var perfDetokNs: UInt64 = 0
+        var perfLoopOverheadNs: UInt64 = 0
 
-        while let token = iterator.next() {
+        while true {
+            let tLoopTop: UInt64 = perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
+
+            guard let token = iterator.next() else { break }
+
+            let tAfterNext: UInt64 = perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
 
             // Check for cancellation on every loop iteration.
             if Task.isCancelled {
@@ -1181,7 +1278,9 @@ public func generateTask(
                 pendingLogprobs.append(lpInfo)
             }
 
+            let tDetok0: UInt64 = perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
             detokenizer.append(token: token)
+            var didYield = false
             if let chunk = detokenizer.next() {
                 tokenCount += 1
 
@@ -1195,6 +1294,7 @@ public func generateTask(
                     if case .terminated = continuation.yield(.chunk(textToYield)) {
                         break
                     }
+                    didYield = true
                 }
 
                 // Check if we have a complete tool call
@@ -1204,7 +1304,22 @@ public func generateTask(
                     }
                 }
             }
+            if perfEnabled {
+                let tDetok1 = DispatchTime.now().uptimeNanoseconds
+                perfDetokNs += (tDetok1 - tDetok0)
+                // Loop overhead = time between loop top and iterator.next() returning, minus next() itself
+                perfLoopOverheadNs += (tAfterNext - tLoopTop) - (iterator.perfTotalNextNs > 0 ? 0 : 0)
+                // Actually just track detok; the rest we can derive
+            }
         }
+
+        // Print performance breakdown if AFM_PERF=1
+        if perfEnabled, iterator.perfTokenCount > 0 {
+            let toMs = { (ns: UInt64) -> Double in Double(ns) / 1_000_000.0 }
+            let detokMs = toMs(perfDetokNs)
+            print("[PERF] Loop overhead: detokenize+yield=\(String(format: "%.1f", detokMs))ms (\(String(format: "%.2f", detokMs / Double(iterator.perfTokenCount)))ms/tok)")
+        }
+        iterator.printPerfSummary()
 
         let now = Date.timeIntervalSinceReferenceDate
         let generateTime = now - start
