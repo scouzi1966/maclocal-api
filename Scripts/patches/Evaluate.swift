@@ -752,13 +752,9 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         y = .init(tokens: token)
 
         let tEval0: UInt64 = Self.perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
-        // Eval token + all cache arrays together to maximize GPU pipeline depth.
-        // This prevents the next step()'s model() from stalling on unevaluated cache.
-        var toEval: [MLXArray] = [token]
-        for c in cache {
-            toEval.append(contentsOf: c.innerState())
-        }
-        asyncEval(toEval)
+        // Eval token — cache arrays share the same computation graph and will be
+        // scheduled automatically as dependencies.
+        asyncEval(token)
         let tEval1: UInt64 = Self.perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
 
         tokenCount += 1
@@ -766,7 +762,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         // Periodically clear GPU memory cache to prevent fragmentation,
         // especially important for large MoE models. Higher interval reduces
         // allocator churn at the cost of slightly more fragmentation.
-        if tokenCount % 512 == 0 {
+        if tokenCount % 1024 == 0 {
             Memory.clearCache()
         }
 
