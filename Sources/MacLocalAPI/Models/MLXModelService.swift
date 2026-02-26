@@ -181,8 +181,6 @@ final class MLXModelService: @unchecked Sendable {
         }
 
         var config = ModelConfiguration(directory: directory)
-        let isVLM = forceVLM ? try isVisionModel(directory: directory) : false
-
         // Auto-detect tool call format from model type (vendor LLMModelFactory lost this code)
         var detectedFormat = inferToolCallFormat(directory: directory)
         // --tool-call-parser override: force format for the specified parser
@@ -203,12 +201,22 @@ final class MLXModelService: @unchecked Sendable {
         }
         config.toolCallFormat = detectedFormat
         stage?(.loadingModel)
+
+        // Loading strategy:
+        // --vlm flag: force VLM factory (for models that need vision processing)
+        // Otherwise: try LLM first (faster for dual-capable models like Qwen3.5-35B-A3B),
+        //            fall back to VLM for vision-only model types (qwen3_vl, lfm2_vl, etc.)
         do {
             let loaded: ModelContainer
-            if isVLM {
+            if forceVLM {
                 loaded = try await VLMModelFactory.shared.loadContainer(configuration: config)
             } else {
-                loaded = try await LLMModelFactory.shared.loadContainer(configuration: config)
+                do {
+                    loaded = try await LLMModelFactory.shared.loadContainer(configuration: config)
+                } catch {
+                    // LLM factory failed — try VLM factory as fallback
+                    loaded = try await VLMModelFactory.shared.loadContainer(configuration: config)
+                }
             }
             withStateLock {
                 currentContainer = loaded

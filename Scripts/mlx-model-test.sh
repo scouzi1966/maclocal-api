@@ -586,10 +586,10 @@ elif $USE_AUTO_MODELS; then
       MODELS+=("$line")
     done < <(models)
   elif [ -d "$MACAFM_MLX_MODEL_CACHE" ]; then
-    SKIP="hub|gguf|xet"
+    SKIP="hub|gguf|xet|models"
     for org_dir in "$MACAFM_MLX_MODEL_CACHE"/*/; do
       org=$(basename "$org_dir")
-      echo "$org" | grep -qE "^($SKIP)$" && continue
+      echo "$org" | grep -qE "^($SKIP)$|^models--" && continue
       for model_dir in "$org_dir"*/; do
         [ -d "$model_dir" ] || continue
         model=$(basename "$model_dir")
