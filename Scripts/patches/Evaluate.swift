@@ -721,6 +721,12 @@ public struct TokenIterator: Sequence, IteratorProtocol {
 
         tokenCount += 1
 
+        // Periodically clear GPU memory cache to prevent fragmentation,
+        // especially important for large MoE models. Matches mlx_lm behavior.
+        if tokenCount % 256 == 0 {
+            Memory.clearCache()
+        }
+
         return previousY.tokens.item(Int.self)
     }
 }

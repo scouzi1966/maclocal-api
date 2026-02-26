@@ -699,7 +699,7 @@ public class Qwen3_5MoEModel: Module, LLMModel, KVCacheDimensionProvider {
                 // model.language_model.X -> language_model.model.X
                 newKey = key.replacingOccurrences(
                     of: "model.language_model.", with: "language_model.model.")
-            } else if key.hasPrefix("model.visual") {
+            } else if key.hasPrefix("model.visual") || key.hasPrefix("vision_tower") {
                 // Skip vision encoder weights
                 continue
             } else if !key.hasPrefix("language_model.") {

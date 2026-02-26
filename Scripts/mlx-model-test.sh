@@ -43,6 +43,7 @@
 #                          --enable-prefix-caching
 #                          --tool-call-parser <hermes|llama3_json|gemma|mistral|qwen3_xml>
 #                          --fix-tool-args
+#   media:               Comma-separated media paths for VLM (auto-injects --vlm)
 #   skip                 Skip this model entirely
 #
 # ANY OTHER LINE in a section is treated as a prompt.
@@ -247,6 +248,9 @@ PROMPTS FILE FORMAT
     system:              System prompt (e.g. system: You are a helpful assistant)
     afm:                 Extra CLI flags passed to afm server
                          (e.g. afm: --verbose --enable-prefix-caching)
+    media:               Comma-separated media file paths for VLM testing
+                         (e.g. media: media/puppy.png)
+                         Auto-injects --vlm into afm args.
     skip                 Skip this model/variant entirely (no value needed)
 
   Everything else in a section is treated as a prompt.
@@ -481,6 +485,8 @@ with open(filepath) as f:
                 config['defaults']['system'] = line.split(':', 1)[1].strip()
             elif line.startswith('afm:'):
                 config['defaults']['afm'] = line.split(':', 1)[1].strip()
+            elif line.startswith('media:'):
+                config['defaults']['media'] = [p.strip() for p in line.split(':', 1)[1].strip().split(',')]
             continue
 
         # [all] section: every line is a prompt
@@ -527,6 +533,8 @@ with open(filepath) as f:
             sec['params']['system'] = line.split(':', 1)[1].strip()
         elif line.startswith('afm:'):
             sec['afm'] = line.split(':', 1)[1].strip()
+        elif line.startswith('media:'):
+            sec['params']['media'] = [p.strip() for p in line.split(':', 1)[1].strip().split(',')]
         else:
             sec['prompts'].append(line)
 
@@ -695,6 +703,13 @@ afm_args = (default_afm + ' ' + run_afm).strip()
 def merge_param(key):
     return params.get(key, defaults.get(key))
 
+media = merge_param('media')
+
+# Auto-inject --vlm when media files are present
+if media:
+    if '--vlm' not in afm_args:
+        afm_args = (afm_args + ' --vlm').strip()
+
 result = {
     'skip': False,
     'model': run['model'],
@@ -715,6 +730,7 @@ result = {
     'frequency_penalty': merge_param('frequency_penalty'),
     'stop': merge_param('stop'),
     'response_format': merge_param('response_format'),
+    'media': media,
 }
 print(json.dumps(result))
 " "$run_index" "$PARSED_CONFIG"
@@ -848,7 +864,25 @@ afm_args = config.get('afm_args', '')
 messages = []
 if system_prompt:
     messages.append({'role': 'system', 'content': system_prompt})
-messages.append({'role': 'user', 'content': prompt_text})
+
+media_paths = config.get('media') or []
+if media_paths:
+    import base64, mimetypes
+    content_parts = [{'type': 'text', 'text': prompt_text}]
+    for mpath in media_paths:
+        mime, _ = mimetypes.guess_type(mpath)
+        if not mime:
+            mime = 'image/png'
+        with open(mpath, 'rb') as f:
+            b64 = base64.b64encode(f.read()).decode()
+        data_url = f'data:{mime};base64,{b64}'
+        content_parts.append({
+            'type': 'image_url',
+            'image_url': {'url': data_url}
+        })
+    messages.append({'role': 'user', 'content': content_parts})
+else:
+    messages.append({'role': 'user', 'content': prompt_text})
 
 # Build SDK kwargs
 kwargs = {
@@ -968,7 +1002,7 @@ try:
     # Record all optional params that were set
     for key in ('top_p', 'top_k', 'min_p', 'seed', 'logprobs', 'top_logprobs',
                 'presence_penalty', 'repetition_penalty', 'frequency_penalty',
-                'stop', 'response_format'):
+                'stop', 'response_format', 'media'):
         if config.get(key) is not None:
             result[key] = config[key]
 
@@ -991,7 +1025,7 @@ except Exception as e:
     }
     for key in ('top_p', 'top_k', 'min_p', 'seed', 'logprobs', 'top_logprobs',
                 'presence_penalty', 'repetition_penalty', 'frequency_penalty',
-                'stop', 'response_format'):
+                'stop', 'response_format', 'media'):
         if config.get(key) is not None:
             result[key] = config[key]
     print(json.dumps(result))
@@ -1224,7 +1258,7 @@ result = {
 }
 for key in ('top_p', 'top_k', 'min_p', 'seed', 'logprobs', 'top_logprobs',
             'presence_penalty', 'repetition_penalty', 'frequency_penalty',
-            'stop', 'response_format'):
+            'stop', 'response_format', 'media'):
     if key in defaults:
         result[key] = defaults[key]
 print(json.dumps(result))

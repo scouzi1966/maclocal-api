@@ -174,6 +174,11 @@ public protocol StreamingDetokenizer: IteratorProtocol<String> {
 public struct NaiveStreamingDetokenizer: StreamingDetokenizer {
     let tokenizer: Tokenizer
 
+    /// Maximum tokens to keep in the decode window.
+    /// BPE merges only affect adjacent tokens, so a small window gives
+    /// correct results while keeping per-token decode cost O(1).
+    private static let maxWindowSize = 16
+
     var segmentTokens = [Int]()
     var segment = ""
 
@@ -210,6 +215,17 @@ public struct NaiveStreamingDetokenizer: StreamingDetokenizer {
             startNewSegment()
         } else {
             self.segment = newSegment
+            // Trim window to prevent O(n²) decode cost on long segments.
+            // After decoding, we know the current full segment text. We can
+            // drop old tokens and keep only a small window — the `segment`
+            // field tracks the decoded text so the diff logic stays correct.
+            if segmentTokens.count > Self.maxWindowSize {
+                let keep = Self.maxWindowSize / 2
+                let keptTokens = Array(segmentTokens.suffix(keep))
+                let keptDecode = tokenizer.decode(tokens: keptTokens)
+                segmentTokens = keptTokens
+                segment = keptDecode
+            }
         }
 
         return String(new)

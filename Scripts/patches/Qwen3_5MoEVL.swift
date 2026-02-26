@@ -269,7 +269,7 @@ private class Qwen3_5VLMLP: Module, UnaryLayer {
     }
 }
 
-// MARK: - GatedDeltaNet (pure-MLX, no Metal kernel dependency)
+// MARK: - GatedDeltaNet (with Metal kernel for fast inference)
 
 private func vlManualRmsNorm(_ x: MLXArray, eps: Float) -> MLXArray {
     let variance = (x * x).mean(axis: -1, keepDims: true)
@@ -281,6 +281,185 @@ private func vlComputeG(_ ALog: MLXArray, _ a: MLXArray, _ dtBias: MLXArray) -> 
         -MLX.exp(ALog.asType(.float32)) * softplus(a + dtBias)
     )
     return result.asType(ALog.dtype)
+}
+
+// MARK: - Metal Kernel for GatedDeltaNet
+
+private func vlMakeGatedDeltaKernel(hasMask: Bool, vectorized: Bool) -> MLXFast.MLXFastKernel? {
+    let maskSource = hasMask ? "mask[b_idx * T + t]" : "true"
+
+    let gComment: String
+    let gSetup: String
+    let gAccess: String
+    let gAdvance: String
+
+    if vectorized {
+        gComment = "// g: [B, T, Hv, Dk]"
+        gSetup = "auto g_ = g + (b_idx * T * Hv + hv_idx) * Dk;"
+        gAccess = "g_[s_idx]"
+        gAdvance = "g_ += Hv * Dk;"
+    } else {
+        gComment = "// g: [B, T, Hv]"
+        gSetup = "auto g_ = g + b_idx * T * Hv;"
+        gAccess = "g_[hv_idx]"
+        gAdvance = "g_ += Hv;"
+    }
+
+    let source = """
+        auto n = thread_position_in_grid.z;
+        auto b_idx = n / Hv;
+        auto hv_idx = n % Hv;
+        auto hk_idx = hv_idx / (Hv / Hk);
+        constexpr int n_per_t = Dk / 32;
+
+        // q, k: [B, T, Hk, Dk]
+        auto q_ = q + b_idx * T * Hk * Dk + hk_idx * Dk;
+        auto k_ = k + b_idx * T * Hk * Dk + hk_idx * Dk;
+
+        // v, y: [B, T, Hv, Dv]
+        auto v_ = v + b_idx * T * Hv * Dv + hv_idx * Dv;
+        y += b_idx * T * Hv * Dv + hv_idx * Dv;
+
+        auto dk_idx = thread_position_in_threadgroup.x;
+        auto dv_idx = thread_position_in_grid.y;
+
+        // state_in, state_out: [B, Hv, Dv, Dk]
+        auto i_state = state_in + (n * Dv + dv_idx) * Dk;
+        auto o_state = state_out + (n * Dv + dv_idx) * Dk;
+
+        float state[n_per_t];
+        for (int i = 0; i < n_per_t; ++i) {
+          auto s_idx = n_per_t * dk_idx + i;
+          state[i] = static_cast<float>(i_state[s_idx]);
+        }
+
+        \(gComment)
+        \(gSetup)
+        auto beta_ = beta + b_idx * T * Hv;
+
+        for (int t = 0; t < T; ++t) {
+          if (\(maskSource)) {
+            float kv_mem = 0.0f;
+            for (int i = 0; i < n_per_t; ++i) {
+              auto s_idx = n_per_t * dk_idx + i;
+              state[i] = state[i] * \(gAccess);
+              kv_mem += state[i] * k_[s_idx];
+            }
+            kv_mem = simd_sum(kv_mem);
+
+            auto delta = (v_[dv_idx] - kv_mem) * beta_[hv_idx];
+
+            float out = 0.0f;
+            for (int i = 0; i < n_per_t; ++i) {
+              auto s_idx = n_per_t * dk_idx + i;
+              state[i] = state[i] + k_[s_idx] * delta;
+              out += state[i] * q_[s_idx];
+            }
+            out = simd_sum(out);
+            if (thread_index_in_simdgroup == 0) {
+              y[dv_idx] = static_cast<InT>(out);
+            }
+          }
+          // Increment data pointers to next time step
+          q_ += Hk * Dk;
+          k_ += Hk * Dk;
+          v_ += Hv * Dv;
+          y += Hv * Dv;
+          \(gAdvance)
+          beta_ += Hv;
+        }
+        for (int i = 0; i < n_per_t; ++i) {
+          auto s_idx = n_per_t * dk_idx + i;
+          o_state[s_idx] = static_cast<InT>(state[i]);
+        }
+    """
+
+    var inputNames = ["q", "k", "v", "g", "beta", "state_in", "T"]
+    if hasMask {
+        inputNames.append("mask")
+    }
+
+    var suffix = ""
+    if vectorized { suffix += "_vec" }
+    if hasMask { suffix += "_mask" }
+
+    return MLXFast.metalKernel(
+        name: "vl_gated_delta_step\(suffix)",
+        inputNames: inputNames,
+        outputNames: ["y", "state_out"],
+        source: source
+    )
+}
+
+private final class VLGatedDeltaKernelManager: Sendable {
+    static let shared = VLGatedDeltaKernelManager()
+
+    let kernel: MLXFast.MLXFastKernel?
+    let kernelMasked: MLXFast.MLXFastKernel?
+    let kernelVec: MLXFast.MLXFastKernel?
+    let kernelVecMasked: MLXFast.MLXFastKernel?
+
+    private init() {
+        kernel = vlMakeGatedDeltaKernel(hasMask: false, vectorized: false)
+        kernelMasked = vlMakeGatedDeltaKernel(hasMask: true, vectorized: false)
+        kernelVec = vlMakeGatedDeltaKernel(hasMask: false, vectorized: true)
+        kernelVecMasked = vlMakeGatedDeltaKernel(hasMask: true, vectorized: true)
+    }
+}
+
+private func vlGatedDeltaKernel(
+    q: MLXArray, k: MLXArray, v: MLXArray,
+    g: MLXArray, beta: MLXArray,
+    state: MLXArray,
+    mask: MLXArray? = nil
+) -> (MLXArray, MLXArray) {
+    let (B, T, Hk, Dk) = k.shape4
+    let Hv = v.dim(2)
+    let Dv = v.dim(3)
+    let inputType = q.dtype
+
+    let kernel: MLXFast.MLXFastKernel?
+    var inputs: [MLXArray]
+
+    if g.ndim == 4 {
+        inputs = [q, k, v, g, beta, state, MLXArray(T)]
+        if let mask {
+            kernel = VLGatedDeltaKernelManager.shared.kernelVecMasked
+            inputs.append(mask)
+        } else {
+            kernel = VLGatedDeltaKernelManager.shared.kernelVec
+        }
+    } else {
+        inputs = [q, k, v, g, beta, state, MLXArray(T)]
+        if let mask {
+            kernel = VLGatedDeltaKernelManager.shared.kernelMasked
+            inputs.append(mask)
+        } else {
+            kernel = VLGatedDeltaKernelManager.shared.kernel
+        }
+    }
+
+    guard let kernel else {
+        // Metal kernel unavailable — fall back to pure MLX ops
+        return vlGatedDeltaOps(q: q, k: k, v: v, g: g, beta: beta, state: state, mask: mask)
+    }
+
+    let outputs = kernel(
+        inputs,
+        template: [
+            ("InT", inputType),
+            ("Dk", Dk),
+            ("Dv", Dv),
+            ("Hk", Hk),
+            ("Hv", Hv),
+        ],
+        grid: (32, Dv, B * Hv),
+        threadGroup: (32, 4, 1),
+        outputShapes: [[B, T, Hv, Dv], state.shape],
+        outputDTypes: [inputType, inputType]
+    )
+
+    return (outputs[0], outputs[1])
 }
 
 private func vlGatedDeltaStepOps(
@@ -378,8 +557,8 @@ private func vlGatedDeltaUpdate(
         currentState = MLXArray.zeros([B, Hv, Dv, Dk], dtype: q.dtype)
     }
 
-    // Always use ops-based fallback (no Metal kernel in MLXVLM)
-    return vlGatedDeltaOps(q: q, k: k, v: v, g: g, beta: beta, state: currentState, mask: mask)
+    // Use Metal kernel for fast inference; fall back to ops if kernel unavailable
+    return vlGatedDeltaKernel(q: q, k: k, v: v, g: g, beta: beta, state: currentState!, mask: mask)
 }
 
 private class Qwen3_5VLGatedDeltaNet: Module {

@@ -1,4 +1,5 @@
 import Foundation
+import CoreImage
 import MLX
 import Cmlx
 import MLXLLM
@@ -98,6 +99,7 @@ final class MLXModelService: @unchecked Sendable {
     var prefillStepSize: Int = 2048
     var toolCallParser: String?
     var fixToolArgs: Bool = false
+    var forceVLM: Bool = false
     init(resolver: MLXCacheResolver) {
         self.resolver = resolver
         self.resolver.applyEnvironment()
@@ -178,7 +180,7 @@ final class MLXModelService: @unchecked Sendable {
         }
 
         var config = ModelConfiguration(directory: directory)
-        let isVLM = try isVisionModel(directory: directory)
+        let isVLM = forceVLM ? try isVisionModel(directory: directory) : false
 
         // Auto-detect tool call format from model type (vendor LLMModelFactory lost this code)
         var detectedFormat = inferToolCallFormat(directory: directory)
@@ -246,7 +248,8 @@ final class MLXModelService: @unchecked Sendable {
 
         let promptText = buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools)
-        let userInput = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat)
+        let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat)
+        defer { cleanupTempFiles(mediaTempFiles) }
         let wantLogprobs = logprobs == true
         let params = GenerateParameters(
             maxTokens: maxTokens ?? 2000,
@@ -481,7 +484,7 @@ final class MLXModelService: @unchecked Sendable {
 
         let promptText = buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools)
-        let userInput = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat)
+        let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat)
         let promptTokens = estimateTokens(promptText)
         let wantLogprobs = logprobs == true
         let params = GenerateParameters(
@@ -661,8 +664,10 @@ final class MLXModelService: @unchecked Sendable {
                             self.savePromptCacheState(cache: generationCache, promptTokens: inputTokens, modelID: modelID)
                         }
                     }
+                    self.cleanupTempFiles(mediaTempFiles)
                     continuation.finish()
                 } catch {
+                    self.cleanupTempFiles(mediaTempFiles)
                     continuation.finish(throwing: error)
                 }
             }
@@ -1139,12 +1144,14 @@ final class MLXModelService: @unchecked Sendable {
         messages.map { "\($0.role): \($0.textContent)" }.joined(separator: "\n")
     }
 
-    private func buildUserInput(from messages: [Message], tools: [ToolSpec]? = nil, responseFormat: ResponseFormat? = nil) throws -> UserInput {
+    private func buildUserInput(from messages: [Message], tools: [ToolSpec]? = nil, responseFormat: ResponseFormat? = nil) throws -> (UserInput, tempFiles: [URL]) {
         var chatMessages: [Chat.Message] = []
         var hasSystemMessage = false
+        var allTempFiles: [URL] = []
         for m in messages {
             let text = m.textContent
-            let images = try extractImages(from: m)
+            let media = try extractMedia(from: m)
+            allTempFiles.append(contentsOf: media.tempFiles)
             switch m.role {
             case "system", "developer":
                 hasSystemMessage = true
@@ -1174,7 +1181,7 @@ final class MLXModelService: @unchecked Sendable {
                 }
                 chatMessages.append(.tool(toolContent))
             default:
-                chatMessages.append(.user(text, images: images))
+                chatMessages.append(.user(text, images: media.images, videos: media.videos))
             }
         }
 
@@ -1224,7 +1231,7 @@ final class MLXModelService: @unchecked Sendable {
         }
 
         if chatMessages.isEmpty {
-            return UserInput(prompt: "")
+            return (UserInput(prompt: ""), tempFiles: allTempFiles)
         }
 
         var input = UserInput(chat: chatMessages, processing: .init(resize: .init(width: 1024, height: 1024)), tools: tools)
@@ -1257,25 +1264,68 @@ final class MLXModelService: @unchecked Sendable {
             }
         }
 
-        return input
+        return (input, tempFiles: allTempFiles)
     }
 
-    private func extractImages(from message: Message) throws -> [UserInput.Image] {
-        guard let content = message.content, case .parts(let parts) = content else { return [] }
+    /// Remove temp files created during media extraction.
+    private func cleanupTempFiles(_ files: [URL]) {
+        for file in files {
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
+
+    private static let videoExtensions: Set<String> = ["mp4", "mov", "avi", "mkv", "webm", "m4v"]
+
+    private func extractMedia(from message: Message) throws -> (images: [UserInput.Image], videos: [UserInput.Video], tempFiles: [URL]) {
+        guard let content = message.content, case .parts(let parts) = content else { return ([], [], []) }
         var images: [UserInput.Image] = []
+        var videos: [UserInput.Video] = []
+        var tempFiles: [URL] = []
         for part in parts where part.type == "image_url" {
-            guard let raw = part.image_url?.url, let url = URL(string: raw) else { continue }
-            if let scheme = url.scheme, scheme == "http" || scheme == "https" {
+            guard let raw = part.image_url?.url else { continue }
+            if raw.hasPrefix("data:") {
+                // Parse "data:<mime>;base64,..." data URLs
+                guard let commaIndex = raw.firstIndex(of: ",") else { continue }
+                let header = raw[raw.startIndex..<commaIndex]
+                let payload = String(raw[raw.index(after: commaIndex)...])
+                guard let decoded = Data(base64Encoded: payload, options: .ignoreUnknownCharacters),
+                      !decoded.isEmpty else { continue }
+                // Check MIME type to route image vs video
+                if header.hasPrefix("data:video/") {
+                    // Video: extract extension from MIME (e.g. "video/mp4" → "mp4"), write temp file
+                    let ext: String
+                    if let slash = header.firstIndex(of: "/") {
+                        let sub = header[header.index(after: slash)...].prefix(while: { $0 != ";" && $0 != "," })
+                        ext = sub.isEmpty ? "mp4" : String(sub)
+                    } else { ext = "mp4" }
+                    let temp = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("afm_mlx_video_\(UUID().uuidString).\(ext)")
+                    try decoded.write(to: temp)
+                    videos.append(.url(temp))
+                    tempFiles.append(temp)
+                } else {
+                    // Image: decode to CIImage directly (no temp file)
+                    guard let ciImage = CIImage(data: decoded) else { continue }
+                    images.append(.ciImage(ciImage))
+                }
+            } else if let url = URL(string: raw),
+                      let scheme = url.scheme, scheme == "http" || scheme == "https" {
                 let (data, _) = try awaitURL(url: url)
                 let temp = FileManager.default.temporaryDirectory
                     .appendingPathComponent("afm_mlx_image_\(UUID().uuidString).\(url.pathExtension.isEmpty ? "jpg" : url.pathExtension)")
                 try data.write(to: temp)
                 images.append(.url(temp))
-            } else {
-                images.append(.url(url))
+                tempFiles.append(temp)
+            } else if let url = URL(string: raw) {
+                let ext = url.pathExtension.lowercased()
+                if Self.videoExtensions.contains(ext) {
+                    videos.append(.url(url))
+                } else {
+                    images.append(.url(url))
+                }
             }
         }
-        return images
+        return (images, videos, tempFiles)
     }
 
     private func awaitURL(url: URL) throws -> (Data, URLResponse) {
