@@ -17,6 +17,7 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 > ```bash
 > brew unlink afm && brew install scouzi1966/afm/afm-next   # switch to nightly
 > brew unlink afm-next && brew link afm                      # switch back to stable
+> ASSUMES you did a brew install scouzi1966/afm/afm previously
 > ```
 
 ## What's new in afm-next
