@@ -98,6 +98,7 @@ final class MLXModelService: @unchecked Sendable {
     var prefillStepSize: Int = 2048
     var toolCallParser: String?
     var fixToolArgs: Bool = false
+    var forceVLM: Bool = false
     init(resolver: MLXCacheResolver) {
         self.resolver = resolver
         self.resolver.applyEnvironment()
@@ -178,7 +179,7 @@ final class MLXModelService: @unchecked Sendable {
         }
 
         var config = ModelConfiguration(directory: directory)
-        let isVLM = try isVisionModel(directory: directory)
+        let isVLM = forceVLM ? try isVisionModel(directory: directory) : false
 
         // Auto-detect tool call format from model type (vendor LLMModelFactory lost this code)
         var detectedFormat = inferToolCallFormat(directory: directory)

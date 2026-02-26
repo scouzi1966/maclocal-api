@@ -190,7 +190,7 @@ struct MlxCommand: ParsableCommand {
     var chatTemplate: String?
     @Option(name: .long, help: "Dtype (compatibility)")
     var dtype: String?
-    @Flag(name: .long, help: "VLM hint (compatibility)")
+    @Flag(name: .long, help: "Load as vision model (VLM). Default: text-only LLM for better performance")
     var vlm: Bool = false
 
     @Option(name: .long, help: "Stop sequences - comma-separated strings where generation should stop (e.g., '###,END')")
@@ -221,6 +221,7 @@ struct MlxCommand: ParsableCommand {
         service.enablePrefixCaching = enablePrefixCaching
         service.toolCallParser = toolCallParser
         service.fixToolArgs = fixToolArgs
+        service.forceVLM = vlm
         if let prefillStepSize { service.prefillStepSize = prefillStepSize }
         _ = try service.revalidateRegistry()
 
@@ -513,7 +514,7 @@ struct MlxCommand: ParsableCommand {
         if trustRemoteCode { ignored.append("--trust-remote-code") }
         if chatTemplate != nil { ignored.append("--chat-template") }
         if dtype != nil { ignored.append("--dtype") }
-        if vlm { ignored.append("--vlm") }
+        // --vlm is now functional, not ignored
         if !ignored.isEmpty {
             print("Warning: accepted compatibility switches currently ignored: \(ignored.joined(separator: ", "))")
         }
