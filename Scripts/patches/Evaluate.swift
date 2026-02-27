@@ -1303,9 +1303,7 @@ public func generateTask(
             if perfEnabled {
                 let tDetok1 = DispatchTime.now().uptimeNanoseconds
                 perfDetokNs += (tDetok1 - tDetok0)
-                // Loop overhead = time between loop top and iterator.next() returning, minus next() itself
-                perfLoopOverheadNs += (tAfterNext - tLoopTop) - (iterator.perfTotalNextNs > 0 ? 0 : 0)
-                // Actually just track detok; the rest we can derive
+                perfLoopOverheadNs += (tAfterNext - tLoopTop)
             }
         }
 

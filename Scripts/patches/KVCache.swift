@@ -864,8 +864,8 @@ public class QuantizedKVCache: BaseKVCache, QuantizedKVCacheProtocol {
 
         offset += numSteps
 
-        let quantizedKeys = quantized(keys, groupSize: groupSize, bits: bits)
-        let quantizedValues = quantized(values, groupSize: groupSize, bits: bits)
+        let quantizedKeys = quantized(keys, groupSize: groupSize, bits: bits, mode: mode)
+        let quantizedValues = quantized(values, groupSize: groupSize, bits: bits, mode: mode)
 
         // Convert named tuples to positional tuples
         let qKeys = (quantizedKeys.wq, quantizedKeys.scales, quantizedKeys.biases)

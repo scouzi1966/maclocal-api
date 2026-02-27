@@ -295,7 +295,8 @@ private class Qwen3_5Attention: Module {
               qQ.groupSize == qV.groupSize,
               qQ.bits == qK.bits,
               qQ.bits == qV.bits,
-              qQ.mode == qK.mode
+              qQ.mode == qK.mode,
+              qQ.mode == qV.mode
         else { return }
 
         fusedQKVSplitIndices = [qDim, qDim + kvDim]
