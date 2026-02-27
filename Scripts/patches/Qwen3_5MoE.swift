@@ -233,6 +233,8 @@ private class Qwen3_5Attention: Module {
     let numKVHeads: Int
     let headDim: Int
     let scale: Float
+    let qDim: Int
+    let kvDim: Int
 
     @ModuleInfo(key: "q_proj") var qProj: Linear
     @ModuleInfo(key: "k_proj") var kProj: Linear
@@ -244,19 +246,31 @@ private class Qwen3_5Attention: Module {
 
     let rope: RoPE
 
+    // Fused QKV weights
+    private var fusedQKVWeight: MLXArray?
+    private var fusedQKVScales: MLXArray?
+    private var fusedQKVBiases: MLXArray?
+    private var fusedQKVGroupSize: Int = 0
+    private var fusedQKVBits: Int = 0
+    private var fusedQKVMode: QuantizationMode = .affine
+    private var fusedQKVAttempted = false
+    private var fusedQKVSplitIndices: [Int] = []
+
     init(_ args: Qwen3_5MoETextConfiguration) {
         self.numHeads = args.attentionHeads
         self.numKVHeads = args.kvHeads
         self.headDim = args.resolvedHeadDim
         self.scale = pow(Float(headDim), -0.5)
+        self.qDim = numHeads * headDim * 2
+        self.kvDim = numKVHeads * headDim
 
         // Q projects to 2x (queries + gate)
         _qProj.wrappedValue = Linear(
-            args.hiddenSize, numHeads * headDim * 2, bias: args.attentionBias)
+            args.hiddenSize, qDim, bias: args.attentionBias)
         _kProj.wrappedValue = Linear(
-            args.hiddenSize, numKVHeads * headDim, bias: args.attentionBias)
+            args.hiddenSize, kvDim, bias: args.attentionBias)
         _vProj.wrappedValue = Linear(
-            args.hiddenSize, numKVHeads * headDim, bias: args.attentionBias)
+            args.hiddenSize, kvDim, bias: args.attentionBias)
         _oProj.wrappedValue = Linear(
             numHeads * headDim, args.hiddenSize, bias: args.attentionBias)
 
@@ -269,20 +283,71 @@ private class Qwen3_5Attention: Module {
             dimensions: ropeDims, traditional: false, base: args.ropeTheta, scale: 1.0)
     }
 
+    /// Lazily fuse Q+K+V projections into a single quantized matmul
+    private func tryFuseQKV() {
+        guard !fusedQKVAttempted else { return }
+        fusedQKVAttempted = true
+
+        guard let qQ = qProj as? QuantizedLinear,
+              let qK = kProj as? QuantizedLinear,
+              let qV = vProj as? QuantizedLinear,
+              qQ.groupSize == qK.groupSize,
+              qQ.groupSize == qV.groupSize,
+              qQ.bits == qK.bits,
+              qQ.bits == qV.bits,
+              qQ.mode == qK.mode,
+              qQ.mode == qV.mode
+        else { return }
+
+        fusedQKVSplitIndices = [qDim, qDim + kvDim]
+        fusedQKVWeight = concatenated([qQ.weight, qK.weight, qV.weight], axis: 0)
+        fusedQKVScales = concatenated([qQ.scales, qK.scales, qV.scales], axis: 0)
+        if let b1 = qQ.biases, let b2 = qK.biases, let b3 = qV.biases {
+            fusedQKVBiases = concatenated([b1, b2, b3], axis: 0)
+        }
+        fusedQKVGroupSize = qQ.groupSize
+        fusedQKVBits = qQ.bits
+        fusedQKVMode = qQ.mode
+
+        if let fw = fusedQKVWeight, let fs = fusedQKVScales {
+            var toEval: [MLXArray] = [fw, fs]
+            if let fb = fusedQKVBiases { toEval.append(fb) }
+            eval(toEval)
+        }
+    }
+
     func callAsFunction(
         _ x: MLXArray, mask: MLXFast.ScaledDotProductAttentionMaskMode, cache: KVCache?
     ) -> MLXArray {
         let (B, L) = (x.dim(0), x.dim(1))
 
-        // Q projection -> split into queries and gate
-        let qProjOutput = qProj(x)
+        tryFuseQKV()
+
+        let qProjOutput: MLXArray
+        var keys: MLXArray
+        var values: MLXArray
+
+        if let fWeight = fusedQKVWeight, let fScales = fusedQKVScales {
+            // Fused path: single quantized matmul for Q+K+V
+            let combined = MLX.quantizedMatmul(
+                x, fWeight, scales: fScales, biases: fusedQKVBiases,
+                transpose: true, groupSize: fusedQKVGroupSize,
+                bits: fusedQKVBits, mode: fusedQKVMode)
+            let parts = MLX.split(combined, indices: fusedQKVSplitIndices, axis: -1)
+            qProjOutput = parts[0]
+            keys = parts[1]
+            values = parts[2]
+        } else {
+            qProjOutput = qProj(x)
+            keys = kProj(x)
+            values = vProj(x)
+        }
+
+        // Q -> split into queries and gate
         let qReshaped = qProjOutput.reshaped(B, L, numHeads, -1)
         let qSplits = MLX.split(qReshaped, parts: 2, axis: -1)
         var queries = qSplits[0]
         let gate = qSplits[1].reshaped(B, L, -1)
-
-        var keys = kProj(x)
-        var values = vProj(x)
 
         queries = qNorm(queries).transposed(0, 2, 1, 3)
         keys = kNorm(keys.reshaped(B, L, numKVHeads, -1)).transposed(0, 2, 1, 3)
@@ -321,14 +386,74 @@ private class Qwen3_5MLP: Module, UnaryLayer {
     @ModuleInfo(key: "down_proj") var down: Linear
     @ModuleInfo(key: "up_proj") var up: Linear
 
+    let hiddenDimensions: Int
+
+    // Fused gate+up quantized weights (lazily created)
+    private var fusedWeight: MLXArray?
+    private var fusedScales: MLXArray?
+    private var fusedBiases: MLXArray?
+    private var fusedGroupSize: Int = 0
+    private var fusedBits: Int = 0
+    private var fusedMode: QuantizationMode = .affine
+    private var fusionAttempted = false
+
     init(dimensions: Int, hiddenDimensions: Int) {
+        self.hiddenDimensions = hiddenDimensions
         _gate.wrappedValue = Linear(dimensions, hiddenDimensions, bias: false)
         _down.wrappedValue = Linear(hiddenDimensions, dimensions, bias: false)
         _up.wrappedValue = Linear(dimensions, hiddenDimensions, bias: false)
     }
 
+    /// Lazily fuse gate+up weights for quantized models.
+    private func tryFuseGateUp() {
+        guard !fusionAttempted else { return }
+        fusionAttempted = true
+
+        guard let qGate = gate as? QuantizedLinear,
+              let qUp = up as? QuantizedLinear,
+              qGate.groupSize == qUp.groupSize,
+              qGate.bits == qUp.bits,
+              qGate.mode == qUp.mode
+        else { return }
+
+        // Concatenate along output dimension (axis 0): [N, K_packed] → [2N, K_packed]
+        fusedWeight = concatenated([qGate.weight, qUp.weight], axis: 0)
+        fusedScales = concatenated([qGate.scales, qUp.scales], axis: 0)
+        if let gBiases = qGate.biases, let uBiases = qUp.biases {
+            fusedBiases = concatenated([gBiases, uBiases], axis: 0)
+        }
+        fusedGroupSize = qGate.groupSize
+        fusedBits = qGate.bits
+        fusedMode = qGate.mode
+
+        // Force evaluate so the concat is materialized once
+        if let fw = fusedWeight, let fs = fusedScales {
+            var toEval: [MLXArray] = [fw, fs]
+            if let fb = fusedBiases { toEval.append(fb) }
+            eval(toEval)
+        }
+    }
+
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        down(silu(gate(x)) * up(x))
+        tryFuseGateUp()
+
+        if let fWeight = fusedWeight, let fScales = fusedScales {
+            // Fused path: single quantizedMatmul for gate+up
+            let gateUp = MLX.quantizedMatmul(
+                x,
+                fWeight,
+                scales: fScales,
+                biases: fusedBiases,
+                transpose: true,
+                groupSize: fusedGroupSize,
+                bits: fusedBits,
+                mode: fusedMode
+            )
+            return down(fusedSiluMul(gateUp, hiddenDims: hiddenDimensions))
+        } else {
+            // Fallback: separate dispatches (non-quantized)
+            return down(silu(gate(x)) * up(x))
+        }
     }
 }
 
@@ -345,6 +470,11 @@ private class Qwen3_5GatedDeltaNet: Module {
     let convKernelSize: Int
     let convDim: Int
 
+    // Pre-computed Q/K norm weights: incorporates scale factor into rmsNorm weight
+    // so MLXFast.rmsNorm replaces 4 graph ops (x*x, mean, rsqrt, mul) with 1 kernel
+    private var qNormWeight: MLXArray?
+    private var kNormWeight: MLXArray?
+
     @ModuleInfo(key: "conv1d") var conv1d: Conv1d
 
     // Qwen3.5 uses 4 separate projections (unlike Qwen3Next's combined 2)
@@ -357,6 +487,17 @@ private class Qwen3_5GatedDeltaNet: Module {
     @ParameterInfo(key: "A_log") var aLog: MLXArray
     @ModuleInfo(key: "norm") var norm: Qwen3_5RMSNormGated
     @ModuleInfo(key: "out_proj") var outProj: Linear
+
+    // Fused input projections (QKV + Z + B + A concatenated weights)
+    private var fusedInProjWeight: MLXArray?
+    private var fusedInProjScales: MLXArray?
+    private var fusedInProjBiases: MLXArray?
+    private var fusedInProjGroupSize: Int = 0
+    private var fusedInProjBits: Int = 0
+    private var fusedInProjMode: QuantizationMode = .affine
+    private var fusedInProjAttempted = false
+    // Split indices for unfusing the output: [qkvDim, qkvDim+zDim, qkvDim+zDim+bDim]
+    private var fusedSplitIndices: [Int] = []
 
     init(_ config: Qwen3_5MoETextConfiguration) {
         self.hiddenSize = config.hiddenSize
@@ -393,15 +534,81 @@ private class Qwen3_5GatedDeltaNet: Module {
         super.init()
     }
 
+    /// Lazily fuse all 4 input projections (QKV + Z + B + A) into one quantized matmul.
+    private func tryFuseInputProjs() {
+        guard !fusedInProjAttempted else { return }
+        fusedInProjAttempted = true
+
+        guard let qQKV = inProjQKV as? QuantizedLinear,
+              let qZ = inProjZ as? QuantizedLinear,
+              let qB = inProjB as? QuantizedLinear,
+              let qA = inProjA as? QuantizedLinear,
+              qQKV.groupSize == qZ.groupSize,
+              qQKV.groupSize == qB.groupSize,
+              qQKV.groupSize == qA.groupSize,
+              qQKV.bits == qZ.bits,
+              qQKV.bits == qB.bits,
+              qQKV.bits == qA.bits,
+              qQKV.mode == qZ.mode
+        else { return }
+
+        let qkvDim = keyDim * 2 + valueDim
+        let zDim = valueDim
+        let bDim = numVHeads
+        fusedSplitIndices = [qkvDim, qkvDim + zDim, qkvDim + zDim + bDim]
+
+        fusedInProjWeight = concatenated([qQKV.weight, qZ.weight, qB.weight, qA.weight], axis: 0)
+        fusedInProjScales = concatenated([qQKV.scales, qZ.scales, qB.scales, qA.scales], axis: 0)
+        if let b1 = qQKV.biases, let b2 = qZ.biases, let b3 = qB.biases, let b4 = qA.biases {
+            fusedInProjBiases = concatenated([b1, b2, b3, b4], axis: 0)
+        }
+        fusedInProjGroupSize = qQKV.groupSize
+        fusedInProjBits = qQKV.bits
+        fusedInProjMode = qQKV.mode
+
+        if let fw = fusedInProjWeight, let fs = fusedInProjScales {
+            var toEval: [MLXArray] = [fw, fs]
+            if let fb = fusedInProjBiases { toEval.append(fb) }
+            eval(toEval)
+        }
+    }
+
     func callAsFunction(
         _ inputs: MLXArray, mask: MLXArray? = nil, cache: ArraysCache? = nil
     ) -> MLXArray {
         let (B, S, _) = (inputs.dim(0), inputs.dim(1), inputs.dim(2))
 
-        let qkv = inProjQKV(inputs)
-        let z = inProjZ(inputs).reshaped(B, S, numVHeads, headVDim)
-        let b = inProjB(inputs)
-        let a = inProjA(inputs)
+        tryFuseInputProjs()
+
+        let qkv: MLXArray
+        let z: MLXArray
+        let b: MLXArray
+        let a: MLXArray
+
+        if let fWeight = fusedInProjWeight, let fScales = fusedInProjScales {
+            // Fused path: single quantized matmul for all 4 projections
+            let combined = MLX.quantizedMatmul(
+                inputs,
+                fWeight,
+                scales: fScales,
+                biases: fusedInProjBiases,
+                transpose: true,
+                groupSize: fusedInProjGroupSize,
+                bits: fusedInProjBits,
+                mode: fusedInProjMode
+            )
+            let parts = MLX.split(combined, indices: fusedSplitIndices, axis: -1)
+            qkv = parts[0]
+            z = parts[1].reshaped(B, S, numVHeads, headVDim)
+            b = parts[2]
+            a = parts[3]
+        } else {
+            // Fallback: separate dispatches
+            qkv = inProjQKV(inputs)
+            z = inProjZ(inputs).reshaped(B, S, numVHeads, headVDim)
+            b = inProjB(inputs)
+            a = inProjA(inputs)
+        }
 
         // Conv state management
         let convState: MLXArray
@@ -435,10 +642,19 @@ private class Qwen3_5GatedDeltaNet: Module {
         var k = convSplits[1].reshaped(B, S, numKHeads, headKDim)
         let v = convSplits[2].reshaped(B, S, numVHeads, headVDim)
 
-        // Q/K normalization (no learned weights)
-        let invScale = pow(Float(headKDim), -0.5)
-        q = (invScale * invScale) * qwen3_5ManualRmsNorm(q, eps: 1e-6)
-        k = invScale * qwen3_5ManualRmsNorm(k, eps: 1e-6)
+        // Q/K normalization using MLXFast.rmsNorm (1 kernel vs 4 graph ops per norm)
+        // Pre-compute weight vectors once, matching input dtype
+        if qNormWeight == nil {
+            let invScale = pow(Float(headKDim), -0.5)
+            let qScale: Float = invScale * invScale
+            let qw = (MLXArray.ones([headKDim]) * qScale).asType(q.dtype)
+            let kw = (MLXArray.ones([headKDim]) * invScale).asType(q.dtype)
+            eval([qw, kw])
+            qNormWeight = qw
+            kNormWeight = kw
+        }
+        q = MLXFast.rmsNorm(q, weight: qNormWeight!, eps: 1e-6)
+        k = MLXFast.rmsNorm(k, weight: kNormWeight!, eps: 1e-6)
 
         // Recurrent state
         let state: MLXArray? = cache?[1]
@@ -499,12 +715,12 @@ private class Qwen3_5SparseMoeBlock: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        let gates = gate(x)
-        let softGates = MLX.softmax(gates, axis: -1, precise: true)
+        let gates = MLX.softmax(gate(x), axis: -1, precise: true)
 
         let k = topK
-        let inds = MLX.argPartition(-gates, kth: k - 1, axis: -1)[.ellipsis, ..<k]
-        var scores = MLX.takeAlong(softGates, inds, axis: -1)
+        // Use negative kth to avoid negating the array (saves 1 dispatch per layer)
+        let inds = MLX.argPartition(gates, kth: -k, axis: -1)[.ellipsis, (-k)...]
+        var scores = MLX.takeAlong(gates, inds, axis: -1)
 
         if normTopkProb {
             scores = scores / MLX.sum(scores, axis: -1, keepDims: true)

@@ -100,6 +100,7 @@ final class MLXModelService: @unchecked Sendable {
     var toolCallParser: String?
     var fixToolArgs: Bool = false
     var forceVLM: Bool = false
+    var kvBits: Int?
     init(resolver: MLXCacheResolver) {
         self.resolver = resolver
         self.resolver.applyEnvironment()
@@ -180,8 +181,6 @@ final class MLXModelService: @unchecked Sendable {
         }
 
         var config = ModelConfiguration(directory: directory)
-        let isVLM = forceVLM ? try isVisionModel(directory: directory) : false
-
         // Auto-detect tool call format from model type (vendor LLMModelFactory lost this code)
         var detectedFormat = inferToolCallFormat(directory: directory)
         // --tool-call-parser override: force format for the specified parser
@@ -202,12 +201,27 @@ final class MLXModelService: @unchecked Sendable {
         }
         config.toolCallFormat = detectedFormat
         stage?(.loadingModel)
+
+        // Loading strategy:
+        // --vlm flag: force VLM factory (for models that need vision processing)
+        // Otherwise: try LLM first (faster for dual-capable models like Qwen3.5-35B-A3B),
+        //            fall back to VLM for vision-only model types (qwen3_vl, lfm2_vl, etc.)
+        //
+        // VLM-only guard: if text_config exists but lacks key architecture fields
+        // (num_attention_heads, head_dim), the LLM model will use wrong defaults
+        // and crash (e.g. gemma-3 VLM). Skip LLM and go straight to VLM.
+        let vlmOnly = isVLMOnlyConfig(directory: directory)
         do {
             let loaded: ModelContainer
-            if isVLM {
+            if forceVLM || vlmOnly {
                 loaded = try await VLMModelFactory.shared.loadContainer(configuration: config)
             } else {
-                loaded = try await LLMModelFactory.shared.loadContainer(configuration: config)
+                do {
+                    loaded = try await LLMModelFactory.shared.loadContainer(configuration: config)
+                } catch {
+                    // LLM factory failed — try VLM factory as fallback
+                    loaded = try await VLMModelFactory.shared.loadContainer(configuration: config)
+                }
             }
             withStateLock {
                 currentContainer = loaded
@@ -253,6 +267,7 @@ final class MLXModelService: @unchecked Sendable {
         let wantLogprobs = logprobs == true
         let params = GenerateParameters(
             maxTokens: maxTokens ?? 2000,
+            kvBits: self.kvBits,
             kvGroupSize: 64,
             quantizedKVStart: 0,
             temperature: normalizedTemperature(temperature),
@@ -489,6 +504,7 @@ final class MLXModelService: @unchecked Sendable {
         let wantLogprobs = logprobs == true
         let params = GenerateParameters(
             maxTokens: maxTokens ?? 2000,
+            kvBits: self.kvBits,
             kvGroupSize: 64,
             quantizedKVStart: 0,
             temperature: normalizedTemperature(temperature),
@@ -1113,6 +1129,33 @@ final class MLXModelService: @unchecked Sendable {
             return nil
         }
         return ToolCallFormat.infer(from: modelType)
+    }
+
+    /// Returns true when the model has a VLM config layout that can't be loaded
+    /// correctly by the LLM factory.  VLM models like gemma-3 store architecture
+    /// fields (num_attention_heads, head_dim, etc.) only inside text_config, not at
+    /// the top level.  The LLM factory's Codable config fills in wrong defaults for
+    /// these missing fields, causing inference crashes.
+    ///
+    /// Models like Qwen3.5-35B-A3B also have text_config but their LLM model class
+    /// (Qwen3_5MoE) properly reads from text_config with full field coverage.
+    /// We detect the "sparse text_config" case by checking for missing key fields.
+    private func isVLMOnlyConfig(directory: URL) -> Bool {
+        let configURL = directory.appendingPathComponent("config.json")
+        guard let data = try? Data(contentsOf: configURL),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let textConfig = json["text_config"] as? [String: Any],
+              json["vision_config"] != nil else {
+            return false
+        }
+        // If text_config lacks num_attention_heads AND the top-level config also lacks it,
+        // the LLM factory will use wrong defaults. Prefer VLM factory.
+        let hasTopLevelHeads = json["num_attention_heads"] != nil
+        let hasNestedHeads = textConfig["num_attention_heads"] != nil
+        if !hasTopLevelHeads && !hasNestedHeads {
+            return true
+        }
+        return false
     }
 
     private func isVisionModel(directory: URL) throws -> Bool {

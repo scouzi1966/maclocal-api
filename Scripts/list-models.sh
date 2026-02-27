@@ -17,12 +17,12 @@ if [ ! -d "$CACHE_DIR" ]; then
 fi
 
 # Skip non-model directories
-SKIP="hub|gguf|xet"
+SKIP="hub|gguf|xet|models"
 
 models=()
 for org_dir in "$CACHE_DIR"/*/; do
   org=$(basename "$org_dir")
-  echo "$org" | grep -qE "^($SKIP)$" && continue
+  echo "$org" | grep -qE "^($SKIP)$|^models--" && continue
   for model_dir in "$org_dir"*/; do
     [ -d "$model_dir" ] || continue
     model=$(basename "$model_dir")

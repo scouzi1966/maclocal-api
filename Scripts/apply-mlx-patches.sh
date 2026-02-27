@@ -19,8 +19,8 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-PATCH_FILES=("Qwen3VL.swift" "Qwen3Next.swift" "GatedDelta.swift" "Qwen3_5MoE.swift" "DeepseekV3.swift" "MiniMaxM2.swift" "NemotronH.swift" "GLM4MoeLite.swift" "GLM5MoeDsa.swift" "KimiK25.swift" "LLMModelFactory.swift" "Load.swift" "Evaluate.swift" "Tokenizer.swift" "Qwen3_5MoEVL.swift" "VLMModelFactory.swift" "SamplerTests.swift" "ToolCallFormat.swift")
-TARGET_PATHS=("Libraries/MLXVLM/Models/Qwen3VL.swift" "Libraries/MLXLLM/Models/Qwen3Next.swift" "Libraries/MLXLLM/Models/GatedDelta.swift" "Libraries/MLXLLM/Models/Qwen3_5MoE.swift" "Libraries/MLXLLM/Models/DeepseekV3.swift" "Libraries/MLXLLM/Models/MiniMaxM2.swift" "Libraries/MLXLLM/Models/NemotronH.swift" "Libraries/MLXLLM/Models/GLM4MoeLite.swift" "Libraries/MLXLLM/Models/GLM5MoeDsa.swift" "Libraries/MLXLLM/Models/KimiK25.swift" "Libraries/MLXLLM/LLMModelFactory.swift" "Libraries/MLXLMCommon/Load.swift" "Libraries/MLXLMCommon/Evaluate.swift" "Libraries/MLXLMCommon/Tokenizer.swift" "Libraries/MLXVLM/Models/Qwen3_5MoEVL.swift" "Libraries/MLXVLM/VLMModelFactory.swift" "Tests/MLXLMTests/SamplerTests.swift" "Libraries/MLXLMCommon/Tool/ToolCallFormat.swift")
+PATCH_FILES=("Qwen3VL.swift" "Qwen3Next.swift" "GatedDelta.swift" "Qwen3_5MoE.swift" "DeepseekV3.swift" "MiniMaxM2.swift" "NemotronH.swift" "GLM4MoeLite.swift" "GLM5MoeDsa.swift" "KimiK25.swift" "LLMModelFactory.swift" "Load.swift" "Evaluate.swift" "Tokenizer.swift" "Qwen3_5MoEVL.swift" "VLMModelFactory.swift" "SamplerTests.swift" "ToolCallFormat.swift" "KVCache.swift" "SwitchLayers.swift")
+TARGET_PATHS=("Libraries/MLXVLM/Models/Qwen3VL.swift" "Libraries/MLXLLM/Models/Qwen3Next.swift" "Libraries/MLXLLM/Models/GatedDelta.swift" "Libraries/MLXLLM/Models/Qwen3_5MoE.swift" "Libraries/MLXLLM/Models/DeepseekV3.swift" "Libraries/MLXLLM/Models/MiniMaxM2.swift" "Libraries/MLXLLM/Models/NemotronH.swift" "Libraries/MLXLLM/Models/GLM4MoeLite.swift" "Libraries/MLXLLM/Models/GLM5MoeDsa.swift" "Libraries/MLXLLM/Models/KimiK25.swift" "Libraries/MLXLLM/LLMModelFactory.swift" "Libraries/MLXLMCommon/Load.swift" "Libraries/MLXLMCommon/Evaluate.swift" "Libraries/MLXLMCommon/Tokenizer.swift" "Libraries/MLXVLM/Models/Qwen3_5MoEVL.swift" "Libraries/MLXVLM/VLMModelFactory.swift" "Tests/MLXLMTests/SamplerTests.swift" "Libraries/MLXLMCommon/Tool/ToolCallFormat.swift" "Libraries/MLXLMCommon/KVCache.swift" "Libraries/MLXLMCommon/SwitchLayers.swift")
 NEW_FILES=("Qwen3Next.swift" "GatedDelta.swift" "Qwen3_5MoE.swift" "MiniMaxM2.swift" "NemotronH.swift" "GLM4MoeLite.swift" "GLM5MoeDsa.swift" "KimiK25.swift" "Qwen3_5MoEVL.swift" "SamplerTests.swift")
 
 # --- Package-level patches (sed replacements in Package.swift) ---
@@ -39,6 +39,22 @@ is_new_file() {
     fi
   done
   return 1
+}
+
+add_mlxfast_dep() {
+  local pkg_file="$1"
+  [ -f "$pkg_file" ] || return 1
+  if grep -q 'name: "MLXFast"' "$pkg_file"; then
+    log_info "MLXFast dependency already present"
+    return 0
+  fi
+  # Add MLXFast as dependency to MLXLMCommon target only (line after MLXOptimizers in MLXLMCommon block)
+  # We match the unique pattern: name: "MLXLMCommon" followed by its dependencies block
+  sed -i '' '/name: "MLXLMCommon"/,/path: "Libraries\/MLXLMCommon"/ {
+    /product(name: "Transformers"/a\
+\                .product(name: "MLXFast", package: "mlx-swift"),
+  }' "$pkg_file"
+  log_info "Added MLXFast dependency to MLXLMCommon"
 }
 
 apply_package_pins() {
@@ -232,6 +248,7 @@ main() {
         apply_file "$patch_file" "$target_file"
       done
       apply_package_pins "$MLX_PACKAGE_SWIFT"
+      add_mlxfast_dep "$MLX_PACKAGE_SWIFT"
       log_info ""
       log_info "Patches applied to vendor/mlx-swift-lm. Clean build required."
       ;;

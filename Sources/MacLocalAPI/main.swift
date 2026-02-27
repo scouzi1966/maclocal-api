@@ -178,7 +178,7 @@ struct MlxCommand: ParsableCommand {
     var repetitionPenalty: Double?
     @Option(name: .long, help: "KV cache size (compatibility)")
     var maxKVSize: Int?
-    @Option(name: .long, help: "KV bits (compatibility)")
+    @Option(name: .long, help: "Quantize KV cache to this many bits (4 or 8) to reduce memory usage")
     var kvBits: Int?
     @Option(name: .long, help: "Prefill step size — number of prompt tokens processed per GPU pass (default: 2048)")
     var prefillStepSize: Int?
@@ -225,6 +225,7 @@ struct MlxCommand: ParsableCommand {
         service.toolCallParser = toolCallParser
         service.fixToolArgs = fixToolArgs
         service.forceVLM = vlm || !media.isEmpty
+        service.kvBits = kvBits
         if let prefillStepSize { service.prefillStepSize = prefillStepSize }
         _ = try service.revalidateRegistry()
 
@@ -543,7 +544,6 @@ struct MlxCommand: ParsableCommand {
     private func emitCompatibilityWarnings() {
         var ignored: [String] = []
         if maxKVSize != nil { ignored.append("--max-kv-size") }
-        if kvBits != nil { ignored.append("--kv-bits") }
         if trustRemoteCode { ignored.append("--trust-remote-code") }
         if chatTemplate != nil { ignored.append("--chat-template") }
         if dtype != nil { ignored.append("--dtype") }
