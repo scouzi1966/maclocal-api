@@ -714,12 +714,12 @@ private class Qwen3_5SparseMoeBlock: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        let gates = gate(x)
-        let softGates = MLX.softmax(gates, axis: -1)
+        let gates = MLX.softmax(gate(x), axis: -1, precise: true)
 
         let k = topK
-        let inds = MLX.argPartition(-gates, kth: k - 1, axis: -1)[.ellipsis, ..<k]
-        var scores = MLX.takeAlong(softGates, inds, axis: -1)
+        // Use negative kth to avoid negating the array (saves 1 dispatch per layer)
+        let inds = MLX.argPartition(gates, kth: -k, axis: -1)[.ellipsis, (-k)...]
+        var scores = MLX.takeAlong(gates, inds, axis: -1)
 
         if normTopkProb {
             scores = scores / MLX.sum(scores, axis: -1, keepDims: true)

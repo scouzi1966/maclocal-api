@@ -145,6 +145,7 @@ public class SwitchGLU: Module {
     /// Lazily fuse gate_proj and up_proj weights for quantized models.
     /// Concatenates along the output dimension so a single gatherQuantizedMM
     /// replaces two separate dispatches.
+    /// Skipped when memory headroom is tight (< 15% free) to avoid OOM on huge models.
     private func tryFuseGateUp() {
         guard !fusionAttempted else { return }
         fusionAttempted = true
@@ -155,6 +156,19 @@ public class SwitchGLU: Module {
               qGate.bits == qUp.bits,
               qGate.mode == qUp.mode
         else { return }
+
+        // Check memory headroom: fusion duplicates gate+up weights, so skip when tight.
+        // The fused tensor is as large as gate+up combined, held alongside the originals.
+        // For huge models (GLM-5 at 390GB on 512GB), this extra memory causes OOM.
+        let snap = Memory.snapshot()
+        let maxWorkingSet = GPU.deviceInfo().maxRecommendedWorkingSetSize
+        let headroom = maxWorkingSet > 0
+            ? Double(Int(maxWorkingSet) - snap.activeMemory) / Double(maxWorkingSet)
+            : 1.0
+        if headroom < 0.20 {
+            // Not enough headroom — fall back to separate dispatches
+            return
+        }
 
         // Concatenate along output dimension (axis 1): [E, N, K_packed] → [E, 2N, K_packed]
         fusedWeight = concatenated([qGate.weight, qUp.weight], axis: 1)
