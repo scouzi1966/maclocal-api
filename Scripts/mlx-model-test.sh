@@ -131,7 +131,10 @@ PROMPTS_FILE=""
 SINGLE_MODEL=""
 SMART_ANALYSIS=false
 SMART_TOOLS="claude"
+SMART_BATCH=0           # 0 = one big swoop (default), 1 = test-by-test
+REANALYSE_FILE=""
 NO_REPORT=false
+TEST_INDICES=""
 
 # Parse arguments
 args=("$@")
@@ -166,8 +169,34 @@ while [ $i -lt ${#args[@]} ]; do
         i=$((i + 1))
         SMART_TOOLS="${args[$i]}"
       fi
+      # Parse optional batch mode prefix: "1:claude,codex" or "0:claude,codex"
+      if [[ "$SMART_TOOLS" =~ ^([01]): ]]; then
+        SMART_BATCH="${BASH_REMATCH[1]}"
+        SMART_TOOLS="${SMART_TOOLS#[01]:}"
+      fi
+      ;;
+    --reanalyse|--reanalyze)
+      i=$((i + 1))
+      if [ $i -ge ${#args[@]} ]; then
+        echo "Error: --reanalyse requires a JSONL file path" >&2
+        exit 1
+      fi
+      REANALYSE_FILE="${args[$i]}"
+      if [ ! -f "$REANALYSE_FILE" ]; then
+        echo "Error: JSONL file not found: $REANALYSE_FILE" >&2
+        exit 1
+      fi
+      SMART_ANALYSIS=true
       ;;
     --no-report) NO_REPORT=true ;;
+    --tests)
+      i=$((i + 1))
+      if [ $i -ge ${#args[@]} ]; then
+        echo "Error: --tests requires a comma-separated list of test numbers (1-indexed)" >&2
+        exit 1
+      fi
+      TEST_INDICES="${args[$i]}"
+      ;;
     -h|--help)
       cat <<'HELPEOF'
 MLX Model Test Suite
@@ -181,6 +210,12 @@ OPTIONS
   --prompts <file>      Plain text file with custom prompts and parameters
   --smart [tools]       Run AI analysis on results (default: claude)
                         Comma-separated list of CLI tools, e.g. claude,codex,qwen
+                        Optional batch mode prefix: 0 = one big swoop (default),
+                        1 = test by test. E.g. --smart 1:claude,codex
+  --tests <list>        Run only specific test numbers (1-indexed, comma-separated)
+                        E.g. --tests 1,5,10 runs only tests 1, 5, and 10
+  --reanalyse <jsonl>   Re-run smart analysis on existing JSONL results (no tests)
+                        Implies --smart. Combine with --smart to pick tools.
   --no-report           Skip HTML report generation (JSONL only, for automation)
   -h, --help            Show this help
 
@@ -219,6 +254,27 @@ EXAMPLES
        mlx-model-test.sh --models --smart claude,codex
        mlx-model-test.sh --model mlx-community/SmolLM3-3B-4bit --smart claude,codex,qwen
 
+  8. Per-test AI analysis — evaluate each test individually (1:) vs batch (0: or default):
+
+       mlx-model-test.sh --prompts my-tests.txt --smart 1:claude,codex   # test by test
+       mlx-model-test.sh --prompts my-tests.txt --smart 0:claude,codex   # one big swoop
+       mlx-model-test.sh --prompts my-tests.txt --smart claude,codex     # one big swoop (default)
+
+  9. Run only specific tests from a prompts file (1-indexed):
+
+       mlx-model-test.sh --prompts my-tests.txt --tests 1,5,10
+       mlx-model-test.sh --model mlx-community/SmolLM3-3B-4bit --prompts my-tests.txt --tests 3
+
+  10. Template mode — prompts file uses [@ label] without model name,
+      model(s) injected via --model (1 or more, comma-separated):
+
+       mlx-model-test.sh --model mlx-community/Qwen3.5-35B-A3B-4bit --prompts template-tests.txt
+       mlx-model-test.sh --model mlx-community/Qwen3.5-35B-A3B-4bit,mlx-community/SmolLM3-3B-4bit --prompts template-tests.txt
+
+  11. Re-run smart analysis on existing results (no tests):
+
+       mlx-model-test.sh --reanalyse test-reports/mlx-model-report-20260227.jsonl --smart codex
+
 PROMPTS FILE FORMAT
 
   A plain text file you can create with vi, nano, or any editor.
@@ -230,6 +286,11 @@ PROMPTS FILE FORMAT
     - [org/model] section: per-model config and extra prompts
     - [org/model @ label] section: named variant — reruns the same model
       with different settings (each variant = separate server start)
+    - [@ label] section: TEMPLATE mode — no model name. The model is
+      injected from --model at runtime. If --model has multiple models
+      (comma-separated), the template is expanded for each model.
+      E.g. [@ greedy] with --model a,b creates runs for "a @ greedy"
+      and "b @ greedy".
 
   Known parameters (parsed as config, not prompts):
     max_tokens:          Max tokens to generate (e.g. max_tokens: 2000)
@@ -376,6 +437,16 @@ if $SMART_ANALYSIS; then
   echo "Smart analysis tools: ${SMART_TOOL_LIST[*]}"
 fi
 
+# ── Reanalyse mode: skip tests, jump straight to smart analysis + report ──
+if [ -n "$REANALYSE_FILE" ]; then
+  RESULTS_FILE="$REANALYSE_FILE"
+  line_count=$(wc -l < "$RESULTS_FILE" | tr -d ' ')
+  echo "=== Re-analysing existing results: $RESULTS_FILE ($line_count lines) ==="
+  echo ""
+fi
+
+# If reanalysing, skip all test execution
+if [ -z "$REANALYSE_FILE" ]; then
 # Check for stale server on our port
 STALE_PID=$(lsof -ti :"$PORT" 2>/dev/null || true)
 if [ -n "$STALE_PID" ]; then
@@ -430,8 +501,12 @@ with open(filepath) as f:
             else:
                 current_section = section_name
                 if section_name not in model_sections:
-                    # Parse "org/model @ label" vs "org/model"
-                    if ' @ ' in section_name:
+                    # Parse "@ label" (template), "org/model @ label", or "org/model"
+                    if section_name.startswith('@ '):
+                        # Template mode: [@ label] — model injected at runtime
+                        model_id = ""
+                        label = section_name[2:].strip()
+                    elif ' @ ' in section_name:
                         model_id, label = section_name.split(' @ ', 1)
                         model_id = model_id.strip()
                         label = label.strip()
@@ -549,6 +624,35 @@ PYEOF
   if [ $? -ne 0 ]; then
     echo "Error: Failed to parse prompts file: $PROMPTS_FILE" >&2
     exit 1
+  fi
+
+  # ── Template expansion: expand [@ label] runs using --model list ──
+  if [ -n "$SINGLE_MODEL" ]; then
+    PARSED_CONFIG=$(python3 -c "
+import json, sys
+
+cfg = json.loads(sys.argv[1])
+models = [m.strip() for m in sys.argv[2].split(',') if m.strip()]
+
+# Check if any runs have empty model (template mode)
+has_templates = any(not r['model'] for r in cfg['runs'])
+
+if has_templates and models:
+    new_runs = []
+    for r in cfg['runs']:
+        if not r['model']:
+            # Template: expand for each model
+            for model in models:
+                import copy
+                expanded = copy.deepcopy(r)
+                expanded['model'] = model
+                new_runs.append(expanded)
+        else:
+            new_runs.append(r)
+    cfg['runs'] = new_runs
+
+print(json.dumps(cfg))
+" "$PARSED_CONFIG" "$SINGLE_MODEL")
   fi
 
   echo "=== Loaded prompts file: $PROMPTS_FILE ==="
@@ -821,6 +925,8 @@ send_prompt() {
 
   if [ -n "$prompt_label" ]; then
     echo "  Prompt $prompt_label: ${prompt_text:0:80}..."
+  else
+    echo "  Prompt: ${prompt_text:0:80}..."
   fi
 
   # Build config JSON with display_name and prompt_text injected
@@ -1073,8 +1179,35 @@ print(f'local afm_args={shlex.quote(c.get(\"afm_args\", \"\"))}')
   fi
 
   echo "=== [$idx/$total] Testing: $display_name ==="
-  if [ -n "$afm_args" ]; then
-    echo "  afm flags: $afm_args"
+  # Show CLI (afm) params and API params
+  local params_info
+  params_info=$(echo "$run_config" | python3 -c "
+import json, sys
+c = json.load(sys.stdin)
+# CLI params (afm flags)
+cli = c.get('afm_args', '')
+# API params: collect non-default values
+api_parts = []
+if c.get('temperature') is not None: api_parts.append(f'temp={c[\"temperature\"]}')
+if c.get('max_tokens') is not None: api_parts.append(f'max_tokens={c[\"max_tokens\"]}')
+if c.get('top_p') is not None: api_parts.append(f'top_p={c[\"top_p\"]}')
+if c.get('top_k') is not None: api_parts.append(f'top_k={c[\"top_k\"]}')
+if c.get('min_p') is not None: api_parts.append(f'min_p={c[\"min_p\"]}')
+if c.get('seed') is not None: api_parts.append(f'seed={c[\"seed\"]}')
+if c.get('logprobs'): api_parts.append(f'logprobs={c[\"logprobs\"]}')
+if c.get('top_logprobs') is not None: api_parts.append(f'top_logprobs={c[\"top_logprobs\"]}')
+if c.get('presence_penalty') is not None: api_parts.append(f'presence_penalty={c[\"presence_penalty\"]}')
+if c.get('repetition_penalty') is not None: api_parts.append(f'repetition_penalty={c[\"repetition_penalty\"]}')
+if c.get('stop') is not None: api_parts.append(f'stop={json.dumps(c[\"stop\"])}')
+if c.get('response_format') is not None: api_parts.append(f'response_format={c[\"response_format\"]}')
+if c.get('system'): api_parts.append(f'system=\"{c[\"system\"][:60]}...\"' if len(c.get('system',''))>60 else f'system=\"{c[\"system\"]}\"')
+if c.get('stream') is not None: api_parts.append(f'stream={c[\"stream\"]}')
+api = ', '.join(api_parts)
+print(f'CLI: {cli}' if cli else 'CLI: (none)')
+print(f'API: {api}' if api else 'API: (none)')
+")
+  if [ -n "$params_info" ]; then
+    echo "$params_info" | while IFS= read -r line; do echo "  $line"; done
   fi
 
   # Build server args
@@ -1209,10 +1342,37 @@ print(json.dumps(cfg))
       num_runs=$(echo "$PARSED_CONFIG" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['runs']))")
     fi
 
-    echo "=== $num_runs test run(s) ==="
+    # Parse --tests filter into a set of 0-indexed run indices
+    TESTS_SET=""
+    if [ -n "$TEST_INDICES" ]; then
+      TESTS_SET=$(python3 -c "
+import sys
+indices = sys.argv[1]
+# Parse comma-separated 1-indexed numbers into 0-indexed set
+nums = set()
+for part in indices.split(','):
+    part = part.strip()
+    if '-' in part:
+        a, b = part.split('-', 1)
+        for n in range(int(a), int(b)+1):
+            nums.add(n - 1)
+    elif part.isdigit():
+        nums.add(int(part) - 1)
+print(','.join(str(n) for n in sorted(nums)))
+" "$TEST_INDICES")
+      echo "=== Running tests: $TEST_INDICES (of $num_runs total) ==="
+    else
+      echo "=== $num_runs test run(s) ==="
+    fi
     echo ""
 
     for ((ri=0; ri<num_runs; ri++)); do
+      # --tests filter: skip runs not in the set
+      if [ -n "$TESTS_SET" ]; then
+        if ! echo ",$TESTS_SET," | grep -q ",$ri,"; then
+          continue
+        fi
+      fi
       run_config=$(get_run_config "$ri")
       skip=$(echo "$run_config" | python3 -c "import json,sys; print(json.load(sys.stdin).get('skip', False))")
       if [ "$skip" = "True" ]; then
@@ -1280,6 +1440,8 @@ fi
 
 echo "=== All tests complete. Results in $RESULTS_FILE ==="
 echo ""
+
+fi  # end of: if [ -z "$REANALYSE_FILE" ]
 
 # ── Smart analysis (runs BEFORE report so HTML can embed it) ─────────────────
 
@@ -1384,43 +1546,308 @@ Rules:
 ANALYSIS_PROMPT_END
 )"
 
+  # Include test file contents in the prompt if available (AI-readable comments)
+  SMART_TEST_FILE_SECTION=""
+  if [ -n "$PROMPTS_FILE" ] && [ -f "$PROMPTS_FILE" ]; then
+    SMART_TEST_FILE_SECTION="
+
+--- TEST FILE (contains AI-readable comments with expected outcomes per test) ---
+File: $PROMPTS_FILE
+$(cat "$PROMPTS_FILE")"
+  fi
+
   # Build combined prompt+data for tools that need it in one stream
   SMART_INPUT="$(mktemp /tmp/smart-input-XXXXXX.txt)"
-  { echo "$ANALYSIS_PROMPT"; echo ""; echo "--- JSONL DATA ---"; cat "$RESULTS_FILE"; } > "$SMART_INPUT"
+  { echo "$ANALYSIS_PROMPT"; echo "$SMART_TEST_FILE_SECTION"; echo ""; echo "--- JSONL DATA ---"; cat "$RESULTS_FILE"; } > "$SMART_INPUT"
+
+  # ── Per-test prompt (used in SMART_BATCH=1 mode) ─────────────────────────
+  PER_TEST_PROMPT="$(cat <<'PER_TEST_PROMPT_END'
+You are a QA engineer scoring a single test result from an LLM inference server (AFM).
+
+The TEST SPEC section below (from the test file) describes what this test is for and what
+to expect. The "# AI:" comments explain the feature being tested and the desired outcome.
+Use these expectations to judge the result more precisely than generic scoring.
+
+Score this result on a 1-5 scale:
+  5 = excellent (correct, coherent, meets expected outcome from test spec)
+  4 = good (minor issues but solid, mostly meets expectations)
+  3 = acceptable (noticeable issues, partially meets expectations)
+  2 = poor (significant problems — repetition, off-topic, garbled, fails expectations)
+  1 = broken (failed to load, server error, or status=FAIL)
+
+Scoring rules:
+- If status=FAIL, score 1.
+- If "content" is empty but "reasoning_content" is non-empty and completion_tokens
+  is close to max_tokens, the model spent its token budget reasoning. Score 2-3.
+- If BOTH content and reasoning_content are empty but status=OK, score 3.
+- Repetitive/looping text is a 2. Off-topic or garbled is a 2.
+- For stop sequence tests: output MUST NOT contain the stop string. If it does, score 2.
+- For seed/determinism tests: flag if paired runs differ (but score the content itself).
+- For tool call tests: verify finish_reason="tool_calls" and valid function/args.
+
+Respond with EXACTLY one line of JSON, nothing else:
+{"score": N, "reason": "brief explanation referencing expected outcome"}
+PER_TEST_PROMPT_END
+)"
+
+  echo "  Smart analysis mode: $([ "$SMART_BATCH" = "1" ] && echo "per-test (1)" || echo "batch (0)")"
 
   for tool in "${SMART_TOOL_LIST[@]}"; do
     echo "=== Running AI analysis with: $tool ==="
     SMART_REPORT="$(pwd)/test-reports/smart-analysis-${tool}-${SMART_TIMESTAMP}.md"
 
-    case "$tool" in
-      claude)
-        # claude -p "prompt" < data (stderr separate to avoid polluting report)
-        "$tool" -p "$ANALYSIS_PROMPT" < "$RESULTS_FILE" > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr.log
-        ;;
-      codex)
-        # codex exec: prompt as argument, data file path embedded in prompt
-        "$tool" exec --skip-git-repo-check "$ANALYSIS_PROMPT
+    # ── SMART_BATCH=1: per-test mode ──────────────────────────────────────
+    if [ "$SMART_BATCH" = "1" ]; then
+      echo "  Per-test scoring with $tool ($( wc -l < "$RESULTS_FILE" | tr -d ' ') results)..."
+
+      PERTEST_SCORES_DIR="$(mktemp -d /tmp/smart-pertest-XXXXXX)"
+      total_lines=$(wc -l < "$RESULTS_FILE" | tr -d ' ')
+
+      # Extract test spec blocks from the test file (label → comment block mapping)
+      PERTEST_SPECS=""
+      if [ -n "$PROMPTS_FILE" ] && [ -f "$PROMPTS_FILE" ]; then
+        PERTEST_SPECS=$(python3 -c "
+import sys, re
+
+# Parse test file to extract the # AI: comment block preceding each [section @ label]
+lines = open(sys.argv[1]).readlines()
+specs = {}
+comment_buf = []
+for line in lines:
+    stripped = line.strip()
+    if stripped.startswith('#'):
+        comment_buf.append(stripped)
+    elif re.match(r'^\[.+\]$', stripped):
+        # Extract label from [org/model @ label]
+        m = re.match(r'^\[(.+?)(?:\s*@\s*(.+?))?\]$', stripped)
+        if m:
+            label = (m.group(2) or '').strip()
+            if label:
+                # Keep the AI: comments + section header
+                spec_lines = [c for c in comment_buf if '# AI:' in c or c.startswith('# ---')]
+                specs[label] = '\n'.join(spec_lines) if spec_lines else ''
+        comment_buf = []
+    else:
+        if not stripped.startswith(('temperature:', 'max_tokens:', 'stop:', 'afm:', 'system:',
+                                    'seed:', 'top_p:', 'top_k:', 'min_p:', 'response_format:',
+                                    'tools:', 'developer:', 'max_completion_tokens:', 'logprobs:',
+                                    'top_logprobs:', 'presence_penalty:', 'repetition_penalty:',
+                                    'frequency_penalty:', 'media:')):
+            comment_buf = []  # reset on non-param, non-comment lines
+
+import json
+print(json.dumps(specs))
+" "$PROMPTS_FILE" 2>/dev/null)
+      fi
+
+      line_idx=0
+      while IFS= read -r jsonl_line; do
+        [ -z "$jsonl_line" ] && continue
+        # Skip metadata lines
+        if echo "$jsonl_line" | python3 -c "import json,sys; sys.exit(0 if json.load(sys.stdin).get('_meta') else 1)" 2>/dev/null; then
+          continue
+        fi
+        echo -n "    [$((line_idx + 1))/$total_lines] "
+        model_label=$(echo "$jsonl_line" | python3 -c "import json,sys; d=json.load(sys.stdin); print((d.get('label','') or d.get('model','?'))[:40])")
+        echo -n "$model_label... "
+
+        # Look up test spec for this label
+        test_spec=""
+        if [ -n "$PERTEST_SPECS" ]; then
+          test_spec=$(echo "$jsonl_line" | python3 -c "
+import json, sys
+specs = json.loads(sys.argv[1])
+d = json.load(sys.stdin)
+label = d.get('label', '')
+print(specs.get(label, ''))
+" "$PERTEST_SPECS" 2>/dev/null)
+        fi
+
+        # Build per-test input
+        PERTEST_INPUT="$PER_TEST_PROMPT"
+        if [ -n "$test_spec" ]; then
+          PERTEST_INPUT="$PERTEST_INPUT
+
+TEST SPEC (from test file):
+$test_spec"
+        fi
+        PERTEST_INPUT="$PERTEST_INPUT
+
+TEST RESULT:
+$jsonl_line"
+
+        case "$tool" in
+          claude)
+            PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" -p - 2>/tmp/smart-${tool}-stderr.log)
+            ;;
+          codex)
+            PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" exec --skip-git-repo-check - 2>/tmp/smart-${tool}-stderr.log)
+            ;;
+          afm)
+            PERTEST_SCORE=$("$AFM" -s "$PERTEST_INPUT" 2>/tmp/smart-${tool}-stderr.log)
+            ;;
+          *)
+            PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" 2>/tmp/smart-${tool}-stderr.log)
+            ;;
+        esac
+
+        echo "$PERTEST_SCORE" > "$PERTEST_SCORES_DIR/score_${line_idx}.txt"
+        score_val=$(echo "$PERTEST_SCORE" | python3 -c "
+import json, sys, re
+text = sys.stdin.read().strip()
+m = re.search(r'\{[^}]*\"score\"\s*:\s*(\d+)[^}]*\}', text)
+if m: print(m.group(1))
+else: print('?')
+" 2>/dev/null)
+        echo "score=$score_val"
+        line_idx=$((line_idx + 1))
+      done < "$RESULTS_FILE"
+
+      echo "  Assembling per-test report..."
+
+      # Build scores JSON + per-test markdown report
+      python3 -c "
+import json, sys, os, re
+
+scores_dir = sys.argv[1]
+results_file = sys.argv[2]
+
+scores = []
+report_lines = ['# Per-Test AI Analysis', '']
+with open(results_file) as f:
+    for idx, line in enumerate(f):
+        line = line.strip()
+        if not line: continue
+        r = json.loads(line)
+
+        score_file = os.path.join(scores_dir, f'score_{idx}.txt')
+        score_text = ''
+        score_val = 3
+        reason = ''
+        if os.path.exists(score_file):
+            with open(score_file) as sf:
+                score_text = sf.read().strip()
+            m = re.search(r'\{[^}]*\"score\"\s*:\s*(\d+)[^}]*\"reason\"\s*:\s*\"([^\"]*?)\"[^}]*\}', score_text)
+            if not m:
+                m = re.search(r'\{[^}]*\"reason\"\s*:\s*\"([^\"]*?)\"[^}]*\"score\"\s*:\s*(\d+)[^}]*\}', score_text)
+                if m:
+                    score_val = int(m.group(2))
+                    reason = m.group(1)
+            else:
+                score_val = int(m.group(1))
+                reason = m.group(2)
+            if not reason:
+                sm = re.search(r'\"score\"\s*:\s*(\d+)', score_text)
+                if sm:
+                    score_val = int(sm.group(1))
+
+        scores.append({'i': idx, 's': score_val})
+
+        model = r.get('model', '')
+        label = r.get('label', '')
+        name = f'{model} @ {label}' if label else model
+        tps = r.get('tokens_per_sec', 0)
+        status = r.get('status', '')
+        emoji = {5:'✅', 4:'👍', 3:'⚠️', 2:'❌', 1:'💥'}.get(score_val, '❓')
+
+        report_lines.append(f'### {idx}. {name}')
+        report_lines.append(f'**Score: {score_val}/5** {emoji} | Status: {status} | {tps:.1f} tok/s')
+        if reason:
+            report_lines.append(f'> {reason}')
+        report_lines.append('')
+
+# Summary
+total = len(scores)
+pass_count = sum(1 for s in scores if s['s'] >= 4)
+fail_count = sum(1 for s in scores if s['s'] <= 2)
+report_lines.append('---')
+report_lines.append(f'**Summary**: {pass_count}/{total} passed (score ≥ 4), {fail_count} failed (score ≤ 2)')
+report_lines.append('')
+report_lines.append('<!-- AI_SCORES ' + json.dumps(scores) + ' -->')
+
+print('\n'.join(report_lines))
+" "$PERTEST_SCORES_DIR" "$RESULTS_FILE" > "$SMART_REPORT"
+
+      rm -rf "$PERTEST_SCORES_DIR"
+
+    # ── SMART_BATCH=0: one big swoop (default) ───────────────────────────
+    else
+      case "$tool" in
+        claude)
+          # claude -p "prompt" < data (stderr separate to avoid polluting report)
+          CLAUDE_PROMPT="$ANALYSIS_PROMPT
+$SMART_TEST_FILE_SECTION
+
+--- JSONL DATA ---"
+          "$tool" -p "$CLAUDE_PROMPT" < "$RESULTS_FILE" > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr.log
+          ;;
+        codex)
+          # codex exec: prompt as argument, data file path embedded in prompt
+          "$tool" exec --skip-git-repo-check "$ANALYSIS_PROMPT
+$SMART_TEST_FILE_SECTION
 
 --- JSONL DATA (read from file) ---
 File: $RESULTS_FILE
 $(cat "$RESULTS_FILE")" > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr.log
-        ;;
-      afm)
-        # afm uses Apple Foundation Models — context window is limited (~4K tokens).
-        # Two-pass approach: score each result individually, then summarize.
-        AFM_SCORES_DIR="$(mktemp -d /tmp/smart-afm-XXXXXX)"
-        total_lines=$(wc -l < "$RESULTS_FILE" | tr -d ' ')
-        echo "  Pass 1: Scoring $total_lines results individually..."
+          ;;
+        afm)
+          # afm uses Apple Foundation Models — context window is limited (~4K tokens).
+          # Two-pass approach: score each result individually, then summarize.
+          AFM_SCORES_DIR="$(mktemp -d /tmp/smart-afm-XXXXXX)"
+          total_lines=$(wc -l < "$RESULTS_FILE" | tr -d ' ')
+          echo "  Pass 1: Scoring $total_lines results individually..."
 
-        line_idx=0
-        while IFS= read -r jsonl_line; do
-          [ -z "$jsonl_line" ] && continue
-          echo -n "    [$((line_idx + 1))/$total_lines] "
-          model_name=$(echo "$jsonl_line" | python3 -c "import json,sys; print(json.load(sys.stdin).get('model','?')[:40])")
-          echo -n "$model_name... "
+          # Extract test spec blocks for per-result context
+          AFM_SPECS=""
+          if [ -n "$PROMPTS_FILE" ] && [ -f "$PROMPTS_FILE" ]; then
+            AFM_SPECS=$(python3 -c "
+import sys, re, json
+lines = open(sys.argv[1]).readlines()
+specs = {}
+comment_buf = []
+for line in lines:
+    stripped = line.strip()
+    if stripped.startswith('#'):
+        comment_buf.append(stripped)
+    elif re.match(r'^\[.+\]$', stripped):
+        m = re.match(r'^\[(.+?)(?:\s*@\s*(.+?))?\]$', stripped)
+        if m:
+            label = (m.group(2) or '').strip()
+            if label:
+                spec_lines = [c for c in comment_buf if '# AI:' in c]
+                specs[label] = ' '.join(spec_lines)[:200] if spec_lines else ''
+        comment_buf = []
+    else:
+        if not stripped.startswith(('temperature:', 'max_tokens:', 'stop:', 'afm:', 'system:',
+                                    'seed:', 'top_p:', 'top_k:', 'min_p:', 'response_format:',
+                                    'tools:', 'developer:', 'max_completion_tokens:', 'logprobs:',
+                                    'top_logprobs:', 'presence_penalty:', 'repetition_penalty:',
+                                    'frequency_penalty:', 'media:')):
+            comment_buf = []
+print(json.dumps(specs))
+" "$PROMPTS_FILE" 2>/dev/null)
+          fi
 
-          AFM_SCORE=$("$AFM" -s "$(cat <<SCORE_PROMPT_END
-You are a QA engineer scoring a single test result from an LLM inference server.
+          line_idx=0
+          while IFS= read -r jsonl_line; do
+            [ -z "$jsonl_line" ] && continue
+            echo -n "    [$((line_idx + 1))/$total_lines] "
+            model_name=$(echo "$jsonl_line" | python3 -c "import json,sys; print(json.load(sys.stdin).get('model','?')[:40])")
+            echo -n "$model_name... "
+
+            # Get test spec for this label (truncated for afm's limited context)
+            afm_spec=""
+            if [ -n "$AFM_SPECS" ]; then
+              afm_spec=$(echo "$jsonl_line" | python3 -c "
+import json, sys
+specs = json.loads(sys.argv[1])
+d = json.load(sys.stdin)
+label = d.get('label', '')
+print(specs.get(label, ''))
+" "$AFM_SPECS" 2>/dev/null)
+            fi
+
+            AFM_SCORE_PROMPT="You are a QA engineer scoring a single test result from an LLM inference server.
 
 Score this result on a 1-5 scale:
   5 = excellent (correct, coherent, addresses prompt well)
@@ -1431,39 +1858,42 @@ Score this result on a 1-5 scale:
 
 Scoring rules:
 - If status=FAIL, score 1.
-- If "content" is empty but "reasoning_content" is non-empty and completion_tokens
+- If \"content\" is empty but \"reasoning_content\" is non-empty and completion_tokens
   is close to max_tokens, the model spent its token budget reasoning. Score 2-3.
 - If BOTH content and reasoning_content are empty but status=OK, score 3.
 - Repetitive/looping text is a 2. Off-topic or garbled is a 2.
 
 Respond with EXACTLY one line of JSON, nothing else:
-{"score": N, "reason": "brief explanation"}
+{\"score\": N, \"reason\": \"brief explanation\"}"
+
+            if [ -n "$afm_spec" ]; then
+              AFM_SCORE_PROMPT="$AFM_SCORE_PROMPT
+
+Test expectation: $afm_spec"
+            fi
+
+            AFM_SCORE_PROMPT="$AFM_SCORE_PROMPT
 
 TEST RESULT:
-$jsonl_line
-SCORE_PROMPT_END
-)" 2>/tmp/smart-afm-stderr.log)
+$jsonl_line"
 
-          echo "$AFM_SCORE" > "$AFM_SCORES_DIR/score_${line_idx}.txt"
-          # Extract score for display
-          score_val=$(echo "$AFM_SCORE" | python3 -c "
+            AFM_SCORE=$("$AFM" -s "$AFM_SCORE_PROMPT" 2>/tmp/smart-afm-stderr.log)
+
+            echo "$AFM_SCORE" > "$AFM_SCORES_DIR/score_${line_idx}.txt"
+            score_val=$(echo "$AFM_SCORE" | python3 -c "
 import json, sys, re
 text = sys.stdin.read().strip()
-# Try to extract JSON from response
 m = re.search(r'\{[^}]*\"score\"\s*:\s*(\d+)[^}]*\}', text)
-if m:
-    print(m.group(1))
-else:
-    print('?')
+if m: print(m.group(1))
+else: print('?')
 " 2>/dev/null)
-          echo "score=$score_val"
-          line_idx=$((line_idx + 1))
-        done < "$RESULTS_FILE"
+            echo "score=$score_val"
+            line_idx=$((line_idx + 1))
+          done < "$RESULTS_FILE"
 
-        echo "  Pass 2: Generating summary report..."
+          echo "  Pass 2: Generating summary report..."
 
-        # Build compact scores + one-liner metadata for summary pass (must fit in ~4K tokens)
-        AFM_PASS2=$(python3 -c "
+          AFM_PASS2=$(python3 -c "
 import json, sys, os, re
 
 scores_dir = sys.argv[1]
@@ -1477,7 +1907,6 @@ with open(results_file) as f:
         if not line: continue
         r = json.loads(line)
 
-        # Read score file
         score_file = os.path.join(scores_dir, f'score_{idx}.txt')
         score_val = 3
         if os.path.exists(score_file):
@@ -1489,7 +1918,6 @@ with open(results_file) as f:
 
         scores.append({'i': idx, 's': score_val})
 
-        # Compact one-liner: idx, model@label, status, score, tps
         model = r.get('model', '')
         label = r.get('label', '')
         name = f'{model} @ {label}' if label else model
@@ -1503,12 +1931,10 @@ for cl in compact_lines:
     print(cl)
 " "$AFM_SCORES_DIR" "$RESULTS_FILE")
 
-        # Extract scores line for later
-        AFM_SCORES_JSON=$(echo "$AFM_PASS2" | head -1 | sed 's/^SCORES_JSON=//')
-        AFM_META_DATA=$(echo "$AFM_PASS2" | tail -n +3)
+          AFM_SCORES_JSON=$(echo "$AFM_PASS2" | head -1 | sed 's/^SCORES_JSON=//')
+          AFM_META_DATA=$(echo "$AFM_PASS2" | tail -n +3)
 
-        # Summary pass — compact one-liners, fits in ~4K context
-        AFM_SUMMARY=$("$AFM" -s "$(cat <<SUMMARY_PROMPT_END
+          AFM_SUMMARY=$("$AFM" -s "$(cat <<SUMMARY_PROMPT_END
 You are a QA engineer for AFM, an OpenAI-compatible local LLM server.
 Below are scored test results. Each line: index, model/variant, status, AI score (1-5), tokens/sec.
 
@@ -1521,20 +1947,24 @@ $AFM_META_DATA
 SUMMARY_PROMPT_END
 )" 2>/tmp/smart-afm-stderr.log)
 
-        # Assemble final report
-        {
-          echo "$AFM_SUMMARY"
-          echo ""
-          echo "<!-- AI_SCORES $AFM_SCORES_JSON -->"
-        } > "$SMART_REPORT"
+          {
+            echo "$AFM_SUMMARY"
+            echo ""
+            echo "<!-- AI_SCORES $AFM_SCORES_JSON -->"
+          } > "$SMART_REPORT"
 
-        rm -rf "$AFM_SCORES_DIR"
-        ;;
-      *)
-        # Generic: try -p first (claude-like), fall back to piping everything
-        "$tool" -p "$ANALYSIS_PROMPT" < "$RESULTS_FILE" > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr.log
-        ;;
-    esac
+          rm -rf "$AFM_SCORES_DIR"
+          ;;
+        *)
+          # Generic: try -p first (claude-like), fall back to piping everything
+          GENERIC_PROMPT="$ANALYSIS_PROMPT
+$SMART_TEST_FILE_SECTION
+
+--- JSONL DATA ---"
+          "$tool" -p "$GENERIC_PROMPT" < "$RESULTS_FILE" > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr.log
+          ;;
+      esac
+    fi
 
     if [ $? -eq 0 ] && [ -s "$SMART_REPORT" ]; then
       echo "  Saved: $SMART_REPORT"

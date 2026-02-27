@@ -85,6 +85,67 @@ if os.path.isdir(report_dir):
 
 has_ai_scores = len(ai_scores) > 0
 
+# ── Parse AI intent comments from test file ──────────────────────────────────
+# Maps label -> list of "# AI:" comment lines from the prompts file
+ai_intents = {}
+prompts_file = ""
+# Try to find prompts file from run metadata or environment
+test_cmd = run_meta.get("test_command", "")
+m_prompts = re.search(r'--prompts\s+(\S+)', test_cmd)
+if m_prompts:
+    prompts_file = m_prompts.group(1)
+if not prompts_file:
+    prompts_file = os.environ.get("PROMPTS_FILE", "")
+if prompts_file and os.path.isfile(prompts_file):
+    with open(prompts_file) as pf:
+        pf_lines = pf.readlines()
+    comment_buf = []
+    for pf_line in pf_lines:
+        stripped = pf_line.strip()
+        if stripped.startswith('#'):
+            comment_buf.append(stripped)
+        elif re.match(r'^\[.+\]$', stripped):
+            # Handle both [model @ label] and [@ label] (template) formats
+            m_template = re.match(r'^\[@\s*(.+?)\]$', stripped)
+            m_label = re.match(r'^\[(.+?)(?:\s*@\s*(.+?))?\]$', stripped)
+            if m_template:
+                label = m_template.group(1).strip()
+            elif m_label:
+                label = (m_label.group(2) or '').strip()
+            else:
+                label = ''
+            if label:
+                ai_lines = [c for c in comment_buf if '# AI:' in c]
+                if ai_lines:
+                    ai_intents[label] = [c.replace('# AI:', '').strip() for c in ai_lines]
+            comment_buf = []
+        else:
+            if not stripped.startswith(('temperature:', 'max_tokens:', 'stop:', 'afm:', 'system:',
+                                       'seed:', 'top_p:', 'top_k:', 'min_p:', 'response_format:',
+                                       'tools:', 'developer:', 'max_completion_tokens:', 'logprobs:',
+                                       'top_logprobs:', 'presence_penalty:', 'repetition_penalty:',
+                                       'frequency_penalty:', 'media:')):
+                comment_buf = []
+
+# ── Parse per-test reasons from smart analysis .md files ─────────────────────
+# Maps (tool, jsonl_idx) -> {"score": int, "reason": str}
+smart_per_test = {}  # {tool: {idx: {"score": int, "reason": str}}}
+for sa in smart_analyses:
+    tool = sa["tool"]
+    smart_per_test[tool] = {}
+    content = sa["content"]
+    # Parse "### N. ...\n**Score: X/5** ... \n> reason"
+    for m_block in re.finditer(
+        r'### (\d+)\.\s+.*?\n\*\*Score:\s*(\d)/5\*\*[^\n]*\n(?:>\s*(.+?))?(?:\n|$)',
+        content
+    ):
+        idx = int(m_block.group(1))
+        score = int(m_block.group(2))
+        reason = (m_block.group(3) or "").strip()
+        smart_per_test[tool][idx] = {"score": score, "reason": reason}
+
+has_per_test_smart = any(bool(v) for v in smart_per_test.values())
+
 
 def config_badge(label, value, color="#8b949e"):
     """Generate an inline config badge."""
@@ -94,21 +155,30 @@ def config_badge(label, value, color="#8b949e"):
 
 
 def config_panel(r):
-    """Build a config details panel for a result."""
-    badges = []
-    # Temperature
-    temp = r.get("temperature", "")
-    if temp != "":
-        badges.append(config_badge("temp", temp, "#d29922"))
-    # Max tokens
-    mt = r.get("max_tokens", "")
-    if mt != "":
-        badges.append(config_badge("max_tokens", mt, "#58a6ff"))
-    # Label
+    """Build a config details panel with CLI, API, and Performance rows."""
+    cli_badges = []
+    api_badges = []
+    perf_badges = []
+
+    # --- CLI params (afm server flags) ---
+    afm = r.get("afm_args", "")
+    if afm:
+        cli_badges.append(config_badge("afm", afm, "#f0883e"))
+    sp = r.get("system_prompt", "")
+    if sp:
+        short_sp = sp[:80] + ("..." if len(sp) > 80 else "")
+        cli_badges.append(config_badge("system", short_sp, "#3fb950"))
+
+    # --- API params (request-level) ---
     label = r.get("label", "")
     if label:
-        badges.append(config_badge("variant", label, "#a371f7"))
-    # Optional sampling params
+        api_badges.append(config_badge("variant", label, "#a371f7"))
+    temp = r.get("temperature", "")
+    if temp != "":
+        api_badges.append(config_badge("temp", temp, "#d29922"))
+    mt = r.get("max_tokens", "")
+    if mt != "":
+        api_badges.append(config_badge("max_tokens", mt, "#58a6ff"))
     for key, label_text, color in [
         ("top_p", "top_p", "#58a6ff"),
         ("top_k", "top_k", "#58a6ff"),
@@ -126,39 +196,35 @@ def config_panel(r):
         if val is not None:
             if isinstance(val, list):
                 val = ", ".join(str(v) for v in val)
-            badges.append(config_badge(label_text, val, color))
-    # AFM args
-    afm = r.get("afm_args", "")
-    if afm:
-        badges.append(config_badge("afm", afm, "#f0883e"))
-    # System prompt
-    sp = r.get("system_prompt", "")
-    if sp:
-        short_sp = sp[:80] + ("..." if len(sp) > 80 else "")
-        badges.append(config_badge("system", short_sp, "#3fb950"))
-    # Feature verification badges
+            api_badges.append(config_badge(label_text, val, color))
+
+    # --- Performance / result metrics ---
     finish = r.get("finish_reason")
     if finish:
         fc = "#3fb950" if finish == "stop" else "#d29922" if finish == "length" else "#58a6ff"
-        badges.append(config_badge("finish", finish, fc))
+        perf_badges.append(config_badge("finish", finish, fc))
     lpc = r.get("logprobs_count", 0)
     if lpc:
-        badges.append(config_badge("logprobs", f'{lpc} tokens', "#a371f7"))
+        perf_badges.append(config_badge("logprobs", f'{lpc} tokens', "#a371f7"))
     vjson = r.get("is_valid_json")
     if vjson is True:
-        badges.append(config_badge("json", "valid", "#3fb950"))
+        perf_badges.append(config_badge("json", "valid", "#3fb950"))
     elif vjson is False:
-        badges.append(config_badge("json", "INVALID", "#f85149"))
-    # Timing
-    badges.append(config_badge("load", f'{r.get("load_time_s", "?")}s', "#8b949e"))
-    badges.append(config_badge("gen", f'{r.get("gen_time_s", "?")}s', "#8b949e"))
-    badges.append(config_badge("prompt_tok", r.get("prompt_tokens", "?"), "#8b949e"))
-    badges.append(config_badge("comp_tok", r.get("completion_tokens", "?"), "#8b949e"))
+        perf_badges.append(config_badge("json", "INVALID", "#f85149"))
+    perf_badges.append(config_badge("load", f'{r.get("load_time_s", "?")}s', "#8b949e"))
+    perf_badges.append(config_badge("gen", f'{r.get("gen_time_s", "?")}s', "#8b949e"))
+    perf_badges.append(config_badge("prompt_tok", r.get("prompt_tokens", "?"), "#8b949e"))
+    perf_badges.append(config_badge("comp_tok", r.get("completion_tokens", "?"), "#8b949e"))
     tps = r.get("tokens_per_sec", 0)
     if tps:
-        badges.append(config_badge("tok/s", f'{tps:.1f}', "#d29922"))
+        perf_badges.append(config_badge("tok/s", f'{tps:.1f}', "#d29922"))
 
-    return " ".join(badges)
+    rows = []
+    if cli_badges:
+        rows.append(f'<div class="config-row"><span class="config-row-label">CLI</span> {" ".join(cli_badges)}</div>')
+    rows.append(f'<div class="config-row"><span class="config-row-label">API</span> {" ".join(api_badges)}</div>')
+    rows.append(f'<div class="config-row"><span class="config-row-label">Perf</span> {" ".join(perf_badges)}</div>')
+    return "\n".join(rows)
 
 
 # Build per-model response sections
@@ -176,6 +242,40 @@ for i, r in enumerate(ok_sorted):
     prompt_html = html.escape(prompt_text[:500]) + ("..." if len(prompt_text) > 500 else "")
     panel = config_panel(r)
 
+    # ── Build AI Intent section ──
+    intent_html = ""
+    label = r.get("label", "")
+    if label and label in ai_intents:
+        intent_lines = "<br>".join(html.escape(line) for line in ai_intents[label])
+        intent_html = f"""
+    <details class="ai-detail">
+      <summary class="ai-detail-summary">🎯 Test Intent</summary>
+      <div class="ai-detail-body">{intent_lines}</div>
+    </details>"""
+
+    # ── Build AI Smart Scores section ──
+    smart_html = ""
+    jsonl_idx = r.get("_jsonl_idx")
+    if has_per_test_smart and jsonl_idx is not None:
+        smart_items = []
+        for tool, scores_map in smart_per_test.items():
+            if jsonl_idx in scores_map:
+                entry = scores_map[jsonl_idx]
+                s = entry["score"]
+                emoji = {5: "✅", 4: "👍", 3: "⚠️", 2: "❌", 1: "💥"}.get(s, "❓")
+                reason_esc = html.escape(entry["reason"]) if entry["reason"] else ""
+                score_color = {5: "#3fb950", 4: "#58a6ff", 3: "#d29922", 2: "#f0883e", 1: "#f85149"}.get(s, "#8b949e")
+                line_html = f'<span style="color:{score_color};font-weight:700">{s}/5 {emoji}</span> <strong>{html.escape(tool)}</strong>'
+                if reason_esc:
+                    line_html += f': <span style="color:#8b949e">{reason_esc}</span>'
+                smart_items.append(f"<div style='margin:4px 0'>{line_html}</div>")
+        if smart_items:
+            smart_html = f"""
+    <details class="ai-detail">
+      <summary class="ai-detail-summary">🤖 AI Scores</summary>
+      <div class="ai-detail-body">{"".join(smart_items)}</div>
+    </details>"""
+
     model_responses += f"""
 <div class="response-section" id="resp-{i}">
   <h3 class="response-header" onclick="toggleResponse({i})">
@@ -184,7 +284,7 @@ for i, r in enumerate(ok_sorted):
     <span class="response-meta">{r["completion_tokens"]} tokens &middot; {r["tokens_per_sec"]:.1f} tok/s</span>
   </h3>
   <div class="response-body" id="body-{i}" style="display:none">
-    <div class="config-panel">{panel}</div>
+    <div class="config-panel">{panel}</div>{intent_html}{smart_html}
     <div class="prompt-box"><span class="prompt-label">PROMPT</span> {prompt_html}</div>
     <div class="rendered-content" id="content-{i}"></div>
   </div>
@@ -394,9 +494,17 @@ MathJax = {{
   .ai-score {{ text-align: center; font-size: 1rem; width: 35px; }}
 
   /* Config badges */
-  .config-panel {{ margin-bottom: 1rem; display: flex; flex-wrap: wrap; gap: 0.4rem; }}
+  .config-panel {{ margin-bottom: 1rem; }}
+  .config-row {{ display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-bottom: 0.3rem; }}
+  .config-row-label {{ font-size: 0.65rem; font-weight: 700; color: #6e7681; text-transform: uppercase; letter-spacing: 0.05em; min-width: 2.5rem; font-family: 'SF Mono', Menlo, monospace; }}
   .config-badge {{ display: inline-block; font-size: 0.75rem; padding: 0.2rem 0.6rem; border: 1px solid #30363d; border-radius: 12px; color: #c9d1d9; font-family: 'SF Mono', Menlo, monospace; white-space: nowrap; }}
   .config-badge strong {{ color: #e6edf3; }}
+
+  /* AI detail collapsibles (intent + smart scores) */
+  .ai-detail {{ margin-bottom: 0.5rem; }}
+  .ai-detail-summary {{ cursor: pointer; font-size: 0.8rem; font-weight: 600; color: #8b949e; padding: 0.3rem 0; user-select: none; }}
+  .ai-detail-summary:hover {{ color: #c9d1d9; }}
+  .ai-detail-body {{ background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 0.6rem 0.8rem; margin-top: 0.3rem; font-size: 0.8rem; color: #c9d1d9; line-height: 1.5; }}
 
   /* Prompt box */
   .prompt-box {{ background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 0.8rem 1rem; margin-bottom: 1rem; font-size: 0.85rem; color: #c9d1d9; line-height: 1.5; }}
