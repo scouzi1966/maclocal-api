@@ -20,6 +20,8 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 > ASSUMES you did a brew install scouzi1966/afm/afm previously
 > ```
 
+### [afm-next Nightly Test Report — Qwen3.5-35B-A3B Focus](https://kruks.ai/macafm/)
+
 ## What's new in afm-next
 
 > [!IMPORTANT]
