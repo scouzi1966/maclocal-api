@@ -2,6 +2,9 @@ If you find this useful, please ⭐ the repo! &nbsp; Also check out [Vesta AI Ex
 
 # afm — Run Any LLM on Your Mac, 100% Local
 
+### [afm-next Nightly Test Report — Qwen3.5-35B-A3B Focus](https://kruks.ai/macafm/)
+Extensive testing of Qwen3.5-35B-A3B with afm. Uses an experimental technique with Claude and Codex as judges for evaluation scoring.
+
 Run open-source MLX models **or** Apple's on-device Foundation Model through an OpenAI-compatible API. Built entirely in Swift for maximum Metal GPU performance. No Python runtime, no cloud, no API keys.
 
 ## Install
@@ -19,8 +22,6 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 > brew unlink afm-next && brew link afm                      # switch back to stable
 > ASSUMES you did a brew install scouzi1966/afm/afm previously
 > ```
-
-### [afm-next Nightly Test Report — Qwen3.5-35B-A3B Focus](https://kruks.ai/macafm/)
 
 ## What's new in afm-next
 
