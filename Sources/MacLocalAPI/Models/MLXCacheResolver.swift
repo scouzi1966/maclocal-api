@@ -19,14 +19,29 @@ struct MLXCacheResolver {
         setenv("HUGGINGFACE_HUB_CACHE", hubPath, 1)
     }
 
+    /// Returns true if the input looks like a local filesystem path rather than a HF model ID.
+    func isLocalPath(_ input: String) -> Bool {
+        let expanded = NSString(string: input).expandingTildeInPath
+        return expanded.hasPrefix("/") || input.hasPrefix("./") || input.hasPrefix("../")
+    }
+
     func normalizedModelID(_ input: String) -> String {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return trimmed }
+        // Local filesystem paths pass through unchanged
+        if isLocalPath(trimmed) { return trimmed }
         if trimmed.contains("/") { return trimmed }
         return "mlx-community/\(trimmed)"
     }
 
     func localModelDirectory(repoId: String) -> URL? {
+        // Direct local filesystem path — resolve and validate directly
+        if isLocalPath(repoId) {
+            let expanded = NSString(string: repoId).expandingTildeInPath
+            let url = URL(fileURLWithPath: expanded)
+            return resolvedIfComplete(url)
+        }
+
         let parts = repoId.split(separator: "/", maxSplits: 1).map(String.init)
         let org = parts.count > 1 ? parts[0] : "mlx-community"
         let model = parts.count > 1 ? parts[1] : repoId
