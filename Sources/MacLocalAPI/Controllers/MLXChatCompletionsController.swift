@@ -182,7 +182,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     toolCalls: toolCalls,
                     logprobs: choiceLogprobs,
                     promptTokens: result.promptTokens,
-                    completionTokens: completionTok
+                    completionTokens: completionTok,
+                    promptTime: result.promptTime > 0 ? result.promptTime : nil
                 )
                 if veryVerbose {
                     req.logger.info("\(Self.teal)[\(Self.timestamp())] SEND full response:\n\(encodeJSON(response))\(Self.reset)")
@@ -212,7 +213,8 @@ struct MLXChatCompletionsController: RouteCollection {
                 reasoningContent: reasoningContent,
                 logprobs: choiceLogprobs,
                 promptTokens: result.promptTokens,
-                completionTokens: completionTok
+                completionTokens: completionTok,
+                promptTime: result.promptTime > 0 ? result.promptTime : nil
             )
             if veryVerbose {
                 req.logger.info("\(Self.teal)[\(Self.timestamp())] SEND full response:\n\(encodeJSON(response))\(Self.reset)")
@@ -296,6 +298,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 var hasToolCalls = false
                 var realPromptTokens: Int? = nil
                 var realCompletionTokens: Int? = nil
+                var realPromptTime: Double? = nil
 
                 // Token-level tool call detection (mlx-lm style).
                 // Instead of buffering ALL content when tools are present, detect
@@ -339,9 +342,10 @@ struct MLXChatCompletionsController: RouteCollection {
                 for try await streamChunk in res.stream {
                     let piece = streamChunk.text
 
-                    // Capture real token counts from the info chunk
+                    // Capture real token counts and prompt processing time from the info chunk
                     if let pt = streamChunk.promptTokens { realPromptTokens = pt }
                     if let ct = streamChunk.completionTokens { realCompletionTokens = ct }
+                    if let ptime = streamChunk.promptTime { realPromptTime = ptime }
 
                     // Handle tool call chunks from the vendor parser
                     if let tcs = streamChunk.toolCalls, !tcs.isEmpty {
@@ -931,7 +935,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     }
                 }
                 if self.veryVerbose {
-                    let usageLog = StreamUsage(promptTokens: promptTokens, completionTokens: completionTokens, completionTime: generationDuration, promptTime: 0)
+                    let usageLog = StreamUsage(promptTokens: promptTokens, completionTokens: completionTokens, completionTime: generationDuration, promptTime: realPromptTime)
                     print("\(Self.teal)[\(Self.timestamp())] SEND usage:\n  \(self.encodeJSON(usageLog))\(Self.reset)")
                 }
                 fflush(stdout)
@@ -964,11 +968,12 @@ struct MLXChatCompletionsController: RouteCollection {
                     }
                 }
 
+                let promptTime = realPromptTime ?? 0
                 let usage = StreamUsage(
                     promptTokens: promptTokens,
                     completionTokens: completionTokens,
                     completionTime: generationDuration,
-                    promptTime: 0
+                    promptTime: promptTime > 0 ? promptTime : nil
                 )
                 let finalChunk = ChatCompletionStreamResponse(
                     id: streamId,
@@ -977,7 +982,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     isFinished: true,
                     finishReason: finishReason,
                     usage: usage,
-                    timings: StreamTimings(prompt_n: promptTokens, prompt_ms: 0, predicted_n: completionTokens, predicted_ms: generationDuration * 1000)
+                    timings: StreamTimings(prompt_n: promptTokens, prompt_ms: promptTime * 1000, predicted_n: completionTokens, predicted_ms: generationDuration * 1000)
                 )
                 let finalData = try encoder.encode(finalChunk)
                 if let jsonString = String(data: finalData, encoding: .utf8) {

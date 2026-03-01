@@ -29,7 +29,7 @@ struct ChatCompletionResponse: Content {
         }
     }
 
-    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0) {
+    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0, promptTime: Double? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion"
         self.created = Int(Date().timeIntervalSince1970)
@@ -45,12 +45,13 @@ struct ChatCompletionResponse: Content {
         self.usage = Usage(
             promptTokens: promptTokens,
             completionTokens: completionTokens,
-            totalTokens: promptTokens + completionTokens
+            totalTokens: promptTokens + completionTokens,
+            promptTime: promptTime
         )
         self.systemFingerprint = Self.fingerprint(for: model)
     }
 
-    init(id: String = UUID().uuidString, model: String, toolCalls: [ResponseToolCall], logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0) {
+    init(id: String = UUID().uuidString, model: String, toolCalls: [ResponseToolCall], logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0, promptTime: Double? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion"
         self.created = Int(Date().timeIntervalSince1970)
@@ -66,7 +67,8 @@ struct ChatCompletionResponse: Content {
         self.usage = Usage(
             promptTokens: promptTokens,
             completionTokens: completionTokens,
-            totalTokens: promptTokens + completionTokens
+            totalTokens: promptTokens + completionTokens,
+            promptTime: promptTime
         )
         self.systemFingerprint = Self.fingerprint(for: model)
     }
@@ -157,11 +159,23 @@ struct Usage: Content {
     let promptTokens: Int
     let completionTokens: Int
     let totalTokens: Int
+    let promptTime: Double?
+    let promptTokensPerSecond: Double?
 
     enum CodingKeys: String, CodingKey {
         case promptTokens = "prompt_tokens"
         case completionTokens = "completion_tokens"
         case totalTokens = "total_tokens"
+        case promptTime = "prompt_time"
+        case promptTokensPerSecond = "prompt_tokens_per_second"
+    }
+
+    init(promptTokens: Int, completionTokens: Int, totalTokens: Int, promptTime: Double? = nil) {
+        self.promptTokens = promptTokens
+        self.completionTokens = completionTokens
+        self.totalTokens = totalTokens
+        self.promptTime = promptTime
+        self.promptTokensPerSecond = (promptTime != nil && promptTime! > 0) ? Double(promptTokens) / promptTime! : nil
     }
 }
 
@@ -330,21 +344,21 @@ struct StreamUsage: Content {
         case completionTokensPerSecond = "completion_tokens_per_second"
     }
 
-    init(promptTokens: Int, completionTokens: Int, completionTime: Double, promptTime: Double = 0.0) {
+    init(promptTokens: Int, completionTokens: Int, completionTime: Double, promptTime: Double? = nil) {
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
         self.totalTokens = promptTokens + completionTokens
         self.completionTime = (completionTime * 100).rounded() / 100
-        self.promptTime = (promptTime * 100).rounded() / 100
-        self.totalTime = ((promptTime + completionTime) * 100).rounded() / 100
-
-        if promptTime > 0 {
-            let promptRate = Double(promptTokens) / promptTime
+        if let pt = promptTime, pt > 0 {
+            self.promptTime = (pt * 100).rounded() / 100
+            self.totalTime = ((pt + completionTime) * 100).rounded() / 100
+            let promptRate = Double(promptTokens) / pt
             self.promptTokensPerSecond = (promptRate * 100).rounded() / 100
         } else {
+            self.promptTime = nil
+            self.totalTime = nil
             self.promptTokensPerSecond = nil
         }
-
         if completionTime > 0 {
             let completionRate = Double(completionTokens) / completionTime
             self.completionTokensPerSecond = (completionRate * 100).rounded() / 100
