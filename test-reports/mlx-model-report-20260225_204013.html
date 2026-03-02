@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLX Model Test Report — 2026-02-25 20:40</title>
+<!-- MathJax for LaTeX rendering -->
+<script>
+MathJax = {
+  tex: {
+    inlineMath: [['$', '$'], ['\\(', '\\)']],
+    displayMath: [['$$', '$$'], ['\\[', '\\]']],
+    processEscapes: true
+  },
+  svg: { fontCache: 'global' },
+  startup: { typeset: false }
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" async></script>
+<!-- marked.js for Markdown rendering -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; padding: 2rem; }
+  h1 { color: #58a6ff; margin-bottom: 0.5rem; }
+  h2 { color: #58a6ff; margin: 2rem 0 1rem; border-bottom: 1px solid #21262d; padding-bottom: 0.5rem; }
+  .summary { display: flex; gap: 1.5rem; margin: 1.5rem 0; flex-wrap: wrap; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1.2rem 1.5rem; min-width: 160px; }
+  .card .label { font-size: 0.85rem; color: #8b949e; margin-bottom: 0.3rem; }
+  .card .value { font-size: 1.8rem; font-weight: 700; }
+  .card .value.green { color: #3fb950; }
+  .card .value.red { color: #f85149; }
+  .card .value.blue { color: #58a6ff; }
+  .card .value.yellow { color: #d29922; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  th { background: #161b22; color: #58a6ff; text-align: left; padding: 0.7rem 1rem; font-weight: 600; border-bottom: 2px solid #30363d; position: sticky; top: 0; z-index: 10; }
+  td { padding: 0.6rem 1rem; border-bottom: 1px solid #21262d; }
+  tr:hover { background: #161b22; }
+  .status-ok { color: #3fb950; font-weight: 600; }
+  .status-fail { color: #f85149; font-weight: 600; }
+  .bar { background: #21262d; border-radius: 4px; height: 20px; position: relative; overflow: hidden; min-width: 60px; }
+  .bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+  .bar-label { position: absolute; right: 6px; top: 1px; font-size: 0.75rem; color: #c9d1d9; font-weight: 600; }
+  .mono { font-family: 'SF Mono', Menlo, monospace; font-size: 0.85rem; }
+  .preview { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem; color: #8b949e; }
+  .error-text { color: #f85149; font-size: 0.85rem; max-width: 500px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { color: #8b949e; font-size: 0.9rem; margin-bottom: 1.5rem; }
+  .rank { color: #8b949e; font-size: 0.85rem; width: 30px; text-align: center; }
+  .ai-score { text-align: center; font-size: 1rem; width: 35px; }
+
+  /* Config badges */
+  .config-panel { margin-bottom: 1rem; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .config-badge { display: inline-block; font-size: 0.75rem; padding: 0.2rem 0.6rem; border: 1px solid #30363d; border-radius: 12px; color: #c9d1d9; font-family: 'SF Mono', Menlo, monospace; white-space: nowrap; }
+  .config-badge strong { color: #e6edf3; }
+
+  /* Prompt box */
+  .prompt-box { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 0.8rem 1rem; margin-bottom: 1rem; font-size: 0.85rem; color: #c9d1d9; line-height: 1.5; }
+  .prompt-label { display: inline-block; background: #58a6ff; color: #0d1117; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 3px; margin-right: 0.5rem; vertical-align: middle; letter-spacing: 0.05em; }
+
+  /* Variant / AFM tags */
+  .variant-tag { display: inline-block; font-size: 0.7rem; padding: 0.1rem 0.4rem; background: #a371f7; color: #0d1117; border-radius: 3px; margin-left: 0.4rem; font-weight: 600; font-family: -apple-system, sans-serif; }
+  .afm-tag { display: inline-block; font-size: 0.7rem; padding: 0.1rem 0.4rem; background: #21262d; border: 1px solid #f0883e; color: #f0883e; border-radius: 3px; font-family: 'SF Mono', Menlo, monospace; }
+  .temp-tag { display: inline-block; font-size: 0.7rem; padding: 0.1rem 0.4rem; background: #21262d; border: 1px solid #d29922; color: #d29922; border-radius: 3px; font-family: 'SF Mono', Menlo, monospace; }
+
+  /* Response sections */
+  .response-section { margin: 0.5rem 0; border: 1px solid #21262d; border-radius: 8px; overflow: hidden; }
+  .response-header { display: flex; align-items: center; gap: 0.8rem; padding: 0.8rem 1.2rem; background: #161b22; cursor: pointer; user-select: none; color: #c9d1d9; font-size: 0.95rem; font-weight: 500; }
+  .response-header:hover { background: #1c2129; }
+  .toggle-icon { font-size: 0.7rem; color: #8b949e; transition: transform 0.2s; display: inline-block; width: 1rem; }
+  .toggle-icon.open { transform: rotate(90deg); }
+  .response-meta { margin-left: auto; color: #8b949e; font-size: 0.8rem; font-family: -apple-system, sans-serif; }
+  .response-body { padding: 1.5rem; background: #0d1117; border-top: 1px solid #21262d; }
+
+  /* Rendered markdown content */
+  .rendered-content { line-height: 1.7; font-size: 0.95rem; }
+  .rendered-content h1, .rendered-content h2, .rendered-content h3 { color: #58a6ff; margin: 1.2rem 0 0.6rem; }
+  .rendered-content h1 { font-size: 1.4rem; border-bottom: 1px solid #21262d; padding-bottom: 0.3rem; }
+  .rendered-content h2 { font-size: 1.2rem; }
+  .rendered-content h3 { font-size: 1.05rem; }
+  .rendered-content p { margin: 0.6rem 0; }
+  .rendered-content ul, .rendered-content ol { margin: 0.6rem 0 0.6rem 1.5rem; }
+  .rendered-content li { margin: 0.3rem 0; }
+  .rendered-content code { background: #161b22; padding: 0.15rem 0.4rem; border-radius: 4px; font-family: 'SF Mono', Menlo, monospace; font-size: 0.85em; color: #e6edf3; }
+  .rendered-content pre { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 1rem; overflow-x: auto; margin: 0.8rem 0; }
+  .rendered-content pre code { background: none; padding: 0; }
+  .rendered-content blockquote { border-left: 3px solid #30363d; padding-left: 1rem; color: #8b949e; margin: 0.6rem 0; }
+  .rendered-content strong { color: #e6edf3; }
+  .rendered-content hr { border: none; border-top: 1px solid #21262d; margin: 1rem 0; }
+  .rendered-content table { border: 1px solid #30363d; }
+  .rendered-content th, .rendered-content td { border: 1px solid #30363d; padding: 0.4rem 0.8rem; }
+
+  /* MathJax overrides for dark theme */
+  mjx-container { color: #c9d1d9 !important; }
+  mjx-container svg { fill: #c9d1d9; }
+
+  .expand-all { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.85rem; margin-bottom: 1rem; }
+  .expand-all:hover { background: #30363d; }
+</style>
+</head>
+<body>
+<h1>MLX Model Test Report</h1>
+<p class="meta">Generated 2026-02-25 20:40 &middot; AFM MLX Backend &middot; <strong>v0.9.5-0cfba17</strong></p>
+<p class="meta" style="margin-top:0.3rem"><code style="background:#161b22;padding:0.3rem 0.6rem;border-radius:4px;font-size:0.8rem">mlx-model-test.sh --prompts Scripts/test-vlm-media.txt</code></p>
+
+<div class="summary">
+  <div class="card"><div class="label">Test Runs</div><div class="value blue">6</div></div>
+  <div class="card"><div class="label">Passed</div><div class="value green">5</div></div>
+  <div class="card"><div class="label">Failed</div><div class="value red">1</div></div>
+  <div class="card"><div class="label">Best tok/s</div><div class="value yellow">25.4</div></div>
+  <div class="card"><div class="label">Fastest</div><div class="value" style="font-size:1rem;color:#d29922">mlx-community/Qwen3.5-35B-A3B-4bit @ image-describe</div></div>
+</div>
+
+<h2>Performance Ranking (by tokens/sec)</h2>
+<p style="color:#8b949e;font-size:0.85rem;margin-bottom:0.5rem">Click a row to jump to its full response below.</p>
+<table>
+<tr>
+  <th>#</th>
+  <th>Model / Config</th>
+  <th>Status</th>
+  
+  <th>Temp</th>
+  <th>Load (s)</th>
+  <th>Tokens</th>
+  <th>Gen (s)</th>
+  <th style="min-width:200px">Tokens/sec</th>
+  <th>Prompt</th>
+</tr>
+<tr onclick="scrollToResponse(0)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">1</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-describe <span class="variant-tag">image-describe</span><br><span class="afm-tag">--vlm</span></td>
+  <td class="status-ok">OK</td>
+  
+  <td>0.7</td>
+  <td>2.0</td>
+  <td>256</td>
+  <td>10.07</td>
+  <td><div class="bar"><div class="bar-fill" style="width:100%;background:#3fb950"></div><div class="bar-label">25.4</div></div></td>
+  <td class="preview" title="Describe this image in detail. What do you see?">Describe this image in detail. What do you see?</td>
+</tr>
+<tr onclick="scrollToResponse(1)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">2</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-system-prompt <span class="variant-tag">image-system-prompt</span><br><span class="afm-tag">--vlm</span></td>
+  <td class="status-ok">OK</td>
+  
+  <td>0.7</td>
+  <td>1.0</td>
+  <td>256</td>
+  <td>10.1</td>
+  <td><div class="bar"><div class="bar-fill" style="width:100%;background:#3fb950"></div><div class="bar-label">25.3</div></div></td>
+  <td class="preview" title="Describe the animal in this image. What breed might it be?">Describe the animal in this image. What breed might it be?</td>
+</tr>
+<tr onclick="scrollToResponse(2)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">3</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-question <span class="variant-tag">image-question</span><br><span class="afm-tag">--vlm</span></td>
+  <td class="status-ok">OK</td>
+  
+  <td>0.7</td>
+  <td>1.0</td>
+  <td>128</td>
+  <td>7.08</td>
+  <td><div class="bar"><div class="bar-fill" style="width:71%;background:#3fb950"></div><div class="bar-label">18.1</div></div></td>
+  <td class="preview" title="What animal is in this image? Answer in one word.">What animal is in this image? Answer in one word.</td>
+</tr>
+<tr onclick="scrollToResponse(3)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">4</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-greedy <span class="variant-tag">image-greedy</span><br><span class="afm-tag">--vlm</span></td>
+  <td class="status-ok">OK</td>
+  
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>128</td>
+  <td>7.12</td>
+  <td><div class="bar"><div class="bar-fill" style="width:71%;background:#3fb950"></div><div class="bar-label">18.0</div></div></td>
+  <td class="preview" title="What is in this image? Reply in one sentence.">What is in this image? Reply in one sentence.</td>
+</tr>
+<tr onclick="scrollToResponse(4)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">5</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-stop <span class="variant-tag">image-stop</span><br><span class="afm-tag">--vlm</span></td>
+  <td class="status-ok">OK</td>
+  
+  <td>0.7</td>
+  <td>1.0</td>
+  <td>16</td>
+  <td>4.33</td>
+  <td><div class="bar"><div class="bar-fill" style="width:15%;background:#da6d28"></div><div class="bar-label">3.7</div></div></td>
+  <td class="preview" title="Describe this image in detail">Describe this image in detail</td>
+</tr>
+
+</table>
+
+<h2>Failed Runs</h2>
+<table>
+<tr><th>Model</th><th>Error</th><th>Config</th><th>Load (s)</th></tr>
+<tr>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ video-describe <span class="variant-tag">video-describe</span></td>
+  <td class="error-text" title="Error code: 400 - {&#x27;error&#x27;: {&#x27;type&#x27;: &#x27;mlx_error&#x27;, &#x27;message&#x27;: &#x27;Unable to load image from URL: video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAPNwdtZGF0AAACrwYF//+r3EXpvebZSLeWLN">Error code: 400 - {&#x27;error&#x27;: {&#x27;type&#x27;: &#x27;mlx_error&#x27;, &#x27;message&#x27;: &#x27;Unable to load image from URL: video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAPNwdtZGF0AAACrwYF//+r3EXpvebZSLeWLN</td>
+  
+  <td><span class="temp-tag">t=0.7</span> <span class="afm-tag">--vlm</span></td>
+  <td>1.0</td>
+</tr>
+</table>
+
+
+
+<h2>Full Responses</h2>
+<button class="expand-all" onclick="toggleAll()">Expand / Collapse All</button>
+
+<script>var responseData = {};</script>
+
+<div class="response-section" id="resp-0">
+  <h3 class="response-header" onclick="toggleResponse(0)">
+    <span class="toggle-icon" id="icon-0">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-describe</span>
+    <span class="response-meta">256 tokens &middot; 25.4 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-0" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.7</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>256</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>image-describe</strong></span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--vlm</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>2.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>10.07s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>1058</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>256</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>25.4</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Describe this image in detail. What do you see?</div>
+    <div class="rendered-content" id="content-0"></div>
+  </div>
+</div>
+<script>responseData[0] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThe user wants a detailed description of the provided image.\n\n1.  **Main Subject:** A puppy. It looks like a Husky or Malamute mix. It's walking towards the camera.\n    *   **Appearance:** Black and white fur, fluffy tail, pointy ears, blue eyes (maybe, hard to tell for sure but likely), white paws.\n    *   **Action:** Walking/running towards the viewer. One paw is lifted mid-step.\n    *   **Position:** Center-left foreground.\n\n2.  **Setting/Background:** A beach.\n    *   **Sand:** Dark, wet sand near the water, drier/darker sand further up. There are footprints scattered around.\n    *   **Water:** Ocean waves rolling in on the left side. White foam.\n    *   **Sky:** Sunset or sunrise. Golden/orange hue on the horizon, fading to blue at the top.\n    *   **Lighting:** Low angle sunlight (golden hour). Long shadows cast by the puppy to the right. The light is warm and golden.\n\n3.  **Composition:**\n    *   The puppy is the focal point.\n    *   The horizon line is slightly above the\n\n</details>\n\nThe user wants a detailed description of the provided image.  1.  **Main Subject:** A puppy. It looks like a Husky or Malamute mix. It's walking towards the camera.     *   **Appearance:** Black and white fur, fluffy tail, pointy ears, blue eyes (maybe, hard to tell for sure but likely), white paws.";</script>
+
+<div class="response-section" id="resp-1">
+  <h3 class="response-header" onclick="toggleResponse(1)">
+    <span class="toggle-icon" id="icon-1">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-system-prompt</span>
+    <span class="response-meta">256 tokens &middot; 25.3 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-1" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.7</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>256</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>image-system-prompt</strong></span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--vlm</strong></span> <span class="config-badge" style="border-color:#3fb950">system: <strong>You are a veterinarian. Describe animals using proper breed terminology.</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>10.1s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>1066</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>256</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>25.3</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Describe the animal in this image. What breed might it be?</div>
+    <div class="rendered-content" id="content-1"></div>
+  </div>
+</div>
+<script>responseData[1] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThe user wants me to identify the animal and its likely breed based on the provided image.\n\n1.  **Identify the animal:** It is clearly a young canine, specifically a puppy. It has four legs, a tail, fur, ears, eyes, a snout, and paws. It is walking on a sandy beach.\n\n2.  **Analyze physical characteristics for breed identification:**\n    *   **Size/Proportion:** It looks like a medium-sized puppy. The paws are relatively large, suggesting it will grow into a medium-to-large dog. The legs are sturdy but not overly thick yet.\n    *   **Coat/Color:** The coat is bi-colored. It has a white base with dark (black or dark grey/brown) markings.\n        *   **Markings:** There is a distinct \"mask\" on the face, typical of spitz breeds. The white extends up the muzzle and between the eyes. The back and ears are dark. The tail is bushy and curled slightly upwards (though not fully curled over the back yet, which is common in young puppies before the full curl develops).\n    *   **Ears:** They are prick ears (upright and triangular), which is a\n\n</details>\n\nThe user wants me to identify the animal and its likely breed based on the provided image.  1.  **Identify the animal:** It is clearly a young canine, specifically a puppy. It has four legs, a tail, fur, ears, eyes, a snout, and paws. It is walking on a sandy beach.  2.  **Analyze physical character";</script>
+
+<div class="response-section" id="resp-2">
+  <h3 class="response-header" onclick="toggleResponse(2)">
+    <span class="toggle-icon" id="icon-2">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-question</span>
+    <span class="response-meta">128 tokens &middot; 18.1 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-2" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.7</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>128</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>image-question</strong></span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--vlm</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>7.08s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>1059</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>128</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>18.1</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> What animal is in this image? Answer in one word.</div>
+    <div class="rendered-content" id="content-2"></div>
+  </div>
+</div>
+<script>responseData[2] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThe user wants to identify the animal in the image.\n1.  **Scan the image:** I see a four-legged animal on a beach.\n2.  **Identify key features:** It has fur, pointed ears, a snout, a tail, and looks like a puppy. The coloring (black and white) and facial markings (mask around eyes) are characteristic of a husky.\n3.  **Formulate the answer:** The animal is a dog (specifically a husky puppy). The user requested a one-word answer. \"Dog\" or \"Husky\" or \"Puppy\" would\n\n</details>\n\nThe user wants to identify the animal in the image. 1.  **Scan the image:** I see a four-legged animal on a beach. 2.  **Identify key features:** It has fur, pointed ears, a snout, a tail, and looks like a puppy. The coloring (black and white) and facial markings (mask around eyes) are characteristi";</script>
+
+<div class="response-section" id="resp-3">
+  <h3 class="response-header" onclick="toggleResponse(3)">
+    <span class="toggle-icon" id="icon-3">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-greedy</span>
+    <span class="response-meta">128 tokens &middot; 18.0 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-3" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>128</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>image-greedy</strong></span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--vlm</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>7.12s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>1058</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>128</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>18.0</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> What is in this image? Reply in one sentence.</div>
+    <div class="rendered-content" id="content-3"></div>
+  </div>
+</div>
+<script>responseData[3] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Input: An image of a dog on a beach.\n    *   Task: Describe what is in the image.\n    *   Constraint: Reply in one sentence.\n\n2.  **Analyze the Image:**\n    *   **Subject:** A puppy, looks like a Siberian Husky or Alaskan Malamute (black and white fur, pointed ears, fluffy tail).\n    *   **Action:** Walking or trotting towards the camera.\n    *   **Setting:** A sandy beach.\n    *   **Light\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Input: An image of a dog on a beach.     *   Task: Describe what is in the image.     *   Constraint: Reply in one sentence.  2.  **Analyze the Image:**     *   **Subject:** A puppy, looks like a Siberian Husky or Alaskan Malamute (black and wh";</script>
+
+<div class="response-section" id="resp-4">
+  <h3 class="response-header" onclick="toggleResponse(4)">
+    <span class="toggle-icon" id="icon-4">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-stop</span>
+    <span class="response-meta">16 tokens &middot; 3.7 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-4" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.7</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>256</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>image-stop</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>.</strong></span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--vlm</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>4.33s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>8</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>16</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>3.7</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Describe this image in detail</div>
+    <div class="rendered-content" id="content-4"></div>
+  </div>
+</div>
+<script>responseData[4] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThe user wants a detailed description of the provided image\n\n</details>\n\nThe user wants a detailed description of the provided image";</script>
+
+
+<script>
+// Toggle individual response
+function toggleResponse(idx) {
+  var body = document.getElementById('body-' + idx);
+  var icon = document.getElementById('icon-' + idx);
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    icon.classList.add('open');
+    renderContent(idx);
+  } else {
+    body.style.display = 'none';
+    icon.classList.remove('open');
+  }
+}
+
+// Scroll from perf table to response
+function scrollToResponse(idx) {
+  var el = document.getElementById('resp-' + idx);
+  var body = document.getElementById('body-' + idx);
+  var icon = document.getElementById('icon-' + idx);
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    icon.classList.add('open');
+    renderContent(idx);
+  }
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Expand/collapse all
+var allExpanded = false;
+function toggleAll() {
+  allExpanded = !allExpanded;
+  for (var key in responseData) {
+    var body = document.getElementById('body-' + key);
+    var icon = document.getElementById('icon-' + key);
+    if (allExpanded) {
+      body.style.display = 'block';
+      icon.classList.add('open');
+      renderContent(parseInt(key));
+    } else {
+      body.style.display = 'none';
+      icon.classList.remove('open');
+    }
+  }
+}
+
+// Render markdown + LaTeX for a response
+var rendered = {};
+function renderContent(idx) {
+  if (rendered[idx]) return;
+  rendered[idx] = true;
+  var raw = responseData[idx] || '';
+
+  // Strip <think>...</think> blocks (some models emit reasoning)
+  raw = raw.replace(/<think>[\s\S]*?<\/think>/g, '');
+  // Strip channel markers like <|channel|>analysis<|message|>
+  raw = raw.replace(/<\|channel\|>[^<]*<\|message\|>/g, '');
+
+  var el = document.getElementById('content-' + idx);
+
+  // Use marked to parse markdown
+  if (typeof marked !== 'undefined') {
+    el.innerHTML = marked.parse(raw);
+  } else {
+    el.innerHTML = '<pre>' + raw.replace(/</g, '&lt;') + '</pre>';
+  }
+
+  // Typeset MathJax
+  if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+    MathJax.typesetPromise([el]).catch(function(err) { console.warn('MathJax error:', err); });
+  }
+}
+</script>
+
+</body>
+</html>

@@ -96,6 +96,7 @@ public enum VLMTypeRegistry {
         "mistral3": create(Mistral3VLMConfiguration.self, Mistral3VLM.init),
         "lfm2_vl": create(LFM2VLConfiguration.self, LFM2VL.init),
         "lfm2-vl": create(LFM2VLConfiguration.self, LFM2VL.init),
+        "qwen3_5": create(Qwen3_5MoEVLConfiguration.self, Qwen3_5MoEVL.init),
         "qwen3_5_moe": create(Qwen3_5MoEVLConfiguration.self, Qwen3_5MoEVL.init),
     ])
 }
@@ -348,6 +349,7 @@ public final class VLMModelFactory: ModelFactory {
         // to handle spatial merging correctly
         let processorTypeOverrides: [String: String] = [
             "mistral3": "Mistral3Processor",
+            "qwen3_5": "Qwen3VLProcessor",
             "qwen3_5_moe": "Qwen3VLProcessor",
         ]
         let processorType =

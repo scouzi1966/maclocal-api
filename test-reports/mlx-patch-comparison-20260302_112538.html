@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLX Patch Comparison: maclocal-api vs Upstream</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif; background: #0d1117; color: #e6edf3; padding: 2rem; }
+  .header { text-align: center; margin-bottom: 2rem; padding: 2rem; background: linear-gradient(135deg, #1a1f2e 0%, #0d1117 100%); border: 1px solid #30363d; border-radius: 12px; }
+  .header h1 { font-size: 1.8rem; margin-bottom: 0.5rem; background: linear-gradient(90deg, #58a6ff, #bc8cff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .header .meta { color: #8b949e; font-size: 0.9rem; line-height: 1.8; }
+  .header code { background: #21262d; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.85rem; color: #79c0ff; }
+
+  .section { margin-bottom: 2rem; }
+  .section h2 { font-size: 1.3rem; margin-bottom: 1rem; color: #58a6ff; border-bottom: 1px solid #21262d; padding-bottom: 0.5rem; }
+
+  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+  .summary-card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 1.25rem; text-align: center; }
+  .summary-card .value { font-size: 2rem; font-weight: 700; }
+  .summary-card .label { color: #8b949e; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.25rem; }
+  .summary-card.safe .value { color: #3fb950; }
+  .summary-card.risk .value { color: #f85149; }
+  .summary-card.info .value { color: #58a6ff; }
+  .summary-card.warn .value { color: #d29922; }
+
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  th { background: #161b22; color: #8b949e; font-weight: 600; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.05em; padding: 0.75rem 0.6rem; text-align: left; border-bottom: 1px solid #30363d; }
+  td { padding: 0.6rem; border-bottom: 1px solid #21262d; vertical-align: top; font-size: 0.85rem; }
+  tr:hover { background: #161b22; }
+
+  .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 12px; font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
+  .badge.none { background: #0d2818; color: #3fb950; border: 1px solid #238636; }
+  .badge.low { background: #2d2400; color: #d29922; border: 1px solid #9e6a03; }
+  .badge.medium { background: #4b2e04; color: #ffa657; border: 1px solid #d18616; }
+  .badge.high { background: #2d1215; color: #f85149; border: 1px solid #da3633; }
+  .badge.new { background: #0c2d6b; color: #58a6ff; border: 1px solid #1f6feb; }
+  .badge.unchanged { background: #21262d; color: #8b949e; border: 1px solid #30363d; }
+  .badge.changed { background: #3b1f72; color: #d2a8ff; border: 1px solid #8957e5; }
+
+  .detail-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem; margin: 0.75rem 0; font-size: 0.88rem; line-height: 1.6; }
+  .detail-box code { background: #21262d; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.82rem; color: #79c0ff; }
+
+  .feature-text { font-size: 0.82rem; color: #8b949e; max-width: 300px; }
+
+  .framework-log { font-family: 'SF Mono', monospace; font-size: 0.8rem; line-height: 1.6; color: #8b949e; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
+
+  .footer { text-align: center; margin-top: 2rem; color: #484f58; font-size: 0.8rem; }
+  .footer a { color: #58a6ff; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>MLX Patch Comparison Report</h1>
+  <div class="meta">
+    <strong>maclocal-api</strong> commit <code>037c657</code> (main) &mdash; 2026-03-01<br>
+    Upstream <strong>mlx-swift-lm</strong>: pinned <code>2.30.3</code> (2c70054) &middot; latest tag <code>2.30.6</code> &middot; main <code>11968af</code><br>
+    &nbsp;&nbsp;pinned&rarr;latest: 21 commits &middot; latest&rarr;main: 5 commits<br>
+    Upstream <strong>mlx-swift</strong>: pin <code>0.30.3</code> &middot; latest tag <code>0.30.6</code> &middot; main <code>a2f0d76</code><br>
+    Generated: 2026-03-02
+  </div>
+</div>
+<div class="summary-grid">
+  <div class="summary-card info"><div class="value">20</div><div class="label">Patch Files</div></div>
+  <div class="summary-card safe"><div class="value">11</div><div class="label">No Conflict</div></div>
+  <div class="summary-card warn"><div class="value">8</div><div class="label">Low/Med Risk</div></div>
+  <div class="summary-card risk"><div class="value">1</div><div class="label">High Risk</div></div>
+  <div class="summary-card info"><div class="value">10</div><div class="label">New Files</div></div>
+</div>
+<div class="section">
+  <h2>File-by-File Comparison</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>File</th>
+        <th>Target</th>
+        <th>Type</th>
+        <th>maclocal-api</th>
+        <th>vs Pinned</th>
+        <th>vs Latest Tag</th>
+        <th>vs Main</th>
+        <th>Risk</th>
+        <th>maclocal-api Features</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Qwen3VL.swift</strong></td>
+        <td>MLXVLM</td>
+        <td><span class="badge changed">MODIFIED</span></td>
+        <td>1787L</td>
+        <td><span class="badge changed">CHANGED</span> 1766L (+35/-14)</td>
+        <td><span class="badge changed">CHANGED</span> 1766L (+38/-17)</td>
+        <td><span class="badge changed">CHANGED</span> 1766L (+38/-17)</td>
+        <td><span class="badge low">LOW</span></td>
+        <td><span class="feature-text">Qwen3 VL patches</span></td>
+      </tr>
+      <tr>
+        <td><strong>Qwen3Next.swift</strong></td>
+        <td>MLXLLM</td>
+        <td><span class="badge new">NEW</span></td>
+        <td>723L</td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge changed">CHANGED</span> 800L (+347/-424)</td>
+        <td><span class="badge changed">CHANGED</span> 800L (+347/-424)</td>
+        <td><span class="badge low">LOW</span></td>
+        <td><span class="feature-text">GatedDeltaNet model architecture</span></td>
+      </tr>
+      <tr>
+        <td><strong>GatedDelta.swift</strong></td>
+        <td>MLXLLM</td>
+        <td><span class="badge new">NEW</span></td>
+        <td>449L</td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge none">NONE</span></td>
+        <td><span class="feature-text">GatedDeltaNet attention layer</span></td>
+      </tr>
+      <tr>
+        <td><strong>Qwen3_5MoE.swift</strong></td>
+        <td>MLXLLM</td>
+        <td><span class="badge new">NEW</span></td>
+        <td>1012L</td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge none">NONE</span></td>
+        <td><span class="feature-text">Fused QKV/GDN/gate+up projections; fusedSiluMul Metal kernel; MLXFast.rmsNorm; adaptive sanitize</span></td>
+      </tr>
+      <tr>
+        <td><strong>DeepseekV3.swift</strong></td>
+        <td>MLXLLM</td>
+        <td><span class="badge changed">MODIFIED</span></td>
+        <td>717L</td>
+        <td><span class="badge changed">CHANGED</span> 563L (+202/-48)</td>
+        <td><span class="badge changed">CHANGED</span> 563L (+204/-50)</td>
+        <td><span class="badge changed">CHANGED</span> 563L (+204/-50)</td>
+        <td><span class="badge low">LOW</span></td>
+        <td><span class="feature-text">Bug fixes; Kimi K2 reuse</span></td>
+      </tr>
+      <tr>
+        <td><strong>MiniMaxM2.swift</strong></td>
+        <td>MLXLLM</td>
+        <td><span class="badge new">NEW</span></td>
+        <td>362L</td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge none">NONE</span></td>
+        <td><span class="feature-text">MiniMax M2 model architecture</span></td>
+      </tr>
+      <tr>
+        <td><strong>NemotronH.swift</strong></td>
+        <td>MLXLLM</td>
+        <td><span class="badge new">NEW</span></td>
+        <td>1008L</td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge changed">CHANGED</span> 1003L (+8/-3)</td>
+        <td><span class="badge changed">CHANGED</span> 1003L (+8/-3)</td>
+        <td><span class="badge low">LOW</span></td>
+        <td><span class="feature-text">NemotronH hybrid Mamba+Attention model</span></td>
+      </tr>
+      <tr>
+        <td><strong>GLM4MoeLite.swift</strong></td>
+        <td>MLXLLM</td>
+        <td><span class="badge new">NEW</span></td>
+        <td>662L</td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge none">NONE</span></td>
+        <td><span class="feature-text">GLM-4 MoE Lite model</span></td>
+      </tr>
+      <tr>
+        <td><strong>GLM5MoeDsa.swift</strong></td>
+        <td>MLXLLM</td>
+        <td><span class="badge new">NEW</span></td>
+        <td>866L</td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge none">NONE</span></td>
+        <td><span class="feature-text">GLM-5 MoE DSA model</span></td>
+      </tr>
+      <tr>
+        <td><strong>KimiK25.swift</strong></td>
+        <td>MLXLLM</td>
+        <td><span class="badge new">NEW</span></td>
+        <td>113L</td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge none">NONE</span></td>
+        <td><span class="feature-text">Kimi K2.5 model architecture</span></td>
+      </tr>
+      <tr>
+        <td><strong>LLMModelFactory.swift</strong></td>
+        <td>MLXLLM</td>
+        <td><span class="badge changed">MODIFIED</span></td>
+        <td>584L</td>
+        <td><span class="badge changed">CHANGED</span> 554L (+31/-1)</td>
+        <td><span class="badge changed">CHANGED</span> 568L (+33/-17)</td>
+        <td><span class="badge changed">CHANGED</span> 570L (+33/-19)</td>
+        <td><span class="badge low">LOW</span></td>
+        <td><span class="feature-text">qwen3_5_moe/kimi_k2/kimi_k25/joyai_llm_flash/glm_moe_dsa/minimax_m2; sanitizeJSON(); toolCallFormat removal</span></td>
+      </tr>
+      <tr>
+        <td><strong>Load.swift</strong></td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge changed">MODIFIED</span></td>
+        <td>121L</td>
+        <td><span class="badge changed">CHANGED</span> 105L (+20/-4)</td>
+        <td><span class="badge changed">CHANGED</span> 105L (+20/-4)</td>
+        <td><span class="badge changed">CHANGED</span> 105L (+20/-4)</td>
+        <td><span class="badge none">NONE</span></td>
+        <td><span class="feature-text">.jinja/.tiktoken downloads; MXFP4 fix; relaxed weight verification</span></td>
+      </tr>
+      <tr>
+        <td><strong>Evaluate.swift</strong></td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge changed">MODIFIED</span></td>
+        <td>1451L</td>
+        <td><span class="badge changed">CHANGED</span> 1044L (+430/-23)</td>
+        <td><span class="badge changed">CHANGED</span> 1349L (+592/-490)</td>
+        <td><span class="badge changed">CHANGED</span> 1371L (+591/-511)</td>
+        <td><span class="badge high">HIGH</span></td>
+        <td><span class="feature-text">TopK/MinP/Presence/Composite processors; seed; logprobs; AFM_PERF; clearCache; shouldQuantizeCache</span></td>
+      </tr>
+      <tr>
+        <td><strong>Tokenizer.swift</strong></td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge changed">MODIFIED</span></td>
+        <td>429L</td>
+        <td><span class="badge changed">CHANGED</span> 157L (+272/-0)</td>
+        <td><span class="badge changed">CHANGED</span> 157L (+272/-0)</td>
+        <td><span class="badge changed">CHANGED</span> 157L (+272/-0)</td>
+        <td><span class="badge none">NONE</span></td>
+        <td><span class="feature-text">TikToken support; .jinja fallback; O(n) window trim</span></td>
+      </tr>
+      <tr>
+        <td><strong>Qwen3_5MoEVL.swift</strong></td>
+        <td>MLXVLM</td>
+        <td><span class="badge new">NEW</span></td>
+        <td>1449L</td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge none">NONE</span></td>
+        <td><span class="feature-text">Qwen3.5 MoE VLM wrapper</span></td>
+      </tr>
+      <tr>
+        <td><strong>VLMModelFactory.swift</strong></td>
+        <td>MLXVLM</td>
+        <td><span class="badge changed">MODIFIED</span></td>
+        <td>398L</td>
+        <td><span class="badge changed">CHANGED</span> 390L (+10/-2)</td>
+        <td><span class="badge changed">CHANGED</span> 396L (+3/-1)</td>
+        <td><span class="badge changed">CHANGED</span> 396L (+3/-1)</td>
+        <td><span class="badge low">LOW</span></td>
+        <td><span class="feature-text">Qwen3.5 MoE VL registration</span></td>
+      </tr>
+      <tr>
+        <td><strong>SamplerTests.swift</strong></td>
+        <td>Tests</td>
+        <td><span class="badge new">NEW</span></td>
+        <td>404L</td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge none">NONE</span></td>
+        <td><span class="feature-text">Unit tests for sampling processors</span></td>
+      </tr>
+      <tr>
+        <td><strong>ToolCallFormat.swift</strong></td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge changed">MODIFIED</span></td>
+        <td>113L</td>
+        <td><span class="badge unchanged">N/A</span></td>
+        <td><span class="badge changed">CHANGED</span> 120L (+11/-18)</td>
+        <td><span class="badge changed">CHANGED</span> 120L (+11/-18)</td>
+        <td><span class="badge medium">MEDIUM</span></td>
+        <td><span class="feature-text">Qwen3 model type detection (qwen3_next, qwen3_coder)</span></td>
+      </tr>
+      <tr>
+        <td><strong>KVCache.swift</strong></td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge changed">MODIFIED</span></td>
+        <td>1610L</td>
+        <td><span class="badge changed">CHANGED</span> 1585L (+36/-11)</td>
+        <td><span class="badge changed">CHANGED</span> 1585L (+36/-11)</td>
+        <td><span class="badge changed">CHANGED</span> 1578L (+55/-23)</td>
+        <td><span class="badge low">LOW</span></td>
+        <td><span class="feature-text">2x growth strategy; Updatable protocol; MXFP4 mode parameter</span></td>
+      </tr>
+      <tr>
+        <td><strong>SwitchLayers.swift</strong></td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge changed">MODIFIED</span></td>
+        <td>354L</td>
+        <td><span class="badge changed">CHANGED</span> 200L (+163/-9)</td>
+        <td><span class="badge changed">CHANGED</span> 200L (+163/-9)</td>
+        <td><span class="badge changed">CHANGED</span> 200L (+163/-9)</td>
+        <td><span class="badge none">NONE</span></td>
+        <td><span class="feature-text">fusedSiluMul Metal kernel; SwitchGLU gate+up fusion; memory headroom check</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<div class="section">
+  <h2>mlx-swift Framework: 0.30.3 &rarr; 0.30.6 &rarr; main</h2>
+  <div class="detail-box">
+    <strong>0.30.3 &rarr; 0.30.6</strong> (8 commits):
+    <div class="framework-log">
+6ba4827 update for mlx v0.30.6 (#353)
+c2a5f12 Add wired memory (#352)
+5a7b694 Weakly link error domains to allow building non-Metal-supporting targets (#354)
+1258900 Add release workflow that builds and attaches XCFramework assets (#351)
+30d0b9b Wired Memory Management System (#348)
+87c9f8d Add skill.md (#350)
+a1bf450 adds a note to get the submodules if you're building locally (#346)
+f688d89 Support for building through SwiftPM on Linux (CPU only) (#304)
+    </div>
+  </div>
+  <div class="detail-box">
+    <strong>0.30.6 &rarr; main</strong> (4 commits):
+    <div class="framework-log">
+a2f0d76 Fix dictionary key lookup in Module.update(parameters:) (#363)
+2755373 Fix wired mem race condition (#358)
+0cc7956 Use CXX 20, since MLX-C uses C++ 20 code (#357)
+d3d0a5b add gh for the release build (#356)
+    </div>
+  </div>
+</div>
+<div class="section">
+  <h2>Upstream-Only Files (Not in maclocal-api Patches)</h2>
+  <div class="detail-box" style="margin-bottom: 1rem;">
+    Files present in upstream <code>mlx-swift-lm</code> that are not covered by any maclocal-api patch.
+    These may represent new model architectures or features available for adoption.
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>File</th>
+        <th>Library</th>
+        <th>Since</th>
+        <th>Pinned</th>
+        <th>Latest Tag</th>
+        <th>Main</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>AfMoE.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>601L</td>
+        <td>591L</td>
+        <td>591L</td>
+      </tr>
+      <tr>
+        <td>Apertus.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>483L</td>
+        <td>483L</td>
+        <td>483L</td>
+      </tr>
+      <tr>
+        <td>BaichuanM1.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>300L</td>
+        <td>300L</td>
+        <td>300L</td>
+      </tr>
+      <tr>
+        <td>BailingMoe.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>367L</td>
+        <td>367L</td>
+        <td>367L</td>
+      </tr>
+      <tr>
+        <td>Bitnet.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>499L</td>
+        <td>499L</td>
+        <td>499L</td>
+      </tr>
+      <tr>
+        <td>Cohere.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>240L</td>
+        <td>240L</td>
+        <td>240L</td>
+      </tr>
+      <tr>
+        <td>Ernie4_5.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>236L</td>
+        <td>236L</td>
+        <td>236L</td>
+      </tr>
+      <tr>
+        <td>Exaone4.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>305L</td>
+        <td>305L</td>
+        <td>305L</td>
+      </tr>
+      <tr>
+        <td>FalconH1.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>758L</td>
+        <td>758L</td>
+        <td>758L</td>
+      </tr>
+      <tr>
+        <td>Gemma.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>237L</td>
+        <td>237L</td>
+        <td>237L</td>
+      </tr>
+      <tr>
+        <td>Gemma2.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>279L</td>
+        <td>279L</td>
+        <td>279L</td>
+      </tr>
+      <tr>
+        <td>Gemma3nText.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>1040L</td>
+        <td>1056L</td>
+        <td>1056L</td>
+      </tr>
+      <tr>
+        <td>Gemma3Text.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>433L</td>
+        <td>445L</td>
+        <td>445L</td>
+      </tr>
+      <tr>
+        <td>GLM4.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>281L</td>
+        <td>281L</td>
+        <td>281L</td>
+      </tr>
+      <tr>
+        <td>GLM4MOE.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>453L</td>
+        <td>453L</td>
+        <td>453L</td>
+      </tr>
+      <tr>
+        <td>GLM4MOELite.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge new">latest</span></td>
+        <td><span style="color:#484f58">—</span></td>
+        <td>724L</td>
+        <td>724L</td>
+      </tr>
+      <tr>
+        <td>GPTOSS.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>548L</td>
+        <td>548L</td>
+        <td>548L</td>
+      </tr>
+      <tr>
+        <td>Granite.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>287L</td>
+        <td>287L</td>
+        <td>287L</td>
+      </tr>
+      <tr>
+        <td>GraniteMoeHybrid.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>711L</td>
+        <td>711L</td>
+        <td>711L</td>
+      </tr>
+      <tr>
+        <td>Internlm2.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>328L</td>
+        <td>328L</td>
+        <td>328L</td>
+      </tr>
+      <tr>
+        <td>Jamba.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>581L</td>
+        <td>581L</td>
+        <td>581L</td>
+      </tr>
+      <tr>
+        <td>LFM2.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>411L</td>
+        <td>411L</td>
+        <td>417L</td>
+      </tr>
+      <tr>
+        <td>LFM2MoE.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>497L</td>
+        <td>497L</td>
+        <td>503L</td>
+      </tr>
+      <tr>
+        <td>Lille130m.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>247L</td>
+        <td>247L</td>
+        <td>247L</td>
+      </tr>
+      <tr>
+        <td>Llama.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>476L</td>
+        <td>476L</td>
+        <td>476L</td>
+      </tr>
+      <tr>
+        <td>MiMo.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>276L</td>
+        <td>276L</td>
+        <td>276L</td>
+      </tr>
+      <tr>
+        <td>MiMoV2Flash.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge new">latest</span></td>
+        <td><span style="color:#484f58">—</span></td>
+        <td>556L</td>
+        <td>556L</td>
+      </tr>
+      <tr>
+        <td>MiniCPM.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge new">latest</span></td>
+        <td><span style="color:#484f58">—</span></td>
+        <td>265L</td>
+        <td>265L</td>
+      </tr>
+      <tr>
+        <td>MiniMax.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge new">latest</span></td>
+        <td><span style="color:#484f58">—</span></td>
+        <td>340L</td>
+        <td>340L</td>
+      </tr>
+      <tr>
+        <td>Mistral3Text.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>492L</td>
+        <td>494L</td>
+        <td>494L</td>
+      </tr>
+      <tr>
+        <td>NanoChat.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>282L</td>
+        <td>282L</td>
+        <td>282L</td>
+      </tr>
+      <tr>
+        <td>Olmo2.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>422L</td>
+        <td>422L</td>
+        <td>422L</td>
+      </tr>
+      <tr>
+        <td>Olmo3.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>332L</td>
+        <td>332L</td>
+        <td>332L</td>
+      </tr>
+      <tr>
+        <td>OlmoE.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>467L</td>
+        <td>467L</td>
+        <td>467L</td>
+      </tr>
+      <tr>
+        <td>OpenELM.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>309L</td>
+        <td>309L</td>
+        <td>309L</td>
+      </tr>
+      <tr>
+        <td>Phi.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>243L</td>
+        <td>243L</td>
+        <td>243L</td>
+      </tr>
+      <tr>
+        <td>Phi3.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>327L</td>
+        <td>327L</td>
+        <td>327L</td>
+      </tr>
+      <tr>
+        <td>PhiMoE.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>270L</td>
+        <td>270L</td>
+        <td>270L</td>
+      </tr>
+      <tr>
+        <td>Qwen2.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>281L</td>
+        <td>281L</td>
+        <td>281L</td>
+      </tr>
+      <tr>
+        <td>Qwen3.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>289L</td>
+        <td>289L</td>
+        <td>289L</td>
+      </tr>
+      <tr>
+        <td>Qwen35.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge changed">main</span></td>
+        <td><span style="color:#484f58">—</span></td>
+        <td><span style="color:#484f58">—</span></td>
+        <td>683L</td>
+      </tr>
+      <tr>
+        <td>Qwen35MoE.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge changed">main</span></td>
+        <td><span style="color:#484f58">—</span></td>
+        <td><span style="color:#484f58">—</span></td>
+        <td>75L</td>
+      </tr>
+      <tr>
+        <td>Qwen3MoE.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>364L</td>
+        <td>364L</td>
+        <td>364L</td>
+      </tr>
+      <tr>
+        <td>SmolLM3.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>375L</td>
+        <td>375L</td>
+        <td>375L</td>
+      </tr>
+      <tr>
+        <td>SSM.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>237L</td>
+        <td>237L</td>
+        <td>237L</td>
+      </tr>
+      <tr>
+        <td>Starcoder2.swift</td>
+        <td>MLXLLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>258L</td>
+        <td>258L</td>
+        <td>258L</td>
+      </tr>
+      <tr>
+        <td>FastVLM.swift</td>
+        <td>MLXVLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>1183L</td>
+        <td>1183L</td>
+        <td>1183L</td>
+      </tr>
+      <tr>
+        <td>Gemma3.swift</td>
+        <td>MLXVLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>1178L</td>
+        <td>1178L</td>
+        <td>1178L</td>
+      </tr>
+      <tr>
+        <td>Idefics3.swift</td>
+        <td>MLXVLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>900L</td>
+        <td>900L</td>
+        <td>900L</td>
+      </tr>
+      <tr>
+        <td>LFM2VL.swift</td>
+        <td>MLXVLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>1283L</td>
+        <td>1283L</td>
+        <td>1283L</td>
+      </tr>
+      <tr>
+        <td>Mistral3.swift</td>
+        <td>MLXVLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>1108L</td>
+        <td>1108L</td>
+        <td>1108L</td>
+      </tr>
+      <tr>
+        <td>Paligemma.swift</td>
+        <td>MLXVLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>738L</td>
+        <td>738L</td>
+        <td>738L</td>
+      </tr>
+      <tr>
+        <td>Pixtral.swift</td>
+        <td>MLXVLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>1136L</td>
+        <td>1136L</td>
+        <td>1136L</td>
+      </tr>
+      <tr>
+        <td>Qwen25VL.swift</td>
+        <td>MLXVLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>1095L</td>
+        <td>1098L</td>
+        <td>1098L</td>
+      </tr>
+      <tr>
+        <td>Qwen2VL.swift</td>
+        <td>MLXVLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>922L</td>
+        <td>926L</td>
+        <td>926L</td>
+      </tr>
+      <tr>
+        <td>QwenVL.swift</td>
+        <td>MLXVLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>258L</td>
+        <td>258L</td>
+        <td>258L</td>
+      </tr>
+      <tr>
+        <td>SmolVLM2.swift</td>
+        <td>MLXVLM/Models</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>362L</td>
+        <td>363L</td>
+        <td>363L</td>
+      </tr>
+      <tr>
+        <td>AttentionUtils.swift</td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>77L</td>
+        <td>77L</td>
+        <td>77L</td>
+      </tr>
+      <tr>
+        <td>BaseConfiguration.swift</td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>169L</td>
+        <td>169L</td>
+        <td>169L</td>
+      </tr>
+      <tr>
+        <td>Chat.swift</td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>150L</td>
+        <td>150L</td>
+        <td>150L</td>
+      </tr>
+      <tr>
+        <td>ChatSession.swift</td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>359L</td>
+        <td>371L</td>
+        <td>371L</td>
+      </tr>
+      <tr>
+        <td>GenerationConfigFile.swift</td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>16L</td>
+        <td>16L</td>
+        <td>16L</td>
+      </tr>
+      <tr>
+        <td>InterpolationUtils.swift</td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>454L</td>
+        <td>454L</td>
+        <td>454L</td>
+      </tr>
+      <tr>
+        <td>JSONDecodingTypes.swift</td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>148L</td>
+        <td>148L</td>
+        <td>148L</td>
+      </tr>
+      <tr>
+        <td>LanguageModel.swift</td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>219L</td>
+        <td>219L</td>
+        <td>219L</td>
+      </tr>
+      <tr>
+        <td>ModelConfiguration.swift</td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>102L</td>
+        <td>109L</td>
+        <td>109L</td>
+      </tr>
+      <tr>
+        <td>ModelContainer.swift</td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>207L</td>
+        <td>210L</td>
+        <td>210L</td>
+      </tr>
+      <tr>
+        <td>ModelFactory.swift</td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>388L</td>
+        <td>388L</td>
+        <td>388L</td>
+      </tr>
+      <tr>
+        <td>Module+Extensions.swift</td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>24L</td>
+        <td>24L</td>
+        <td>24L</td>
+      </tr>
+      <tr>
+        <td>RoPEUtils.swift</td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>276L</td>
+        <td>276L</td>
+        <td>276L</td>
+      </tr>
+      <tr>
+        <td>SuScaledRoPE.swift</td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>75L</td>
+        <td>75L</td>
+        <td>75L</td>
+      </tr>
+      <tr>
+        <td>UserInput.swift</td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>345L</td>
+        <td>365L</td>
+        <td>365L</td>
+      </tr>
+      <tr>
+        <td>WiredMemoryPolicies.swift</td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge new">latest</span></td>
+        <td><span style="color:#484f58">—</span></td>
+        <td>182L</td>
+        <td>182L</td>
+      </tr>
+      <tr>
+        <td>WiredMemoryUtils.swift</td>
+        <td>MLXLMCommon</td>
+        <td><span class="badge new">latest</span></td>
+        <td><span style="color:#484f58">—</span></td>
+        <td>249L</td>
+        <td>249L</td>
+      </tr>
+      <tr>
+        <td>Tool.swift</td>
+        <td>MLXLMCommon/Tool</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>63L</td>
+        <td>63L</td>
+        <td>63L</td>
+      </tr>
+      <tr>
+        <td>ToolCall.swift</td>
+        <td>MLXLMCommon/Tool</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>57L</td>
+        <td>57L</td>
+        <td>57L</td>
+      </tr>
+      <tr>
+        <td>ToolCallProcessor.swift</td>
+        <td>MLXLMCommon/Tool</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>136L</td>
+        <td>200L</td>
+        <td>200L</td>
+      </tr>
+      <tr>
+        <td>ToolParameter.swift</td>
+        <td>MLXLMCommon/Tool</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>85L</td>
+        <td>85L</td>
+        <td>85L</td>
+      </tr>
+      <tr>
+        <td>Value.swift</td>
+        <td>MLXLMCommon/Tool</td>
+        <td><span class="badge unchanged">pinned</span></td>
+        <td>131L</td>
+        <td>131L</td>
+        <td>131L</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<div class="footer">
+  Generated by <code>Scripts/gen-patch-comparison.sh</code> &mdash; 2026-03-02<br>
+  maclocal-api <code>037c657</code> &middot;
+  <a href="https://github.com/ml-explore/mlx-swift-lm">ml-explore/mlx-swift-lm</a> &middot;
+  <a href="https://github.com/ml-explore/mlx-swift">ml-explore/mlx-swift</a>
+</div>
+
+</body>
+</html>

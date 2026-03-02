@@ -1,0 +1,2 @@
+{"_meta":true,"afm_version":"v0.9.5","test_command":"mlx-model-test.sh --model mlx-community/GLM-5-4bit","afm_binary":"/Volumes/edata/dev/git/NIGHTLY/maclocal-api/.build/release/afm","timestamp":"2026-02-26T23:46:43Z"}
+{"model": "mlx-community/GLM-5-4bit", "label": "", "prompt": "Explain calculus concepts from limits through multivariable calculus with rigorous mathematical notation", "status": "FAIL", "error": "Connection error.", "load_time_s": 128.0, "temperature": 0.7, "max_tokens": 5000, "system_prompt": "", "afm_args": ""}

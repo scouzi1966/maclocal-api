@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLX Model Test Report — 2026-02-27 11:16</title>
+<!-- MathJax for LaTeX rendering -->
+<script>
+MathJax = {
+  tex: {
+    inlineMath: [['$', '$'], ['\\(', '\\)']],
+    displayMath: [['$$', '$$'], ['\\[', '\\]']],
+    processEscapes: true
+  },
+  svg: { fontCache: 'global' },
+  startup: { typeset: false }
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" async></script>
+<!-- marked.js for Markdown rendering -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; padding: 2rem; }
+  h1 { color: #58a6ff; margin-bottom: 0.5rem; }
+  h2 { color: #58a6ff; margin: 2rem 0 1rem; border-bottom: 1px solid #21262d; padding-bottom: 0.5rem; }
+  .summary { display: flex; gap: 1.5rem; margin: 1.5rem 0; flex-wrap: wrap; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1.2rem 1.5rem; min-width: 160px; }
+  .card .label { font-size: 0.85rem; color: #8b949e; margin-bottom: 0.3rem; }
+  .card .value { font-size: 1.8rem; font-weight: 700; }
+  .card .value.green { color: #3fb950; }
+  .card .value.red { color: #f85149; }
+  .card .value.blue { color: #58a6ff; }
+  .card .value.yellow { color: #d29922; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  th { background: #161b22; color: #58a6ff; text-align: left; padding: 0.7rem 1rem; font-weight: 600; border-bottom: 2px solid #30363d; position: sticky; top: 0; z-index: 10; }
+  td { padding: 0.6rem 1rem; border-bottom: 1px solid #21262d; }
+  tr:hover { background: #161b22; }
+  .status-ok { color: #3fb950; font-weight: 600; }
+  .status-fail { color: #f85149; font-weight: 600; }
+  .bar { background: #21262d; border-radius: 4px; height: 20px; position: relative; overflow: hidden; min-width: 60px; }
+  .bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+  .bar-label { position: absolute; right: 6px; top: 1px; font-size: 0.75rem; color: #c9d1d9; font-weight: 600; }
+  .mono { font-family: 'SF Mono', Menlo, monospace; font-size: 0.85rem; }
+  .preview { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem; color: #8b949e; }
+  .error-text { color: #f85149; font-size: 0.85rem; max-width: 500px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { color: #8b949e; font-size: 0.9rem; margin-bottom: 1.5rem; }
+  .rank { color: #8b949e; font-size: 0.85rem; width: 30px; text-align: center; }
+  .ai-score { text-align: center; font-size: 1rem; width: 35px; }
+
+  /* Config badges */
+  .config-panel { margin-bottom: 1rem; }
+  .config-row { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-bottom: 0.3rem; }
+  .config-row-label { font-size: 0.65rem; font-weight: 700; color: #6e7681; text-transform: uppercase; letter-spacing: 0.05em; min-width: 2.5rem; font-family: 'SF Mono', Menlo, monospace; }
+  .config-badge { display: inline-block; font-size: 0.75rem; padding: 0.2rem 0.6rem; border: 1px solid #30363d; border-radius: 12px; color: #c9d1d9; font-family: 'SF Mono', Menlo, monospace; white-space: nowrap; }
+  .config-badge strong { color: #e6edf3; }
+
+  /* AI detail collapsibles (intent + smart scores) */
+  .ai-detail { margin-bottom: 0.5rem; }
+  .ai-detail-summary { cursor: pointer; font-size: 0.8rem; font-weight: 600; color: #8b949e; padding: 0.3rem 0; user-select: none; }
+  .ai-detail-summary:hover { color: #c9d1d9; }
+  .ai-detail-body { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 0.6rem 0.8rem; margin-top: 0.3rem; font-size: 0.8rem; color: #c9d1d9; line-height: 1.5; }
+
+  /* Prompt box */
+  .prompt-box { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 0.8rem 1rem; margin-bottom: 1rem; font-size: 0.85rem; color: #c9d1d9; line-height: 1.5; }
+  .prompt-label { display: inline-block; background: #58a6ff; color: #0d1117; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 3px; margin-right: 0.5rem; vertical-align: middle; letter-spacing: 0.05em; }
+
+  /* Variant / AFM tags */
+  .variant-tag { display: inline-block; font-size: 0.7rem; padding: 0.1rem 0.4rem; background: #a371f7; color: #0d1117; border-radius: 3px; margin-left: 0.4rem; font-weight: 600; font-family: -apple-system, sans-serif; }
+  .afm-tag { display: inline-block; font-size: 0.7rem; padding: 0.1rem 0.4rem; background: #21262d; border: 1px solid #f0883e; color: #f0883e; border-radius: 3px; font-family: 'SF Mono', Menlo, monospace; }
+  .temp-tag { display: inline-block; font-size: 0.7rem; padding: 0.1rem 0.4rem; background: #21262d; border: 1px solid #d29922; color: #d29922; border-radius: 3px; font-family: 'SF Mono', Menlo, monospace; }
+
+  /* Response sections */
+  .response-section { margin: 0.5rem 0; border: 1px solid #21262d; border-radius: 8px; overflow: hidden; }
+  .response-header { display: flex; align-items: center; gap: 0.8rem; padding: 0.8rem 1.2rem; background: #161b22; cursor: pointer; user-select: none; color: #c9d1d9; font-size: 0.95rem; font-weight: 500; }
+  .response-header:hover { background: #1c2129; }
+  .toggle-icon { font-size: 0.7rem; color: #8b949e; transition: transform 0.2s; display: inline-block; width: 1rem; }
+  .toggle-icon.open { transform: rotate(90deg); }
+  .response-meta { margin-left: auto; color: #8b949e; font-size: 0.8rem; font-family: -apple-system, sans-serif; }
+  .response-body { padding: 1.5rem; background: #0d1117; border-top: 1px solid #21262d; }
+
+  /* Rendered markdown content */
+  .rendered-content { line-height: 1.7; font-size: 0.95rem; }
+  .rendered-content h1, .rendered-content h2, .rendered-content h3 { color: #58a6ff; margin: 1.2rem 0 0.6rem; }
+  .rendered-content h1 { font-size: 1.4rem; border-bottom: 1px solid #21262d; padding-bottom: 0.3rem; }
+  .rendered-content h2 { font-size: 1.2rem; }
+  .rendered-content h3 { font-size: 1.05rem; }
+  .rendered-content p { margin: 0.6rem 0; }
+  .rendered-content ul, .rendered-content ol { margin: 0.6rem 0 0.6rem 1.5rem; }
+  .rendered-content li { margin: 0.3rem 0; }
+  .rendered-content code { background: #161b22; padding: 0.15rem 0.4rem; border-radius: 4px; font-family: 'SF Mono', Menlo, monospace; font-size: 0.85em; color: #e6edf3; }
+  .rendered-content pre { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 1rem; overflow-x: auto; margin: 0.8rem 0; }
+  .rendered-content pre code { background: none; padding: 0; }
+  .rendered-content blockquote { border-left: 3px solid #30363d; padding-left: 1rem; color: #8b949e; margin: 0.6rem 0; }
+  .rendered-content strong { color: #e6edf3; }
+  .rendered-content hr { border: none; border-top: 1px solid #21262d; margin: 1rem 0; }
+  .rendered-content table { border: 1px solid #30363d; }
+  .rendered-content th, .rendered-content td { border: 1px solid #30363d; padding: 0.4rem 0.8rem; }
+
+  /* MathJax overrides for dark theme */
+  mjx-container { color: #c9d1d9 !important; }
+  mjx-container svg { fill: #c9d1d9; }
+
+  .expand-all { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.85rem; margin-bottom: 1rem; }
+  .expand-all:hover { background: #30363d; }
+</style>
+</head>
+<body>
+<h1>MLX Model Test Report</h1>
+<p class="meta">Generated 2026-02-27 11:16 &middot; AFM MLX Backend &middot; <strong>v0.9.5-4d58e3f</strong></p>
+<p class="meta" style="margin-top:0.3rem"><code style="background:#161b22;padding:0.3rem 0.6rem;border-radius:4px;font-size:0.8rem">mlx-model-test.sh --model mlx-community/Qwen3.5-35B-A3B-4bit --prompts /Volumes/edata/dev/git/NIGHTLY/maclocal-api/Scripts/test-llm-comprehensive.txt --tests 4,7,23 --smart 1:claude</code></p>
+
+<div class="summary">
+  <div class="card"><div class="label">Test Runs</div><div class="value blue">3</div></div>
+  <div class="card"><div class="label">Passed</div><div class="value green">3</div></div>
+  <div class="card"><div class="label">Failed</div><div class="value red">0</div></div>
+  <div class="card"><div class="label">Best tok/s</div><div class="value yellow">110.1</div></div>
+  <div class="card"><div class="label">Fastest</div><div class="value" style="font-size:1rem;color:#d29922">mlx-community/Qwen3.5-35B-A3B-4bit @ top-p</div></div>
+</div>
+
+<h2>Performance Ranking (by tokens/sec)</h2>
+<p style="color:#8b949e;font-size:0.85rem;margin-bottom:0.5rem">Click a row to jump to its full response below.</p>
+<table>
+<tr>
+  <th>#</th>
+  <th>Model / Config</th>
+  <th>Status</th>
+  <th title="claude score">claude</th>
+  <th>Temp</th>
+  <th>Load (s)</th>
+  <th>Tokens</th>
+  <th>Gen (s)</th>
+  <th style="min-width:200px">Tokens/sec</th>
+  <th>Prompt</th>
+</tr>
+<tr onclick="scrollToResponse(0)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">1</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ top-p <span class="variant-tag">top-p</span><br><span class="afm-tag">--top-p 0.9</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#3fb950;font-weight:700">5</td>
+  <td>0.8</td>
+  <td>1.0</td>
+  <td>590</td>
+  <td>5.36</td>
+  <td><div class="bar"><div class="bar-fill" style="width:100%;background:#3fb950"></div><div class="bar-label">110.1</div></div></td>
+  <td class="preview" title="Explain why the sky is blue in exactly 3 bullet points.">Explain why the sky is blue in exactly 3 bullet points.</td>
+</tr>
+<tr onclick="scrollToResponse(1)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">2</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ combined-samplers <span class="variant-tag">combined-samplers</span><br><span class="afm-tag">--top-k 50 --min-p 0.03 --top-p 0.95</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#3fb950;font-weight:700">5</td>
+  <td>0.8</td>
+  <td>1.0</td>
+  <td>641</td>
+  <td>5.9</td>
+  <td><div class="bar"><div class="bar-fill" style="width:99%;background:#3fb950"></div><div class="bar-label">108.6</div></div></td>
+  <td class="preview" title="Explain why the sky is blue in exactly 3 bullet points.">Explain why the sky is blue in exactly 3 bullet points.</td>
+</tr>
+<tr onclick="scrollToResponse(2)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">3</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ agent-cached-turn1 <span class="variant-tag">agent-cached-turn1</span><br><span class="afm-tag">--enable-prefix-caching</span></td>
+  <td class="status-ok">OK</td>
+  <td class="ai-score" style="color:#58a6ff;font-weight:700">4</td>
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>67</td>
+  <td>1.13</td>
+  <td><div class="bar"><div class="bar-fill" style="width:54%;background:#d29922"></div><div class="bar-label">59.5</div></div></td>
+  <td class="preview" title="Read the file Sources/MacLocalAPI/main.swift and explain what it does.">Read the file Sources/MacLocalAPI/main.swift and explain wha...</td>
+</tr>
+
+</table>
+
+
+
+<h2>AI Analysis (--smart)</h2>
+
+<div class="response-section">
+  <h3 class="response-header" onclick="toggleSmart_0()">
+    <span class="toggle-icon" id="smart-icon-0">&#9654;</span>
+    <span>Quality, Anomalies &amp; Recommendations &middot; avg score: 4.2/5</span>
+  </h3>
+  <div class="response-body" id="smart-body-0" style="display:none">
+    <div class="rendered-content" id="smart-content-0"></div>
+  </div>
+</div>
+<script>
+var smartData_0 = "# Per-Test AI Analysis\n\n### 0. \n**Score: 5/5** \u2705 | Status:  | 0.0 tok/s\n> Exactly 3 bullet points, scientifically accurate explanation of Rayleigh scattering, coherent and well-structured. Meets expected outcome perfectly.\n\n### 1. mlx-community/Qwen3.5-35B-A3B-4bit @ top-p @ top-p\n**Score: 5/5** \u2705 | Status: OK | 110.1 tok/s\n> Exactly 3 bullet points explaining Rayleigh scattering, correct science, concise and well-structured. Combined samplers (top_k+min_p+top_p+temp) produced coherent output.\n\n### 2. mlx-community/Qwen3.5-35B-A3B-4bit @ combined-samplers @ combined-samplers\n**Score: 4/5** \ud83d\udc4d | Status: OK | 108.6 tok/s\n> Model correctly invoked read_file tool as expected for an agent/tool-call scenario. Reasoning shows understanding. Content is appropriate first step - reading before explaining. Minor: didn't complete the explanation (would need tool result), but this is expected behavior for a single-turn tool-use test with prefix caching.\n\n### 3. mlx-community/Qwen3.5-35B-A3B-4bit @ agent-cached-turn1 @ agent-cached-turn1\n**Score: 3/5** \u26a0\ufe0f | Status: OK | 59.5 tok/s\n\n---\n**Summary**: 3/4 passed (score \u2265 4), 0 failed (score \u2264 2)";
+var smartRendered_0 = false;
+function toggleSmart_0() {
+  var body = document.getElementById('smart-body-0');
+  var icon = document.getElementById('smart-icon-0');
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    icon.classList.add('open');
+    if (!smartRendered_0) {
+      smartRendered_0 = true;
+      var el = document.getElementById('smart-content-0');
+      if (typeof marked !== 'undefined') {
+        el.innerHTML = marked.parse(smartData_0);
+      } else {
+        el.innerHTML = '<pre>' + smartData_0.replace(/</g, '&lt;') + '</pre>';
+      }
+    }
+  } else {
+    body.style.display = 'none';
+    icon.classList.remove('open');
+  }
+}
+</script>
+
+
+<h2>Full Responses</h2>
+<button class="expand-all" onclick="toggleAll()">Expand / Collapse All</button>
+
+<script>var responseData = {};</script>
+
+<div class="response-section" id="resp-0">
+  <h3 class="response-header" onclick="toggleResponse(0)">
+    <span class="toggle-icon" id="icon-0">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ top-p</span>
+    <span class="response-meta">590 tokens &middot; 110.1 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-0" style="display:none">
+    <div class="config-panel"><div class="config-row"><span class="config-row-label">CLI</span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--top-p 0.9</strong></span></div>
+<div class="config-row"><span class="config-row-label">API</span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>top-p</strong></span> <span class="config-badge" style="border-color:#d29922">temp: <strong>0.8</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span></div>
+<div class="config-row"><span class="config-row-label">Perf</span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>5.36s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>35</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>590</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>110.1</strong></span></div></div>
+    <details class="ai-detail">
+      <summary class="ai-detail-summary">🎯 Test Intent</summary>
+      <div class="ai-detail-body">Tests nucleus sampling (top_p=0.9). Feature: --top-p CLI flag.<br>Expected: coherent 3-bullet response, quality between greedy and high-temp.</div>
+    </details>
+    <details class="ai-detail">
+      <summary class="ai-detail-summary">🤖 AI Scores</summary>
+      <div class="ai-detail-body"><div style='margin:4px 0'><span style="color:#3fb950;font-weight:700">5/5 ✅</span> <strong>claude</strong>: <span style="color:#8b949e">Exactly 3 bullet points, scientifically accurate explanation of Rayleigh scattering, coherent and well-structured. Meets expected outcome perfectly.</span></div></div>
+    </details>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Explain why the sky is blue in exactly 3 bullet points.</div>
+    <div class="rendered-content" id="content-0"></div>
+  </div>
+</div>
+<script>responseData[0] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Topic: Why the sky is blue.\n    *   Constraint: Exactly 3 bullet points.\n    *   Goal: Explain the scientific reason clearly and concisely.\n\n2.  **Identify Key Scientific Concepts:**\n    *   Sunlight/White light (contains all colors).\n    *   Atmosphere/Gas molecules.\n    *   Scattering (Rayleigh scattering).\n    *   Wavelengths (Blue/violet scatter more than red).\n    *   Human eye sensitivity (we see blue better than violet).\n\n3.  **Drafting Bullet Points (Iterative Process):**\n\n    *   *Draft 1:*\n        *   Sunlight is made of many colors.\n        *   Blue light scatters more because it has shorter wavelengths.\n        *   Our eyes are better at seeing blue than violet.\n\n    *   *Refining for Accuracy and Flow:*\n        *   Sunlight reaches Earth as white light, which is actually a spectrum of all visible colors.\n        *   The atmosphere scatters shorter wavelengths (like blue and violet) more than longer ones (like red) due to Rayleigh scattering.\n        *   Human eyes perceive the scattered light as blue rather than violet because we are more sensitive to blue and the sun emits more blue light than violet.\n\n    *   *Checking Constraints:*\n        *   Is it exactly 3 bullet points? Yes.\n        *   Is it accurate? Yes.\n        *   Is it concise? Yes.\n\n4.  **Final Polish:**\n    *   Make sure each point is a complete thought but fits the bullet style.\n\n    *   *Point 1:* Sunlight contains all colors of the rainbow, but travels through Earth's atmosphere filled with gas molecules.\n    *   *Point 2:* Shorter wavelengths of light scatter more easily than longer ones, causing blue and violet light to spread out in all directions (Rayleigh scattering).\n    *   *Point 3:* Human eyes are more sensitive to blue light than violet, and the sun emits more blue light, making the sky appear blue to us.\n\n5.  **Final Count Check:** 1, 2, 3. Perfect.\n\n6.  **Final Output Generation** (matching the polished version).\n\n</details>\n\n* Sunlight contains all colors of the rainbow, but as it passes through Earth's atmosphere, it encounters gas molecules that scatter the light.\n* Shorter wavelengths, such as blue and violet, scatter much more easily than longer wavelengths like red due to a phenomenon known as Rayleigh scattering.\n* Human eyes are more sensitive to blue light than violet, and the sun emits more blue light than violet, causing us to perceive the scattered sky as blue.";</script>
+
+<div class="response-section" id="resp-1">
+  <h3 class="response-header" onclick="toggleResponse(1)">
+    <span class="toggle-icon" id="icon-1">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ combined-samplers</span>
+    <span class="response-meta">641 tokens &middot; 108.6 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-1" style="display:none">
+    <div class="config-panel"><div class="config-row"><span class="config-row-label">CLI</span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--top-k 50 --min-p 0.03 --top-p 0.95</strong></span></div>
+<div class="config-row"><span class="config-row-label">API</span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>combined-samplers</strong></span> <span class="config-badge" style="border-color:#d29922">temp: <strong>0.8</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span></div>
+<div class="config-row"><span class="config-row-label">Perf</span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>5.9s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>35</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>641</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>108.6</strong></span></div></div>
+    <details class="ai-detail">
+      <summary class="ai-detail-summary">🎯 Test Intent</summary>
+      <div class="ai-detail-body">Tests combined sampler chain: top-k → min-p → temperature (llama.cpp order).<br>Feature: all three sampling flags applied together. Expected: coherent response.<br>Verifies the sampler chain doesn&#x27;t conflict or crash when all are combined.</div>
+    </details>
+    <details class="ai-detail">
+      <summary class="ai-detail-summary">🤖 AI Scores</summary>
+      <div class="ai-detail-body"><div style='margin:4px 0'><span style="color:#3fb950;font-weight:700">5/5 ✅</span> <strong>claude</strong>: <span style="color:#8b949e">Exactly 3 bullet points explaining Rayleigh scattering, correct science, concise and well-structured. Combined samplers (top_k+min_p+top_p+temp) produced coherent output.</span></div></div>
+    </details>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Explain why the sky is blue in exactly 3 bullet points.</div>
+    <div class="rendered-content" id="content-1"></div>
+  </div>
+</div>
+<script>responseData[1] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Topic: Why the sky is blue.\n    *   Constraint: Exactly 3 bullet points.\n    *   Goal: Explain the phenomenon accurately and concisely.\n\n2.  **Identify Key Scientific Concepts:**\n    *   Sunlight (white light) contains all colors of the rainbow.\n    *   Atmosphere contains gases and particles.\n    *   Scattering (Rayleigh scattering).\n    *   Wavelengths (blue/violet scatter more than red).\n    *   Human eye sensitivity (we see blue better than violet).\n\n3.  **Draft Bullet Points (Iterative Process):**\n\n    *   *Draft 1:*\n        *   Sunlight is made of many colors.\n        *   Blue light hits gas molecules and scatters more than red light.\n        *   Our eyes are more sensitive to blue than violet.\n\n    *   *Refinement (More precise):*\n        *   Sunlight appears white but is actually composed of all colors of the visible spectrum, each with different wavelengths.\n        *   Shorter wavelengths like blue and violet scatter more easily when hitting atmospheric gases, a process known as Rayleigh scattering.\n        *   Human eyes are more sensitive to blue light than violet, and the sun emits more blue light, making the sky appear blue to us.\n\n    *   *Check Constraints:*\n        *   Topic: Sky is blue? Yes.\n        *   Bullet points: 3? Yes.\n        *   Quality: Accurate? Yes.\n\n4.  **Final Polish (Ensuring clarity and brevity):**\n    *   Point 1: Sunlight composition.\n    *   Point 2: Scattering mechanism (Rayleigh).\n    *   Point 3: Human perception (why not violet).\n\n    *   *Revised Point 1:* Sunlight is composed of all colors of the visible spectrum, but these colors travel as waves of different lengths.\n    *   *Revised Point 2:* When sunlight reaches Earth's atmosphere, shorter blue waves scatter more easily against gas molecules than longer red waves due to a process called Rayleigh scattering.\n    *   *Revised Point 3:* Although violet light scatters even more than blue, human eyes are more sensitive to blue wavelengths and the sun emits more blue light, resulting in a blue sky.\n\n5.  **Final Count Check:** 1, 2, 3 bullets. Perfect.\n\n6.  **Final Output Generation.** (Matches the thought process above).ot\n\n</details>\n\n*   Sunlight is composed of all colors of the visible spectrum, but these colors travel as waves of different lengths.\n*   When sunlight reaches Earth's atmosphere, shorter blue waves scatter more easily against gas molecules than longer red waves due to a process called Rayleigh scattering.\n*   Although violet light scatters even more than blue, human eyes are more sensitive to blue wavelengths and the sun emits more blue light, resulting in a blue sky.";</script>
+
+<div class="response-section" id="resp-2">
+  <h3 class="response-header" onclick="toggleResponse(2)">
+    <span class="toggle-icon" id="icon-2">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ agent-cached-turn1</span>
+    <span class="response-meta">67 tokens &middot; 59.5 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-2" style="display:none">
+    <div class="config-panel"><div class="config-row"><span class="config-row-label">CLI</span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--enable-prefix-caching</strong></span> <span class="config-badge" style="border-color:#3fb950">system: <strong>You are an expert coding assistant. You have access to the following tools:\n\n1...</strong></span></div>
+<div class="config-row"><span class="config-row-label">API</span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>agent-cached-turn1</strong></span> <span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span></div>
+<div class="config-row"><span class="config-row-label">Perf</span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>1.13s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>224</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>67</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>59.5</strong></span></div></div>
+    <details class="ai-detail">
+      <summary class="ai-detail-summary">🎯 Test Intent</summary>
+      <div class="ai-detail-body">Cached turn 1 (caching enabled). Feature: --enable-prefix-caching.<br>Expected: same quality as no-cache turn 1. This is the first request with this<br>system prompt, so TTFT may be similar (cache miss). The cache gets populated here.</div>
+    </details>
+    <details class="ai-detail">
+      <summary class="ai-detail-summary">🤖 AI Scores</summary>
+      <div class="ai-detail-body"><div style='margin:4px 0'><span style="color:#58a6ff;font-weight:700">4/5 👍</span> <strong>claude</strong>: <span style="color:#8b949e">Model correctly invoked read_file tool as expected for an agent/tool-call scenario. Reasoning shows understanding. Content is appropriate first step - reading before explaining. Minor: didn&#x27;t complete the explanation (would need tool result), but this is expected behavior for a single-turn tool-use test with prefix caching.</span></div></div>
+    </details>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Read the file Sources/MacLocalAPI/main.swift and explain what it does.</div>
+    <div class="rendered-content" id="content-2"></div>
+  </div>
+</div>
+<script>responseData[2] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThe user wants me to read the file `Sources/MacLocalAPI/main.swift` and explain what it does. Let me first read the file to understand its contents.\n\n</details>\n\nI'll read the file to understand what it does.\n\n<read_file path=\"Sources/MacLocalAPI/main.swift\">\n</read_file>";</script>
+
+
+<script>
+// Toggle individual response
+function toggleResponse(idx) {
+  var body = document.getElementById('body-' + idx);
+  var icon = document.getElementById('icon-' + idx);
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    icon.classList.add('open');
+    renderContent(idx);
+  } else {
+    body.style.display = 'none';
+    icon.classList.remove('open');
+  }
+}
+
+// Scroll from perf table to response
+function scrollToResponse(idx) {
+  var el = document.getElementById('resp-' + idx);
+  var body = document.getElementById('body-' + idx);
+  var icon = document.getElementById('icon-' + idx);
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    icon.classList.add('open');
+    renderContent(idx);
+  }
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Expand/collapse all
+var allExpanded = false;
+function toggleAll() {
+  allExpanded = !allExpanded;
+  for (var key in responseData) {
+    var body = document.getElementById('body-' + key);
+    var icon = document.getElementById('icon-' + key);
+    if (allExpanded) {
+      body.style.display = 'block';
+      icon.classList.add('open');
+      renderContent(parseInt(key));
+    } else {
+      body.style.display = 'none';
+      icon.classList.remove('open');
+    }
+  }
+}
+
+// Render markdown + LaTeX for a response
+var rendered = {};
+function renderContent(idx) {
+  if (rendered[idx]) return;
+  rendered[idx] = true;
+  var raw = responseData[idx] || '';
+
+  // Strip <think>...</think> blocks (some models emit reasoning)
+  raw = raw.replace(/<think>[\s\S]*?<\/think>/g, '');
+  // Strip channel markers like <|channel|>analysis<|message|>
+  raw = raw.replace(/<\|channel\|>[^<]*<\|message\|>/g, '');
+
+  var el = document.getElementById('content-' + idx);
+
+  // Use marked to parse markdown
+  if (typeof marked !== 'undefined') {
+    el.innerHTML = marked.parse(raw);
+  } else {
+    el.innerHTML = '<pre>' + raw.replace(/</g, '&lt;') + '</pre>';
+  }
+
+  // Typeset MathJax
+  if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+    MathJax.typesetPromise([el]).catch(function(err) { console.warn('MathJax error:', err); });
+  }
+}
+</script>
+
+</body>
+</html>
