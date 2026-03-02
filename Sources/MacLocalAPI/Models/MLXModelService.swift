@@ -23,13 +23,15 @@ struct StreamChunk: Sendable {
     let toolCalls: [ResponseToolCall]?
     let promptTokens: Int?
     let completionTokens: Int?
+    let cachedTokens: Int?
 
-    init(text: String, logprobs: [ResolvedLogprob]? = nil, toolCalls: [ResponseToolCall]? = nil, promptTokens: Int? = nil, completionTokens: Int? = nil) {
+    init(text: String, logprobs: [ResolvedLogprob]? = nil, toolCalls: [ResponseToolCall]? = nil, promptTokens: Int? = nil, completionTokens: Int? = nil, cachedTokens: Int? = nil) {
         self.text = text
         self.logprobs = logprobs
         self.toolCalls = toolCalls
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
+        self.cachedTokens = cachedTokens
     }
 }
 
@@ -253,7 +255,7 @@ final class MLXModelService: @unchecked Sendable {
         tools: [RequestTool]? = nil,
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil
-    ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?) {
+    ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?, cachedTokens: Int) {
         try beginOperation()
         defer { endOperation() }
 
@@ -287,6 +289,7 @@ final class MLXModelService: @unchecked Sendable {
         var resolvedLogprobs: [ResolvedLogprob]? = nil
         var collectedToolCalls = [ToolCall]()
         var completionInfo: GenerateCompletionInfo? = nil
+        var cachedTokenCount = 0
         let promptCache = self.promptCache
         let generated: String = try await container.perform { context in
             let input = try await context.processor.prepare(input: userInput)
@@ -338,6 +341,7 @@ final class MLXModelService: @unchecked Sendable {
                         // Build suffix-only input
                         let suffixTokens = Array(inputTokens[prefixLen...])
                         generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
+                        cachedTokenCount = prefixLen
                         if debugLogging {
                             print("[KVCache] Prefix match: \(prefixLen)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix tokens")
                         }
@@ -471,7 +475,7 @@ final class MLXModelService: @unchecked Sendable {
 
         let promptTokens = completionInfo?.promptTokenCount ?? estimateTokens(promptText)
         let completionTokens = completionInfo?.generationTokenCount ?? estimateTokens(generated)
-        return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls)
+        return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount)
     }
 
     func generateStreaming(
@@ -548,6 +552,7 @@ final class MLXModelService: @unchecked Sendable {
                         let inputTokens = useCache ? self.extractTokenArray(input) : []
                         var generationCache: [KVCache]
                         var generateInput: LMInput
+                        var streamCachedTokens = 0
 
                         if useCache {
                             var prefixLen = self.findPrefixLength(incoming: inputTokens, currentModelID: modelID)
@@ -563,6 +568,7 @@ final class MLXModelService: @unchecked Sendable {
                                     self.trimCacheToLength(generationCache, keepTokens: prefixLen)
                                     let suffixTokens = Array(inputTokens[prefixLen...])
                                     generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
+                                    streamCachedTokens = prefixLen
                                     if debugLogging {
                                         print("[KVCache] Prefix match: \(prefixLen)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix tokens")
                                     }
@@ -587,6 +593,9 @@ final class MLXModelService: @unchecked Sendable {
                                 print("[KVCache] Multimodal input, skipping cache")
                             }
                         }
+
+                        // Emit cached token count so the controller can include it in usage
+                        continuation.yield(StreamChunk(text: "", cachedTokens: streamCachedTokens))
 
                         let activeStops = stop?.filter { !$0.isEmpty } ?? []
                         // Buffer to handle stop strings that span chunk boundaries.

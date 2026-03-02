@@ -29,7 +29,7 @@ struct ChatCompletionResponse: Content {
         }
     }
 
-    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0) {
+    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion"
         self.created = Int(Date().timeIntervalSince1970)
@@ -45,12 +45,13 @@ struct ChatCompletionResponse: Content {
         self.usage = Usage(
             promptTokens: promptTokens,
             completionTokens: completionTokens,
-            totalTokens: promptTokens + completionTokens
+            totalTokens: promptTokens + completionTokens,
+            cachedTokens: cachedTokens
         )
         self.systemFingerprint = Self.fingerprint(for: model)
     }
 
-    init(id: String = UUID().uuidString, model: String, toolCalls: [ResponseToolCall], logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0) {
+    init(id: String = UUID().uuidString, model: String, toolCalls: [ResponseToolCall], logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion"
         self.created = Int(Date().timeIntervalSince1970)
@@ -66,7 +67,8 @@ struct ChatCompletionResponse: Content {
         self.usage = Usage(
             promptTokens: promptTokens,
             completionTokens: completionTokens,
-            totalTokens: promptTokens + completionTokens
+            totalTokens: promptTokens + completionTokens,
+            cachedTokens: cachedTokens
         )
         self.systemFingerprint = Self.fingerprint(for: model)
     }
@@ -153,15 +155,32 @@ struct ResponseToolCallFunction: Content {
     let arguments: String    // JSON string
 }
 
+struct PromptTokensDetails: Content {
+    let cachedTokens: Int
+
+    enum CodingKeys: String, CodingKey {
+        case cachedTokens = "cached_tokens"
+    }
+}
+
 struct Usage: Content {
     let promptTokens: Int
     let completionTokens: Int
     let totalTokens: Int
+    let promptTokensDetails: PromptTokensDetails?
 
     enum CodingKeys: String, CodingKey {
         case promptTokens = "prompt_tokens"
         case completionTokens = "completion_tokens"
         case totalTokens = "total_tokens"
+        case promptTokensDetails = "prompt_tokens_details"
+    }
+
+    init(promptTokens: Int, completionTokens: Int, totalTokens: Int, cachedTokens: Int? = nil) {
+        self.promptTokens = promptTokens
+        self.completionTokens = completionTokens
+        self.totalTokens = totalTokens
+        self.promptTokensDetails = cachedTokens.map { PromptTokensDetails(cachedTokens: $0) }
     }
 }
 
@@ -313,6 +332,7 @@ struct StreamUsage: Content {
     let promptTokens: Int
     let completionTokens: Int
     let totalTokens: Int
+    let promptTokensDetails: PromptTokensDetails?
     let completionTime: Double?
     let promptTime: Double?
     let totalTime: Double?
@@ -323,6 +343,7 @@ struct StreamUsage: Content {
         case promptTokens = "prompt_tokens"
         case completionTokens = "completion_tokens"
         case totalTokens = "total_tokens"
+        case promptTokensDetails = "prompt_tokens_details"
         case completionTime = "completion_time"
         case promptTime = "prompt_time"
         case totalTime = "total_time"
@@ -330,10 +351,11 @@ struct StreamUsage: Content {
         case completionTokensPerSecond = "completion_tokens_per_second"
     }
 
-    init(promptTokens: Int, completionTokens: Int, completionTime: Double, promptTime: Double = 0.0) {
+    init(promptTokens: Int, completionTokens: Int, completionTime: Double, promptTime: Double = 0.0, cachedTokens: Int? = nil) {
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
         self.totalTokens = promptTokens + completionTokens
+        self.promptTokensDetails = cachedTokens.map { PromptTokensDetails(cachedTokens: $0) }
         self.completionTime = (completionTime * 100).rounded() / 100
         self.promptTime = (promptTime * 100).rounded() / 100
         self.totalTime = ((promptTime + completionTime) * 100).rounded() / 100

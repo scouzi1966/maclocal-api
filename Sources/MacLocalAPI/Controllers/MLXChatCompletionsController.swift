@@ -182,7 +182,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     toolCalls: toolCalls,
                     logprobs: choiceLogprobs,
                     promptTokens: result.promptTokens,
-                    completionTokens: completionTok
+                    completionTokens: completionTok,
+                    cachedTokens: result.cachedTokens
                 )
                 if veryVerbose {
                     req.logger.info("\(Self.teal)[\(Self.timestamp())] SEND full response:\n\(encodeJSON(response))\(Self.reset)")
@@ -212,7 +213,8 @@ struct MLXChatCompletionsController: RouteCollection {
                 reasoningContent: reasoningContent,
                 logprobs: choiceLogprobs,
                 promptTokens: result.promptTokens,
-                completionTokens: completionTok
+                completionTokens: completionTok,
+                cachedTokens: result.cachedTokens
             )
             if veryVerbose {
                 req.logger.info("\(Self.teal)[\(Self.timestamp())] SEND full response:\n\(encodeJSON(response))\(Self.reset)")
@@ -296,6 +298,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 var hasToolCalls = false
                 var realPromptTokens: Int? = nil
                 var realCompletionTokens: Int? = nil
+                var realCachedTokens: Int? = nil
 
                 // Token-level tool call detection (mlx-lm style).
                 // Instead of buffering ALL content when tools are present, detect
@@ -342,6 +345,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     // Capture real token counts from the info chunk
                     if let pt = streamChunk.promptTokens { realPromptTokens = pt }
                     if let ct = streamChunk.completionTokens { realCompletionTokens = ct }
+                    if let cached = streamChunk.cachedTokens { realCachedTokens = cached }
 
                     // Handle tool call chunks from the vendor parser
                     if let tcs = streamChunk.toolCalls, !tcs.isEmpty {
@@ -968,7 +972,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     promptTokens: promptTokens,
                     completionTokens: completionTokens,
                     completionTime: generationDuration,
-                    promptTime: 0
+                    promptTime: 0,
+                    cachedTokens: realCachedTokens
                 )
                 let finalChunk = ChatCompletionStreamResponse(
                     id: streamId,
