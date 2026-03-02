@@ -120,7 +120,37 @@ struct MlxCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "mlx",
         abstract: "Run local MLX LLM/VLM models via AFM",
-        discussion: "Uses MLX Swift libraries + HuggingFace Hub. Model cache root can be overridden with MACAFM_MLX_MODEL_CACHE. Metallib path can be overridden with MACAFM_MLX_METALLIB."
+        discussion: """
+        ---
+        name: afm-mlx
+        description: Run MLX-format LLM/VLM models from Hugging Face on Apple Silicon with OpenAI-compatible API. Supports streaming, tool calling, logprobs, thinking/reasoning extraction, prompt caching, quantized KV cache, and all OpenAI sampling parameters.
+        tags: [mlx, huggingface, llm, vlm, inference, streaming, tool-calling, logprobs, thinking, sampling, quantization, kv-cache, prompt-caching]
+        api_endpoints: [/v1/chat/completions, /v1/models]
+        env_vars:
+          MACAFM_MLX_MODEL_CACHE: Override model download/cache directory (avoids re-downloading)
+          MACAFM_MLX_METALLIB: Override Metal library path
+          AFM_DEBUG: Enable debug logging (KVCache stats, tool call detection, timing)
+          AFM_PERF: Enable per-token performance breakdown (model, eval, sync, overhead)
+        sampling_parameters: [temperature, top_p, top_k, min_p, presence_penalty, repetition_penalty, seed, max_tokens, logprobs, top_logprobs]
+        features: [streaming-sse, tool-calling, think-reasoning-extraction, stop-sequences, json-mode, prompt-caching, vlm-image-input]
+        triggers:
+          - run MLX model
+          - local Hugging Face model inference
+          - MLX tool calling
+          - MLX streaming server
+          - quantized model inference
+        examples:
+          - afm mlx -m Qwen/Qwen3-Coder-Next-4bit --port 9999
+          - afm mlx -m mlx-community/Llama-3.1-8B-Instruct-4bit --top-k 40 --min-p 0.05
+          - afm mlx -m org/model -s "Explain quicksort" --temperature 0.7
+          - afm mlx -m org/model --vlm --media photo.jpg -s "Describe this image"
+          - MACAFM_MLX_MODEL_CACHE=/path/to/cache afm mlx -m org/model
+        ---
+
+        Uses MLX Swift libraries + HuggingFace Hub.
+        Model cache root can be overridden with MACAFM_MLX_MODEL_CACHE.
+        Metallib path can be overridden with MACAFM_MLX_METALLIB.
+        """
     )
 
     @Option(name: [.customShort("m"), .long], help: "Model id (org/model or model). If org omitted, defaults to mlx-community.")
@@ -556,11 +586,42 @@ struct MlxCommand: ParsableCommand {
 
 struct MacLocalAPI: ParsableCommand {
     static let buildVersion: String = BuildInfo.fullVersion
-    
+
     static let configuration = CommandConfiguration(
         commandName: "afm",
         abstract: "macOS server that exposes Apple's Foundation Models through OpenAI-compatible API",
-        discussion: "Use -w to enable the WebUI, -g to enable API gateway mode, or `afm mlx` for local MLX models.\n\nGitHub: https://github.com/scouzi1966/maclocal-api",
+        discussion: """
+        ---
+        name: afm
+        description: OpenAI-compatible local LLM inference server for Apple Silicon. Supports Apple Foundation Models (on-device), MLX models from Hugging Face, API gateway proxying to local backends, and Vision OCR. Exposes /v1/chat/completions and /v1/models endpoints.
+        tags: [llm, inference, apple-silicon, openai-compatible, mlx, foundation-models, local, server, api, streaming, tool-calling, vision, ocr, gateway]
+        subcommands: [serve, mlx, vision]
+        api_endpoints: [/v1/chat/completions, /v1/models]
+        env_vars:
+          MACAFM_MLX_MODEL_CACHE: Override model cache directory
+          MACAFM_MLX_METALLIB: Override metallib path
+          AFM_DEBUG: Enable debug logging (KVCache, tool calls, timing)
+          AFM_PERF: Enable per-token performance instrumentation
+        triggers:
+          - start local LLM server
+          - run MLX model locally
+          - OpenAI-compatible local inference
+          - Apple Foundation Models API
+          - local tool calling server
+          - vision OCR text extraction
+          - API gateway for local LLM backends
+        examples:
+          - afm --port 9999
+          - afm mlx -m Qwen/Qwen3-Coder-Next-4bit --port 9999
+          - afm mlx -m mlx-community/Meta-Llama-3.1-8B-Instruct-4bit -s "Hello"
+          - afm vision -f image.png
+          - afm -g --port 9999
+        ---
+
+        Use -w to enable the WebUI, -g to enable API gateway mode, or `afm mlx` for local MLX models.
+
+        GitHub: https://github.com/scouzi1966/maclocal-api
+        """,
         version: buildVersion
     )
 }
@@ -569,7 +630,38 @@ struct RootCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "afm",
         abstract: "macOS server that exposes Apple's Foundation Models through OpenAI-compatible API",
-        discussion: "Use -w to enable the WebUI, -g to enable API gateway mode, or `afm mlx` for local MLX models.\n\nGitHub: https://github.com/scouzi1966/maclocal-api",
+        discussion: """
+        ---
+        name: afm
+        description: OpenAI-compatible local LLM inference server for Apple Silicon. Supports Apple Foundation Models (on-device), MLX models from Hugging Face, API gateway proxying to local backends, and Vision OCR. Exposes /v1/chat/completions and /v1/models endpoints.
+        tags: [llm, inference, apple-silicon, openai-compatible, mlx, foundation-models, local, server, api, streaming, tool-calling, vision, ocr, gateway]
+        subcommands: [serve, mlx, vision]
+        api_endpoints: [/v1/chat/completions, /v1/models]
+        env_vars:
+          MACAFM_MLX_MODEL_CACHE: Override model cache directory
+          MACAFM_MLX_METALLIB: Override metallib path
+          AFM_DEBUG: Enable debug logging (KVCache, tool calls, timing)
+          AFM_PERF: Enable per-token performance instrumentation
+        triggers:
+          - start local LLM server
+          - run MLX model locally
+          - OpenAI-compatible local inference
+          - Apple Foundation Models API
+          - local tool calling server
+          - vision OCR text extraction
+          - API gateway for local LLM backends
+        examples:
+          - afm --port 9999
+          - afm mlx -m Qwen/Qwen3-Coder-Next-4bit --port 9999
+          - afm mlx -m mlx-community/Meta-Llama-3.1-8B-Instruct-4bit -s "Hello"
+          - afm vision -f image.png
+          - afm -g --port 9999
+        ---
+
+        Use -w to enable the WebUI, -g to enable API gateway mode, or `afm mlx` for local MLX models.
+
+        GitHub: https://github.com/scouzi1966/maclocal-api
+        """,
         version: MacLocalAPI.buildVersion,
         subcommands: [MlxCommand.self, VisionCommand.self]
     )

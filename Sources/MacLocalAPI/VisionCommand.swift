@@ -6,10 +6,28 @@ struct VisionCommand: ParsableCommand {
         commandName: "vision",
         abstract: "Extract text from images using Apple's Vision framework",
         discussion: """
+        ---
+        name: afm-vision
+        description: Extract text and tables from images and documents using Apple's Vision framework OCR. Outputs plain text or CSV-formatted tables. Runs locally on-device with no network access required.
+        tags: [vision, ocr, text-extraction, table-extraction, pdf, image, csv, apple-vision, on-device]
+        supported_formats: [PNG, JPG, JPEG, HEIC, PDF]
+        triggers:
+          - extract text from image
+          - OCR document
+          - extract table from image
+          - convert image to text
+          - PDF text extraction
+        examples:
+          - afm vision -f image.png
+          - afm vision --file /path/to/document.pdf
+          - afm vision -f report.png --table
+          - afm vision -f invoice.pdf -t --verbose
+        ---
+
         Use Apple's Vision framework to perform OCR (Optical Character Recognition) on images and documents.
-        
+
         Supported formats: PNG, JPG, JPEG, HEIC, PDF
-        
+
         Examples:
           afm vision -f image.png                    # Extract all text
           afm vision --file /path/to/document.pdf    # Extract text from PDF
