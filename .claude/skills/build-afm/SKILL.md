@@ -27,14 +27,14 @@ uname -m   # must be "arm64"
 # 2. macOS version (Package.swift requires macOS 26+)
 sw_vers -productVersion   # must be 26.0 or higher
 
-# 3. Xcode (full install — mlx-swift uses Metal framework SDK, not available in standalone CLI Tools)
+# 3. Homebrew (must come before brew-installed tools)
+brew --version
+
+# 4. Xcode (full install — mlx-swift uses Metal framework SDK, not available in standalone CLI Tools)
 xcode-select -p           # must point to Xcode.app, NOT /Library/Developer/CommandLineTools
 swift --version           # needs Swift 5.9+ (swift-tools-version: 5.9)
 
-# 4. Homebrew (used to install Node.js, Git, and other tools)
-brew --version
-
-# 5. Git (for submodule operations)
+# 5. Git (for submodule operations — installed via brew or Xcode)
 git --version
 
 # 6. Node.js + npm (for llama.cpp webui build — Svelte/Vite frontend)
@@ -42,18 +42,18 @@ node --version            # Node 18+ recommended
 npm --version
 ```
 
-**Present results as a checklist to the user.** For each item, show pass/fail and the reason it's needed. Always show the install command (even on pass) so users can copy-paste for other machines:
+**Present results as a checklist to the user** in dependency order (install top-to-bottom). For each item, show pass/fail, reason, and install command (even on pass, for copy-paste on other machines):
 
-| Prerequisite | Check | Status | Reason | Install |
-|---|---|---|---|---|
-| Apple Silicon | `uname -m` = arm64 | pass/fail | MLX framework requires ARM64 GPU | N/A (hardware requirement) |
-| macOS 26+ (Tahoe) | `sw_vers` >= 26.0 | pass/fail | Foundation Models backend + SDK APIs | System Settings > Software Update |
-| Xcode (full) | `xcode-select -p` points to Xcode.app | pass/fail | mlx-swift uses Metal SDK (not in standalone CLI Tools) | Install from App Store → search "Xcode" |
-| Swift 5.9+ | `swift --version` | pass/fail | swift-tools-version: 5.9 in Package.swift | Included with Xcode |
-| Homebrew | `brew --version` | pass/fail | Package manager for Node.js, Git | `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"` |
-| Git | `git --version` | pass/fail | Submodule init (mlx-swift-lm, llama.cpp) | `brew install git` |
-| Node.js 18+ | `node --version` | pass/fail | llama.cpp webui build (Svelte/Vite) | `brew install node` |
-| npm | `npm --version` | pass/fail | `npm install` + `npm run build` for webui | Included with Node.js |
+| # | Prerequisite | Check | Status | Reason | Install |
+|---|---|---|---|---|---|
+| 1 | Apple Silicon | `uname -m` = arm64 | pass/fail | MLX framework requires ARM64 GPU | N/A (hardware requirement) |
+| 2 | macOS 26+ (Tahoe) | `sw_vers` >= 26.0 | pass/fail | Foundation Models backend + SDK APIs | System Settings > Software Update |
+| 3 | Homebrew | `brew --version` | pass/fail | Package manager — Git, Node.js depend on it | `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"` |
+| 4 | Xcode (full) | `xcode-select -p` points to Xcode.app | pass/fail | mlx-swift uses Metal SDK (not in standalone CLI Tools) | Install from App Store → search "Xcode" |
+| 5 | Swift 5.9+ | `swift --version` | pass/fail | swift-tools-version: 5.9 in Package.swift | Included with Xcode |
+| 6 | Git | `git --version` | pass/fail | Submodule init (mlx-swift-lm, llama.cpp) | `brew install git` |
+| 7 | Node.js 18+ | `node --version` | pass/fail | llama.cpp webui build (Svelte/Vite) | `brew install node` |
+| 8 | npm | `npm --version` | pass/fail | `npm install` + `npm run build` for webui | Included with Node.js |
 
 **Important Xcode notes:**
 - Standalone CLI Tools (`xcode-select --install`) are NOT sufficient — mlx-swift imports the Metal framework which requires the full Xcode SDK
