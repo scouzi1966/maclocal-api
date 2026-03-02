@@ -1,5 +1,17 @@
 If you find this useful, please ⭐ the repo! &nbsp; Also check out [Vesta AI Explorer](https://kruks.ai/) — my full-featured native macOS AI app.
 
+> [!NOTE]
+> **Attention M-series Mac AI enthusiasts!** You don't need to be a Swift developer to explore. Vibe coding really allows anyone to participate in this project.
+>
+> ```bash
+> git clone https://github.com/scouzi1966/maclocal-api.git
+> cd maclocal-api
+> claude
+> /build-afm
+> ```
+>
+> Start vibe coding! I will add support for skills with more coding agents in the future.
+
 # afm — Run Any LLM on Your Mac, 100% Local
 
 Extensive testing of Qwen3.5-35B-A3B with afm. Uses an experimental technique with Claude and Codex as judges for evaluation scoring. Click the link below to view test results.
