@@ -21,6 +21,7 @@ OUTPUT_DIR="$PROJECT_ROOT/test-reports"
 TMP_DIR="/tmp/mlx-upstream"
 TODAY=$(date +%Y%m%d)
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+INVOCATION="$0 $*"
 
 # Colors
 RED='\033[0;31m'
@@ -631,7 +632,8 @@ cat >> "$HTML_FILE" << HTMLHEADER
     Upstream <strong>mlx-swift-lm</strong>: pinned <code>${PINNED_TAG}</code> (${SUBMODULE_SHA:0:7}) &middot; latest tag <code>${LM_LATEST_TAG}</code> &middot; main <code>${LM_MAIN_SHA}</code><br>
     &nbsp;&nbsp;pinned&rarr;latest: ${LM_PINNED_TO_LATEST} commits &middot; latest&rarr;main: ${LM_LATEST_TO_MAIN} commits<br>
     Upstream <strong>mlx-swift</strong>: pin <code>${MLX_SWIFT_PIN}</code> &middot; latest tag <code>${MLX_SWIFT_LATEST_TAG}</code> &middot; main <code>${MLX_SWIFT_MAIN_SHA}</code><br>
-    Generated: $(date '+%Y-%m-%d %H:%M:%S')
+    Generated: $(date '+%Y-%m-%d %H:%M:%S')<br>
+    Command: <code>${INVOCATION}</code>
   </div>
 </div>
 HTMLHEADER
