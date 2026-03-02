@@ -769,7 +769,7 @@ final class MLXModelService: @unchecked Sendable {
                 funcDict["description"] = desc
             }
             if let params = tool.function.parameters {
-                funcDict["parameters"] = params.toSendable()
+                funcDict["parameters"] = params.toJinjaCompatible()
             }
             return [
                 "type": tool.type,
