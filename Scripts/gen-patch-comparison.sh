@@ -40,7 +40,50 @@ while [[ $# -gt 0 ]]; do
     --output-dir) OUTPUT_DIR="$2"; shift 2 ;;
     --tmp-dir)    TMP_DIR="$2"; shift 2 ;;
     -h|--help)
-      echo "Usage: $0 [--output-dir DIR] [--tmp-dir DIR]"
+      cat << 'HELPEOF'
+---
+name: gen-patch-comparison
+description: Generate an HTML + CSV report comparing maclocal-api vendor patches against upstream mlx-swift-lm at three git refs (pinned tag, latest tag, main branch HEAD). Detects upstream-only files not covered by patches. Use when auditing patch drift, planning an upstream merge or upgrade, or checking for new upstream models/features to adopt.
+tags: [mlx, patches, vendor, upstream, comparison, report, audit, upgrade, merge, drift]
+inputs:
+  --output-dir DIR    Directory for generated reports (default: test-reports/)
+  --tmp-dir DIR       Directory for upstream repo clones (default: /tmp/mlx-upstream)
+outputs:
+  - mlx-patch-comparison-TIMESTAMP.html   Interactive HTML report
+  - mlx-patch-comparison-TIMESTAMP.csv    Machine-readable CSV
+requires: [gh, git, diff]
+triggers:
+  - patch comparison report
+  - upstream drift analysis
+  - vendor upgrade audit
+  - check for new upstream models
+  - mlx-swift-lm merge planning
+examples:
+  - ./Scripts/gen-patch-comparison.sh
+  - ./Scripts/gen-patch-comparison.sh --output-dir /tmp/reports
+---
+
+Usage: gen-patch-comparison.sh [--output-dir DIR] [--tmp-dir DIR]
+
+  Generate MLX patch comparison report (HTML + CSV).
+  Compares maclocal-api patches against upstream mlx-swift-lm at three refs:
+    1. Pinned tag (matching vendor submodule, e.g. 2.30.3)
+    2. Latest semver tag (e.g. 2.30.6)
+    3. Main branch HEAD
+
+  Reports include:
+    - Per-file diff stats and conflict risk classification
+    - Upstream-only files not covered by maclocal-api patches
+    - mlx-swift framework changelog between refs
+    - maclocal-api commit SHA and all upstream ref SHAs
+
+Options:
+  --output-dir DIR    Output directory for reports (default: test-reports/)
+  --tmp-dir DIR       Temp directory for upstream clones (default: /tmp/mlx-upstream)
+  -h, --help          Show this help message
+
+Requires: gh (GitHub CLI), git, diff
+HELPEOF
       exit 0 ;;
     *) log_error "Unknown option: $1"; exit 1 ;;
   esac
