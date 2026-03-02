@@ -93,9 +93,10 @@ The script already handles:
 
 After the build succeeds, report to the user:
    - The build configuration (debug or release)
-   - The full binary path (from `swift build --show-bin-path` or the script output)
+   - The **full absolute path** to the compiled `afm` binary (from the script output)
    - The version string by running: `<binary-path>/afm --version`
-   - Example run command: `<binary-path>/afm mlx --help`
+
+Do NOT add example run commands, CLI options, or environment variables. Just report the binary path and version — the user knows how to run it.
 
 ### Step 4: Handle Failures
 
