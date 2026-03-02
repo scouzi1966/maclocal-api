@@ -66,6 +66,7 @@
 const REPO = 'scouzi1966/maclocal-api';
 const BRANCH = 'main';
 const DIR = 'test-reports';
+const PREVIEW_BASE = 'https://htmlpreview.github.io/?https://github.com/' + REPO + '/blob/' + BRANCH + '/' + DIR + '/';
 
 function createBadge(name) {
   const span = document.createElement('span');
@@ -101,7 +102,7 @@ function renderList(listEl, items) {
   items.forEach(function(f) {
     const li = document.createElement('li');
     const a = document.createElement('a');
-    a.href = f.name;
+    a.href = f.name.endsWith('.html') ? PREVIEW_BASE + f.name : 'https://github.com/' + REPO + '/blob/' + BRANCH + '/' + DIR + '/' + f.name;
     a.appendChild(createBadge(f.name));
     const nameText = document.createTextNode(' ' + f.name + ' ');
     a.appendChild(nameText);
