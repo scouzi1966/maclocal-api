@@ -3,8 +3,10 @@ If you find this useful, please ⭐ the repo! &nbsp; Also check out [Vesta AI Ex
 > [!NOTE]
 > **Attention M-series Mac AI enthusiasts!** You don't need to be a Swift developer to explore. Vibe coding really allows anyone to participate in this project.
 >
+> [Fork this repo](https://github.com/scouzi1966/maclocal-api/fork) first, then clone your fork to submit PRs:
+>
 > ```bash
-> git clone https://github.com/scouzi1966/maclocal-api.git
+> git clone https://github.com/<your-username>/maclocal-api.git
 > cd maclocal-api
 > claude
 > /build-afm
