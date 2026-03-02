@@ -108,7 +108,7 @@ struct MLXChatCompletionsController: RouteCollection {
 
             if let requestedModelRaw = chatRequest.model?.trimmingCharacters(in: .whitespacesAndNewlines),
                !requestedModelRaw.isEmpty,
-               requestedModelRaw != modelID {
+               service.normalizeModel(requestedModelRaw) != modelID {
                 // WebUI may send transformed model identifiers; afm mlx always serves the active model.
                 req.logger.info("[\(Self.timestamp())] MLX request model '\(requestedModelRaw)' does not match active model '\(modelID)'; serving active model")
             }

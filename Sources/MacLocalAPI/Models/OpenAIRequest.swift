@@ -251,6 +251,13 @@ struct AnyCodable: Codable, Sendable {
     func toSendable() -> Any {
         value.toAny()
     }
+
+    /// Convert to a type hierarchy compatible with Jinja Value.init(any:).
+    /// Strips null values from dicts (Jinja can't handle NSNull or boxed Optional<Any>).
+    /// JSON Schema nulls (e.g. "default": null) are semantically equivalent when omitted.
+    func toJinjaCompatible() -> Any {
+        value.toJinjaCompatible()
+    }
 }
 
 /// Recursive enum representing arbitrary JSON values.
@@ -293,6 +300,35 @@ enum AnyCodableValue: Codable, Sendable {
         case .string(let s): return s
         case .array(let arr): return arr.map { $0.toAny() }
         case .object(let dict): return dict.mapValues { $0.toAny() }
+        }
+    }
+
+    /// Convert to a type hierarchy compatible with Jinja Value.init(any:).
+    /// Returns non-optional Any so it can be stored in [String: any Sendable] (ToolSpec).
+    /// Null values are stripped from dicts because Jinja can't handle NSNull and
+    /// Optional<Any> boxed in Any. JSON Schema nulls ("default": null) are semantically
+    /// equivalent when omitted — templates use `is defined` checks, not null comparisons.
+    /// Arrays filter out nulls. Standalone nulls become empty string (shouldn't occur in
+    /// practice since null only appears as dict values or array elements in JSON Schema).
+    func toJinjaCompatible() -> Any {
+        switch self {
+        case .null: return "" // Standalone null fallback; dict/array nulls are stripped
+        case .bool(let b): return b
+        case .int(let i): return i
+        case .double(let d): return d
+        case .string(let s): return s
+        case .array(let arr):
+            return arr.compactMap { element -> Any? in
+                if case .null = element { return nil }
+                return element.toJinjaCompatible()
+            }
+        case .object(let dict):
+            var result: [String: Any] = [:]
+            for (key, value) in dict {
+                if case .null = value { continue } // Strip null-valued keys
+                result[key] = value.toJinjaCompatible()
+            }
+            return result
         }
     }
 
