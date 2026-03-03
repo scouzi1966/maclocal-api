@@ -1,0 +1,25 @@
+{
+    "usage": {
+        "prompt_tokens_details": {
+            "cached_tokens": 0
+        },
+        "completion_tokens": 1,
+        "prompt_tokens": 35,
+        "total_tokens": 36
+    },
+    "id": "chatcmpl-FD2032F1",
+    "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+    "choices": [
+        {
+            "message": {
+                "role": "assistant",
+                "content": "Four"
+            },
+            "index": 0,
+            "finish_reason": "stop"
+        }
+    ],
+    "object": "chat.completion",
+    "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+    "created": 1772539519
+}

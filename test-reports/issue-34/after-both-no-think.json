@@ -1,0 +1,25 @@
+{
+    "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+    "id": "chatcmpl-4BF7E767",
+    "choices": [
+        {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "Four"
+            },
+            "finish_reason": "stop"
+        }
+    ],
+    "usage": {
+        "prompt_tokens_details": {
+            "cached_tokens": 0
+        },
+        "prompt_tokens": 35,
+        "completion_tokens": 1,
+        "total_tokens": 36
+    },
+    "object": "chat.completion",
+    "created": 1772540811,
+    "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"
+}

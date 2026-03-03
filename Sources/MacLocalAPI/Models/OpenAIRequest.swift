@@ -23,6 +23,7 @@ struct ChatCompletionRequest: Content {
     let tools: [RequestTool]?
     let toolChoice: ToolChoice?
     let responseFormat: ResponseFormat?
+    let chatTemplateKwargs: [String: AnyCodable]?
 
     enum CodingKeys: String, CodingKey {
         case model
@@ -46,6 +47,7 @@ struct ChatCompletionRequest: Content {
         case tools
         case toolChoice = "tool_choice"
         case responseFormat = "response_format"
+        case chatTemplateKwargs = "chat_template_kwargs"
     }
 
     var effectiveMaxTokens: Int? {

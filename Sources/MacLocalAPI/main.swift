@@ -238,6 +238,12 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Post-process tool call argument names to match the original tool schema (fixes model renaming e.g. path→filePath)")
     var fixToolArgs: Bool = false
 
+    @Option(name: .long, help: "Default chat template kwargs as JSON (e.g. '{\"enable_thinking\": false}')")
+    var defaultChatTemplateKwargs: String?
+
+    @Flag(name: .long, help: "Disable thinking/reasoning (sets enable_thinking=false in chat template)")
+    var noThink: Bool = false
+
     @Flag(name: .long, help: "Print OpenClaw provider config JSON and exit")
     var openclawConfig: Bool = false
 
@@ -257,6 +263,34 @@ struct MlxCommand: ParsableCommand {
         service.forceVLM = vlm || !media.isEmpty
         service.kvBits = kvBits
         if let prefillStepSize { service.prefillStepSize = prefillStepSize }
+
+        // Parse --default-chat-template-kwargs and --no-think into defaultChatTemplateKwargs
+        var parsedKwargs: [String: Any] = [:]
+        if noThink {
+            parsedKwargs["enable_thinking"] = false
+        }
+        if let jsonStr = defaultChatTemplateKwargs {
+            guard let data = jsonStr.data(using: .utf8) else {
+                fputs("Error: --default-chat-template-kwargs must be valid UTF-8\n", stderr)
+                throw ExitCode.failure
+            }
+            do {
+                let jsonObject = try JSONSerialization.jsonObject(with: data)
+                guard let dict = jsonObject as? [String: Any] else {
+                    fputs("Error: --default-chat-template-kwargs must be a JSON object (e.g. '{\"enable_thinking\": false}')\n", stderr)
+                    throw ExitCode.failure
+                }
+                for (key, value) in dict {
+                    parsedKwargs[key] = value  // explicit kwargs override --no-think
+                }
+            } catch let error where !(error is ExitCode) {
+                fputs("Error: Failed to parse --default-chat-template-kwargs as JSON: \(error)\n", stderr)
+                throw ExitCode.failure
+            }
+        }
+        if !parsedKwargs.isEmpty {
+            service.defaultChatTemplateKwargs = parsedKwargs
+        }
         _ = try service.revalidateRegistry()
 
         let rawModel: String

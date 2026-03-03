@@ -95,6 +95,7 @@ kill %1  # or whatever the background job is
 | **Cache** | cached_tokens always 0 | Check `enablePrefixCaching`, `findPrefixLength()`, `PromptCacheBox` |
 | **Concurrent** | Non-200 responses | Check `SerialAccessContainer` locking, request queuing |
 | **Error** | Wrong HTTP status codes | Check controller validation logic |
+| **Kwargs** | Thinking not disabled by `enable_thinking: false` | Check `chat_template_kwargs` merging into `additionalContext` in `MLXModelService.swift` |
 | **Perf** | Low tok/s, high TTFT | Check model quantization, Metal kernel performance |
 
 ### Smart Analysis False Positives
@@ -121,6 +122,7 @@ Known patterns where AI judges score incorrectly (see `references/interpreting-s
 | `Scripts/test-structured-outputs.sh` | JSON schema / structured output tests |
 | `Scripts/test-tool-call-parsers.py` | Unit tests for tool call parsing |
 | `Scripts/mlx-model-test.sh` | Test harness: runs prompts, collects results, generates reports |
+| `Scripts/test-chat-template-kwargs.sh` | Standalone chat_template_kwargs tests (includes --no-think CLI + precedence) |
 | `Scripts/regression-test.sh` | Quick regression smoke test |
 
 ## Validation Checklist
@@ -142,6 +144,9 @@ Known patterns where AI judges score incorrectly (see `references/interpreting-s
 - [ ] Concurrent requests (2 and 3 simultaneous)
 - [ ] Multi-tool calls
 - [ ] Additional stop edge cases
+- [ ] chat_template_kwargs: `enable_thinking=false` disables thinking (if model supports it)
+- [ ] chat_template_kwargs: streaming parity
+- [ ] chat_template_kwargs: default behavior unaffected
 
 ### Full Tier (adds)
 - [ ] All standard checks

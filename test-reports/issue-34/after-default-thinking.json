@@ -1,0 +1,26 @@
+{
+    "usage": {
+        "total_tokens": 186,
+        "prompt_tokens": 33,
+        "prompt_tokens_details": {
+            "cached_tokens": 0
+        },
+        "completion_tokens": 153
+    },
+    "id": "chatcmpl-A7775995",
+    "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+    "choices": [
+        {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+                "reasoning_content": "Thinking Process:\n\n1.  **Analyze the Request:**\n    *   Question: \"What is 2+2?\"\n    *   Constraint: \"Answer in one word.\"\n\n2.  **Calculate the Answer:**\n    *   2 + 2 = 4.\n\n3.  **Format the Output:**\n    *   The number \"4\" needs to be expressed as a single word.\n    *   \"Four\" is the word form of the number 4.\n\n4.  **Final Check:**\n    *   Does \"Four\" answer the question? Yes.\n    *   Is it one word? Yes.\n\n5.  **Construct Response:** Four.cw",
+                "role": "assistant",
+                "content": "Four"
+            }
+        }
+    ],
+    "object": "chat.completion",
+    "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+    "created": 1772539532
+}
