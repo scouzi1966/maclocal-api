@@ -6,11 +6,22 @@ If you find this useful, please ⭐ the repo! &nbsp; Also check out [Vesta AI Ex
 > [Fork this repo](https://github.com/scouzi1966/maclocal-api/fork) first, then clone your fork to submit PRs:
 >
 > ```bash
-> git clone https://github.com/<your-username>/maclocal-api.git
+> git clone https://github.com/<your-username>/maclocal-api.git   
 > cd maclocal-api
 > claude
 > /build-afm
 > ```
+>
+> To just experiment locally
+> 
+> ```bash
+> git clone https://github.com/scouzi1966/maclocal-api.git   
+> cd maclocal-api
+> claude
+> /build-afm
+> ```
+>
+> /build-afm is an AI skill that builds for the first time so that you can start coding
 >
 > Start vibe coding! I will add support for skills with more coding agents in the future.
 
