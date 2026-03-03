@@ -17,7 +17,7 @@ Build `afm` from scratch (works from a fresh clone), let the user test it, then 
 
 The publish script (`Scripts/publish-next.sh`) requires:
 - `gh` CLI authenticated with push access to `scouzi1966/maclocal-api`
-- `homebrew-afm` repo cloned adjacent to this repo (at `../homebrew-afm`) or `TAP_DIR` env var set
+- `homebrew-afm` repo at `../homebrew-afm` (relative to repo root) or `TAP_DIR` env var — auto-cloned if missing
 - All build prerequisites from `/build-afm` (Xcode, Swift, Node.js, etc.)
 
 ## Instructions
@@ -49,9 +49,13 @@ echo "GitHub user: $GH_USER"
 gh api repos/scouzi1966/maclocal-api -q '.permissions.push'    # must be true
 gh api repos/scouzi1966/homebrew-afm -q '.permissions.push'    # must be true
 
-# Tap repo
+# Tap repo — auto-clone if missing
 TAP_DIR="${TAP_DIR:-$(cd "$(git rev-parse --show-toplevel)/.." && pwd)/homebrew-afm}"
-test -f "$TAP_DIR/afm-next.rb" && echo "Tap OK: $TAP_DIR" || echo "MISSING: $TAP_DIR/afm-next.rb"
+if [ ! -f "$TAP_DIR/afm-next.rb" ]; then
+  echo "Tap repo missing at $TAP_DIR — cloning..."
+  gh repo clone scouzi1966/homebrew-afm "$TAP_DIR"
+fi
+test -f "$TAP_DIR/afm-next.rb" && echo "Tap OK: $TAP_DIR" || echo "FAILED to clone tap repo"
 ```
 
 Present as a checklist. **If the GitHub user is not `scouzi1966` or push access is `false` for either repo, STOP immediately** and tell the user:
@@ -60,12 +64,7 @@ This skill publishes releases and updates the Homebrew tap for scouzi1966/macloc
 Only the repository owner (scouzi1966) can run it. You are authenticated as: <username>
 ```
 
-If the tap repo is missing, tell the user:
-```
-gh repo clone scouzi1966/homebrew-afm ../homebrew-afm
-```
-
-**Do NOT proceed unless: (1) all build checks pass, (2) GitHub user has push access to BOTH repos.**
+**Do NOT proceed unless: (1) all build checks pass, (2) GitHub user has push access to BOTH repos, (3) tap repo is available.**
 
 ### Step 2: Build from Scratch
 
