@@ -8,6 +8,7 @@ struct ChatCompletionResponse: Content {
     let model: String
     let choices: [Choice]
     let usage: Usage
+    let timings: StreamTimings?
     let systemFingerprint: String?
 
     enum CodingKeys: String, CodingKey {
@@ -17,6 +18,7 @@ struct ChatCompletionResponse: Content {
         case model
         case choices
         case usage
+        case timings
         case systemFingerprint = "system_fingerprint"
     }
 
@@ -29,7 +31,7 @@ struct ChatCompletionResponse: Content {
         }
     }
 
-    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil) {
+    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil, timings: StreamTimings? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion"
         self.created = Int(Date().timeIntervalSince1970)
@@ -46,12 +48,15 @@ struct ChatCompletionResponse: Content {
             promptTokens: promptTokens,
             completionTokens: completionTokens,
             totalTokens: promptTokens + completionTokens,
-            cachedTokens: cachedTokens
+            cachedTokens: cachedTokens,
+            completionTime: completionTime,
+            promptTime: promptTime
         )
+        self.timings = timings
         self.systemFingerprint = Self.fingerprint(for: model)
     }
 
-    init(id: String = UUID().uuidString, model: String, toolCalls: [ResponseToolCall], logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil) {
+    init(id: String = UUID().uuidString, model: String, toolCalls: [ResponseToolCall], logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil, timings: StreamTimings? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion"
         self.created = Int(Date().timeIntervalSince1970)
@@ -68,8 +73,11 @@ struct ChatCompletionResponse: Content {
             promptTokens: promptTokens,
             completionTokens: completionTokens,
             totalTokens: promptTokens + completionTokens,
-            cachedTokens: cachedTokens
+            cachedTokens: cachedTokens,
+            completionTime: completionTime,
+            promptTime: promptTime
         )
+        self.timings = timings
         self.systemFingerprint = Self.fingerprint(for: model)
     }
 }
@@ -168,19 +176,57 @@ struct Usage: Content {
     let completionTokens: Int
     let totalTokens: Int
     let promptTokensDetails: PromptTokensDetails?
+    let completionTime: Double?
+    let promptTime: Double?
+    let totalTime: Double?
+    let completionTokensPerSecond: Double?
+    let promptTokensPerSecond: Double?
 
     enum CodingKeys: String, CodingKey {
         case promptTokens = "prompt_tokens"
         case completionTokens = "completion_tokens"
         case totalTokens = "total_tokens"
         case promptTokensDetails = "prompt_tokens_details"
+        case completionTime = "completion_time"
+        case promptTime = "prompt_time"
+        case totalTime = "total_time"
+        case completionTokensPerSecond = "completion_tokens_per_second"
+        case promptTokensPerSecond = "prompt_tokens_per_second"
     }
 
-    init(promptTokens: Int, completionTokens: Int, totalTokens: Int, cachedTokens: Int? = nil) {
+    init(promptTokens: Int, completionTokens: Int, totalTokens: Int, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil) {
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
         self.totalTokens = totalTokens
         self.promptTokensDetails = cachedTokens.map { PromptTokensDetails(cachedTokens: $0) }
+
+        if let ct = completionTime {
+            self.completionTime = (ct * 100).rounded() / 100
+        } else {
+            self.completionTime = nil
+        }
+        if let pt = promptTime {
+            self.promptTime = (pt * 100).rounded() / 100
+        } else {
+            self.promptTime = nil
+        }
+        if let ct = completionTime {
+            let pt = promptTime ?? 0
+            self.totalTime = (((pt + ct) * 100).rounded()) / 100
+        } else {
+            self.totalTime = nil
+        }
+
+        if let ct = completionTime, ct > 0 {
+            self.completionTokensPerSecond = (Double(completionTokens) / ct * 100).rounded() / 100
+        } else {
+            self.completionTokensPerSecond = nil
+        }
+        if let pt = promptTime, pt > 0 {
+            self.promptTokensPerSecond = (Double(promptTokens) / pt * 100).rounded() / 100
+        } else {
+            self.promptTokensPerSecond = nil
+        }
     }
 }
 

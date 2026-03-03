@@ -24,14 +24,18 @@ struct StreamChunk: Sendable {
     let promptTokens: Int?
     let completionTokens: Int?
     let cachedTokens: Int?
+    let promptTime: Double?
+    let generateTime: Double?
 
-    init(text: String, logprobs: [ResolvedLogprob]? = nil, toolCalls: [ResponseToolCall]? = nil, promptTokens: Int? = nil, completionTokens: Int? = nil, cachedTokens: Int? = nil) {
+    init(text: String, logprobs: [ResolvedLogprob]? = nil, toolCalls: [ResponseToolCall]? = nil, promptTokens: Int? = nil, completionTokens: Int? = nil, cachedTokens: Int? = nil, promptTime: Double? = nil, generateTime: Double? = nil) {
         self.text = text
         self.logprobs = logprobs
         self.toolCalls = toolCalls
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
         self.cachedTokens = cachedTokens
+        self.promptTime = promptTime
+        self.generateTime = generateTime
     }
 }
 
@@ -257,7 +261,7 @@ final class MLXModelService: @unchecked Sendable {
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
         chatTemplateKwargs: [String: AnyCodable]? = nil
-    ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?, cachedTokens: Int) {
+    ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?, cachedTokens: Int, promptTime: Double, generateTime: Double) {
         try beginOperation()
         defer { endOperation() }
 
@@ -477,7 +481,9 @@ final class MLXModelService: @unchecked Sendable {
 
         let promptTokens = completionInfo?.promptTokenCount ?? estimateTokens(promptText)
         let completionTokens = completionInfo?.generationTokenCount ?? estimateTokens(generated)
-        return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount)
+        let promptTime = completionInfo?.promptTime ?? 0
+        let generateTime = completionInfo?.generateTime ?? 0
+        return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount, promptTime, generateTime)
     }
 
     func generateStreaming(
@@ -671,8 +677,8 @@ final class MLXModelService: @unchecked Sendable {
                                 let responseTC = Self.convertToolCall(tc, index: 0)
                                 continuation.yield(StreamChunk(text: "", toolCalls: [responseTC]))
                             } else if case .info(let info) = piece {
-                                // Emit real token counts as a final info chunk
-                                continuation.yield(StreamChunk(text: "", promptTokens: info.promptTokenCount, completionTokens: info.generationTokenCount))
+                                // Emit real token counts and timing as a final info chunk
+                                continuation.yield(StreamChunk(text: "", promptTokens: info.promptTokenCount, completionTokens: info.generationTokenCount, promptTime: info.promptTime, generateTime: info.generateTime))
                             }
                         }
                         // Flush any remaining buffered text (no stop match found)

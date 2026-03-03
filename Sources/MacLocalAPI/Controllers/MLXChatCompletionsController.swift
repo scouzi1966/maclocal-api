@@ -162,15 +162,17 @@ struct MLXChatCompletionsController: RouteCollection {
                 chatTemplateKwargs: chatRequest.chatTemplateKwargs
             )
             let cleanedContent = sanitizeDegenerateTail(result.content)
-            let elapsed = Date().timeIntervalSince(started)
             let completionTok = result.completionTokens
-            let tokPerSec = elapsed > 0 ? Double(completionTok) / elapsed : 0
+            let promptTime = result.promptTime
+            let generateTime = result.generateTime
+            let tokPerSec = generateTime > 0 ? Double(completionTok) / generateTime : 0
+            let promptTokPerSec = promptTime > 0 ? Double(result.promptTokens) / promptTime : 0
 
             // If we got tool calls, return a tool_calls response
             if let toolCalls = result.toolCalls, !toolCalls.isEmpty {
                 if veryVerbose {
                     let toolNames = toolCalls.map { $0.function.name }.joined(separator: ", ")
-                    req.logger.info("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false\n  prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok)\n  elapsed=\(String(format: "%.2f", elapsed))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=tool_calls\(Self.reset)")
+                    req.logger.info("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false\n  prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok)\n  prompt=\(String(format: "%.2f", promptTime))s gen=\(String(format: "%.2f", generateTime))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=tool_calls\(Self.reset)")
                     for tc in toolCalls {
                         print("\(Self.gold)[\(Self.timestamp())] SEND tool_call: \(tc.function.name)\n  id=\(tc.id)\n  args=\(tc.function.arguments)\(Self.reset)")
                     }
@@ -178,14 +180,20 @@ struct MLXChatCompletionsController: RouteCollection {
                 }
 
                 let choiceLogprobs = buildChoiceLogprobs(result.tokenLogprobs)
+                let timings = StreamTimings(prompt_n: result.promptTokens, prompt_ms: promptTime * 1000, predicted_n: completionTok, predicted_ms: generateTime * 1000)
                 let response = ChatCompletionResponse(
                     model: result.modelID,
                     toolCalls: toolCalls,
                     logprobs: choiceLogprobs,
                     promptTokens: result.promptTokens,
                     completionTokens: completionTok,
-                    cachedTokens: result.cachedTokens
+                    cachedTokens: result.cachedTokens,
+                    completionTime: generateTime,
+                    promptTime: promptTime,
+                    timings: timings
                 )
+                print("\(Self.orange)[\(Self.timestamp())] [STATS] pp: \(result.promptTokens) tok, \(String(format: "%.2f", promptTime))s (\(String(format: "%.1f", promptTokPerSec)) tok/s) | tg: \(completionTok) tok, \(String(format: "%.2f", generateTime))s (\(String(format: "%.1f", tokPerSec)) tok/s) stream=false\(Self.reset)")
+                fflush(stdout)
                 if veryVerbose {
                     req.logger.info("\(Self.teal)[\(Self.timestamp())] SEND full response:\n\(encodeJSON(response))\(Self.reset)")
                 }
@@ -194,7 +202,7 @@ struct MLXChatCompletionsController: RouteCollection {
 
             let stopReason = completionTok >= effectiveMaxTokens ? "length" : "stop"
             if veryVerbose {
-                req.logger.info("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false\n  prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok)\n  elapsed=\(String(format: "%.2f", elapsed))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=\(stopReason)\(Self.reset)")
+                req.logger.info("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false\n  prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok)\n  prompt=\(String(format: "%.2f", promptTime))s gen=\(String(format: "%.2f", generateTime))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=\(stopReason)\(Self.reset)")
             }
 
             // Extract <think>...</think> tags into reasoning_content
@@ -208,6 +216,7 @@ struct MLXChatCompletionsController: RouteCollection {
             }
 
             let choiceLogprobs = buildChoiceLogprobs(result.tokenLogprobs)
+            let timings = StreamTimings(prompt_n: result.promptTokens, prompt_ms: promptTime * 1000, predicted_n: completionTok, predicted_ms: generateTime * 1000)
             let response = ChatCompletionResponse(
                 model: result.modelID,
                 content: finalContent,
@@ -215,8 +224,13 @@ struct MLXChatCompletionsController: RouteCollection {
                 logprobs: choiceLogprobs,
                 promptTokens: result.promptTokens,
                 completionTokens: completionTok,
-                cachedTokens: result.cachedTokens
+                cachedTokens: result.cachedTokens,
+                completionTime: generateTime,
+                promptTime: promptTime,
+                timings: timings
             )
+            print("\(Self.orange)[\(Self.timestamp())] [STATS] pp: \(result.promptTokens) tok, \(String(format: "%.2f", promptTime))s (\(String(format: "%.1f", promptTokPerSec)) tok/s) | tg: \(completionTok) tok, \(String(format: "%.2f", generateTime))s (\(String(format: "%.1f", tokPerSec)) tok/s) stream=false\(Self.reset)")
+            fflush(stdout)
             if veryVerbose {
                 req.logger.info("\(Self.teal)[\(Self.timestamp())] SEND full response:\n\(encodeJSON(response))\(Self.reset)")
             }
@@ -301,6 +315,8 @@ struct MLXChatCompletionsController: RouteCollection {
                 var realPromptTokens: Int? = nil
                 var realCompletionTokens: Int? = nil
                 var realCachedTokens: Int? = nil
+                var realPromptTime: Double? = nil
+                var realGenerateTime: Double? = nil
 
                 // Token-level tool call detection (mlx-lm style).
                 // Instead of buffering ALL content when tools are present, detect
@@ -344,10 +360,12 @@ struct MLXChatCompletionsController: RouteCollection {
                 for try await streamChunk in res.stream {
                     let piece = streamChunk.text
 
-                    // Capture real token counts from the info chunk
+                    // Capture real token counts and timing from the info chunk
                     if let pt = streamChunk.promptTokens { realPromptTokens = pt }
                     if let ct = streamChunk.completionTokens { realCompletionTokens = ct }
                     if let cached = streamChunk.cachedTokens { realCachedTokens = cached }
+                    if let pt = streamChunk.promptTime { realPromptTime = pt }
+                    if let gt = streamChunk.generateTime { realGenerateTime = gt }
 
                     // Handle tool call chunks from the vendor parser
                     if let tcs = streamChunk.toolCalls, !tcs.isEmpty {
@@ -936,6 +954,11 @@ struct MLXChatCompletionsController: RouteCollection {
                         print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true\n  prompt_tokens=\(promptTokens) completion_tokens=\(completionTokens)\n  elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=\(finishReason)\(Self.reset)")
                     }
                 }
+                let sPromptTime = realPromptTime ?? 0
+                let sPromptTokPerSec = sPromptTime > 0 ? Double(promptTokens) / sPromptTime : 0
+                let sGenTime = realGenerateTime ?? generationDuration
+                let sGenTokPerSec = sGenTime > 0 ? Double(completionTokens) / sGenTime : 0
+                print("\(Self.orange)[\(Self.timestamp())] [STATS] pp: \(promptTokens) tok, \(String(format: "%.2f", sPromptTime))s (\(String(format: "%.1f", sPromptTokPerSec)) tok/s) | tg: \(completionTokens) tok, \(String(format: "%.2f", sGenTime))s (\(String(format: "%.1f", sGenTokPerSec)) tok/s) stream=true\(Self.reset)")
                 if self.veryVerbose {
                     let usageLog = StreamUsage(promptTokens: promptTokens, completionTokens: completionTokens, completionTime: generationDuration, promptTime: 0)
                     print("\(Self.teal)[\(Self.timestamp())] SEND usage:\n  \(self.encodeJSON(usageLog))\(Self.reset)")
@@ -970,11 +993,13 @@ struct MLXChatCompletionsController: RouteCollection {
                     }
                 }
 
+                let promptTime = realPromptTime ?? 0
+                let generateTime = realGenerateTime ?? generationDuration
                 let usage = StreamUsage(
                     promptTokens: promptTokens,
                     completionTokens: completionTokens,
-                    completionTime: generationDuration,
-                    promptTime: 0,
+                    completionTime: generateTime,
+                    promptTime: promptTime,
                     cachedTokens: realCachedTokens
                 )
                 let finalChunk = ChatCompletionStreamResponse(
@@ -984,7 +1009,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     isFinished: true,
                     finishReason: finishReason,
                     usage: usage,
-                    timings: StreamTimings(prompt_n: promptTokens, prompt_ms: 0, predicted_n: completionTokens, predicted_ms: generationDuration * 1000)
+                    timings: StreamTimings(prompt_n: promptTokens, prompt_ms: promptTime * 1000, predicted_n: completionTokens, predicted_ms: generateTime * 1000)
                 )
                 let finalData = try encoder.encode(finalChunk)
                 if let jsonString = String(data: finalData, encoding: .utf8) {
