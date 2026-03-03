@@ -74,6 +74,10 @@ build-from-scratch/
 # Vendor patch stamp
 vendor/mlx-swift-lm/.patches-applied
 
+# PyPI package staging (binaries staged temporarily during uv build)
+macafm/bin/
+macafm/share/
+
 # WebUI build artifacts
 Resources/webui/
 vendor/llama.cpp/tools/server/webui/node_modules/

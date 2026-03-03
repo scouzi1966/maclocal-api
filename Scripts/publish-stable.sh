@@ -228,12 +228,34 @@ sed -i '' "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
 sed -i '' "s/^__version__ = \".*\"/__version__ = \"${VERSION}\"/" macafm/__init__.py
 log_info "Updated pyproject.toml and macafm/__init__.py"
 
-# Step 8: Build Python package
+# Step 8: Build Python package (stage assets into macafm/ for wheel bundling)
+log_info "Staging assets into macafm/ for Python package..."
+mkdir -p "$ROOT_DIR/macafm/bin"
+cp "$BIN" "$ROOT_DIR/macafm/bin/"
+
+# Metallib
+METALLIB="$(dirname "$BIN")/MacLocalAPI_MacLocalAPI.bundle/default.metallib"
+if [ -f "$METALLIB" ]; then
+  cp "$METALLIB" "$ROOT_DIR/macafm/bin/"
+  log_info "  Staged default.metallib"
+fi
+
+# WebUI
+if [ -f "$ROOT_DIR/Resources/webui/index.html.gz" ]; then
+  mkdir -p "$ROOT_DIR/macafm/share/webui"
+  cp "$ROOT_DIR/Resources/webui/index.html.gz" "$ROOT_DIR/macafm/share/webui/"
+  log_info "  Staged webui"
+fi
+
 log_info "Building Python package..."
 uv build
 log_info "Python package built"
 
-# Cleanup
+# Cleanup staged assets (don't commit binaries to git)
+rm -rf "$ROOT_DIR/macafm/bin" "$ROOT_DIR/macafm/share"
+log_info "Cleaned staged assets from macafm/"
+
+# Cleanup release staging
 rm -rf "$STAGING"
 rm -f "$TARBALL"
 
