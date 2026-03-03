@@ -38,19 +38,34 @@ npm --version
 
 # Publish prerequisites
 gh auth status              # must be authenticated
-gh repo view scouzi1966/maclocal-api --json name -q .name  # must have access
+
+# CRITICAL: Verify the user is the repo owner (scouzi1966)
+# This prevents non-owners from accidentally overwriting releases or the brew tap.
+GH_USER=$(gh api user -q .login)
+echo "GitHub user: $GH_USER"
+# Must be "scouzi1966"
+
+# Verify push (write) access to both repos
+gh api repos/scouzi1966/maclocal-api -q '.permissions.push'    # must be true
+gh api repos/scouzi1966/homebrew-afm -q '.permissions.push'    # must be true
 
 # Tap repo
 TAP_DIR="${TAP_DIR:-$(cd "$(git rev-parse --show-toplevel)/.." && pwd)/homebrew-afm}"
 test -f "$TAP_DIR/afm-next.rb" && echo "Tap OK: $TAP_DIR" || echo "MISSING: $TAP_DIR/afm-next.rb"
 ```
 
-Present as a checklist. If the tap repo is missing, tell the user:
+Present as a checklist. **If the GitHub user is not `scouzi1966` or push access is `false` for either repo, STOP immediately** and tell the user:
+```
+This skill publishes releases and updates the Homebrew tap for scouzi1966/maclocal-api.
+Only the repository owner (scouzi1966) can run it. You are authenticated as: <username>
+```
+
+If the tap repo is missing, tell the user:
 ```
 gh repo clone scouzi1966/homebrew-afm ../homebrew-afm
 ```
 
-**Do NOT proceed until all checks pass.**
+**Do NOT proceed unless: (1) all build checks pass, (2) GitHub user has push access to BOTH repos.**
 
 ### Step 2: Build from Scratch
 
