@@ -81,22 +81,20 @@ If the user passed `--skip-build`, skip this step and verify the release binary 
 test -x .build/arm64-apple-macosx/release/afm || test -x .build/release/afm
 ```
 
-### Step 3: Open Binary for User Testing
+### Step 3: Present Binary for User Testing
 
-After build completes, get the binary path and open a Finder window to it:
+After build completes, get the binary path and version:
 
 ```bash
 BIN=".build/arm64-apple-macosx/release/afm"
 [ -x "$BIN" ] || BIN=".build/release/afm"
 echo "Binary: $(cd "$(dirname "$BIN")" && pwd)/$(basename "$BIN")"
 $BIN --version
-open "$(dirname "$BIN")"
 ```
 
 Report to the user:
-- Binary path
+- Binary path (absolute)
 - Version string
-- That a Finder window has been opened to the binary location
 
 Then **use AskUserQuestion** to pause and ask:
 
