@@ -103,6 +103,7 @@ final class MLXModelService: @unchecked Sendable {
     var fixToolArgs: Bool = false
     var forceVLM: Bool = false
     var kvBits: Int?
+    var defaultChatTemplateKwargs: [String: Any]?
     init(resolver: MLXCacheResolver) {
         self.resolver = resolver
         self.resolver.applyEnvironment()
@@ -254,7 +255,8 @@ final class MLXModelService: @unchecked Sendable {
         topLogprobs: Int? = nil,
         tools: [RequestTool]? = nil,
         stop: [String]? = nil,
-        responseFormat: ResponseFormat? = nil
+        responseFormat: ResponseFormat? = nil,
+        chatTemplateKwargs: [String: AnyCodable]? = nil
     ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?, cachedTokens: Int) {
         try beginOperation()
         defer { endOperation() }
@@ -264,7 +266,7 @@ final class MLXModelService: @unchecked Sendable {
 
         let promptText = buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools)
-        let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat)
+        let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat, chatTemplateKwargs: chatTemplateKwargs)
         defer { cleanupTempFiles(mediaTempFiles) }
         let wantLogprobs = logprobs == true
         let params = GenerateParameters(
@@ -493,7 +495,8 @@ final class MLXModelService: @unchecked Sendable {
         topLogprobs: Int? = nil,
         tools: [RequestTool]? = nil,
         stop: [String]? = nil,
-        responseFormat: ResponseFormat? = nil
+        responseFormat: ResponseFormat? = nil,
+        chatTemplateKwargs: [String: AnyCodable]? = nil
     ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int, toolCallStartTag: String?, toolCallEndTag: String?) {
         try beginOperation()
         defer { endOperation() }
@@ -503,7 +506,7 @@ final class MLXModelService: @unchecked Sendable {
 
         let promptText = buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools)
-        let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat)
+        let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat, chatTemplateKwargs: chatTemplateKwargs)
         let promptTokens = estimateTokens(promptText)
         let wantLogprobs = logprobs == true
         let params = GenerateParameters(
@@ -1196,7 +1199,7 @@ final class MLXModelService: @unchecked Sendable {
         messages.map { "\($0.role): \($0.textContent)" }.joined(separator: "\n")
     }
 
-    private func buildUserInput(from messages: [Message], tools: [ToolSpec]? = nil, responseFormat: ResponseFormat? = nil) throws -> (UserInput, tempFiles: [URL]) {
+    private func buildUserInput(from messages: [Message], tools: [ToolSpec]? = nil, responseFormat: ResponseFormat? = nil, chatTemplateKwargs: [String: AnyCodable]? = nil) throws -> (UserInput, tempFiles: [URL]) {
         var chatMessages: [Chat.Message] = []
         var hasSystemMessage = false
         var allTempFiles: [URL] = []
@@ -1313,6 +1316,23 @@ final class MLXModelService: @unchecked Sendable {
             }
             if debugLogging {
                 print("[ToolCallParser] Using \(parser) chat template override")
+            }
+        }
+
+        // Merge chat template kwargs: server defaults first, then request-level overrides
+        var resolvedKwargs: [String: Any] = self.defaultChatTemplateKwargs ?? [:]
+        if let requestKwargs = chatTemplateKwargs {
+            for (key, value) in requestKwargs {
+                resolvedKwargs[key] = value.value.toAny()
+            }
+        }
+        if !resolvedKwargs.isEmpty {
+            if input.additionalContext == nil { input.additionalContext = [:] }
+            for (key, value) in resolvedKwargs {
+                input.additionalContext?[key] = value
+            }
+            if debugLogging {
+                print("[ChatTemplateKwargs] Merged into additionalContext: \(resolvedKwargs.keys.sorted().joined(separator: ", "))")
             }
         }
 

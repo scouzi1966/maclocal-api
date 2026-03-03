@@ -1,0 +1,308 @@
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539879,"choices":[{"index":0,"delta":{"role":"assistant","content":""}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","id":"chatcmpl-7F7DA512","choices":[{"index":0,"delta":{"reasoning_content":"Thinking","content":""}}],"created":1772539879,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","choices":[{"delta":{"content":"","reasoning_content":" "},"index":0}],"id":"chatcmpl-7F7DA512","created":1772539879}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539879,"choices":[{"delta":{"content":"","reasoning_content":"Pr"},"index":0}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539879,"choices":[{"index":0,"delta":{"content":"","reasoning_content":"o"}}],"id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539879,"choices":[{"index":0,"delta":{"content":"","reasoning_content":"c"}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539879,"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":"e","content":""}}]}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"content":"","reasoning_content":"ss:"},"index":0}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539879}
+
+data: {"created":1772539879,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"content":"","reasoning_content":"\n\n"},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539879,"choices":[{"index":0,"delta":{"reasoning_content":"1.  *","content":""}}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539879,"choices":[{"delta":{"content":"","reasoning_content":"*Ana"},"index":0}],"id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"created":1772539879,"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"content":"","reasoning_content":"lyze the"},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"object":"chat.completion.chunk","created":1772539879,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","choices":[{"index":0,"delta":{"content":"","reasoning_content":" Re"}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"choices":[{"index":0,"delta":{"content":"","reasoning_content":"q"}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539879,"id":"chatcmpl-7F7DA512"}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"content":"","reasoning_content":"ues"},"index":0}],"created":1772539879,"id":"chatcmpl-7F7DA512"}
+
+data: {"created":1772539879,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":"t:","content":""}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"created":1772539879,"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"**"}}]}
+
+data: {"id":"chatcmpl-7F7DA512","created":1772539879,"object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"\n    *   "}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"object":"chat.completion.chunk","created":1772539879,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","choices":[{"delta":{"content":"","reasoning_content":"Q"},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"created":1772539879,"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"ue"}}]}
+
+data: {"created":1772539879,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"stio"}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"created":1772539879,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":"n: ","content":""}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","id":"chatcmpl-7F7DA512","choices":[{"index":0,"delta":{"content":"","reasoning_content":"\""}}],"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539879}
+
+data: {"created":1772539880,"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"content":"","reasoning_content":"W"},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"id":"chatcmpl-7F7DA512","choices":[{"index":0,"delta":{"reasoning_content":"h","content":""}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"created":1772539880,"id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"a"}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk"}
+
+data: {"object":"chat.completion.chunk","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"content":"","reasoning_content":"t "},"index":0}],"id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"reasoning_content":"i","content":""},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"created":1772539880,"id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"s 2"}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-7F7DA512","created":1772539880,"object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"+2"}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"created":1772539880,"choices":[{"index":0,"delta":{"content":"","reasoning_content":"?\""}}],"object":"chat.completion.chunk","id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":"\n    *   Co","content":""}}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539880}
+
+data: {"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"n"}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"st"}}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"choices":[{"delta":{"content":"","reasoning_content":"raint:"},"index":0}],"id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"created":1772539880,"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":" \"A"}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"created":1772539880,"choices":[{"delta":{"reasoning_content":"nswe","content":""},"index":0}],"object":"chat.completion.chunk","id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"choices":[{"index":0,"delta":{"content":"","reasoning_content":"r in "}}],"id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"object":"chat.completion.chunk","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"content":"","reasoning_content":"on"},"index":0}],"id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","id":"chatcmpl-7F7DA512","created":1772539880,"choices":[{"index":0,"delta":{"content":"","reasoning_content":"e "}}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"","reasoning_content":"w"}}],"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","created":1772539880}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"","reasoning_content":"o"}}],"id":"chatcmpl-7F7DA512","created":1772539880}
+
+data: {"created":1772539880,"choices":[{"index":0,"delta":{"content":"","reasoning_content":"r"}}],"object":"chat.completion.chunk","id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"created":1772539880,"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"d.\""}}]}
+
+data: {"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"\n\n2.  **C"}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539880,"choices":[{"index":0,"delta":{"reasoning_content":"alcu","content":""}}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"created":1772539880,"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"late th"}}]}
+
+data: {"created":1772539880,"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"content":"","reasoning_content":"e A"},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":"n","content":""}}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"created":1772539880,"object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"","reasoning_content":"swe"}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"object":"chat.completion.chunk","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"content":"","reasoning_content":"r:"},"index":0}],"id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":"**","content":""}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"created":1772539880,"id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":"\n","content":""}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"","reasoning_content":" "}}],"id":"chatcmpl-7F7DA512","created":1772539880}
+
+data: {"object":"chat.completion.chunk","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","choices":[{"index":0,"delta":{"reasoning_content":"  ","content":""}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":" ","content":""}}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539880}
+
+data: {"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"*"}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":"  ","content":""}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"choices":[{"delta":{"content":"","reasoning_content":" "},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"id":"chatcmpl-7F7DA512"}
+
+data: {"created":1772539880,"object":"chat.completion.chunk","choices":[{"delta":{"content":"","reasoning_content":"2"},"index":0}],"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512"}
+
+data: {"object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"id":"chatcmpl-7F7DA512","choices":[{"delta":{"content":"","reasoning_content":" "},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"choices":[{"delta":{"content":"","reasoning_content":"+ "},"index":0}],"id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"object":"chat.completion.chunk","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"content":"","reasoning_content":"2"},"index":0}],"id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"content":"","reasoning_content":" "},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"choices":[{"index":0,"delta":{"content":"","reasoning_content":"="}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"id":"chatcmpl-7F7DA512"}
+
+data: {"id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"choices":[{"index":0,"delta":{"reasoning_content":" 4.","content":""}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","created":1772539880,"id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"\n\n3.  "}}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"","reasoning_content":"**Fo"}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"id":"chatcmpl-7F7DA512"}
+
+data: {"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"rmat th"}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"e O"}}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"created":1772539880,"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"u"}}]}
+
+data: {"object":"chat.completion.chunk","choices":[{"delta":{"reasoning_content":"tpu","content":""},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539880,"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"t:"}}]}
+
+data: {"created":1772539880,"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"**"}}]}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","choices":[{"delta":{"content":"","reasoning_content":"\n   "},"index":0}]}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","id":"chatcmpl-7F7DA512","created":1772539880,"choices":[{"index":0,"delta":{"reasoning_content":" *   Th","content":""}}]}
+
+data: {"created":1772539880,"object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"","reasoning_content":"e "}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"choices":[{"index":0,"delta":{"reasoning_content":"n","content":""}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk"}
+
+data: {"created":1772539880,"choices":[{"index":0,"delta":{"content":"","reasoning_content":"u"}}],"object":"chat.completion.chunk","id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"mber \""}}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539880}
+
+data: {"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":"4\" ","content":""}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539880,"choices":[{"index":0,"delta":{"reasoning_content":"nee","content":""}}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","id":"chatcmpl-7F7DA512","choices":[{"delta":{"content":"","reasoning_content":"ds to be e"},"index":0}],"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"reasoning_content":"xpr","content":""},"index":0}],"created":1772539880,"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":"es","content":""}}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"choices":[{"index":0,"delta":{"content":"","reasoning_content":"sed as "}}],"id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"content":"","reasoning_content":"a sin"},"index":0}],"created":1772539880,"id":"chatcmpl-7F7DA512"}
+
+data: {"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":"g","content":""}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"choices":[{"delta":{"content":"","reasoning_content":"l"},"index":0}],"id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"choices":[{"delta":{"reasoning_content":"e w","content":""},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk"}
+
+data: {"object":"chat.completion.chunk","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","choices":[{"delta":{"reasoning_content":"or","content":""},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"choices":[{"index":0,"delta":{"content":"","reasoning_content":"d."}}],"id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"\n "}}]}
+
+data: {"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":"   *","content":""}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"choices":[{"index":0,"delta":{"content":"","reasoning_content":" "}}],"id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"reasoning_content":"  \"","content":""},"index":0}],"created":1772539880,"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512"}
+
+data: {"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"content":"","reasoning_content":"Four"},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"created":1772539880,"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"\" is "}}]}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"the w"}}],"created":1772539880,"id":"chatcmpl-7F7DA512"}
+
+data: {"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"reasoning_content":"ord","content":""},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"created":1772539880,"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":" for"}}]}
+
+data: {"choices":[{"delta":{"reasoning_content":"m of th","content":""},"index":0}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539880}
+
+data: {"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"content":"","reasoning_content":"e"},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"created":1772539880,"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":" ","content":""}}]}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","choices":[{"delta":{"content":"","reasoning_content":"n"},"index":0}],"object":"chat.completion.chunk"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"content":"","reasoning_content":"um"},"index":0}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"created":1772539880,"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":"b","content":""}}]}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":"e","content":""}}],"created":1772539880,"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539880,"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"reasoning_content":"r","content":""},"index":0}]}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","id":"chatcmpl-7F7DA512","choices":[{"delta":{"reasoning_content":" 4.","content":""},"index":0}],"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880}
+
+data: {"object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"","reasoning_content":"\n\n4. "}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","id":"chatcmpl-7F7DA512","created":1772539880,"choices":[{"index":0,"delta":{"reasoning_content":" **Fin","content":""}}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"","reasoning_content":"al "}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"id":"chatcmpl-7F7DA512"}
+
+data: {"choices":[{"delta":{"reasoning_content":"C","content":""},"index":0}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539880}
+
+data: {"created":1772539880,"choices":[{"index":0,"delta":{"reasoning_content":"hec","content":""}}],"object":"chat.completion.chunk","id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"created":1772539880,"id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"reasoning_content":"k:","content":""},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk"}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","choices":[{"index":0,"delta":{"content":"","reasoning_content":"**"}}],"object":"chat.completion.chunk"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539880,"choices":[{"index":0,"delta":{"reasoning_content":"\n    ","content":""}}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"choices":[{"index":0,"delta":{"reasoning_content":"* ","content":""}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"id":"chatcmpl-7F7DA512"}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":"  Do","content":""}}],"created":1772539880,"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":"e","content":""}}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"created":1772539880,"object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"s \"Four","content":""}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"","reasoning_content":"\" an"}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"id":"chatcmpl-7F7DA512","choices":[{"index":0,"delta":{"content":"","reasoning_content":"swer the "}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"choices":[{"index":0,"delta":{"content":"","reasoning_content":"q"}}],"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","created":1772539880}
+
+data: {"choices":[{"delta":{"reasoning_content":"uest","content":""},"index":0}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539880}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","created":1772539880,"id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"content":"","reasoning_content":"i"},"index":0}]}
+
+data: {"created":1772539880,"object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"","reasoning_content":"o"}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit"}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","choices":[{"index":0,"delta":{"content":"","reasoning_content":"n? "}}],"object":"chat.completion.chunk"}
+
+data: {"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"reasoning_content":"Ye","content":""},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"created":1772539880,"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"s."}}]}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"reasoning_content":"\n  ","content":""},"index":0}],"created":1772539880,"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512"}
+
+data: {"object":"chat.completion.chunk","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"id":"chatcmpl-7F7DA512","choices":[{"index":0,"delta":{"reasoning_content":"  *","content":""}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"created":1772539880,"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"   I"}}]}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"","reasoning_content":"s it "}}]}
+
+data: {"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"reasoning_content":"o","content":""},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"ne w"}}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539880}
+
+data: {"choices":[{"delta":{"reasoning_content":"o","content":""},"index":0}],"object":"chat.completion.chunk","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512"}
+
+data: {"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"content":"","reasoning_content":"rd"},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"created":1772539880,"id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":"?","content":""}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk"}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539880,"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","choices":[{"index":0,"delta":{"reasoning_content":" ","content":""}}],"object":"chat.completion.chunk"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"reasoning_content":"Y","content":""},"index":0}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"reasoning_content":"es.","content":""},"index":0}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539880}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"reasoning_content":"\n\n5.  **C","content":""},"index":0}],"created":1772539880,"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512"}
+
+data: {"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"content":"","reasoning_content":"onstruct "},"index":0}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"reasoning_content":"Res","content":""}}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539880}
+
+data: {"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":"ponse"}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"created":1772539880,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"","reasoning_content":":*"}}],"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"choices":[{"index":0,"delta":{"reasoning_content":"*","content":""}}],"object":"chat.completion.chunk","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","created":1772539880}
+
+data: {"object":"chat.completion.chunk","created":1772539881,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"delta":{"reasoning_content":" ","content":""},"index":0}],"id":"chatcmpl-7F7DA512","system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","object":"chat.completion.chunk","id":"chatcmpl-7F7DA512","created":1772539881,"choices":[{"delta":{"content":"","reasoning_content":"Four.cw\n"},"index":0}]}
+
+data: {"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","created":1772539881,"model":"mlx-community\/Qwen3.5-35B-A3B-4bit","choices":[{"index":0,"delta":{"content":"\n\nFour"}}],"id":"chatcmpl-7F7DA512","object":"chat.completion.chunk"}
+
+data: {"usage":{"prompt_tokens_details":{"cached_tokens":0},"completion_tokens_per_second":100.4,"completion_tokens":153,"total_time":1.52,"completion_time":1.52,"prompt_tokens":33,"prompt_time":0,"total_tokens":186},"object":"chat.completion.chunk","timings":{"prompt_ms":0,"prompt_n":33,"predicted_n":153,"predicted_ms":1523.8369703292847},"system_fingerprint":"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit","id":"chatcmpl-7F7DA512","model":"mlx-community\/Qwen3.5-35B-A3B-4bit","created":1772539881,"choices":[{"finish_reason":"stop","index":0,"delta":{}}]}
+
+data: [DONE]
+

@@ -1,0 +1,26 @@
+{
+    "usage": {
+        "total_tokens": 83,
+        "prompt_tokens": 33,
+        "completion_tokens": 50,
+        "prompt_tokens_details": {
+            "cached_tokens": 0
+        }
+    },
+    "id": "chatcmpl-5195A7B6",
+    "choices": [
+        {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": "Thinking Process:\n\n1.  **Analyze the Request:**\n    *   Question: \"What is 2+2?\"\n    *   Constraint: \"Answer in one word.\"\n\n2.  **Calculate the Answer:**"
+            },
+            "finish_reason": "stop"
+        }
+    ],
+    "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+    "created": 1772539466,
+    "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+    "object": "chat.completion"
+}

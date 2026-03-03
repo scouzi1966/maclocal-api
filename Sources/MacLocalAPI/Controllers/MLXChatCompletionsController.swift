@@ -158,7 +158,8 @@ struct MLXChatCompletionsController: RouteCollection {
                 topLogprobs: chatRequest.topLogprobs,
                 tools: chatRequest.tools,
                 stop: effectiveStop,
-                responseFormat: chatRequest.responseFormat
+                responseFormat: chatRequest.responseFormat,
+                chatTemplateKwargs: chatRequest.chatTemplateKwargs
             )
             let cleanedContent = sanitizeDegenerateTail(result.content)
             let elapsed = Date().timeIntervalSince(started)
@@ -274,7 +275,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     topLogprobs: chatRequest.topLogprobs,
                     tools: chatRequest.tools,
                     stop: effectiveStop,
-                    responseFormat: chatRequest.responseFormat
+                    responseFormat: chatRequest.responseFormat,
+                    chatTemplateKwargs: chatRequest.chatTemplateKwargs
                 )
                 // Emit an initial assistant delta so clients always open a response container.
                 let initialChunk = ChatCompletionStreamResponse(
