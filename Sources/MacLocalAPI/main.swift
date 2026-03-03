@@ -269,11 +269,23 @@ struct MlxCommand: ParsableCommand {
         if noThink {
             parsedKwargs["enable_thinking"] = false
         }
-        if let jsonStr = defaultChatTemplateKwargs,
-           let data = jsonStr.data(using: .utf8),
-           let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            for (key, value) in dict {
-                parsedKwargs[key] = value  // explicit kwargs override --no-think
+        if let jsonStr = defaultChatTemplateKwargs {
+            guard let data = jsonStr.data(using: .utf8) else {
+                fputs("Error: --default-chat-template-kwargs must be valid UTF-8\n", stderr)
+                throw ExitCode.failure
+            }
+            do {
+                let jsonObject = try JSONSerialization.jsonObject(with: data)
+                guard let dict = jsonObject as? [String: Any] else {
+                    fputs("Error: --default-chat-template-kwargs must be a JSON object (e.g. '{\"enable_thinking\": false}')\n", stderr)
+                    throw ExitCode.failure
+                }
+                for (key, value) in dict {
+                    parsedKwargs[key] = value  // explicit kwargs override --no-think
+                }
+            } catch let error where !(error is ExitCode) {
+                fputs("Error: Failed to parse --default-chat-template-kwargs as JSON: \(error)\n", stderr)
+                throw ExitCode.failure
             }
         }
         if !parsedKwargs.isEmpty {

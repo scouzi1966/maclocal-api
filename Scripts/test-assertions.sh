@@ -1,7 +1,8 @@
 #!/bin/bash
 # Automated assertion test suite for AFM MLX server.
 # Deterministic pass/fail checks for stop sequences, logprobs, think extraction,
-# tool calls, prompt cache, concurrent requests, error handling, and performance.
+# tool calls, prompt cache, concurrent requests, error handling, chat_template_kwargs,
+# and performance.
 #
 # Usage:
 #   ./Scripts/test-assertions.sh --tier smoke|standard|full --model MODEL [--port PORT] [--bin BIN]
@@ -1018,6 +1019,155 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Section 10: Chat Template Kwargs (Issue #34)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Tests request-level chat_template_kwargs (e.g., enable_thinking: false).
+# Requires a thinking-capable model. Skips if model lacks <think> support.
+# Note: --no-think CLI flag and precedence tests require server restart — see
+# Scripts/test-chat-template-kwargs.sh for the full standalone suite.
+
+if min_tier standard; then
+  echo ""
+  echo "🎛️  Section 10: Chat Template Kwargs (Issue #34)"
+
+  # Reuse the thinking probe from Section 4 (or re-probe if it wasn't set)
+  if [ -z "${has_reasoning:-}" ]; then
+    probe_resp=$(api_call '{"messages":[{"role":"user","content":"What is 2+2? Think step by step."}],"max_tokens":100,"stream":false,"temperature":0}')
+    has_reasoning=$(echo "$probe_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    rc = d['choices'][0]['message'].get('reasoning_content')
+    print('yes' if rc and len(rc) > 0 else 'no')
+except:
+    print('no')
+" 2>/dev/null || echo "no")
+  fi
+
+  if [ "$has_reasoning" = "yes" ]; then
+    echo "  (Model supports thinking — running chat_template_kwargs tests)"
+
+    # Helper: classify response thinking state
+    # Returns: "no_think" | "thinking" | "empty" | "error"
+    _kwargs_check_response() {
+      echo "$1" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if 'error' in d:
+        print('error'); sys.exit()
+    msg = d['choices'][0]['message']
+    content = msg.get('content', '')
+    reasoning = msg.get('reasoning_content')
+    if reasoning and len(reasoning) > 0:
+        print('thinking' if content and len(content.strip()) > 0 else 'empty')
+    else:
+        print('no_think' if content and len(content.strip()) > 0 else 'empty')
+except:
+    print('error')
+" 2>/dev/null || echo "error"
+    }
+
+    # Helper: classify streaming response thinking state
+    _kwargs_check_stream() {
+      echo "$1" | python3 -c "
+import sys, json
+found_reasoning = False
+found_content = False
+for line in sys.stdin:
+    line = line.strip()
+    if not line.startswith('data: ') or line == 'data: [DONE]':
+        continue
+    try:
+        d = json.loads(line[6:])
+        delta = d.get('choices', [{}])[0].get('delta', {})
+        if delta.get('reasoning_content', '').strip():
+            found_reasoning = True
+        if delta.get('content', '').strip():
+            found_content = True
+    except:
+        pass
+if found_reasoning and found_content:
+    print('thinking')
+elif found_reasoning:
+    print('empty')
+elif found_content:
+    print('no_think')
+else:
+    print('error')
+" 2>/dev/null || echo "error"
+    }
+
+    # Test: enable_thinking=false disables thinking (non-streaming)
+    t0=$(now_ms)
+    resp=$(api_call '{"messages":[{"role":"user","content":"What is 2+2? Answer in one word."}],"chat_template_kwargs":{"enable_thinking":false},"max_tokens":50,"stream":false,"temperature":0}')
+    dur=$(( $(now_ms) - t0 ))
+    state=$(_kwargs_check_response "$resp")
+    if [ "$state" = "no_think" ]; then
+      run_test "Kwargs" "enable_thinking=false disables thinking" "no_think" "PASS" "$dur"
+    else
+      run_test "Kwargs" "enable_thinking=false disables thinking" "no_think" "FAIL: state=$state" "$dur"
+    fi
+
+    # Test: enable_thinking=false disables thinking (streaming)
+    t0=$(now_ms)
+    resp=$(api_stream '{"messages":[{"role":"user","content":"What is 2+2? Answer in one word."}],"chat_template_kwargs":{"enable_thinking":false},"max_tokens":50,"stream":true,"temperature":0}')
+    dur=$(( $(now_ms) - t0 ))
+    state=$(_kwargs_check_stream "$resp")
+    if [ "$state" = "no_think" ]; then
+      run_test "Kwargs" "Streaming: enable_thinking=false disables thinking" "no_think" "PASS" "$dur"
+    else
+      run_test "Kwargs" "Streaming: enable_thinking=false disables thinking" "no_think" "FAIL: state=$state" "$dur"
+    fi
+
+    # Test: default behavior (no kwargs) still has thinking
+    t0=$(now_ms)
+    resp=$(api_call '{"messages":[{"role":"user","content":"What is 2+2?"}],"max_tokens":200,"stream":false,"temperature":0}')
+    dur=$(( $(now_ms) - t0 ))
+    state=$(_kwargs_check_response "$resp")
+    if [ "$state" = "thinking" ]; then
+      run_test "Kwargs" "Default (no kwargs) retains thinking" "thinking" "PASS" "$dur"
+    else
+      run_test "Kwargs" "Default (no kwargs) retains thinking" "thinking" "FAIL: state=$state" "$dur"
+    fi
+
+    # Test: enable_thinking=false with higher max_tokens returns content
+    t0=$(now_ms)
+    resp=$(api_call '{"messages":[{"role":"user","content":"What is 2+2? Answer in one word."}],"chat_template_kwargs":{"enable_thinking":false},"max_tokens":2000,"stream":false,"temperature":0}')
+    dur=$(( $(now_ms) - t0 ))
+    state=$(_kwargs_check_response "$resp")
+    content_len=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print(len(d['choices'][0]['message'].get('content', '')))
+except:
+    print(0)
+" 2>/dev/null || echo "0")
+    if [ "$state" = "no_think" ] && [ "$content_len" -gt 0 ] 2>/dev/null; then
+      run_test "Kwargs" "enable_thinking=false (2K tokens) returns content" "content present, no reasoning" "PASS" "$dur"
+    else
+      run_test "Kwargs" "enable_thinking=false (2K tokens) returns content" "content present, no reasoning" "FAIL: state=$state, content_len=$content_len" "$dur"
+    fi
+
+    # Test: enable_thinking=true explicitly keeps thinking
+    t0=$(now_ms)
+    resp=$(api_call '{"messages":[{"role":"user","content":"What is 2+2?"}],"chat_template_kwargs":{"enable_thinking":true},"max_tokens":200,"stream":false,"temperature":0}')
+    dur=$(( $(now_ms) - t0 ))
+    state=$(_kwargs_check_response "$resp")
+    if [ "$state" = "thinking" ]; then
+      run_test "Kwargs" "enable_thinking=true explicitly keeps thinking" "thinking" "PASS" "$dur"
+    else
+      run_test "Kwargs" "enable_thinking=true explicitly keeps thinking" "thinking" "FAIL: state=$state" "$dur"
+    fi
+
+  else
+    echo "  (Model does not support thinking — skipping chat_template_kwargs tests)"
+    run_test "Kwargs" "chat_template_kwargs (model lacks thinking)" "skip" "SKIP" "0"
+  fi
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Section 9: Performance (full tier only)
 # ═══════════════════════════════════════════════════════════════════════════════
 if min_tier full; then
@@ -1176,6 +1326,7 @@ cat > "$REPORT_FILE" <<'HTMLHEAD'
   .group-badge.Cache { color: #79c0ff; border-color: #388bfd; }
   .group-badge.Concurrent { color: #f778ba; border-color: #db61a2; }
   .group-badge.Error { color: #ff7b72; border-color: #da3633; }
+  .group-badge.Kwargs { color: #a5d6ff; border-color: #58a6ff; }
   .group-badge.Perf { color: #3fb950; border-color: #238636; }
   .detail { font-family: 'SF Mono', 'Menlo', monospace; font-size: 0.8rem; color: #8b949e; white-space: pre-wrap; word-break: break-word; max-height: 100px; overflow-y: auto; background: #0d1117; padding: 0.5rem; border-radius: 6px; border: 1px solid #21262d; margin-top: 0.25rem; }
   .duration { color: #8b949e; font-family: 'SF Mono', monospace; font-size: 0.85rem; }
