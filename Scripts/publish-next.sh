@@ -19,6 +19,7 @@ TAP_DIR="${TAP_DIR:-$ROOT_DIR/../homebrew-afm}"
 REPO="scouzi1966/maclocal-api"
 DO_BUILD=true
 SINCE_SHA=""
+USER_VERSION=""
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -32,6 +33,14 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --skip-build) DO_BUILD=false ;;
+    --version)
+      shift
+      USER_VERSION="$1"
+      if [ -z "$USER_VERSION" ]; then
+        log_error "--version requires a version string (e.g. 0.9.6)"
+        exit 1
+      fi
+      ;;
     --since)
       shift
       SINCE_SHA="$1"
@@ -41,10 +50,11 @@ while [ $# -gt 0 ]; do
       fi
       ;;
     -h|--help)
-      echo "Usage: ./Scripts/publish-next.sh [--skip-build] [--since <commit-sha>]"
+      echo "Usage: ./Scripts/publish-next.sh [--skip-build] [--version <ver>] [--since <commit-sha>]"
       echo ""
       echo "Options:"
       echo "  --skip-build        Package + publish (assumes already built)"
+      echo "  --version <ver>     Override base version (default: read from BuildInfo.swift)"
       echo "  --since <sha>       Generate changelog from this commit instead of auto-detecting"
       exit 0
       ;;
@@ -75,7 +85,18 @@ fi
 
 SHORT_SHA=$(git rev-parse --short HEAD)
 DATE=$(date -u +%Y%m%d)
-VERSION="0.9.5-next.${SHORT_SHA}.${DATE}"
+
+# Determine base version: --version flag > BuildInfo.swift > fallback
+if [ -n "$USER_VERSION" ]; then
+  BASE_VERSION="$USER_VERSION"
+else
+  BUILDINFO="$ROOT_DIR/Sources/MacLocalAPI/BuildInfo.swift"
+  if [ -f "$BUILDINFO" ]; then
+    BASE_VERSION=$(grep 'static let version' "$BUILDINFO" | sed 's/.*"\(.*\)".*/\1/' | sed 's/^v//')
+  fi
+  BASE_VERSION="${BASE_VERSION:-0.0.0}"
+fi
+VERSION="${BASE_VERSION}-next.${SHORT_SHA}.${DATE}"
 
 log_info "Building afm-next"
 log_info "  Commit: ${SHORT_SHA}"

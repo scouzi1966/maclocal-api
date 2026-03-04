@@ -96,22 +96,32 @@ Report to the user:
 - Binary path (absolute)
 - Version string
 
-Then **use AskUserQuestion** to pause and ask:
+Then **use AskUserQuestion** to pause and ask **two questions**:
 
-**Question:** "The binary is ready for testing. Please test it and confirm when ready to publish."
+**Question 1:** "The binary is ready for testing. Please test it and confirm when ready to publish."
 
 **Options:**
 1. "Publish" — Continue with GitHub release and tap update
 2. "Cancel" — Abort without publishing
 
+**Question 2:** Determine the suggested version by reading `Sources/MacLocalAPI/BuildInfo.swift` and extracting the version (strip leading `v`). Present it to the user:
+
+"Release version? The base version from BuildInfo.swift is `X.Y.Z`. The full nightly version will be `X.Y.Z-next.<sha>.<date>`."
+
+**Options:**
+1. "X.Y.Z (from BuildInfo.swift)" — Use the version from BuildInfo.swift (recommended)
+2. "Custom version" — Enter a different base version
+
+Pass the confirmed version to the publish script via `--version`.
+
 **Do NOT proceed to Step 4 unless the user selects "Publish".**
 
 ### Step 4: Publish Release
 
-Run the publish script with `--skip-build` (already built in Step 2):
+Run the publish script with `--skip-build` (already built in Step 2) and the confirmed version:
 
 ```bash
-./Scripts/publish-next.sh --skip-build
+./Scripts/publish-next.sh --skip-build --version <confirmed-version>
 ```
 
 This script handles everything:
