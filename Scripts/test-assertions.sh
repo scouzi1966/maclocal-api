@@ -1205,6 +1205,40 @@ except Exception as e:
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Section 8c: Structured Output
+# ═══════════════════════════════════════════════════════════════════════════════
+if min_tier standard; then
+  echo ""
+  echo "📋 Section 8c: Structured Output"
+
+  # Test: response_format json_schema produces valid schema-matching JSON
+  t0=$(now_ms)
+  schema_resp=$(api_call '{"messages":[{"role":"user","content":"Give me a person named Alice who is 30 years old"}],"max_tokens":100,"temperature":0,"response_format":{"type":"json_schema","json_schema":{"name":"person","schema":{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"}},"required":["name","age"]}}}}')
+  dur=$(( $(now_ms) - t0 ))
+  schema_valid=$(echo "$schema_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    c = d['choices'][0]['message']['content'].strip()
+    parsed = json.loads(c)
+    assert 'name' in parsed and isinstance(parsed['name'], str), 'missing name'
+    assert 'age' in parsed and isinstance(parsed['age'], int), 'missing age'
+    print('PASS')
+except json.JSONDecodeError as e:
+    print(f'FAIL: invalid JSON: {e}')
+except AssertionError as e:
+    print(f'FAIL: schema mismatch: {e}')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$schema_valid" = "PASS" ]; then
+    run_test "Structured" "json_schema produces valid schema-matching JSON" "valid JSON" "PASS" "$dur"
+  else
+    run_test "Structured" "json_schema produces valid schema-matching JSON" "valid JSON" "$schema_valid" "$dur"
+  fi
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Section 9: Performance (full tier only)
 # ═══════════════════════════════════════════════════════════════════════════════
 if min_tier full; then
