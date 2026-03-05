@@ -93,7 +93,7 @@ final class MLXModelService: @unchecked Sendable {
     var kvBits: Int?
     var kvEvictionPolicy: String = "none"  // "none" or "streaming"
     var defaultChatTemplateKwargs: [String: Any]?
-    private var xgrammarBridge: XGrammarBridge?
+    private var xgrammarService: XGrammarService?
     init(resolver: MLXCacheResolver) {
         self.resolver = resolver
         self.resolver.applyEnvironment()
@@ -287,16 +287,6 @@ final class MLXModelService: @unchecked Sendable {
         defer { cleanupTempFiles(mediaTempFiles) }
         let wantLogprobs = logprobs == true
 
-        // Grammar constraint setup (for json_schema response format)
-        let grammarResult = await setupGrammarConstraint(modelID: modelID, responseFormat: responseFormat)
-        let grammarSession = grammarResult?.1
-        defer {
-            grammarSession?.release()
-            if grammarSession != nil {
-                Task { await self.xgrammarBridge?.releaseSession() }
-            }
-        }
-
         var params = GenerateParameters(
             maxTokens: maxTokens ?? 2000,
             kvBits: self.kvBits,
@@ -314,9 +304,6 @@ final class MLXModelService: @unchecked Sendable {
             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
             prefillStepSize: self.prefillStepSize
         )
-        if let grammarProcessor = grammarResult?.0 {
-            params.extraProcessor = grammarProcessor
-        }
 
         var collectedLogprobs = [TokenLogprobData]()
         var resolvedLogprobs: [ResolvedLogprob]? = nil
@@ -324,6 +311,17 @@ final class MLXModelService: @unchecked Sendable {
         var completionInfo: GenerateCompletionInfo? = nil
         var cachedTokenCount = 0
         let generated: String = try await container.perform { context in
+            // Grammar constraint setup (needs tokenizer from context)
+            let grammarProcessor = self.setupGrammarConstraint(
+                modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
+            )
+            defer {
+                (grammarProcessor?.matcherHandle as? GrammarMatcherHandle)?.release()
+            }
+            if let grammarProcessor {
+                params.extraProcessor = grammarProcessor
+            }
+
             let input = try await context.processor.prepare(input: userInput)
 
             // DEBUG: decode and print the full prompt to see what the template produced
@@ -560,10 +558,6 @@ final class MLXModelService: @unchecked Sendable {
         let promptTokens = estimateTokens(promptText)
         let wantLogprobs = logprobs == true
 
-        // Grammar constraint setup (for json_schema response format)
-        let grammarResult = await setupGrammarConstraint(modelID: modelID, responseFormat: responseFormat)
-        let grammarSession = grammarResult?.1
-
         var params = GenerateParameters(
             maxTokens: maxTokens ?? 2000,
             kvBits: self.kvBits,
@@ -581,15 +575,23 @@ final class MLXModelService: @unchecked Sendable {
             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
             prefillStepSize: self.prefillStepSize
         )
-        if let grammarProcessor = grammarResult?.0 {
-            params.extraProcessor = grammarProcessor
-        }
 
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             let task = Task {
                 defer { self.endOperation() }
                 do {
                     try await container.perform { context in
+                        // Grammar constraint setup (needs tokenizer from context)
+                        let grammarProcessor = self.setupGrammarConstraint(
+                            modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
+                        )
+                        defer {
+                            (grammarProcessor?.matcherHandle as? GrammarMatcherHandle)?.release()
+                        }
+                        if let grammarProcessor {
+                            params.extraProcessor = grammarProcessor
+                        }
+
                         let input = try await context.processor.prepare(input: userInput)
 
                         // If the chat template appended <think> to the prompt, inject it
@@ -770,17 +772,9 @@ final class MLXModelService: @unchecked Sendable {
                             radix.insert(tokens: inputTokens, layerStates: layerStates)
                         }
                     }
-                    grammarSession?.release()
-                    if grammarSession != nil {
-                        Task { await self.xgrammarBridge?.releaseSession() }
-                    }
                     self.cleanupTempFiles(mediaTempFiles)
                     continuation.finish()
                 } catch {
-                    grammarSession?.release()
-                    if grammarSession != nil {
-                        Task { await self.xgrammarBridge?.releaseSession() }
-                    }
                     self.cleanupTempFiles(mediaTempFiles)
                     continuation.finish(throwing: error)
                 }
@@ -1259,60 +1253,55 @@ final class MLXModelService: @unchecked Sendable {
     }
 
     /// Set up grammar-constrained decoding for a json_schema response format.
-    /// Returns `(GrammarLogitProcessor, XGrammarSession)` on success, nil on failure.
+    /// Returns a GrammarLogitProcessor on success, nil on failure (falls back to prompt injection).
     private func setupGrammarConstraint(
         modelID: String,
-        responseFormat: ResponseFormat?
-    ) async -> (GrammarLogitProcessor, XGrammarSession)? {
+        responseFormat: ResponseFormat?,
+        tokenizer: any Tokenizer
+    ) -> GrammarLogitProcessor? {
         guard let responseFormat, responseFormat.type == "json_schema",
               let schema = responseFormat.jsonSchema?.schema else {
             return nil
         }
 
         do {
-            if self.xgrammarBridge == nil {
-                self.xgrammarBridge = XGrammarBridge()
+            // Initialize service if needed
+            if xgrammarService == nil {
+                guard let directory = resolver.localModelDirectory(repoId: modelID) else {
+                    if debugLogging { print("[XGrammar] Model directory not found") }
+                    return nil
+                }
+                let vocabSize = readVocabSize(directory: directory) ?? 151936
+                let service = XGrammarService(vocabSize: vocabSize, debugLogging: debugLogging)
+                let eosId = tokenizer.eosTokenId
+                try service.setupTokenizer(tokenizer: tokenizer, eosTokenId: eosId)
+                self.xgrammarService = service
             }
-            guard let bridge = self.xgrammarBridge else { return nil }
 
-            try await bridge.start()
+            guard let service = xgrammarService else { return nil }
 
-            guard let directory = resolver.localModelDirectory(repoId: modelID) else {
-                if debugLogging { print("[XGrammar] Model directory not found for \(modelID)") }
-                return nil
-            }
-
-            let tokenizerPath = directory.appendingPathComponent("tokenizer.json").path
-            let vocabSize = readVocabSize(directory: directory) ?? 151936
-
-            // Convert AnyCodable schema to JSON-serializable Any
+            // Convert schema to JSON string
             let schemaValue = schema.toSendable()
+            let schemaData = try JSONSerialization.data(withJSONObject: schemaValue)
+            let schemaJSON = String(data: schemaData, encoding: .utf8) ?? "{}"
 
-            let grammarID = try await bridge.compile(
-                schema: schemaValue,
-                vocabSize: vocabSize,
-                tokenizerPath: tokenizerPath
-            )
+            // Compile and create matcher
+            let matcher = try service.compileAndCreateMatcher(schemaJSON: schemaJSON)
 
-            guard let session = await bridge.createSession(grammarID: grammarID) else {
-                if debugLogging { print("[XGrammar] Failed to create session") }
-                return nil
-            }
-
+            // Create processor
             let proc = GrammarLogitProcessor()
-            // Get initial allowed tokens mask
-            proc.allowedTokens = session.getAllowedTokens()
-            // On each token: accept it and update the mask for the next token
-            proc.onTokenSampled = { [weak session] tokenID in
-                session?.acceptToken(tokenID)
-                proc.allowedTokens = session?.getAllowedTokens()
+            proc.matcherHandle = matcher
+            proc.tokenMask = matcher.nextTokenMask()
+            proc.onTokenSampled = { [weak matcher] tokenID in
+                matcher?.acceptToken(tokenID)
+                proc.tokenMask = matcher?.nextTokenMask()
             }
 
             if debugLogging {
-                print("[XGrammar] Grammar constraint active for json_schema (vocab_size=\(vocabSize))")
+                print("[XGrammar] Grammar constraint active for json_schema (native C++, vocab_size=\(service.vocabSize))")
             }
 
-            return (proc, session)
+            return proc
         } catch {
             if debugLogging {
                 print("[XGrammar] Failed to set up grammar: \(error). Falling back to prompt injection.")

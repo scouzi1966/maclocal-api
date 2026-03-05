@@ -114,6 +114,10 @@ public struct GenerateParameters: Sendable {
     /// number of top alternative tokens to include in logprob output (0-20, default: 0)
     public var topLogprobsCount: Int
 
+    /// Optional external logit processor (e.g., grammar constrained decoding).
+    /// Applied AFTER the built-in processors in the chain.
+    public var extraProcessor: LogitProcessor?
+
     public init(
         maxTokens: Int? = nil,
         maxKVSize: Int? = nil,
@@ -182,6 +186,10 @@ public struct GenerateParameters: Sendable {
 
         if minP > 0 && minP < 1 {
             processors.append(MinPProcessor(minP: minP))
+        }
+
+        if let extra = extraProcessor {
+            processors.append(extra)
         }
 
         switch processors.count {
@@ -363,6 +371,39 @@ public struct MinPProcessor: LogitProcessor {
         let threshold = maxLogit + MLXArray(log(minP))
 
         return MLX.where(logits .>= threshold, logits, MLXArray(-Float.infinity))
+    }
+}
+
+/// Logit processor that masks tokens based on grammar constraints.
+/// Uses reference semantics (class) so the mask can be updated externally per-token.
+public final class GrammarLogitProcessor: LogitProcessor, @unchecked Sendable {
+    /// Pre-computed MLXArray mask from the grammar matcher (0 for allowed, -1e9 for disallowed).
+    /// nil = no constraint (passthrough).
+    public var tokenMask: MLXArray?
+
+    /// The grammar matcher handle (type-erased). Caller manages lifecycle.
+    public var matcherHandle: AnyObject?
+
+    /// Callback invoked after each token is sampled, with the token ID.
+    /// Used to advance grammar state and update tokenMask for the next token.
+    public var onTokenSampled: ((Int) -> Void)?
+
+    public init() {}
+
+    public func prompt(_ prompt: MLXArray) {
+        // No-op — grammar state managed externally
+    }
+
+    public func process(logits: MLXArray) -> MLXArray {
+        guard let mask = tokenMask else {
+            return logits  // No constraint — passthrough
+        }
+        return logits + mask
+    }
+
+    public func didSample(token: MLXArray) {
+        let tokenID = token.item(Int.self)
+        onTokenSampled?(tokenID)
     }
 }
 
