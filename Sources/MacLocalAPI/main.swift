@@ -214,8 +214,6 @@ struct MlxCommand: ParsableCommand {
     var prefillStepSize: Int?
     @Flag(name: .long, help: "Trust remote code (compatibility)")
     var trustRemoteCode: Bool = false
-    @Flag(name: .long, inversion: .prefixedNo, help: "Enable automatic prefix caching (KV cache reuse across requests)")
-    var enablePrefixCaching: Bool = false
     @Option(name: .long, help: "Chat template (compatibility)")
     var chatTemplate: String?
     @Option(name: .long, help: "Dtype (compatibility)")
@@ -257,7 +255,6 @@ struct MlxCommand: ParsableCommand {
 
         let resolver = MLXCacheResolver()
         let service = MLXModelService(resolver: resolver)
-        service.enablePrefixCaching = enablePrefixCaching
         service.toolCallParser = toolCallParser
         service.fixToolArgs = fixToolArgs
         service.forceVLM = vlm || !media.isEmpty
