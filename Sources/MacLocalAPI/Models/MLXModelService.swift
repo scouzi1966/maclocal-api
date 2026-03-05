@@ -72,22 +72,6 @@ enum MLXServiceError: Error, LocalizedError {
     }
 }
 
-/// Thread-safe container for KV cache state across requests.
-/// Marked @unchecked Sendable because access is serialized through ModelContainer.perform.
-private final class PromptCacheBox: @unchecked Sendable {
-    var promptTokens: [Int] = []
-    var cache: [KVCache] = []
-    var modelID: String = ""
-    var isValid: Bool = false
-
-    func invalidate() {
-        promptTokens = []
-        cache = []
-        modelID = ""
-        isValid = false
-    }
-}
-
 private let debugLogging = ProcessInfo.processInfo.environment["AFM_DEBUG"].map { $0 == "1" } ?? false
 private let clearGPUCachePerRequest = ProcessInfo.processInfo.environment["AFM_CLEAR_GPU_CACHE"].map { $0 == "1" } ?? false
 
@@ -100,9 +84,8 @@ final class MLXModelService: @unchecked Sendable {
     private var activeOperations: Int = 0
     private var isShuttingDown = false
     private var gpuInitialized = false
-    private let promptCache = PromptCacheBox()
+    private var radixCache: RadixTreeCache?
     private var currentToolCallFormat: ToolCallFormat?
-    var enablePrefixCaching: Bool = false
     var prefillStepSize: Int = 2048
     var toolCallParser: String?
     var fixToolArgs: Bool = false
@@ -236,7 +219,12 @@ final class MLXModelService: @unchecked Sendable {
                 currentModelID = modelID
                 currentToolCallFormat = detectedFormat
             }
-            promptCache.invalidate()
+            self.radixCache?.invalidateAll()
+            self.radixCache = RadixTreeCache(
+                modelID: modelID,
+                maxEntries: 64,
+                debugLogging: debugLogging
+            )
             try registry.registerModel(modelID)
             stage?(.ready)
             return modelID
@@ -297,7 +285,6 @@ final class MLXModelService: @unchecked Sendable {
         var collectedToolCalls = [ToolCall]()
         var completionInfo: GenerateCompletionInfo? = nil
         var cachedTokenCount = 0
-        let promptCache = self.promptCache
         let generated: String = try await container.perform { context in
             let input = try await context.processor.prepare(input: userInput)
 
@@ -325,44 +312,36 @@ final class MLXModelService: @unchecked Sendable {
             }
 
             // Prompt caching: determine cache hit/miss
-            let useCache = self.enablePrefixCaching && !self.isMultimodalInput(input)
+            let useCache = !self.isMultimodalInput(input)
             let inputTokens = useCache ? self.extractTokenArray(input) : []
             var generationCache: [KVCache]
             var generateInput: LMInput
 
-            if useCache {
-                var prefixLen = self.findPrefixLength(incoming: inputTokens, currentModelID: modelID)
-                if prefixLen > 0 {
-                    // Near/exact match: ensure we re-feed at least minSuffix tokens
-                    // to give the model enough context for stable generation.
-                    // 1 token is fragile (can cause immediate EOS); 16 is a safe margin.
-                    let minSuffix = 16
-                    let maxPrefix = inputTokens.count - minSuffix
-                    if prefixLen > maxPrefix {
-                        prefixLen = max(0, maxPrefix)
+            if useCache, let radix = self.radixCache {
+                let (prefixLen, layerStates) = radix.findPrefix(inputTokens)
+                let minSuffix = 16
+                let effectivePrefix = min(prefixLen, max(0, inputTokens.count - minSuffix))
+
+                if effectivePrefix > 0, let states = layerStates {
+                    // Restore KV cache from radix tree state
+                    generationCache = context.model.newCache(parameters: params)
+                    for i in 0..<generationCache.count {
+                        if i < states.count {
+                            generationCache[i].state = states[i]
+                        }
                     }
-                    if prefixLen > 0 {
-                        // Reuse cached KV cache, trimmed to prefix length
-                        generationCache = promptCache.cache
-                        self.trimCacheToLength(generationCache, keepTokens: prefixLen)
-                        // Build suffix-only input — reshape to [1, N] to preserve batch dim
-                        // (VLM models expect 2D token arrays from the tokenizer)
-                        let suffixTokens = Array(inputTokens[prefixLen...])
-                        generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens).reshaped(1, suffixTokens.count)))
-                        cachedTokenCount = prefixLen
-                        if debugLogging {
-                            print("[KVCache] Prefix match: \(prefixLen)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix tokens")
-                        }
-                    } else {
-                        // Prefix too short after minSuffix adjustment, do full prefill
-                        generationCache = context.model.newCache(parameters: params)
-                        generateInput = input
-                        if debugLogging {
-                            print("[KVCache] Cache miss (prefix \(self.findPrefixLength(incoming: inputTokens, currentModelID: modelID)) < minSuffix), full prefill for \(inputTokens.count) tokens")
-                        }
+                    // Trim to effective prefix length
+                    for i in 0..<generationCache.count {
+                        let excess = generationCache[i].offset - effectivePrefix
+                        if excess > 0 { generationCache[i].trim(excess) }
+                    }
+                    let suffixTokens = Array(inputTokens[effectivePrefix...])
+                    generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
+                    cachedTokenCount = effectivePrefix
+                    if debugLogging {
+                        print("[KVCache] Radix hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
                     }
                 } else {
-                    // Cache miss: fresh cache
                     generationCache = context.model.newCache(parameters: params)
                     generateInput = input
                     if debugLogging {
@@ -370,7 +349,6 @@ final class MLXModelService: @unchecked Sendable {
                     }
                 }
             } else {
-                // Multimodal input: no caching
                 generationCache = context.model.newCache(parameters: params)
                 generateInput = input
                 if debugLogging {
@@ -445,9 +423,15 @@ final class MLXModelService: @unchecked Sendable {
                 print("[KVCache] Timing: TTFT=\(String(format: "%.3f", ttft))s total=\(String(format: "%.3f", total))s prompt_tokens=\(promptTok) gen_tokens=\(genTok)")
             }
 
-            // Save prompt cache state (trim generation tokens, keep prompt-only)
-            if useCache && !inputTokens.isEmpty {
-                self.savePromptCacheState(cache: generationCache, promptTokens: inputTokens, modelID: modelID)
+            // Save prompt cache state into radix tree
+            if useCache, let radix = self.radixCache, !inputTokens.isEmpty {
+                let promptLen = inputTokens.count
+                for layer in generationCache {
+                    let excess = layer.offset - promptLen
+                    if excess > 0 { layer.trim(excess) }
+                }
+                let layerStates = generationCache.map { $0.state }
+                radix.insert(tokens: inputTokens, layerStates: layerStates)
             }
 
             if wantLogprobs && !collectedLogprobs.isEmpty {
@@ -555,7 +539,6 @@ final class MLXModelService: @unchecked Sendable {
             prefillStepSize: self.prefillStepSize
         )
 
-        let promptCache = self.promptCache
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             let task = Task {
                 defer { self.endOperation() }
@@ -580,36 +563,35 @@ final class MLXModelService: @unchecked Sendable {
                         }
 
                         // Prompt caching: determine cache hit/miss
-                        let useCache = self.enablePrefixCaching && !self.isMultimodalInput(input)
+                        let useCache = !self.isMultimodalInput(input)
                         let inputTokens = useCache ? self.extractTokenArray(input) : []
                         var generationCache: [KVCache]
                         var generateInput: LMInput
                         var streamCachedTokens = 0
 
-                        if useCache {
-                            var prefixLen = self.findPrefixLength(incoming: inputTokens, currentModelID: modelID)
-                            if prefixLen > 0 {
-                                // Near/exact match: ensure we re-feed at least minSuffix tokens
-                                let minSuffix = 16
-                                let maxPrefix = inputTokens.count - minSuffix
-                                if prefixLen > maxPrefix {
-                                    prefixLen = max(0, maxPrefix)
+                        if useCache, let radix = self.radixCache {
+                            let (prefixLen, layerStates) = radix.findPrefix(inputTokens)
+                            let minSuffix = 16
+                            let effectivePrefix = min(prefixLen, max(0, inputTokens.count - minSuffix))
+
+                            if effectivePrefix > 0, let states = layerStates {
+                                // Restore KV cache from radix tree state
+                                generationCache = context.model.newCache(parameters: params)
+                                for i in 0..<generationCache.count {
+                                    if i < states.count {
+                                        generationCache[i].state = states[i]
+                                    }
                                 }
-                                if prefixLen > 0 {
-                                    generationCache = promptCache.cache
-                                    self.trimCacheToLength(generationCache, keepTokens: prefixLen)
-                                    let suffixTokens = Array(inputTokens[prefixLen...])
-                                    generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens).reshaped(1, suffixTokens.count)))
-                                    streamCachedTokens = prefixLen
-                                    if debugLogging {
-                                        print("[KVCache] Prefix match: \(prefixLen)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix tokens")
-                                    }
-                                } else {
-                                    generationCache = context.model.newCache(parameters: params)
-                                    generateInput = input
-                                    if debugLogging {
-                                        print("[KVCache] Cache miss (prefix < minSuffix), full prefill for \(inputTokens.count) tokens")
-                                    }
+                                // Trim to effective prefix length
+                                for i in 0..<generationCache.count {
+                                    let excess = generationCache[i].offset - effectivePrefix
+                                    if excess > 0 { generationCache[i].trim(excess) }
+                                }
+                                let suffixTokens = Array(inputTokens[effectivePrefix...])
+                                generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
+                                streamCachedTokens = effectivePrefix
+                                if debugLogging {
+                                    print("[KVCache] Radix hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
                                 }
                             } else {
                                 generationCache = context.model.newCache(parameters: params)
@@ -731,9 +713,15 @@ final class MLXModelService: @unchecked Sendable {
                             print("[KVCache] Timing: TTFT=\(String(format: "%.3f", ttft))s total=\(String(format: "%.3f", total))s (streaming)")
                         }
 
-                        // Save prompt cache state (trim generation tokens, keep prompt-only)
-                        if useCache && !inputTokens.isEmpty && !Task.isCancelled {
-                            self.savePromptCacheState(cache: generationCache, promptTokens: inputTokens, modelID: modelID)
+                        // Save prompt cache state into radix tree
+                        if useCache, let radix = self.radixCache, !inputTokens.isEmpty, !Task.isCancelled {
+                            let promptLen = inputTokens.count
+                            for layer in generationCache {
+                                let excess = layer.offset - promptLen
+                                if excess > 0 { layer.trim(excess) }
+                            }
+                            let layerStates = generationCache.map { $0.state }
+                            radix.insert(tokens: inputTokens, layerStates: layerStates)
                         }
                     } // container.perform
                     self.cleanupTempFiles(mediaTempFiles)
@@ -784,7 +772,7 @@ final class MLXModelService: @unchecked Sendable {
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
 
-        promptCache.invalidate()
+        self.radixCache?.invalidateAll()
         autoreleasepool {
             withStateLock {
                 currentContainer = nil
@@ -1512,48 +1500,6 @@ final class MLXModelService: @unchecked Sendable {
     /// Extract a flat array of token IDs from prepared LMInput.
     private func extractTokenArray(_ input: LMInput) -> [Int] {
         input.text.tokens.reshaped(-1).asArray(Int.self)
-    }
-
-    /// Find the length of the common token prefix between incoming tokens and the cached state.
-    /// Returns 0 on cache miss (different model, no cache, or no common prefix).
-    private func findPrefixLength(incoming: [Int], currentModelID: String) -> Int {
-        guard promptCache.isValid,
-              promptCache.modelID == currentModelID,
-              !promptCache.cache.isEmpty,
-              !promptCache.promptTokens.isEmpty else {
-            return 0
-        }
-        let cached = promptCache.promptTokens
-        let limit = min(incoming.count, cached.count)
-        var prefixLen = 0
-        while prefixLen < limit && incoming[prefixLen] == cached[prefixLen] {
-            prefixLen += 1
-        }
-        return prefixLen
-    }
-
-    /// Trim KV cache to keep only the first `keepTokens` tokens across all layers.
-    private func trimCacheToLength(_ cache: [KVCache], keepTokens: Int) {
-        for layer in cache {
-            let excess = layer.offset - keepTokens
-            if excess > 0 {
-                layer.trim(excess)
-            }
-        }
-    }
-
-    /// Save prompt-only cache state after generation completes.
-    /// Trims generation tokens from the cache so only prompt tokens remain.
-    private func savePromptCacheState(cache: [KVCache], promptTokens: [Int], modelID: String) {
-        let promptLen = promptTokens.count
-        trimCacheToLength(cache, keepTokens: promptLen)
-        promptCache.cache = cache
-        promptCache.promptTokens = promptTokens
-        promptCache.modelID = modelID
-        promptCache.isValid = true
-        if debugLogging {
-            print("[KVCache] Saved prompt cache: \(promptLen) tokens for model \(modelID)")
-        }
     }
 
     /// Check if the LMInput contains multimodal content (images/video) which we don't cache.
