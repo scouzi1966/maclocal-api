@@ -46,6 +46,17 @@ enum MLXLoadStage: String {
     case ready = "ready"
 }
 
+/// Context length exceeded error — thrown when prompt tokens exceed maxModelLen.
+/// Separate type so controllers can catch it and return OpenAI-compatible error responses.
+struct MLXContextLengthError: Error, LocalizedError {
+    let promptTokens: Int
+    let maxModelLen: Int
+
+    var errorDescription: String? {
+        "This model's maximum context length is \(maxModelLen) tokens. However, your messages resulted in \(promptTokens) tokens. Please reduce the length of the messages."
+    }
+}
+
 enum MLXServiceError: Error, LocalizedError {
     case invalidModel(String)
     case modelNotFoundInCache(String)
@@ -108,6 +119,8 @@ final class MLXModelService: @unchecked Sendable {
     var forceVLM: Bool = false
     var kvBits: Int?
     var defaultChatTemplateKwargs: [String: Any]?
+    /// Auto-detected from model's config.json max_position_embeddings during ensureLoaded
+    private(set) var detectedMaxModelLen: Int?
     init(resolver: MLXCacheResolver) {
         self.resolver = resolver
         self.resolver.applyEnvironment()
@@ -188,6 +201,8 @@ final class MLXModelService: @unchecked Sendable {
         }
 
         var config = ModelConfiguration(directory: directory)
+        // Auto-detect max_position_embeddings from config.json
+        detectMaxModelLen(directory: directory)
         // Auto-detect tool call format from model type (vendor LLMModelFactory lost this code)
         var detectedFormat = inferToolCallFormat(directory: directory)
         // --tool-call-parser override: force format for the specified parser
@@ -260,7 +275,8 @@ final class MLXModelService: @unchecked Sendable {
         tools: [RequestTool]? = nil,
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
-        chatTemplateKwargs: [String: AnyCodable]? = nil
+        chatTemplateKwargs: [String: AnyCodable]? = nil,
+        maxModelLen: Int? = nil
     ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?, cachedTokens: Int, promptTime: Double, generateTime: Double) {
         try beginOperation()
         defer { endOperation() }
@@ -275,6 +291,7 @@ final class MLXModelService: @unchecked Sendable {
         let wantLogprobs = logprobs == true
         let params = GenerateParameters(
             maxTokens: maxTokens ?? 2000,
+            maxKVSize: maxModelLen,
             kvBits: self.kvBits,
             kvGroupSize: 64,
             quantizedKVStart: 0,
@@ -299,6 +316,14 @@ final class MLXModelService: @unchecked Sendable {
         let promptCache = self.promptCache
         let generated: String = try await container.perform { context in
             let input = try await context.processor.prepare(input: userInput)
+
+            // Context length enforcement
+            if let limit = maxModelLen {
+                let tokenCount = input.text.tokens.dim(input.text.tokens.ndim - 1)
+                if tokenCount > limit {
+                    throw MLXContextLengthError(promptTokens: tokenCount, maxModelLen: limit)
+                }
+            }
 
             // DEBUG: decode and print the full prompt to see what the template produced
             if debugLogging {
@@ -502,7 +527,8 @@ final class MLXModelService: @unchecked Sendable {
         tools: [RequestTool]? = nil,
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
-        chatTemplateKwargs: [String: AnyCodable]? = nil
+        chatTemplateKwargs: [String: AnyCodable]? = nil,
+        maxModelLen: Int? = nil
     ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int, toolCallStartTag: String?, toolCallEndTag: String?) {
         try beginOperation()
         defer { endOperation() }
@@ -517,6 +543,7 @@ final class MLXModelService: @unchecked Sendable {
         let wantLogprobs = logprobs == true
         let params = GenerateParameters(
             maxTokens: maxTokens ?? 2000,
+            maxKVSize: maxModelLen,
             kvBits: self.kvBits,
             kvGroupSize: 64,
             quantizedKVStart: 0,
@@ -539,6 +566,14 @@ final class MLXModelService: @unchecked Sendable {
                 do {
                     try await container.perform { context in
                         let input = try await context.processor.prepare(input: userInput)
+
+                        // Context length enforcement
+                        if let limit = maxModelLen {
+                            let tokenCount = input.text.tokens.dim(input.text.tokens.ndim - 1)
+                            if tokenCount > limit {
+                                throw MLXContextLengthError(promptTokens: tokenCount, maxModelLen: limit)
+                            }
+                        }
 
                         // If the chat template appended <think> to the prompt, inject it
                         // into the stream so the reasoning extractor can detect it.
@@ -1136,6 +1171,19 @@ final class MLXModelService: @unchecked Sendable {
             )
         } catch {
             throw MLXServiceError.downloadFailed("\(modelID): \(error.localizedDescription)")
+        }
+    }
+
+    private func detectMaxModelLen(directory: URL) {
+        let configURL = directory.appendingPathComponent("config.json")
+        guard let data = try? Data(contentsOf: configURL),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let maxPos = json["max_position_embeddings"] as? Int else {
+            return
+        }
+        detectedMaxModelLen = maxPos
+        if debugLogging {
+            print("[MaxModelLen] Detected max_position_embeddings=\(maxPos) from config.json")
         }
     }
 

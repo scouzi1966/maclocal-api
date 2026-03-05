@@ -206,8 +206,8 @@ struct MlxCommand: ParsableCommand {
     var maxLogprobs: Int?
     @Option(name: .long, help: "Repetition penalty (compatibility)")
     var repetitionPenalty: Double?
-    @Option(name: .long, help: "KV cache size (compatibility)")
-    var maxKVSize: Int?
+    @Option(name: [.customLong("max-model-len"), .customLong("max-kv-size")], help: "Maximum context length (prompt + completion tokens). Defaults to model's max_position_embeddings.")
+    var maxModelLen: Int?
     @Option(name: .long, help: "Quantize KV cache to this many bits (4 or 8) to reduce memory usage")
     var kvBits: Int?
     @Option(name: .long, help: "Prefill step size — number of prompt tokens processed per GPU pass (default: 2048)")
@@ -411,7 +411,8 @@ struct MlxCommand: ParsableCommand {
                     mlxMinP: minP,
                     mlxPresencePenalty: presencePenalty,
                     mlxSeed: seed,
-                    mlxMaxLogprobs: maxLogprobs
+                    mlxMaxLogprobs: maxLogprobs,
+                    mlxMaxModelLen: maxModelLen
                 )
                 globalServer = server
                 if !explicitPort && chosenPort != 9999 {
@@ -534,8 +535,10 @@ struct MlxCommand: ParsableCommand {
                 if json["vision_config"] != nil || json["visual"] != nil {
                     supportsVision = true
                 }
-                // Context window from max_position_embeddings
-                if let maxPos = json["max_position_embeddings"] as? Int {
+                // Context window from max_position_embeddings (CLI override takes priority)
+                if let override = maxModelLen {
+                    contextWindow = override
+                } else if let maxPos = json["max_position_embeddings"] as? Int {
                     contextWindow = maxPos
                 }
             }
@@ -607,7 +610,6 @@ struct MlxCommand: ParsableCommand {
 
     private func emitCompatibilityWarnings() {
         var ignored: [String] = []
-        if maxKVSize != nil { ignored.append("--max-kv-size") }
         if trustRemoteCode { ignored.append("--trust-remote-code") }
         if chatTemplate != nil { ignored.append("--chat-template") }
         if dtype != nil { ignored.append("--dtype") }

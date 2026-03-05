@@ -55,8 +55,9 @@ class Server {
     private let mlxPresencePenalty: Double?
     private let mlxSeed: Int?
     private let mlxMaxLogprobs: Int
+    private let mlxMaxModelLen: Int?
 
-    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil) async throws {
+    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, mlxMaxModelLen: Int? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -83,6 +84,7 @@ class Server {
         self.mlxPresencePenalty = mlxPresencePenalty
         self.mlxSeed = mlxSeed
         self.mlxMaxLogprobs = mlxMaxLogprobs ?? 20
+        self.mlxMaxModelLen = mlxMaxModelLen
 
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
@@ -132,6 +134,7 @@ class Server {
 
         app.get("v1", "models") { req async -> ModelsResponse in
             if let mlxModelID = self.mlxModelID {
+                let effectiveContextWindow = self.mlxMaxModelLen ?? self.mlxModelService?.detectedMaxModelLen
                 return ModelsResponse(
                     object: "list",
                     data: [
@@ -140,7 +143,8 @@ class Server {
                             object: "model",
                             created: Int(Date().timeIntervalSince1970),
                             owned_by: "mlx",
-                            loaded: true
+                            loaded: true,
+                            contextWindow: effectiveContextWindow
                         )
                     ],
                     models: [
@@ -243,7 +247,8 @@ class Server {
                 maxLogprobs: mlxMaxLogprobs,
                 veryVerbose: veryVerbose,
                 rawOutput: mlxRawOutput,
-                stop: stop
+                stop: stop,
+                maxModelLen: mlxMaxModelLen
             )
             try app.register(collection: mlxController)
         } else {
@@ -993,13 +998,15 @@ struct ModelInfo: Content {
     let created: Int
     let owned_by: String
     let status: ModelStatus
+    let context_window: Int?
 
-    init(id: String, object: String, created: Int, owned_by: String, loaded: Bool = true) {
+    init(id: String, object: String, created: Int, owned_by: String, loaded: Bool = true, contextWindow: Int? = nil) {
         self.id = id
         self.object = object
         self.created = created
         self.owned_by = owned_by
         self.status = ModelStatus(value: loaded ? "loaded" : "unloaded")
+        self.context_window = contextWindow
     }
 }
 

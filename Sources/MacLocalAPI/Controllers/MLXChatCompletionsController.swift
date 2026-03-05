@@ -17,6 +17,7 @@ struct MLXChatCompletionsController: RouteCollection {
     private let veryVerbose: Bool
     private let rawOutput: Bool
     private let stop: String?
+    private let maxModelLen: Int?
 
     init(
         streamingEnabled: Bool = true,
@@ -33,7 +34,8 @@ struct MLXChatCompletionsController: RouteCollection {
         maxLogprobs: Int = 20,
         veryVerbose: Bool = false,
         rawOutput: Bool = false,
-        stop: String? = nil
+        stop: String? = nil,
+        maxModelLen: Int? = nil
     ) {
         self.streamingEnabled = streamingEnabled
         self.modelID = modelID
@@ -50,6 +52,7 @@ struct MLXChatCompletionsController: RouteCollection {
         self.veryVerbose = veryVerbose
         self.rawOutput = rawOutput
         self.stop = stop
+        self.maxModelLen = maxModelLen
     }
 
     /// Merge CLI --stop sequences with API-level stop sequences, deduplicating.
@@ -143,6 +146,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     "\(Self.orange)[\(Self.timestamp())] MLX start: stream=false\n  prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens)\n  temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\n  top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none")\n  seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
                 )
             }
+            let effectiveMaxModelLen = maxModelLen ?? service.detectedMaxModelLen
             let result = try await service.generate(
                 model: modelID,
                 messages: chatRequest.messages,
@@ -159,7 +163,8 @@ struct MLXChatCompletionsController: RouteCollection {
                 tools: chatRequest.tools,
                 stop: effectiveStop,
                 responseFormat: chatRequest.responseFormat,
-                chatTemplateKwargs: chatRequest.chatTemplateKwargs
+                chatTemplateKwargs: chatRequest.chatTemplateKwargs,
+                maxModelLen: effectiveMaxModelLen
             )
             let cleanedContent = sanitizeDegenerateTail(result.content)
             let completionTok = result.completionTokens
@@ -235,6 +240,17 @@ struct MLXChatCompletionsController: RouteCollection {
                 req.logger.info("\(Self.teal)[\(Self.timestamp())] SEND full response:\n\(encodeJSON(response))\(Self.reset)")
             }
             return try await createSuccessResponse(req: req, response: response)
+        } catch let contextError as MLXContextLengthError {
+            req.logger.error("[\(Self.timestamp())] MLX context length exceeded: \(contextError.localizedDescription)")
+            return try await createErrorResponse(
+                req: req,
+                error: OpenAIError(
+                    message: contextError.localizedDescription,
+                    type: "invalid_request_error",
+                    code: "context_length_exceeded"
+                ),
+                status: .badRequest
+            )
         } catch {
             req.logger.error("[\(Self.timestamp())] MLX completions error: \(error)")
             return try await createErrorResponse(req: req, error: OpenAIError(message: error.localizedDescription, type: "mlx_error"), status: .badRequest)
@@ -274,6 +290,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         "\(Self.orange)[\(Self.timestamp())] MLX start: stream=true\n  prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens)\n  temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\n  top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none")\n  seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
                     )
                 }
+                let effectiveMaxModelLen = self.maxModelLen ?? self.service.detectedMaxModelLen
                 let res = try await service.generateStreaming(
                     model: modelID,
                     messages: chatRequest.messages,
@@ -290,7 +307,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     tools: chatRequest.tools,
                     stop: effectiveStop,
                     responseFormat: chatRequest.responseFormat,
-                    chatTemplateKwargs: chatRequest.chatTemplateKwargs
+                    chatTemplateKwargs: chatRequest.chatTemplateKwargs,
+                    maxModelLen: effectiveMaxModelLen
                 )
                 // Emit an initial assistant delta so clients always open a response container.
                 let initialChunk = ChatCompletionStreamResponse(

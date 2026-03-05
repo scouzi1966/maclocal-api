@@ -85,12 +85,12 @@ run_test() {
   python3 -c "
 import json, sys
 print(json.dumps({
-    'group': $(python3 -c "import json; print(json.dumps('$group'))"),
-    'name': $(python3 -c "import json; print(json.dumps('$name'))"),
-    'status': '$status_val',
-    'duration_ms': $duration
+    'group': sys.argv[1],
+    'name': sys.argv[2],
+    'status': sys.argv[3],
+    'duration_ms': int(sys.argv[4])
 }))
-" >> "$JSONL_FILE"
+" "$group" "$name" "$status_val" "$duration" >> "$JSONL_FILE"
 }
 
 # Helper: call API and return full JSON response
@@ -1016,6 +1016,27 @@ if [ "$content" != "__ERROR__" ] && [ -n "$content" ]; then
   run_test "Error" "developer role accepted (mapped to system)" "valid response" "PASS" "$dur"
 else
   run_test "Error" "developer role accepted (mapped to system)" "valid response" "FAIL" "$dur"
+fi
+
+# Test: /v1/models includes context_window field
+t0=$(now_ms)
+cw_check=$(curl -sf "$BASE_URL/v1/models" 2>/dev/null | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    cw = d['data'][0].get('context_window')
+    if cw is not None and isinstance(cw, int) and cw > 0:
+        print('PASS')
+    else:
+        print(f'FAIL: context_window={cw}')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+dur=$(( $(now_ms) - t0 ))
+if [ "$cw_check" = "PASS" ]; then
+  run_test "Error" "/v1/models includes context_window field" "integer > 0" "PASS" "$dur"
+else
+  run_test "Error" "/v1/models includes context_window field" "integer > 0" "$cw_check" "$dur"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,14 @@
+{"group": "Preflight", "name": "Binary exists at .build/release/afm", "status": "PASS", "duration_ms": 14}
+{"group": "Preflight", "name": "Server starts with --max-model-len 512", "status": "PASS", "duration_ms": 2046}
+{"group": "Models API", "name": "/v1/models reports context_window as integer", "status": "PASS", "duration_ms": 26}
+{"group": "Models API", "name": "context_window matches --max-model-len (512)", "status": "PASS", "duration_ms": 29}
+{"group": "Enforcement", "name": "Short prompt succeeds (under 512 tokens)", "status": "PASS", "duration_ms": 120}
+{"group": "Enforcement", "name": "Long prompt returns HTTP 400", "status": "PASS", "duration_ms": 73}
+{"group": "Enforcement", "name": "Error has code=context_length_exceeded, type=invalid_request_error", "status": "PASS", "duration_ms": 30}
+{"group": "Enforcement", "name": "Error message includes token count > 512", "status": "PASS", "duration_ms": 34}
+{"group": "Enforcement", "name": "Long prompt rejected in streaming mode", "status": "PASS", "duration_ms": 67}
+{"group": "Enforcement", "name": "Prompt under limit succeeds (boundary test)", "status": "PASS", "duration_ms": 167}
+{"group": "Backwards Compat", "name": "--max-kv-size alias: server starts", "status": "PASS", "duration_ms": 2059}
+{"group": "Backwards Compat", "name": "--max-kv-size 1024 reports context_window=1024", "status": "PASS", "duration_ms": 31}
+{"group": "Auto-detect", "name": "Server starts without --max-model-len", "status": "PASS", "duration_ms": 2065}
+{"group": "Auto-detect", "name": "Auto-detected context_window=40960 (from config.json)", "status": "PASS", "duration_ms": 28}
