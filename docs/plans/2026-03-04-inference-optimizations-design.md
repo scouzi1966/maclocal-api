@@ -126,6 +126,17 @@ Removed from scope. Medusa heads require per-model training/sourcing, creating a
 3. **KV Cache Eviction** — medium effort, enables long conversations gracefully
 4. **Continuous Batching** — highest effort, highest impact for multi-user, do last
 
+## Configuration & Flags
+
+Following vLLM V1 and SGLang conventions: features that have near-zero overhead when inactive should be always-on with no flag. Only features that change semantics (silently dropping context) require opt-in.
+
+| Feature | Configuration | Rationale |
+|---|---|---|
+| **Radix tree prefix cache** | Always on, no flag | vLLM V1 proved <1% overhead at 0% hit rate. SGLang's RadixAttention is always on. No reason to disable. |
+| **Continuous batching** | Always on, no flag | Single request = batch of 1. The scheduler is the engine, not an optional mode. |
+| **XGrammar structured output** | Activated per-request via `response_format` field | Already part of the OpenAI API spec. No server-side flag needed. Grammar compiled and cached on first use. |
+| **KV cache eviction** | `--kv-eviction h2o\|streaming\|none` (default: `none`) | Eviction silently drops context — changes output semantics. Must be opt-in. |
+
 ## What NOT to Pursue
 
 - **FP8 KV cache:** No Apple Silicon hardware support
