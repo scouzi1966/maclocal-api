@@ -65,33 +65,11 @@ AFM achieves 130 tok/s on Qwen3.5-35B-A3B-4bit (M3 Ultra), 29% above Python mlx-
 3. **Phase 3:** Batched forward pass (attention with per-request masks)
 4. **Phase 4:** Chunked prefill (interleave prefill chunks with decode steps)
 
-### 3. Speculative Decoding (Medusa-Style)
+### ~~3. Speculative Decoding (Medusa-Style)~~ — DEFERRED
 
-**Problem:** Autoregressive decoding generates one token per forward pass. On Apple Silicon, the memory-bandwidth bottleneck means loading model weights is the dominant cost per token regardless.
+Removed from scope. Medusa heads require per-model training/sourcing, creating an ongoing maintenance burden as new models are added. Revisit if a model-agnostic speculative decoding approach emerges.
 
-**Solution:** Medusa heads — K additional single-FFN prediction heads attached to the model's last hidden layer, each predicting token t+k. All candidates verified in one forward pass via tree-based attention.
-
-**Why Medusa over draft-model:** Classic draft-model speculative decoding only achieves 1.2-1.4x on Apple Silicon (vllm-mlx benchmarks) because you still load a separate model's weights. Medusa heads are tiny (single FFN layer each, <1% of model parameters) — no extra weight loading cost.
-
-**How it works:**
-1. Target model produces hidden states at last layer
-2. K Medusa heads (each a residual FFN) predict tokens t+1 through t+K
-3. Top candidates from each head form a tree of candidate sequences
-4. Tree-based attention with sparse masks verifies all candidates in one forward pass
-5. Longest valid prefix is accepted (lossless — matches target distribution)
-
-**Impact:** 1.5-2.2x single-user decode speedup (Medusa-1). Higher with fine-tuning (Medusa-2: 2.3-3.6x).
-
-**Effort:** Medium-High.
-- Implement Medusa head architecture (single FFN per head, K heads)
-- Tree-based attention mask construction
-- Verification/acceptance sampling logic
-- Load pre-trained Medusa heads for supported models (Llama, Qwen)
-- Training infrastructure for new models (optional, can use community heads)
-
-**Challenge:** Pre-trained Medusa heads must exist for target models. For popular models (Llama-3, Qwen2.5) community heads are available. For newer models, training requires access to hidden states.
-
-### 4. Compressed FSM for Structured Output
+### 3. Compressed FSM for Structured Output
 
 **Problem:** Current `response_format: json_schema` uses prompt injection — not guaranteed to produce valid JSON.
 
@@ -112,7 +90,7 @@ AFM achieves 130 tok/s on Qwen3.5-35B-A3B-4bit (M3 Ultra), 29% above Python mlx-
 - Schema cache (LRU, keyed by schema hash)
 - Support `json_object` mode (any valid JSON) and `json_schema` mode (specific schema)
 
-### 5. KV Cache Eviction (H2O / StreamingLLM)
+### 4. KV Cache Eviction (H2O / StreamingLLM)
 
 **Problem:** When conversations exceed `--max-model-len`, requests are rejected with `context_length_exceeded`. No graceful degradation.
 
@@ -137,8 +115,7 @@ AFM achieves 130 tok/s on Qwen3.5-35B-A3B-4bit (M3 Ultra), 29% above Python mlx-
 1. **Radix Tree Prefix Cache** — highest bang-for-buck, medium effort, big TTFT improvement
 2. **Compressed FSM** — low effort, solves a real correctness problem (invalid JSON)
 3. **KV Cache Eviction** — medium effort, enables long conversations gracefully
-4. **Speculative Decoding** — medium-high effort, meaningful decode speedup
-5. **Continuous Batching** — highest effort, highest impact for multi-user, do last
+4. **Continuous Batching** — highest effort, highest impact for multi-user, do last
 
 ## What NOT to Pursue
 
