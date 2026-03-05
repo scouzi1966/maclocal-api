@@ -17,13 +17,26 @@ void* grammar_matcher_new(void* compiled_grammar) {
     }
 }
 
-void grammar_matcher_fill_next_token_bitmask(void* matcher, void* bitmask) {
+bool grammar_matcher_get_bitmask(void* matcher, int32_t* bitmask_out, int bitmask_size) {
     try {
         auto* m = static_cast<GrammarMatcher*>(matcher);
-        auto* tensor = static_cast<DLTensor*>(bitmask);
-        m->FillNextTokenBitmask(tensor);
+
+        // Build a DLTensor wrapping the caller's buffer
+        DLTensor tensor;
+        tensor.data = bitmask_out;
+        tensor.ndim = 1;
+        tensor.dtype = {kDLInt, 32, 1};
+        DLDevice dev = {kDLCPU, 0};
+        tensor.device = dev;
+        int64_t shape = static_cast<int64_t>(bitmask_size);
+        tensor.shape = &shape;
+        tensor.strides = nullptr;
+        tensor.byte_offset = 0;
+
+        return m->FillNextTokenBitmask(&tensor);
     } catch (const std::exception& e) {
         catch_error(e.what());
+        return false;
     }
 }
 
