@@ -457,6 +457,29 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
         return quantizedCache
     }
 
+    /// StreamingLLM-style eviction: keep first `sinkCount` tokens + last `windowSize` tokens.
+    /// Evicts everything in between. Returns number of tokens evicted.
+    @discardableResult
+    public func evictStreamingLLM(sinkCount: Int = 4, windowSize: Int) -> Int {
+        guard offset > sinkCount + windowSize else { return 0 }
+        guard let k = keys, let v = values else { return 0 }
+
+        let evictCount = offset - sinkCount - windowSize
+
+        // keys/values shape: [batch, heads, seq_len, head_dim]
+        // Sequence dimension is axis 2
+        let sinkKeys = k[0..., 0..., ..<sinkCount, 0...]
+        let windowKeys = k[0..., 0..., (offset - windowSize)..<offset, 0...]
+        let sinkValues = v[0..., 0..., ..<sinkCount, 0...]
+        let windowValues = v[0..., 0..., (offset - windowSize)..<offset, 0...]
+
+        self.keys = concatenated([sinkKeys, windowKeys], axis: 2)
+        self.values = concatenated([sinkValues, windowValues], axis: 2)
+        self.offset = sinkCount + windowSize
+
+        return evictCount
+    }
+
     public var debugDescription: String {
         "\(String(describing: Self.self)) \(Unmanaged.passUnretained(self).toOpaque()), offset: \(offset), step: \(step), keys: \(keys?.shape.description ?? "-"), values: \(values?.shape.description ?? "-")"
     }
