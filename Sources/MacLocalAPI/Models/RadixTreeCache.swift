@@ -71,17 +71,21 @@ final class RadixTreeCache: @unchecked Sendable {
                 matched += 1
             }
 
+            // Track cached state even on partial edge match — the caller
+            // trims KV state to the matched prefix length, so we can use
+            // a cache entry that covers more tokens than we matched.
+            if child.hasCachedState && matched > lastCachedLen {
+                lastCachedNode = child
+                lastCachedLen = matched
+            }
+
             if edgePos < edge.count {
-                // Partial edge match — can't use this node's cache
+                // Partial edge match — stop traversal but keep any cached state found above
                 break
             }
 
             // Full edge matched
             node = child
-            if child.hasCachedState {
-                lastCachedNode = child
-                lastCachedLen = matched
-            }
         }
 
         if let cached = lastCachedNode {
