@@ -1048,7 +1048,15 @@ final class MLXModelService: @unchecked Sendable {
             // duplicate parameters where the second is malformed/empty.
             // See: https://github.com/anomalyco/opencode/issues/6918
             if !val.isEmpty, arguments[key] == nil {
-                arguments[key] = val
+                // Try to parse as JSON (array/object) so it's preserved as
+                // structured data rather than flattened to a string.
+                if let data = val.data(using: .utf8),
+                   let parsed = try? JSONSerialization.jsonObject(with: data),
+                   (parsed is [Any] || parsed is [String: Any]) {
+                    arguments[key] = parsed
+                } else {
+                    arguments[key] = val
+                }
             }
         }
 
@@ -1072,7 +1080,13 @@ final class MLXModelService: @unchecked Sendable {
                     if val.hasSuffix("\n") { val = String(val.dropLast()) }
                 }
                 if !val.isEmpty {
-                    arguments[key] = val
+                    if let data = val.data(using: .utf8),
+                       let parsed = try? JSONSerialization.jsonObject(with: data),
+                       (parsed is [Any] || parsed is [String: Any]) {
+                        arguments[key] = parsed
+                    } else {
+                        arguments[key] = val
+                    }
                     if debugLogging {
                         print("[ToolCallParser] Salvaged unclosed parameter '\(key)' (\(val.count) chars)")
                     }
