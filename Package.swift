@@ -26,9 +26,38 @@ let package = Package(
         .package(url: "https://github.com/huggingface/swift-jinja.git", from: "2.0.0")
     ],
     targets: [
+        .target(
+            name: "CXGrammar",
+            exclude: [
+                "xgrammar/web",
+                "xgrammar/tests",
+                "xgrammar/python",
+                "xgrammar/docs",
+                "xgrammar/examples",
+                "xgrammar/scripts",
+                "xgrammar/site",
+                "xgrammar/cmake",
+                "xgrammar/3rdparty/cpptrace",
+                "xgrammar/3rdparty/googletest",
+                "xgrammar/3rdparty/dlpack/contrib",
+                "xgrammar/3rdparty/picojson",
+                "xgrammar/cpp/nanobind",
+            ],
+            cSettings: [
+                .headerSearchPath("xgrammar/include"),
+                .headerSearchPath("xgrammar/3rdparty/dlpack/include"),
+                .headerSearchPath("xgrammar/3rdparty/picojson"),
+            ],
+            cxxSettings: [
+                .headerSearchPath("xgrammar/include"),
+                .headerSearchPath("xgrammar/3rdparty/dlpack/include"),
+                .headerSearchPath("xgrammar/3rdparty/picojson"),
+            ]
+        ),
         .executableTarget(
             name: "MacLocalAPI",
             dependencies: [
+                "CXGrammar",
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "MLXLLM", package: "mlx-swift-lm"),
@@ -58,5 +87,6 @@ let package = Package(
                 .product(name: "Jinja", package: "swift-jinja")
             ]
         )
-    ]
+    ],
+    cxxLanguageStandard: .gnucxx17
 )
