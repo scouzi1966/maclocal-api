@@ -33,6 +33,10 @@ actor XGrammarBridge {
     private var stdinPipe: Pipe?
     private var stdoutPipe: Pipe?
 
+    /// True when a XGrammarSession has been handed out and may be using the pipes.
+    /// Actor methods that do I/O must check this and refuse to run concurrently.
+    private var sessionActive = false
+
     /// Accumulated bytes from stdout that have not yet been consumed as a complete line.
     private var readBuffer = Data()
 
@@ -162,7 +166,9 @@ actor XGrammarBridge {
     }
 
     /// Send a command and return the parsed JSON response dictionary.
+    /// Asserts that no XGrammarSession is currently using the pipes.
     private func roundTrip(_ command: [String: Any]) throws -> [String: Any] {
+        precondition(!sessionActive, "XGrammarBridge: actor I/O while a session is active — pipe corruption risk")
         try sendCommand(command)
 
         let line = try readLine()
@@ -248,5 +254,94 @@ actor XGrammarBridge {
             "grammar_id": grammarID
         ]
         _ = try roundTrip(command)
+    }
+
+    /// Create a synchronous session for per-token grammar operations.
+    /// The session uses blocking I/O directly on the subprocess pipes.
+    /// While a session is active, the actor's own I/O methods are blocked (precondition).
+    /// Call `releaseSession()` when done to re-enable actor I/O.
+    func createSession(grammarID: String) -> XGrammarSession? {
+        guard !sessionActive, isRunning(), let inPipe = stdinPipe, let outPipe = stdoutPipe else { return nil }
+        sessionActive = true
+        return XGrammarSession(
+            stdinHandle: inPipe.fileHandleForWriting,
+            stdoutHandle: outPipe.fileHandleForReading,
+            grammarID: grammarID
+        )
+    }
+
+    /// Mark the session as finished, re-enabling actor I/O.
+    func releaseSession() {
+        sessionActive = false
+    }
+}
+
+// MARK: - XGrammarSession (synchronous per-token operations)
+
+/// Synchronous wrapper for per-token grammar operations.
+/// Uses blocking pipe I/O — suitable for use within the synchronous TokenIterator loop.
+///
+/// **Important:** This class shares the same stdin/stdout pipes as the `XGrammarBridge` actor.
+/// It must only be used while the actor is NOT concurrently performing its own I/O
+/// (i.e., within a `container.perform` block where the actor is idle).
+final class XGrammarSession: @unchecked Sendable {
+    private let stdinHandle: FileHandle
+    private let stdoutHandle: FileHandle
+    private let grammarID: String
+    private var buffer = Data()
+
+    init(stdinHandle: FileHandle, stdoutHandle: FileHandle, grammarID: String) {
+        self.stdinHandle = stdinHandle
+        self.stdoutHandle = stdoutHandle
+        self.grammarID = grammarID
+    }
+
+    /// Get allowed token IDs for the current grammar state (blocking).
+    func getAllowedTokens() -> [Int]? {
+        let cmd: [String: Any] = ["cmd": "mask", "grammar_id": grammarID]
+        guard let resp = roundTrip(cmd) else { return nil }
+        return resp["allowed"] as? [Int]
+    }
+
+    /// Accept a sampled token, advancing grammar state (blocking).
+    func acceptToken(_ tokenID: Int) {
+        let cmd: [String: Any] = ["cmd": "accept", "grammar_id": grammarID, "token_id": tokenID]
+        _ = roundTrip(cmd)
+    }
+
+    /// Check if grammar has reached terminal state (blocking).
+    func isTerminated() -> Bool {
+        let cmd: [String: Any] = ["cmd": "is_terminated", "grammar_id": grammarID]
+        guard let resp = roundTrip(cmd) else { return false }
+        return resp["terminated"] as? Bool ?? false
+    }
+
+    /// Release the grammar matcher.
+    func release() {
+        let cmd: [String: Any] = ["cmd": "release", "grammar_id": grammarID]
+        _ = roundTrip(cmd)
+    }
+
+    private func roundTrip(_ command: [String: Any]) -> [String: Any]? {
+        guard let data = try? JSONSerialization.data(withJSONObject: command) else { return nil }
+        var line = data
+        line.append(0x0A)  // newline
+        stdinHandle.write(line)
+
+        guard let responseData = readLine() else { return nil }
+        return try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+    }
+
+    private func readLine() -> Data? {
+        while true {
+            if let newlineIndex = buffer.firstIndex(of: 0x0A) {
+                let line = Data(buffer[buffer.startIndex..<newlineIndex])
+                buffer = Data(buffer[buffer.index(after: newlineIndex)...])
+                return line
+            }
+            let chunk = stdoutHandle.availableData
+            if chunk.isEmpty { return buffer.isEmpty ? nil : buffer }
+            buffer.append(chunk)
+        }
     }
 }

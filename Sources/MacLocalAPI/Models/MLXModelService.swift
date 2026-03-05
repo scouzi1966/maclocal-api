@@ -124,7 +124,12 @@ final class MLXModelService: @unchecked Sendable {
 
     /// Apply StreamingLLM eviction to the given KV cache layers.
     /// Keeps `sinkCount` initial tokens + a sliding window of recent tokens.
-    /// Wire this into the context-length check once --max-model-len is merged.
+    ///
+    /// **TODO:** Wire into the context-length check in generate()/generateStreaming()
+    /// once the `feature/max-model-len` branch is merged. The integration point is
+    /// where `MLXContextLengthError` is thrown — replace the throw with eviction when
+    /// `kvEvictionPolicy == "streaming"`. Until then, `--kv-eviction` is accepted but
+    /// has no effect.
     func applyStreamingLLMEviction(cache: [KVCache], maxLen: Int) {
         let sinkCount = 4
         let windowSize = Swift.min(maxLen - sinkCount, maxLen * 3 / 4)
@@ -242,6 +247,7 @@ final class MLXModelService: @unchecked Sendable {
                 maxEntries: 64,
                 debugLogging: debugLogging
             )
+            print("[PrefixCache] Radix tree prefix caching active (64 entries max)")
             try registry.registerModel(modelID)
             stage?(.ready)
             return modelID
@@ -283,7 +289,12 @@ final class MLXModelService: @unchecked Sendable {
         // Grammar constraint setup (for json_schema response format)
         let grammarResult = await setupGrammarConstraint(modelID: modelID, responseFormat: responseFormat)
         let grammarSession = grammarResult?.1
-        defer { grammarSession?.release() }
+        defer {
+            grammarSession?.release()
+            if grammarSession != nil {
+                Task { await self.xgrammarBridge?.releaseSession() }
+            }
+        }
 
         var params = GenerateParameters(
             maxTokens: maxTokens ?? 2000,
@@ -723,10 +734,16 @@ final class MLXModelService: @unchecked Sendable {
                         }
                     }
                     grammarSession?.release()
+                    if grammarSession != nil {
+                        Task { await self.xgrammarBridge?.releaseSession() }
+                    }
                     self.cleanupTempFiles(mediaTempFiles)
                     continuation.finish()
                 } catch {
                     grammarSession?.release()
+                    if grammarSession != nil {
+                        Task { await self.xgrammarBridge?.releaseSession() }
+                    }
                     self.cleanupTempFiles(mediaTempFiles)
                     continuation.finish(throwing: error)
                 }
