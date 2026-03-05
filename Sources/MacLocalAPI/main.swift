@@ -328,6 +328,9 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Post-process tool call argument names to match the original tool schema (fixes model renaming e.g. path→filePath)")
     var fixToolArgs: Bool = false
 
+    @Option(name: .customLong("kv-eviction"), help: "KV cache eviction policy: streaming (StreamingLLM) or none (default)")
+    var kvEviction: String?
+
     @Option(name: .long, help: "Default chat template kwargs as JSON (e.g. '{\"enable_thinking\": false}')")
     var defaultChatTemplateKwargs: String?
 
@@ -360,6 +363,7 @@ struct MlxCommand: ParsableCommand {
         service.forceVLM = vlm || !media.isEmpty
         service.kvBits = kvBits
         if let prefillStepSize { service.prefillStepSize = prefillStepSize }
+        service.kvEvictionPolicy = kvEviction ?? "none"
 
         // Parse --default-chat-template-kwargs and --no-think into defaultChatTemplateKwargs
         var parsedKwargs: [String: Any] = [:]

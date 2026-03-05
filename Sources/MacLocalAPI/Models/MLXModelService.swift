@@ -91,7 +91,9 @@ final class MLXModelService: @unchecked Sendable {
     var fixToolArgs: Bool = false
     var forceVLM: Bool = false
     var kvBits: Int?
+    var kvEvictionPolicy: String = "none"  // "none" or "streaming"
     var defaultChatTemplateKwargs: [String: Any]?
+    private var xgrammarBridge: XGrammarBridge?
     init(resolver: MLXCacheResolver) {
         self.resolver = resolver
         self.resolver.applyEnvironment()
@@ -119,6 +121,22 @@ final class MLXModelService: @unchecked Sendable {
         mlx_set_wired_limit(&previousWired, size_t(wiredLimitBytes))
 
         print("MLX GPU: cache=\(cacheMB)MB wired=\(wiredLimitBytes / (1024*1024))MB (system \(totalMemoryGB)GB)")
+    }
+
+    /// Apply StreamingLLM eviction to the given KV cache layers.
+    /// Keeps `sinkCount` initial tokens + a sliding window of recent tokens.
+    /// Wire this into the context-length check once --max-model-len is merged.
+    func applyStreamingLLMEviction(cache: [KVCache], maxLen: Int) {
+        let sinkCount = 4
+        let windowSize = Swift.min(maxLen - sinkCount, maxLen * 3 / 4)
+        for layer in cache {
+            if let simple = layer as? KVCacheSimple {
+                simple.evictStreamingLLM(sinkCount: sinkCount, windowSize: windowSize)
+            }
+        }
+        if debugLogging {
+            print("[KVCache] StreamingLLM eviction applied: kept \(sinkCount) sinks + \(windowSize) recent tokens")
+        }
     }
 
     func normalizeModel(_ raw: String) -> String {
@@ -262,7 +280,13 @@ final class MLXModelService: @unchecked Sendable {
         let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat, chatTemplateKwargs: chatTemplateKwargs)
         defer { cleanupTempFiles(mediaTempFiles) }
         let wantLogprobs = logprobs == true
-        let params = GenerateParameters(
+
+        // Grammar constraint setup (for json_schema response format)
+        let grammarResult = await setupGrammarConstraint(modelID: modelID, responseFormat: responseFormat)
+        let grammarSession = grammarResult?.1
+        defer { grammarSession?.release() }
+
+        var params = GenerateParameters(
             maxTokens: maxTokens ?? 2000,
             kvBits: self.kvBits,
             kvGroupSize: 64,
@@ -279,6 +303,9 @@ final class MLXModelService: @unchecked Sendable {
             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
             prefillStepSize: self.prefillStepSize
         )
+        if let grammarProcessor = grammarResult?.0 {
+            params.extraProcessor = grammarProcessor
+        }
 
         var collectedLogprobs = [TokenLogprobData]()
         var resolvedLogprobs: [ResolvedLogprob]? = nil
@@ -521,7 +548,12 @@ final class MLXModelService: @unchecked Sendable {
         let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat, chatTemplateKwargs: chatTemplateKwargs)
         let promptTokens = estimateTokens(promptText)
         let wantLogprobs = logprobs == true
-        let params = GenerateParameters(
+
+        // Grammar constraint setup (for json_schema response format)
+        let grammarResult = await setupGrammarConstraint(modelID: modelID, responseFormat: responseFormat)
+        let grammarSession = grammarResult?.1
+
+        var params = GenerateParameters(
             maxTokens: maxTokens ?? 2000,
             kvBits: self.kvBits,
             kvGroupSize: 64,
@@ -538,6 +570,9 @@ final class MLXModelService: @unchecked Sendable {
             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
             prefillStepSize: self.prefillStepSize
         )
+        if let grammarProcessor = grammarResult?.0 {
+            params.extraProcessor = grammarProcessor
+        }
 
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             let task = Task {
@@ -723,11 +758,12 @@ final class MLXModelService: @unchecked Sendable {
                             let layerStates = generationCache.map { $0.state }
                             radix.insert(tokens: inputTokens, layerStates: layerStates)
                         }
-                    } // container.perform
+                    }
+                    grammarSession?.release()
                     self.cleanupTempFiles(mediaTempFiles)
                     continuation.finish()
                 } catch {
-                    self.promptCache.invalidate()
+                    grammarSession?.release()
                     self.cleanupTempFiles(mediaTempFiles)
                     continuation.finish(throwing: error)
                 }
@@ -1189,6 +1225,83 @@ final class MLXModelService: @unchecked Sendable {
             return nil
         }
         return ToolCallFormat.infer(from: modelType)
+    }
+
+    /// Read `vocab_size` from a model's config.json.
+    private func readVocabSize(directory: URL) -> Int? {
+        let configURL = directory.appendingPathComponent("config.json")
+        guard let data = try? Data(contentsOf: configURL),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        // Try top-level first, then text_config (VLM models)
+        if let vs = json["vocab_size"] as? Int { return vs }
+        if let textConfig = json["text_config"] as? [String: Any],
+           let vs = textConfig["vocab_size"] as? Int { return vs }
+        return nil
+    }
+
+    /// Set up grammar-constrained decoding for a json_schema response format.
+    /// Returns `(GrammarLogitProcessor, XGrammarSession)` on success, nil on failure.
+    private func setupGrammarConstraint(
+        modelID: String,
+        responseFormat: ResponseFormat?
+    ) async -> (GrammarLogitProcessor, XGrammarSession)? {
+        guard let responseFormat, responseFormat.type == "json_schema",
+              let schema = responseFormat.jsonSchema?.schema else {
+            return nil
+        }
+
+        do {
+            if self.xgrammarBridge == nil {
+                self.xgrammarBridge = XGrammarBridge()
+            }
+            guard let bridge = self.xgrammarBridge else { return nil }
+
+            try await bridge.start()
+
+            guard let directory = resolver.localModelDirectory(repoId: modelID) else {
+                if debugLogging { print("[XGrammar] Model directory not found for \(modelID)") }
+                return nil
+            }
+
+            let tokenizerPath = directory.appendingPathComponent("tokenizer.json").path
+            let vocabSize = readVocabSize(directory: directory) ?? 151936
+
+            // Convert AnyCodable schema to JSON-serializable Any
+            let schemaValue = schema.toSendable()
+
+            let grammarID = try await bridge.compile(
+                schema: schemaValue,
+                vocabSize: vocabSize,
+                tokenizerPath: tokenizerPath
+            )
+
+            guard let session = await bridge.createSession(grammarID: grammarID) else {
+                if debugLogging { print("[XGrammar] Failed to create session") }
+                return nil
+            }
+
+            let proc = GrammarLogitProcessor()
+            // Get initial allowed tokens mask
+            proc.allowedTokens = session.getAllowedTokens()
+            // On each token: accept it and update the mask for the next token
+            proc.onTokenSampled = { [weak session] tokenID in
+                session?.acceptToken(tokenID)
+                proc.allowedTokens = session?.getAllowedTokens()
+            }
+
+            if debugLogging {
+                print("[XGrammar] Grammar constraint active for json_schema (vocab_size=\(vocabSize))")
+            }
+
+            return (proc, session)
+        } catch {
+            if debugLogging {
+                print("[XGrammar] Failed to set up grammar: \(error). Falling back to prompt injection.")
+            }
+            return nil
+        }
     }
 
     /// Returns true when the model has a VLM config layout that can't be loaded
