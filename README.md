@@ -1,6 +1,9 @@
 If you find this useful, please ⭐ the repo! &nbsp; Also check out [Vesta AI Explorer](https://kruks.ai/) — my full-featured native macOS AI app.
 
 > [!NOTE]
+>
+> 5 Mar, 2026. Apologies. There were a few glitches for the brew and pip packages deployed. It should be fixed by now. Please report any issues.
+> 
 > **Attention M-series Mac AI enthusiasts!** You don't need to be a Swift developer to explore. Vibe coding really allows anyone to participate in this project. A lot of the hype is real! It does work.
 >
 > [Fork this repo](https://github.com/scouzi1966/maclocal-api/fork) first, then clone your fork to submit PRs:
