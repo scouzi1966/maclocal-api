@@ -35,11 +35,11 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 
 ## Install
 
-|  | Stable (v0.9.4) | Nightly (afm-next) |
+|  | Stable (v0.9.6) | Nightly (afm-next) |
 |---|---|---|
 | **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
 | **pip** | `pip install macafm` | — |
-| **Release notes** | [v0.9.4](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.4) | [Latest nightly](https://github.com/scouzi1966/maclocal-api/releases) |
+| **Release notes** | [v0.9.6](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.6) | [Latest nightly](https://github.com/scouzi1966/maclocal-api/releases) |
 
 > [!TIP]
 > **Switching between stable and nightly:**
@@ -52,7 +52,7 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 ## What's new in afm-next
 
 > [!IMPORTANT]
-> The nightly build is the future stable release. It includes everything in v0.9.4 plus:
+> The nightly build is the future stable release. It includes everything in v0.9.6 plus:
 > - the test-reports folder is a mess but contains the extensive test reports performed
 > - **Qwen3.5-35B-A3B MoE** — run a 35B model with only 3B active parameters (--vlm for image,video)
 > - **Full tool calling** — Qwen3-Coder, Gemma, GLM, Kimi-K2.5, and more

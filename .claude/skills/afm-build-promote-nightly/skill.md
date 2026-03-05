@@ -440,11 +440,14 @@ fi
 
 ### Step 13: Provide PyPI Publish Command
 
-Present the exact command with a placeholder token:
+Present the exact command with the **absolute path** to the wheel and a placeholder token:
 
+```bash
+ROOT="$(git rev-parse --show-toplevel)"
+echo "uv publish --token <YOUR_PYPI_TOKEN> ${ROOT}/dist/macafm-${VERSION}*"
 ```
-uv publish --token <YOUR_PYPI_TOKEN> dist/macafm-VERSION*
-```
+
+**IMPORTANT:** Always provide the full absolute path to the dist files — the user may run the command from a different directory.
 
 Use **AskUserQuestion**:
 
@@ -461,9 +464,14 @@ Use **AskUserQuestion**:
 brew update
 brew tap scouzi1966/afm
 brew install scouzi1966/afm/afm || brew upgrade afm
+# If afm-next is linked, unlink it first: brew unlink afm-next && brew link afm
 BREW_VERSION=$(afm --version 2>&1)
 echo "Homebrew afm version: $BREW_VERSION"
-echo "$BREW_VERSION" | grep -qF "v${VERSION}" && echo "PASS" || echo "FAIL: expected v${VERSION}"
+echo "$BREW_VERSION" | grep -qF "v${VERSION}" && echo "VERSION: PASS" || echo "VERSION: FAIL: expected v${VERSION}"
+
+# Smoke test — run a simple prompt to verify the binary actually works
+afm -s "why is the sky blue" 2>&1 | head -20
+echo "BREW SMOKE TEST: PASS (if output above contains a response)"
 ```
 
 **PyPI verification** (only if user published in Step 13):
@@ -473,11 +481,15 @@ python3 -m venv "$VENV_DIR"
 "$VENV_DIR/bin/pip" install macafm==${VERSION}
 PIP_VERSION=$("$VENV_DIR/bin/afm" --version 2>&1)
 echo "PyPI afm version: $PIP_VERSION"
-echo "$PIP_VERSION" | grep -qF "v${VERSION}" && echo "PASS" || echo "FAIL: expected v${VERSION}"
+echo "$PIP_VERSION" | grep -qF "v${VERSION}" && echo "VERSION: PASS" || echo "VERSION: FAIL: expected v${VERSION}"
+
+# Smoke test — run a simple prompt to verify the pip-installed binary works
+$VENV_DIR/bin/afm -s "why is the sky blue" 2>&1 | head -20
+echo "PIP SMOKE TEST: PASS (if output above contains a response)"
 rm -rf "$VENV_DIR"
 ```
 
-Report PASS/FAIL for each. If either fails, investigate and report the issue before proceeding.
+Report PASS/FAIL for each (version check + smoke test). If either fails, investigate and report the issue before proceeding.
 
 ### Step 15: Commit and Report
 
