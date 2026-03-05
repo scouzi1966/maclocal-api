@@ -480,7 +480,7 @@ struct MLXChatCompletionsController: RouteCollection {
                                             let funcName = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
                                             emitKey = self.remapSingleKey(rawKey, toolName: funcName, tools: chatRequest.tools)
                                         }
-                                        let jsonValue = Self.jsonEncodeString(value)
+                                        let jsonValue = Self.jsonEncodeValue(value)
                                         let fragment: String
                                         if incrementalParamCount == 0 {
                                             fragment = "{\"\(Self.jsonEscapeKey(emitKey))\":\(jsonValue)"
@@ -668,7 +668,7 @@ struct MLXChatCompletionsController: RouteCollection {
                                             emitKey = self.remapSingleKey(rawKey, toolName: funcName, tools: chatRequest.tools)
                                         }
 
-                                        let jsonValue = Self.jsonEncodeString(value)
+                                        let jsonValue = Self.jsonEncodeValue(value)
                                         let fragment: String
                                         if incrementalParamCount == 0 {
                                             fragment = "{\"\(Self.jsonEscapeKey(emitKey))\":\(jsonValue)"
@@ -1245,6 +1245,19 @@ struct MLXChatCompletionsController: RouteCollection {
             )
         }
         return ChoiceLogprobs(content: content)
+    }
+
+    /// JSON-encode a parameter value: if it parses as a JSON array or object,
+    /// return it as-is (structured); otherwise encode as a JSON string.
+    static func jsonEncodeValue(_ s: String) -> String {
+        if let data = s.data(using: .utf8),
+           let parsed = try? JSONSerialization.jsonObject(with: data),
+           (parsed is [Any] || parsed is [String: Any]),
+           let reencoded = try? JSONSerialization.data(withJSONObject: parsed),
+           let result = String(data: reencoded, encoding: .utf8) {
+            return result
+        }
+        return jsonEncodeString(s)
     }
 
     /// JSON-encode a string value with proper escaping, including surrounding quotes.
