@@ -35,8 +35,10 @@ final class RadixNode: @unchecked Sendable {
     var hasCachedState: Bool { cacheEntry != nil }
 }
 
-/// Thread-safe radix tree for multi-slot KV cache prefix sharing.
+/// Radix tree for multi-slot KV cache prefix sharing.
 /// Replaces PromptCacheBox with multi-request prefix matching.
+/// NOT internally synchronized — callers must ensure serial access
+/// (e.g., within container.perform {} which holds an async mutex).
 final class RadixTreeCache: @unchecked Sendable {
     private let root = RadixNode()
     private let modelID: String
@@ -205,7 +207,9 @@ final class RadixTreeCache: @unchecked Sendable {
         guard node.isLeaf, !node.hasCachedState, let parent = node.parent else { return }
         parent.children.removeValue(forKey: node.edgeTokens.first!)
         if parent.children.count == 1 && !parent.hasCachedState && parent.parent != nil {
-            // Merge single child into parent
+            // Merge single child into parent. The grandparent's key for this node
+            // is still correct — it maps to the first token of parent.edgeTokens,
+            // which doesn't change (we only append to it).
             let onlyChild = parent.children.values.first!
             parent.edgeTokens += onlyChild.edgeTokens
             parent.children = onlyChild.children
