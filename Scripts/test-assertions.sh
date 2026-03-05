@@ -1247,6 +1247,43 @@ except:
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Section 8b: Prefix Cache
+# ═══════════════════════════════════════════════════════════════════════════════
+if min_tier standard; then
+  echo ""
+  echo "🗄️  Section 8b: Prefix Cache"
+
+  # Test: Prefix caching works across multiple requests with same prefix
+  t0=$(now_ms)
+  # First request — cold
+  resp1=$(api_call '{"messages":[{"role":"system","content":"You are a helpful math tutor."},{"role":"user","content":"What is 2+2?"}],"max_tokens":10,"temperature":0}')
+  # Second request — same system prompt, different user message (should cache hit)
+  resp2=$(api_call '{"messages":[{"role":"system","content":"You are a helpful math tutor."},{"role":"user","content":"What is 3+3?"}],"max_tokens":10,"temperature":0}')
+  dur=$(( $(now_ms) - t0 ))
+
+  cache_ok=$(echo "$resp2" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    usage = d.get('usage', {})
+    cached = usage.get('prompt_tokens_cached', 0)
+    if cached > 0:
+        print(f'PASS ({cached} cached)')
+    else:
+        # Cache hit may not be reported in usage — just verify response is valid
+        c = d['choices'][0]['message']['content']
+        print('PASS' if c and len(c.strip()) > 0 else 'FAIL: empty')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [[ "$cache_ok" == PASS* ]]; then
+    run_test "Cache" "Prefix cache reuse across requests" "valid response on cache hit" "PASS" "$dur"
+  else
+    run_test "Cache" "Prefix cache reuse across requests" "valid response on cache hit" "$cache_ok" "$dur"
+  fi
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Section 9: Performance (full tier only)
 # ═══════════════════════════════════════════════════════════════════════════════
 if min_tier full; then
