@@ -1166,6 +1166,10 @@ final class MLXModelService: @unchecked Sendable {
               json["vision_config"] != nil else {
             return false
         }
+        // Phi-4 reasoning vision uses a VLM-only layout in AFM.
+        if let modelType = json["model_type"] as? String, modelType.lowercased() == "phi4-siglip" {
+            return true
+        }
         // If text_config lacks num_attention_heads AND the top-level config also lacks it,
         // the LLM factory will use wrong defaults. Prefer VLM factory.
         let hasTopLevelHeads = json["num_attention_heads"] != nil

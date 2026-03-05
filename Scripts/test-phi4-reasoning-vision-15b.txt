@@ -1,0 +1,21 @@
+# PHI-4 REASONING VISION 15B SMOKE TESTS
+# MODEL: microsoft/Phi-4-reasoning-vision-15B-mlx
+#
+# Run:
+#   Scripts/mlx-model-test.sh --model microsoft/Phi-4-reasoning-vision-15B-mlx --prompts Scripts/test-phi4-reasoning-vision-15b.txt
+#
+# Notes:
+# - This suite assumes the model is already converted to MLX format.
+# - Tool calling is intentionally out of scope for this model integration.
+
+=== [text-only: simple reasoning]
+user: If a train travels 90 miles in 1.5 hours, what is its average speed in mph?
+
+=== [vlm: image describe]
+afm: media: media/image.png
+user: Describe the image in one paragraph.
+
+=== [vlm: structured observation]
+afm: media: media/image.png
+user: List 3 concrete visual facts from the image, then one short inference.
+

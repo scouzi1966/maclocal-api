@@ -562,7 +562,7 @@ struct MlxCommand: ParsableCommand {
             let reasoningPatterns = [
                 "qwen3", "deepseek-r", "glm-4", "glm-5", "kimi",
                 "qwq", "marco-o1", "skywork-o1", "ling-",
-                "nemotron", "minimax", "gpt-oss"
+                "nemotron", "minimax", "gpt-oss", "phi-4-reasoning"
             ]
             supportsReasoning = reasoningPatterns.contains(where: { lower.contains($0) })
         }

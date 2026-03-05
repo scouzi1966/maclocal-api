@@ -98,6 +98,7 @@ public enum VLMTypeRegistry {
         "lfm2-vl": create(LFM2VLConfiguration.self, LFM2VL.init),
         "qwen3_5": create(Qwen3_5MoEVLConfiguration.self, Qwen3_5MoEVL.init),
         "qwen3_5_moe": create(Qwen3_5MoEVLConfiguration.self, Qwen3_5MoEVL.init),
+        "phi4-siglip": create(Phi4SiglipConfiguration.self, Phi4Siglip.init),
     ])
 }
 
@@ -127,6 +128,8 @@ public enum VLMProcessorTypeRegistry {
             Mistral3VLMProcessorConfiguration.self, Mistral3VLMProcessor.init),
         "Lfm2VlProcessor": create(
             LFM2VLProcessorConfiguration.self, LFM2VLProcessor.init),
+        "Phi4Processor": create(
+            Phi4ProcessorConfiguration.self, Phi4Processor.init),
     ])
 }
 
@@ -215,6 +218,11 @@ public class VLMRegistry: AbstractModelRegistry, @unchecked Sendable {
         defaultPrompt: "Describe this image in detail."
     )
 
+    static public let phi4_reasoning_vision_15b = ModelConfiguration(
+        id: "microsoft/Phi-4-reasoning-vision-15B-mlx",
+        defaultPrompt: "Describe the image and explain your reasoning briefly."
+    )
+
     static public func all() -> [ModelConfiguration] {
         [
             paligemma3bMix448_8bit,
@@ -228,6 +236,7 @@ public class VLMRegistry: AbstractModelRegistry, @unchecked Sendable {
             gemma3_27B_qat_4bit,
             smolvlm,
             fastvlm,
+            phi4_reasoning_vision_15b,
         ]
     }
 
@@ -351,6 +360,7 @@ public final class VLMModelFactory: ModelFactory {
             "mistral3": "Mistral3Processor",
             "qwen3_5": "Qwen3VLProcessor",
             "qwen3_5_moe": "Qwen3VLProcessor",
+            "phi4-siglip": "Phi4Processor",
         ]
         let processorType =
             processorTypeOverrides[baseConfig.modelType] ?? baseProcessorConfig.processorClass
