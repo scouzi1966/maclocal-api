@@ -4,3 +4,6 @@
 [submodule "vendor/mlx-swift-lm"]
 	path = vendor/mlx-swift-lm
 	url = https://github.com/ml-explore/mlx-swift-lm.git
+[submodule "vendor/xgrammar"]
+	path = vendor/xgrammar
+	url = https://github.com/mlc-ai/xgrammar.git
