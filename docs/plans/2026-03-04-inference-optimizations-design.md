@@ -69,26 +69,35 @@ AFM achieves 130 tok/s on Qwen3.5-35B-A3B-4bit (M3 Ultra), 29% above Python mlx-
 
 Removed from scope. Medusa heads require per-model training/sourcing, creating an ongoing maintenance burden as new models are added. Revisit if a model-agnostic speculative decoding approach emerges.
 
-### 3. Compressed FSM for Structured Output
+### 3. XGrammar Integration for Structured Output
 
 **Problem:** Current `response_format: json_schema` uses prompt injection — not guaranteed to produce valid JSON.
 
-**Solution:** Compile JSON schemas into finite state machines (FSMs), mask logits at each step to only allow valid tokens. Compressed FSMs skip deterministic sequences (multiple tokens in one step).
+**Solution:** Integrate [XGrammar](https://github.com/mlc-ai/xgrammar) — the production-grade structured generation library used by vLLM, SGLang, TensorRT-LLM, and MLC-LLM. Pure C++ backend, explicitly supports Apple Silicon.
+
+**Why XGrammar over a custom FSM:**
+- **CFG-level grammar** — handles recursive/nested JSON schemas natively (FSMs can only do regular grammars, must flatten recursion to fixed depth)
+- **<40us/token** mask generation, 99%+ of token masks precomputed at compile time
+- **Battle-tested** — default structured generation backend for most major LLM engines
+- **Portable C++ core** — no CUDA dependency, runs on Apple Silicon
+- **Supports JSON, regex, and arbitrary context-free grammars**
 
 **How it works:**
-1. JSON schema → FSM at request time (cached per schema)
-2. Each FSM state maps to a set of valid token IDs
-3. Before sampling, mask logits to zero out invalid tokens
-4. When the FSM has a deterministic transition (only one valid next token), emit it without sampling
-5. Compressed FSM: chain deterministic transitions into multi-token jumps
+1. On request: compile JSON schema (or regex/grammar) into XGrammar's `CompiledGrammar` (cached per schema)
+2. Create a `GrammarMatcher` per generation sequence
+3. Each token step: call `getNextTokenBitmask()` to get the valid token mask
+4. Apply mask to logits before sampling (bitwise AND, near-zero overhead)
+5. After sampling: call `acceptToken()` to advance the grammar state
+6. Deterministic tokens are precomputed — XGrammar identifies sequences where only one token is valid
 
-**Impact:** Guaranteed valid JSON output. SGLang reports 3x faster JSON generation via compressed FSMs.
+**Impact:** 100% structurally correct output. Up to 100x faster than traditional constrained decoding. Replaces prompt injection with guaranteed correctness.
 
-**Effort:** Low-Medium. CPU-side logit masking, no Metal work.
-- JSON schema → FSM compiler (or integrate `outlines-core` / `llguidance`)
-- Logit mask application in the sampling chain (before temperature/top_p)
-- Schema cache (LRU, keyed by schema hash)
-- Support `json_object` mode (any valid JSON) and `json_schema` mode (specific schema)
+**Effort:** Low-Medium. Integration work, no Metal kernels.
+- Add XGrammar C++ library as a dependency (Swift C interop or subprocess)
+- Hook into the logit processing chain in `Evaluate.swift` (after logit processors, before sampling)
+- Grammar/schema cache (LRU, keyed by schema hash)
+- Support `json_object` mode (any valid JSON grammar) and `json_schema` mode (schema-specific grammar)
+- Optionally support `regex` and custom EBNF grammars via API extension
 
 ### 4. KV Cache Eviction (H2O / StreamingLLM)
 
@@ -137,3 +146,6 @@ Removed from scope. Medusa heads require per-model training/sourcing, creating a
 - [metal-flash-attention](https://github.com/philipturner/metal-flash-attention)
 - [KIVI: KV Cache Quantization](https://arxiv.org/abs/2402.02750)
 - [KVSplit: Asymmetric KV on Apple Silicon](https://github.com/dipampaul17/KVSplit)
+- [XGrammar: Fast, Flexible and Portable Structured Generation](https://github.com/mlc-ai/xgrammar)
+- [XGrammar Paper](https://arxiv.org/abs/2411.15100)
+- [JSONSchemaBench: Structured Output Benchmark](https://arxiv.org/abs/2501.10868)
