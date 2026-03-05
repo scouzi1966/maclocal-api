@@ -402,9 +402,17 @@ sed -i '' "s/Stable (v[0-9][^)]*)/Stable (v${VERSION})/" README.md
 # Release notes link
 sed -i '' "s|\[v[0-9][^]]*\](https://github.com/scouzi1966/maclocal-api/releases/tag/v[^)]*)|[v${VERSION}](https://github.com/scouzi1966/maclocal-api/releases/tag/v${VERSION})|" README.md
 
-# "What's new" section
+# "What's new in afm-next" section — reset to show no new features since this stable release.
+# All previous nightly features are now IN the stable release, so the list must be cleared.
+# Future nightlies will add items back as new features land.
 sed -i '' "s/everything in v[0-9][^ ]* plus/everything in v${VERSION} plus/" README.md
 ```
+
+**IMPORTANT:** After updating the version reference, replace the bullet list under "What's new in afm-next" with:
+```
+> - No new features yet — nightly is currently in sync with the stable release
+```
+Remove all previous bullet points — they are now part of the stable release and no longer "new in afm-next". Future nightly builds will add new items to this section as features land after the stable cut.
 
 ### Step 12: Build Python Wheel
 

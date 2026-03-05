@@ -53,19 +53,7 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 
 > [!IMPORTANT]
 > The nightly build is the future stable release. It includes everything in v0.9.6 plus:
-> - the test-reports folder is a mess but contains the extensive test reports performed
-> - **Qwen3.5-35B-A3B MoE** — run a 35B model with only 3B active parameters (--vlm for image,video)
-> - **Full tool calling** — Qwen3-Coder, Gemma, GLM, Kimi-K2.5, and more
-> - **Prompt prefix caching** for faster repeat inference
-> - **Stop sequences** with `<think>` model support
-> - **New architectures** — Qwen3.5, Gemma 3n, Kimi-K2.5, MiniMax M2.5, Nemotron
-> - --guided-json for structured output
-> - Stop sequences through API
-> - Pass image objects to API (using OpenAI APi SDK standards)
-> - logprobs for agentic interpretability testing
-> - top-k, min-p and presence penalty parameters
-> - --tool-call-parser (experimental) hermes, llama3_json, gemma, mistral, qwen3_xml
-> - Many more! afm mlx -h (not all features are wired at the moment)
+> - No new features yet — nightly is currently in sync with the stable release
 
 ## Quick Start
 
