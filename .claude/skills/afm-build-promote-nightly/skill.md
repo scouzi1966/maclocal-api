@@ -313,6 +313,8 @@ EOF
 
 Note: `--target "$NIGHTLY_SHA"` ensures the release points to the exact nightly commit.
 
+**IMPORTANT: Do NOT delete, edit, or modify the original nightly release.** The nightly release and its `nightly-*` tag must remain intact on GitHub. This skill creates a NEW stable release alongside the existing nightly — it does not replace it.
+
 ### Step 9: Update Homebrew Stable Tap (`afm.rb`)
 
 ```bash
