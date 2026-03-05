@@ -1,18 +1,18 @@
 ---
 name: afm-build-promote-nightly
-description: Use when promoting an afm nightly build to a stable release — rebuilds from the nightly commit with stable version, verifies patches, updates Homebrew stable tap (afm.rb), builds a PyPI wheel, updates README and version files, and verifies both brew install and pip install work. Repo admin only.
+description: Use when promoting afm to a stable release — builds from main HEAD or a nightly commit, verifies patches, updates Homebrew stable tap (afm.rb), builds a PyPI wheel, updates README and version files, and verifies both brew install and pip install work. Repo admin only.
 ---
 
-# Promote AFM Nightly to Stable Release
+# Promote AFM to Stable Release
 
-Promote an existing nightly build to a stable release. Checks out the exact nightly commit, updates `BuildInfo.swift` with the stable version, rebuilds with verified patches, then publishes to GitHub, Homebrew (`afm.rb`), and PyPI.
+Build a stable release from either the current `main` branch HEAD or a specific nightly commit. Updates `BuildInfo.swift` with the stable version, rebuilds with verified patches, then publishes to GitHub, Homebrew (`afm.rb`), and PyPI.
 
 **Repo admin only (scouzi1966).**
 
 ## Usage
 
-- `/afm-build-promote-nightly` — promote latest nightly to stable
-- `/afm-build-promote-nightly 0.9.7` — promote with explicit stable version
+- `/afm-build-promote-nightly` — build stable release (choose source interactively)
+- `/afm-build-promote-nightly 0.9.7` — build stable with explicit version
 
 ## Instructions
 
@@ -37,46 +37,55 @@ test -f "$TAP_DIR/afm.rb" && echo "Tap OK" || echo "FAILED"
 
 **If `GH_USER` is not `scouzi1966` or push access is `false` for either repo, STOP immediately:**
 ```
-This skill promotes nightly builds to stable releases for scouzi1966/maclocal-api.
+This skill publishes stable releases for scouzi1966/maclocal-api.
 Only the repository owner (scouzi1966) can run it. You are authenticated as: <username>
 ```
 
-### Step 2: Identify Nightly to Promote
+### Step 2: Choose Build Source
+
+List recent nightly releases for reference:
 
 ```bash
+# Show current main HEAD
+echo "main HEAD: $(git rev-parse --short HEAD) — $(git log -1 --format='%s')"
+
+# List recent nightlies
 gh release list --repo scouzi1966/maclocal-api --limit 10 --json tagName,name,publishedAt,isPrerelease \
   -q '.[] | select(.isPrerelease) | "\(.tagName)\t\(.name)\t\(.publishedAt)"'
 ```
 
-Show the list. Use **AskUserQuestion**:
+Use **AskUserQuestion**:
 
-**Question:** "Which nightly release should be promoted to stable?"
+**Question:** "Build stable release from which source?"
 
 **Options:**
-1. Latest nightly tag (default — show tag name and date)
-2. "Other" — let user specify a different nightly tag
+1. "main HEAD" — build from the current tip of main (most common)
+2. "A nightly release" — build from a specific nightly tag's commit
+3. "A specific commit" — enter a commit SHA
 
-Save as `NIGHTLY_TAG` (e.g., `nightly-20260304-9e978c5`).
+**If "main HEAD":** Set `BUILD_SHA=$(git rev-parse HEAD)`
 
-**Extract the commit SHA from the nightly tag:**
+**If "A nightly release":** Show the nightly list and ask user to pick one, then:
 ```bash
-NIGHTLY_SHA=$(git rev-list -n 1 "$NIGHTLY_TAG" 2>/dev/null || \
+NIGHTLY_TAG="<selected tag>"
+BUILD_SHA=$(git rev-list -n 1 "$NIGHTLY_TAG" 2>/dev/null || \
   gh release view "$NIGHTLY_TAG" --repo scouzi1966/maclocal-api --json targetCommitish -q '.targetCommitish')
-echo "Nightly commit: $NIGHTLY_SHA"
+```
+
+**If "A specific commit":** User provides the SHA, set `BUILD_SHA=<user input>`
+
+```bash
+echo "Build source commit: $BUILD_SHA"
+echo "Commit message: $(git log -1 --format='%s' $BUILD_SHA)"
 ```
 
 ### Step 3: Determine Stable Version
 
-If version was provided as argument, use it. Otherwise derive from the nightly:
+If version was provided as argument, use it. Otherwise derive from `BuildInfo.swift`:
 
 ```bash
-NIGHTLY_VERSION=$(gh release view "$NIGHTLY_TAG" --repo scouzi1966/maclocal-api --json body -q '.body' \
-  | grep -oE 'Version:\*\* [0-9]+\.[0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+') || true
-
-if [ -z "$NIGHTLY_VERSION" ]; then
-  NIGHTLY_VERSION=$(grep 'static let version' Sources/MacLocalAPI/BuildInfo.swift \
-    | sed 's/.*"\(.*\)".*/\1/' | sed 's/^v//')
-fi
+BASE_VERSION=$(grep 'static let version' Sources/MacLocalAPI/BuildInfo.swift \
+  | sed 's/.*"\(.*\)".*/\1/' | sed 's/^v//')
 ```
 
 Use **AskUserQuestion**:
@@ -133,7 +142,7 @@ Report the rollback snapshot to the user so they have it on record.
 
 ### Step 4: Checkout Nightly Commit and Update Version
 
-**CRITICAL:** The stable build must use the exact same commit as the nightly, with only `BuildInfo.swift` changed to carry the stable version.
+**CRITICAL:** The stable build must use the chosen commit (`BUILD_SHA`), with only `BuildInfo.swift` changed to carry the stable version.
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -144,8 +153,8 @@ ORIGINAL_BRANCH=$(git branch --show-current)
 # Stash any uncommitted changes
 git stash --include-untracked 2>/dev/null || true
 
-# Checkout the exact nightly commit
-git checkout "$NIGHTLY_SHA"
+# Checkout the chosen commit
+git checkout "$BUILD_SHA"
 
 # Update ONLY BuildInfo.swift with stable version
 sed -i '' "s/static let version: String? = \".*\"/static let version: String? = \"v${VERSION}\"/" \
@@ -305,7 +314,7 @@ PREV_TAG=$(gh release list --repo scouzi1966/maclocal-api --limit 20 --json tagN
   | grep '^v[0-9]' | head -1) || true
 
 if [ -n "$PREV_TAG" ] && git cat-file -e "${PREV_TAG}^{commit}" 2>/dev/null; then
-  CHANGELOG=$(git log --pretty=format:"- %s (\`%h\`)" "${PREV_TAG}..${NIGHTLY_SHA}" -- . ':!vendor' 2>/dev/null)
+  CHANGELOG=$(git log --pretty=format:"- %s (\`%h\`)" "${PREV_TAG}..${BUILD_SHA}" -- . ':!vendor' 2>/dev/null)
 else
   CHANGELOG=$(git log --pretty=format:"- %s (\`%h\`)" -20 -- . ':!vendor' 2>/dev/null)
 fi
@@ -340,14 +349,14 @@ pip install macafm==${VERSION}
 \`\`\`
 EOF
 )" \
-  --target "$NIGHTLY_SHA" \
+  --target "$BUILD_SHA" \
   --repo scouzi1966/maclocal-api \
   "$STABLE_TARBALL"
 ```
 
-Note: `--target "$NIGHTLY_SHA"` ensures the release points to the exact nightly commit.
+Note: `--target "$BUILD_SHA"` ensures the release points to the exact commit used for the build.
 
-**IMPORTANT: Do NOT delete, edit, or modify the original nightly release.** The nightly release and its `nightly-*` tag must remain intact on GitHub. This skill creates a NEW stable release alongside the existing nightly — it does not replace it.
+**IMPORTANT: Do NOT delete, edit, or modify any existing nightly releases.** Nightly releases and their `nightly-*` tags must remain intact on GitHub. This skill creates a NEW stable release — it does not replace any existing release.
 
 ### Step 9: Update Homebrew Stable Tap (`afm.rb`)
 
@@ -515,7 +524,7 @@ rm -f "afm-v${VERSION}-arm64.tar.gz"
 
 **Final report:**
 - Stable version: `VERSION`
-- Built from commit: `NIGHTLY_SHA`
+- Built from commit: `BUILD_SHA`
 - GitHub release URL
 - Homebrew: `brew install scouzi1966/afm/afm` / `brew upgrade afm`
 - PyPI: `pip install macafm==VERSION` (if published)
