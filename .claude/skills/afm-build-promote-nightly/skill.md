@@ -97,6 +97,40 @@ fi
 ```
 If it exists, STOP and ask the user to choose a different version.
 
+### Step 3b: Capture Rollback State
+
+Before any mutations, snapshot the current state so the entire promotion can be reverted (except PyPI, which is immutable).
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+
+# Previous stable version (for tap rollback)
+PREV_STABLE_VERSION=$(grep 'version "' "$TAP_DIR/afm.rb" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+PREV_STABLE_URL=$(grep 'url "' "$TAP_DIR/afm.rb" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+PREV_STABLE_SHA256=$(grep 'sha256 "' "$TAP_DIR/afm.rb" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+
+# Previous version file values
+PREV_BUILDINFO_VERSION=$(grep 'static let version' Sources/MacLocalAPI/BuildInfo.swift | sed 's/.*"\(.*\)".*/\1/')
+PREV_PYPROJECT_VERSION=$(grep '^version = ' pyproject.toml | sed 's/.*"\(.*\)".*/\1/')
+PREV_INIT_VERSION=$(grep '^__version__' macafm/__init__.py | sed 's/.*"\(.*\)".*/\1/')
+
+# Previous README version
+PREV_README_STABLE=$(grep -o 'Stable (v[^)]*)' README.md | head -1)
+
+# Tap commit before our changes
+PREV_TAP_COMMIT=$(cd "$TAP_DIR" && git rev-parse HEAD)
+
+echo "=== Rollback snapshot ==="
+echo "Tap version: $PREV_STABLE_VERSION"
+echo "Tap commit: $PREV_TAP_COMMIT"
+echo "BuildInfo: $PREV_BUILDINFO_VERSION"
+echo "pyproject: $PREV_PYPROJECT_VERSION"
+echo "__init__: $PREV_INIT_VERSION"
+echo "README: $PREV_README_STABLE"
+```
+
+Report the rollback snapshot to the user so they have it on record.
+
 ### Step 4: Checkout Nightly Commit and Update Version
 
 **CRITICAL:** The stable build must use the exact same commit as the nightly, with only `BuildInfo.swift` changed to carry the stable version.
@@ -487,3 +521,66 @@ rm -f "afm-v${VERSION}-arm64.tar.gz"
 - **Homebrew install fails after publish**: Run `brew update`; check formula with `brew audit afm`.
 - **PyPI install fails**: Check version was actually published; try `pip install macafm==VERSION --no-cache-dir`.
 - **Detached HEAD issues**: Step 7 returns to original branch. If `git checkout` fails, check for uncommitted changes with `git status`.
+
+### Rollback Procedure
+
+If something goes wrong after publishing, use the rollback snapshot from Step 3b to revert. **PyPI is immutable — a published version cannot be deleted or replaced.** All other channels can be fully reverted.
+
+Use **AskUserQuestion** before executing rollback:
+
+**Question:** "Are you sure you want to rollback the v${VERSION} stable release? This will delete the GitHub release, revert the Homebrew tap, and undo version file changes. PyPI cannot be reverted."
+
+**Options:**
+1. "Rollback" — proceed
+2. "Cancel" — abort rollback
+
+**1. Delete GitHub release and tag:**
+```bash
+gh release delete "v${VERSION}" --repo scouzi1966/maclocal-api --yes
+git tag -d "v${VERSION}" 2>/dev/null || true
+git push origin --delete "v${VERSION}" 2>/dev/null || true
+```
+
+**2. Revert Homebrew tap:**
+```bash
+cd "$TAP_DIR"
+git revert HEAD --no-edit
+git push
+# Verify it matches the previous state
+grep 'version "' afm.rb
+# Should show: PREV_STABLE_VERSION
+```
+
+**3. Revert version files on working branch:**
+```bash
+cd "$(git rev-parse --show-toplevel)"
+
+# Restore previous values
+sed -i '' "s/static let version: String? = \".*\"/static let version: String? = \"${PREV_BUILDINFO_VERSION}\"/" \
+  Sources/MacLocalAPI/BuildInfo.swift
+sed -i '' "s/^version = \".*\"/version = \"${PREV_PYPROJECT_VERSION}\"/" pyproject.toml
+sed -i '' "s/^__version__ = \".*\"/__version__ = \"${PREV_INIT_VERSION}\"/" macafm/__init__.py
+
+# Restore README
+sed -i '' "s/Stable (v[0-9][^)]*)/Stable (v${PREV_PYPROJECT_VERSION})/" README.md
+sed -i '' "s|\[v${VERSION}\](https://github.com/scouzi1966/maclocal-api/releases/tag/v${VERSION})|[v${PREV_PYPROJECT_VERSION}](https://github.com/scouzi1966/maclocal-api/releases/tag/v${PREV_PYPROJECT_VERSION})|" README.md
+
+git add Sources/MacLocalAPI/BuildInfo.swift pyproject.toml macafm/__init__.py README.md
+git commit -m "Rollback: revert v${VERSION} promotion"
+```
+
+Use **AskUserQuestion** before pushing the rollback commit.
+
+**4. PyPI (immutable — cannot rollback):**
+
+If the wheel was published to PyPI, it cannot be deleted. Options:
+- Publish a new patch version (e.g., `X.Y.Z+1`) with the fix
+- Yank the version (marks it as not recommended but doesn't delete it):
+  `pip install twine && twine yank macafm ${VERSION} --repository pypi`
+
+**After rollback, report:**
+- GitHub release: deleted ✓
+- Git tag `v${VERSION}`: deleted ✓
+- Homebrew tap: reverted to `PREV_STABLE_VERSION` ✓
+- Version files: reverted ✓
+- PyPI: immutable (not reverted)
