@@ -1,7 +1,5 @@
 # ══════════════════════════════════════════════════════════════════════
-# MODEL: mlx-community/Qwen3.5-35B-A3B-4bit
-# TYPE:  MoE (35B total, 3B active parameters per token)
-# QUANT: 4-bit
+# COMPREHENSIVE LLM TEST SUITE (model-generic)
 # ══════════════════════════════════════════════════════════════════════
 #
 # PURPOSE
@@ -11,10 +9,9 @@
 #    streaming, logprobs, guided JSON, stop sequences, response format,
 #    prefill tuning, KV cache settings, and verbose/debug modes.
 #
-# 2. MODEL ONBOARDING — Validate that this model works correctly with
-#    afm before declaring it "tested". Covers model-specific concerns:
-#    chat template, tokenizer, tool call format (xmlFunction for Qwen),
-#    instruction following, code generation, multilingual, and edge cases.
+# 2. MODEL ONBOARDING — Validate that any model works correctly with
+#    afm before declaring it "tested". Uses [@ label] template mode so
+#    the model is specified via --model at runtime.
 #
 # WHAT TO CHECK
 # -------------
@@ -26,21 +23,21 @@
 #
 # RUN
 # ---
-# mlx-model-test.sh --prompts test-Qwen3.5-35B-A3B-4bit.txt
+# mlx-model-test.sh --model <org/model> --prompts test-llm-comprehensive.txt
+# mlx-model-test.sh --model <org/model> --prompts test-llm-comprehensive.txt --tests 1,5,10
 #
-# MODEL NOTES
-# -----------
-# - Qwen3.5-35B-A3B: MoE with only 3B active params — fast on Apple Silicon
-# - Tool call format: xmlFunction (auto-detected from model_type=qwen3_moe)
-# - Does NOT support thinking/reasoning (<think> tags) — no enable_thinking
-#   in chat template. Raw mode test included to confirm no <think> leakage.
-# - chat_template.jinja is a separate file (not in tokenizer_config.json)
+# NOTES
+# -----
+# - Uses [@ label] template mode — supply --model on the command line
+# - The [all] section prompt runs for every test variant as a baseline
+# - For model-specific tests, see test-<ModelName>.txt files
 # ══════════════════════════════════════════════════════════════════════
-#
-# Run: mlx-model-test.sh --prompts test-Qwen3.5-35B-A3B-4bit.txt
 
 max_tokens: 4096
 temperature: 0.7
+
+[all]
+Name three primary colors and explain why they matter in design. Answer concisely.
 
 
 # ══════════════════════════════════════════════════════════════════════

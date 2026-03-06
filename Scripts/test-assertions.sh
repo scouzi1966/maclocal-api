@@ -82,13 +82,13 @@ run_test() {
   [[ "$actual" = "PASS" ]] && status_val="PASS"
   [[ "$actual" = "SKIP" ]] && status_val="SKIP"
   [[ "$actual" != "PASS" && "$actual" != "SKIP" ]] && status_val="FAIL"
-  python3 -c "
-import json, sys
+  _GROUP="$group" _NAME="$name" _STATUS="$status_val" _DUR="$duration" python3 -c "
+import json, os
 print(json.dumps({
-    'group': $(python3 -c "import json; print(json.dumps('$group'))"),
-    'name': $(python3 -c "import json; print(json.dumps('$name'))"),
-    'status': '$status_val',
-    'duration_ms': $duration
+    'group': os.environ['_GROUP'],
+    'name': os.environ['_NAME'],
+    'status': os.environ['_STATUS'],
+    'duration_ms': int(os.environ['_DUR'])
 }))
 " >> "$JSONL_FILE"
 }
@@ -110,15 +110,32 @@ api_stream() {
 }
 
 # Helper: extract content from API response
+# For thinking models, content may be empty while reasoning_content has text.
+# Returns content if non-empty, otherwise returns reasoning_content.
 extract_content() {
   python3 -c "
 import sys, json
 try:
-    d = json.load(sys.stdin)
-    c = d['choices'][0]['message']['content']
+    d = json.loads(sys.stdin.read(), strict=False)
+    c = d['choices'][0]['message'].get('content') or ''
     print(c if c else '')
 except Exception as e:
     print(f'__ERROR__: {e}')
+"
+}
+
+# Helper: check if response has any output (content or reasoning_content)
+has_output() {
+  python3 -c "
+import sys, json
+try:
+    d = json.loads(sys.stdin.read(), strict=False)
+    msg = d['choices'][0]['message']
+    c = msg.get('content') or ''
+    rc = msg.get('reasoning_content') or ''
+    print('yes' if c or rc else 'no')
+except Exception as e:
+    print('no')
 "
 }
 
@@ -191,12 +208,12 @@ else
 fi
 
 t0=$(now_ms)
-basic_resp=$(api_call '{"messages":[{"role":"user","content":"Say hi"}],"max_tokens":5,"stream":false,"temperature":0}')
-basic_content=$(echo "$basic_resp" | extract_content)
-if [ "$basic_content" != "__ERROR__" ] && [ -n "$basic_content" ]; then
-  run_test "Lifecycle" "Basic completion returns content" "non-empty content" "PASS" "$(( $(now_ms) - t0 ))"
+basic_resp=$(api_call '{"messages":[{"role":"user","content":"Say hi"}],"max_tokens":500,"stream":false,"temperature":0}')
+basic_has_output=$(echo "$basic_resp" | has_output)
+if [ "$basic_has_output" = "yes" ]; then
+  run_test "Lifecycle" "Basic completion returns content" "non-empty content or reasoning" "PASS" "$(( $(now_ms) - t0 ))"
 else
-  run_test "Lifecycle" "Basic completion returns content" "non-empty content" "FAIL: got '$basic_content'" "$(( $(now_ms) - t0 ))"
+  run_test "Lifecycle" "Basic completion returns content" "non-empty content or reasoning" "FAIL: empty response" "$(( $(now_ms) - t0 ))"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -239,7 +256,7 @@ fi
 
 # Test: stop with newline
 t0=$(now_ms)
-resp=$(api_call '{"messages":[{"role":"user","content":"Say hello world"}],"max_tokens":50,"stream":false,"temperature":0,"stop":["\\n"]}')
+resp=$(api_call '{"messages":[{"role":"user","content":"Say hello world"}],"max_tokens":500,"stream":false,"temperature":0,"stop":["\\n"]}')
 content=$(echo "$resp" | extract_content)
 dur=$(( $(now_ms) - t0 ))
 if ! echo "$content" | grep -q $'\n'; then
@@ -261,10 +278,10 @@ fi
 
 # Test: empty stop array is no-op
 t0=$(now_ms)
-resp=$(api_call '{"messages":[{"role":"user","content":"Say hello"}],"max_tokens":10,"stream":false,"temperature":0,"stop":[]}')
-content=$(echo "$resp" | extract_content)
+resp=$(api_call '{"messages":[{"role":"user","content":"Say hello"}],"max_tokens":500,"stream":false,"temperature":0,"stop":[]}')
 dur=$(( $(now_ms) - t0 ))
-if [ -n "$content" ] && [ "$content" != "__ERROR__" ]; then
+empty_stop_ok=$(echo "$resp" | has_output)
+if [ "$empty_stop_ok" = "yes" ]; then
   run_test "Stop" "Empty stop array is no-op" "valid output" "PASS" "$dur"
 else
   run_test "Stop" "Empty stop array is no-op" "valid output" "FAIL" "$dur"
@@ -313,10 +330,10 @@ if min_tier standard; then
 
   # Test: stop doesn't fire on partial match
   t0=$(now_ms)
-  resp=$(api_call '{"messages":[{"role":"user","content":"Say the word stopping"}],"max_tokens":20,"stream":false,"temperature":0,"stop":["stopped"]}')
-  content=$(echo "$resp" | extract_content)
+  resp=$(api_call '{"messages":[{"role":"user","content":"Say the word stopping"}],"max_tokens":500,"stream":false,"temperature":0,"stop":["stopped"]}')
   dur=$(( $(now_ms) - t0 ))
-  if [ -n "$content" ] && [ "$content" != "__ERROR__" ]; then
+  partial_ok=$(echo "$resp" | has_output)
+  if [ "$partial_ok" = "yes" ]; then
     run_test "Stop" "Stop 'stopped' doesn't fire on 'stopping'" "output produced" "PASS" "$dur"
   else
     run_test "Stop" "Stop 'stopped' doesn't fire on 'stopping'" "output produced" "FAIL" "$dur"
@@ -324,7 +341,7 @@ if min_tier standard; then
 
   # Test: stop fires mid-word
   t0=$(now_ms)
-  resp=$(api_call '{"messages":[{"role":"user","content":"Say the word hello"}],"max_tokens":20,"stream":false,"temperature":0,"stop":["llo"]}')
+  resp=$(api_call '{"messages":[{"role":"user","content":"Say the word hello"}],"max_tokens":500,"stream":false,"temperature":0,"stop":["llo"]}')
   content=$(echo "$resp" | extract_content)
   dur=$(( $(now_ms) - t0 ))
   if ! echo "$content" | grep -q "llo"; then
@@ -413,9 +430,9 @@ fi
 
 # Test: 400 on top_logprobs > max
 t0=$(now_ms)
-http_code=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 10 "$BASE_URL/v1/chat/completions" \
+http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$BASE_URL/v1/chat/completions" \
   -H 'Content-Type: application/json' \
-  -d '{"messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"stream":false,"logprobs":true,"top_logprobs":99}' 2>/dev/null || echo "000")
+  -d '{"messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"stream":false,"logprobs":true,"top_logprobs":99}' 2>/dev/null)
 dur=$(( $(now_ms) - t0 ))
 if [ "$http_code" = "400" ]; then
   run_test "Logprobs" "top_logprobs=99 returns 400" "400" "PASS" "$dur"
@@ -594,7 +611,7 @@ TOOL_DEF='[{"type":"function","function":{"name":"get_weather","description":"Ge
 
 # Test: basic tool call
 t0=$(now_ms)
-resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Paris?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":200,\"stream\":false,\"temperature\":0}")
+resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Paris?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
 dur=$(( $(now_ms) - t0 ))
 tc_valid=$(echo "$resp" | python3 -c "
 import sys, json
@@ -646,7 +663,7 @@ fi
 if min_tier standard; then
   # Test: tool arguments are valid JSON
   t0=$(now_ms)
-  resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What's the weather in Tokyo in celsius?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":200,\"stream\":false,\"temperature\":0}")
+  resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What's the weather in Tokyo in celsius?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
   dur=$(( $(now_ms) - t0 ))
   args_valid=$(echo "$resp" | python3 -c "
 import sys, json
@@ -670,7 +687,7 @@ except Exception as e:
 
   # Test: streaming tool calls
   t0=$(now_ms)
-  stream_resp=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in London?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":200,\"stream\":true,\"temperature\":0}")
+  stream_resp=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in London?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":1000,\"stream\":true,\"temperature\":0}")
   dur=$(( $(now_ms) - t0 ))
   stream_tc_valid=$(echo "$stream_resp" | python3 -c "
 import sys, json
@@ -920,9 +937,9 @@ echo "⚠️  Section 8: Error Handling"
 
 # Test: empty messages array → 400
 t0=$(now_ms)
-http_code=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 10 "$BASE_URL/v1/chat/completions" \
+http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$BASE_URL/v1/chat/completions" \
   -H 'Content-Type: application/json' \
-  -d '{"messages":[],"max_tokens":10,"stream":false}' 2>/dev/null || echo "000")
+  -d '{"messages":[],"max_tokens":10,"stream":false}' 2>/dev/null)
 dur=$(( $(now_ms) - t0 ))
 if [ "$http_code" = "400" ]; then
   run_test "Error" "Empty messages → 400" "400" "PASS" "$dur"
@@ -932,9 +949,9 @@ fi
 
 # Test: malformed JSON → 400
 t0=$(now_ms)
-http_code=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 10 "$BASE_URL/v1/chat/completions" \
+http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$BASE_URL/v1/chat/completions" \
   -H 'Content-Type: application/json' \
-  -d '{broken json' 2>/dev/null || echo "000")
+  -d '{broken json' 2>/dev/null)
 dur=$(( $(now_ms) - t0 ))
 if [ "$http_code" = "400" ]; then
   run_test "Error" "Malformed JSON → 400" "400" "PASS" "$dur"
@@ -944,9 +961,9 @@ fi
 
 # Test: missing messages field → 400
 t0=$(now_ms)
-http_code=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 10 "$BASE_URL/v1/chat/completions" \
+http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$BASE_URL/v1/chat/completions" \
   -H 'Content-Type: application/json' \
-  -d '{"max_tokens":10}' 2>/dev/null || echo "000")
+  -d '{"max_tokens":10}' 2>/dev/null)
 dur=$(( $(now_ms) - t0 ))
 if [ "$http_code" = "400" ]; then
   run_test "Error" "Missing messages field → 400" "400" "PASS" "$dur"
@@ -956,7 +973,7 @@ fi
 
 # Test: response_format json_object works
 t0=$(now_ms)
-resp=$(api_call '{"messages":[{"role":"system","content":"Respond in JSON."},{"role":"user","content":"Give me a JSON object with key name and value Alice"}],"max_tokens":50,"stream":false,"temperature":0,"response_format":{"type":"json_object"}}')
+resp=$(api_call '{"messages":[{"role":"system","content":"Respond in JSON."},{"role":"user","content":"Give me a JSON object with key name and value Alice"}],"max_tokens":500,"stream":false,"temperature":0,"response_format":{"type":"json_object"},"chat_template_kwargs":{"enable_thinking":false}}')
 dur=$(( $(now_ms) - t0 ))
 json_valid=$(echo "$resp" | python3 -c "
 import sys, json
@@ -999,7 +1016,7 @@ fi
 
 # Test: OPTIONS returns 200 (CORS)
 t0=$(now_ms)
-http_code=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 10 -X OPTIONS "$BASE_URL/v1/chat/completions" 2>/dev/null || echo "000")
+http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -X OPTIONS "$BASE_URL/v1/chat/completions" 2>/dev/null)
 dur=$(( $(now_ms) - t0 ))
 if [ "$http_code" = "200" ]; then
   run_test "Error" "OPTIONS /v1/chat/completions → 200 (CORS)" "200" "PASS" "$dur"
@@ -1009,10 +1026,10 @@ fi
 
 # Test: developer role mapped to system
 t0=$(now_ms)
-resp=$(api_call '{"messages":[{"role":"developer","content":"You are a pirate."},{"role":"user","content":"Say hello"}],"max_tokens":20,"stream":false,"temperature":0}')
-content=$(echo "$resp" | extract_content)
+resp=$(api_call '{"messages":[{"role":"developer","content":"You are a pirate."},{"role":"user","content":"Say hello"}],"max_tokens":500,"stream":false,"temperature":0}')
 dur=$(( $(now_ms) - t0 ))
-if [ "$content" != "__ERROR__" ] && [ -n "$content" ]; then
+dev_ok=$(echo "$resp" | has_output)
+if [ "$dev_ok" = "yes" ]; then
   run_test "Error" "developer role accepted (mapped to system)" "valid response" "PASS" "$dur"
 else
   run_test "Error" "developer role accepted (mapped to system)" "valid response" "FAIL" "$dur"
@@ -1174,23 +1191,25 @@ if min_tier full; then
   echo ""
   echo "🚀 Section 9: Performance"
 
-  # Test: TTFT < 5s
+  # Test: TTFT < 5s (first token — content or reasoning_content)
   t0=$(now_ms)
-  stream_resp=$(api_stream '{"messages":[{"role":"user","content":"Hello"}],"max_tokens":5,"stream":true,"temperature":0}')
+  stream_resp=$(api_stream '{"messages":[{"role":"user","content":"Hello"}],"max_tokens":50,"stream":true,"temperature":0}')
   first_data_ms=$(echo "$stream_resp" | python3 -c "
-import sys, time
+import sys, time, json
 start = time.time()
 for line in sys.stdin:
     line = line.strip()
     if line.startswith('data: {'):
         try:
-            import json
             d = json.loads(line[6:])
-            c = d.get('choices', [{}])[0].get('delta', {}).get('content', '')
+            delta = d.get('choices', [{}])[0].get('delta', {})
+            c = delta.get('content', '') or delta.get('reasoning_content', '')
             if c:
                 print(int((time.time() - start) * 1000))
                 break
         except: pass
+else:
+    print('99999')
 " 2>/dev/null || echo "99999")
   dur=$(( $(now_ms) - t0 ))
   if [ "$first_data_ms" -lt 5000 ] 2>/dev/null; then
@@ -1220,14 +1239,16 @@ print(f'{tps:.1f}')
   # Test: long context (2048 tokens) no crash
   t0=$(now_ms)
   long_prompt=$(python3 -c "print('word ' * 500)")
-  resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Summarize this text: $long_prompt\"}],\"max_tokens\":50,\"stream\":false,\"temperature\":0}")
+  resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Summarize this text: $long_prompt\"}],\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
   dur=$(( $(now_ms) - t0 ))
   long_ok=$(echo "$resp" | python3 -c "
 import sys, json
 try:
-    d = json.load(sys.stdin)
-    c = d['choices'][0]['message']['content']
-    print('PASS' if c and len(c) > 0 else 'FAIL: empty')
+    d = json.loads(sys.stdin.read(), strict=False)
+    msg = d['choices'][0]['message']
+    c = msg.get('content') or ''
+    rc = msg.get('reasoning_content') or ''
+    print('PASS' if c or rc else 'FAIL: empty')
 except Exception as e:
     print(f'FAIL: {e}')
 " 2>/dev/null || echo "FAIL: parse error")
@@ -1240,17 +1261,20 @@ except Exception as e:
   # Test: very long context (4096 tokens) no NaN/garbage
   t0=$(now_ms)
   very_long_prompt=$(python3 -c "print('The quick brown fox jumps over the lazy dog. ' * 200)")
-  resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Summarize: $very_long_prompt\"}],\"max_tokens\":50,\"stream\":false,\"temperature\":0}")
+  resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Summarize: $very_long_prompt\"}],\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
   dur=$(( $(now_ms) - t0 ))
   vlong_ok=$(echo "$resp" | python3 -c "
 import sys, json
 try:
-    d = json.load(sys.stdin)
-    c = d['choices'][0]['message']['content']
-    if c is None or len(c) == 0:
+    d = json.loads(sys.stdin.read(), strict=False)
+    msg = d['choices'][0]['message']
+    c = msg.get('content') or ''
+    rc = msg.get('reasoning_content') or ''
+    text = c + rc
+    if len(text) == 0:
         print('FAIL: empty content')
-    elif 'nan' in c.lower() or '\\x00' in c:
-        print(f'FAIL: garbage/NaN detected: {c[:100]}')
+    elif 'nan' in text.lower() or '\\x00' in text:
+        print(f'FAIL: garbage/NaN detected: {text[:100]}')
     else:
         print('PASS')
 except Exception as e:

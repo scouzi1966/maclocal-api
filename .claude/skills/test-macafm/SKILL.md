@@ -32,7 +32,7 @@ Use this skill when the user asks to:
 |------|------|-------------|-----------|
 | **smoke** | ~2 min | Quick sanity check, any small model, CI | `test-assertions.sh --tier smoke` |
 | **standard** | ~15 min | After feature changes, mid-size model | `test-assertions.sh --tier standard` |
-| **full** | ~60 min | Release validation, production model | `test-assertions.sh --tier full` + `mlx-model-test.sh --smart` with `test-edge-cases.txt` |
+| **full** | ~60 min | Release validation, production model | `test-assertions.sh --tier full` + `mlx-model-test.sh --smart` with `test-llm-comprehensive.txt` |
 
 **Quick guide:**
 - "Just run a quick test" → smoke
@@ -64,18 +64,33 @@ until curl -sf http://127.0.0.1:9998/v1/models >/dev/null 2>&1; do sleep 1; done
 **Interpret results immediately.** If any FAIL, investigate before proceeding.
 
 ### 4. Run Smart Analysis (full tier only)
+
+The smart analysis harness manages its own server (port 9877) — do NOT pass `--port`.
+It uses `test-llm-comprehensive.txt` which has an `[all]` baseline prompt and `[@ label]`
+template sections. The `--smart` flag accepts batch mode prefix and tool list.
+
 ```bash
-./Scripts/mlx-model-test.sh \
+AFM_BIN=.build/release/afm ./Scripts/mlx-model-test.sh \
   --model MODEL \
-  --prompts Scripts/test-edge-cases.txt \
-  --smart claude \
-  --port 9998
+  --prompts Scripts/test-llm-comprehensive.txt \
+  --smart 1:claude
 ```
+
+**Smart analysis options:**
+- `--smart claude` or `--smart codex` — batch mode 0 (one big swoop, may fail on large test suites)
+- `--smart 1:claude` or `--smart 1:codex` — batch mode 1 (test-by-test, more reliable)
+- `--smart 1:claude,codex` — run multiple AI judges
+- `--tests 1,5,10` — run only specific test numbers (1-indexed)
+
+**Note:** The `[all]` prompt runs for every test variant. With high `max_tokens` (e.g., 32768
+on code tests), thinking models may generate very long reasoning for the baseline prompt.
+Total run time for full suite: ~45-90 min depending on model speed.
 
 ### 5. Review Reports
 - Assertion report: `test-reports/assertions-report-*.html`
-- Smart analysis: `test-reports/smart-analysis-claude-*.md`
-- JSONL data: `test-reports/assertions-report-*.jsonl`
+- Smart analysis: `test-reports/smart-analysis-{tool}-*.md`
+- HTML report: `test-reports/mlx-model-report-*.html`
+- JSONL data: `test-reports/assertions-report-*.jsonl`, `test-reports/mlx-model-report-*.jsonl`
 
 ### 6. Stop Server (if we started it)
 ```bash
@@ -105,6 +120,8 @@ Known patterns where AI judges score incorrectly (see `references/interpreting-s
 - Empty content when stop fires on first visible token — correct behavior
 - JSON mode not constraining thinking models — prompt injection, not grammar-constrained
 - "Missing reasoning" when model doesn't support `<think>` — correct, not a bug
+- Thinking model consuming entire `max_tokens` budget on reasoning with empty visible content — model behavior, not a server bug
+- `[all]` baseline prompt scored low when it runs with a code/math test's high `max_tokens` and system prompt — irrelevant context for the baseline prompt
 
 ### When to Escalate
 
@@ -117,7 +134,9 @@ Known patterns where AI judges score incorrectly (see `references/interpreting-s
 | File | Purpose |
 |------|---------|
 | `Scripts/test-assertions.sh` | Automated pass/fail assertion tests (smoke/standard/full tiers) |
-| `Scripts/test-edge-cases.txt` | Smart analysis test prompts for AI-judge evaluation |
+| `Scripts/test-llm-comprehensive.txt` | Comprehensive smart analysis test suite (model-generic, `[@ label]` template mode, has `[all]` baseline) |
+| `Scripts/test-Qwen3.5-35B-A3B-4bit.txt` | Model-specific test suite for Qwen3.5-35B-A3B-4bit (same tests as comprehensive, hardcoded model) |
+| `Scripts/test-edge-cases.txt` | Legacy smart analysis test prompts (smaller set) |
 | `Scripts/test-sampling-params.sh` | Sampling parameter tests (seed, temp, top_p, etc.) |
 | `Scripts/test-structured-outputs.sh` | JSON schema / structured output tests |
 | `Scripts/test-tool-call-parsers.py` | Unit tests for tool call parsing |
@@ -152,6 +171,6 @@ Known patterns where AI judges score incorrectly (see `references/interpreting-s
 - [ ] All standard checks
 - [ ] Performance: TTFT < 5s, tok/s > 1
 - [ ] Long context (2K, 4K tokens) no crash/NaN
-- [ ] Smart analysis: test-edge-cases.txt with AI judge
+- [ ] Smart analysis: test-llm-comprehensive.txt with AI judge (`--smart 1:claude` or `--smart 1:codex`)
 - [ ] Streaming parity (assembled content matches non-streaming)
 - [ ] Cache timing improvement visible
