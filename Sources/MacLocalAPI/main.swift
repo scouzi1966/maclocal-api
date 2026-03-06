@@ -62,7 +62,15 @@ struct ServeCommand: ParsableCommand {
     @Option(name: .long, help: "Pre-warm the model on server startup for faster first response (y/n, default: y)")
     var prewarm: String = "y"
 
+    @Flag(name: .long, help: "Print machine-readable JSON capability card for AI agents and exit")
+    var helpJson: Bool = false
+
     func run() throws {
+        if helpJson {
+            printHelpJson(command: "afm")
+            return
+        }
+
         // Validate temperature parameter
         if let temp = temperature {
             guard temp >= 0.0 && temp <= 1.0 else {
@@ -324,6 +332,18 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible)")
     var guidedJson: String?
 
+    @Option(name: .long, help: "Agent model id used for skill/tool orchestration (must support tool-calling and --guided-json)")
+    var agentModel: String?
+
+    @Option(name: .long, help: "Maximum agent tool loop steps (default: 8)")
+    var agentMaxSteps: Int = 8
+
+    @Option(name: .long, help: "Skills root directory used by agent tools (default: skills)")
+    var agentSkillsDir: String = "skills"
+
+    @Option(name: .long, help: "Comma-separated HTTP host allowlist for agent external API tool (default: disabled)")
+    var agentAllowHttp: String?
+
     @Option(name: .long, help: "Tool call parser override: hermes, llama3_json, gemma, mistral, qwen3_xml. Forces a custom chat template and tool call format for reliable tool calling.")
     var toolCallParser: String?
 
@@ -350,6 +370,18 @@ struct MlxCommand: ParsableCommand {
 
         if gateway {
             print("Error: -g/--gateway is not supported in 'afm mlx' mode.")
+            throw ExitCode.failure
+        }
+        if agentMaxSteps < 1 {
+            print("Error: --agent-max-steps must be >= 1")
+            throw ExitCode.failure
+        }
+        if agentModel != nil && guidedJson != nil {
+            print("Error: --guided-json is not supported with --agent-model in this version.")
+            throw ExitCode.failure
+        }
+        if agentModel != nil && !media.isEmpty {
+            print("Error: --media is not yet supported with --agent-model.")
             throw ExitCode.failure
         }
 
@@ -421,6 +453,11 @@ struct MlxCommand: ParsableCommand {
         }
 
         let selectedModel = service.normalizeModel(rawModel)
+        let selectedAgentModel = agentModel.map { service.normalizeModel($0) }
+        let allowHTTPHosts: [String] = (agentAllowHttp ?? "")
+            .split(separator: ",")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
 
         if openclawConfig {
             let chosenPort = port ?? 9999
@@ -447,13 +484,36 @@ struct MlxCommand: ParsableCommand {
 
         // Backward compatibility: support piped input in mlx mode too
         if let stdinContent = try readFromStdin() {
-            try runSinglePrompt(stdinContent, service: service, modelID: selectedModel, mediaPaths: resolvedMedia)
+            try runSinglePrompt(
+                stdinContent,
+                service: service,
+                modelID: selectedModel,
+                mediaPaths: resolvedMedia,
+                agentModelID: selectedAgentModel,
+                agentMaxSteps: agentMaxSteps,
+                agentSkillsDir: agentSkillsDir,
+                agentAllowHTTPHosts: allowHTTPHosts
+            )
             return
         }
 
         if let prompt = singlePrompt {
-            try runSinglePrompt(prompt, service: service, modelID: selectedModel, mediaPaths: resolvedMedia)
+            try runSinglePrompt(
+                prompt,
+                service: service,
+                modelID: selectedModel,
+                mediaPaths: resolvedMedia,
+                agentModelID: selectedAgentModel,
+                agentMaxSteps: agentMaxSteps,
+                agentSkillsDir: agentSkillsDir,
+                agentAllowHTTPHosts: allowHTTPHosts
+            )
             return
+        }
+
+        if selectedAgentModel != nil {
+            print("Error: --agent-model currently supports single-prompt usage only (-s or piped stdin).")
+            throw ExitCode.failure
         }
 
         if !media.isEmpty {
@@ -532,7 +592,16 @@ struct MlxCommand: ParsableCommand {
         print("Server shutdown complete.")
     }
 
-    private func runSinglePrompt(_ prompt: String, service: MLXModelService, modelID: String, mediaPaths: [String] = []) throws {
+    private func runSinglePrompt(
+        _ prompt: String,
+        service: MLXModelService,
+        modelID: String,
+        mediaPaths: [String] = [],
+        agentModelID: String? = nil,
+        agentMaxSteps: Int = 8,
+        agentSkillsDir: String = "skills",
+        agentAllowHTTPHosts: [String] = []
+    ) throws {
         defer {
             let cleanup = DispatchGroup()
             cleanup.enter()
@@ -548,6 +617,26 @@ struct MlxCommand: ParsableCommand {
         group.enter()
         Task {
             do {
+                if let agentModelID {
+                    let orchestrator = AgentOrchestrator(
+                        executablePath: CommandLine.arguments[0],
+                        primaryModelID: modelID,
+                        agentModelID: agentModelID,
+                        maxSteps: agentMaxSteps,
+                        skillsDirectory: resolvePath(agentSkillsDir),
+                        allowedHTTPHosts: Set(agentAllowHTTPHosts),
+                        temperature: temperature,
+                        topP: topP,
+                        maxTokens: maxTokens,
+                        repetitionPenalty: repetitionPenalty,
+                        verbose: verbose
+                    )
+                    let text = try await orchestrator.run(prompt: prompt, instructions: instructions)
+                    output = .success(text)
+                    group.leave()
+                    return
+                }
+
                 // Pre-load with progress bar (downloads if needed)
                 let loadReporter = MLXLoadReporter(modelID: modelID)
                 loadReporter.start()
@@ -617,6 +706,13 @@ struct MlxCommand: ParsableCommand {
             throw ExitCode.failure
         }
         return content
+    }
+
+    private func resolvePath(_ path: String) -> String {
+        let shellCWD = ProcessInfo.processInfo.environment["PWD"] ?? FileManager.default.currentDirectoryPath
+        let expanded = NSString(string: path).expandingTildeInPath
+        let absolute = expanded.hasPrefix("/") ? expanded : shellCWD + "/" + expanded
+        return URL(fileURLWithPath: absolute).standardized.path
     }
 
     private func printOpenClawConfig(model: String, hostname: String, port: Int, resolver: MLXCacheResolver) {
@@ -764,9 +860,9 @@ func printHelpJson(command: String) {
     // Level 1: top-level key being accumulated
     var l1Key: String?
     var l1List: [Any]?
-    var l1Dict: [String: Any]?
+    var l1Dict: [String: Any]?  // Any because values can be strings, lists, or sub-dicts
 
-    // Level 2: sub-key within an l1 dict
+    // Level 2: sub-key within an l1 dict (can be a list or a sub-dict)
     var l2Key: String?
     var l2List: [String]?
     var l2Dict: [String: String]?
@@ -834,10 +930,13 @@ func printHelpJson(command: String) {
         } else if stripped.hasPrefix("- ") {
             let item = String(stripped.dropFirst(2)).trimmingCharacters(in: .whitespaces)
             if l2Key != nil {
+                // List item under level-2 key
                 if l2List == nil { l2List = [] }
                 l2List?.append(item)
             } else {
+                // List item under level-1 key
                 if l1List == nil { l1List = [] }
+                // Detect "label: description" (but not commands/examples)
                 if item.contains(": ") && !item.hasPrefix("afm") && !item.hasPrefix("curl") && !item.hasPrefix("'") && !item.hasPrefix("MACAFM") && !item.hasPrefix("\"") {
                     let kv = item.split(separator: ":", maxSplits: 1)
                     if kv.count == 2 {
@@ -848,13 +947,14 @@ func printHelpJson(command: String) {
                 l1List?.append(item)
             }
         } else if rel == 4 && l2Key != nil && stripped.contains(":") && !stripped.hasPrefix("- ") {
-            // Level-3 key: child of l2 sub-dict
+            // Level-3 key: child of l2 sub-dict (e.g. subcommands.mlx.description)
             let parts = stripped.split(separator: ":", maxSplits: 1)
             if parts.count == 2 {
                 if l2Dict == nil { l2Dict = [:] }
                 l2Dict?[String(parts[0]).trimmingCharacters(in: .whitespaces)] = String(parts[1]).trimmingCharacters(in: .whitespaces)
             }
         } else if rel > 0 && stripped.contains(":") {
+            // Fallback: dict entry under l1 (for simple key: value blocks)
             let parts = stripped.split(separator: ":", maxSplits: 1)
             if parts.count == 2 {
                 if l1Dict == nil && l1List == nil { l1Dict = [:] }
@@ -914,14 +1014,48 @@ struct MacLocalAPI: ParsableCommand {
           --no-streaming: Disable streaming
           --prewarm: Pre-warm model on startup (y/n, default: y)
           --help-json: Print machine-readable JSON capability card for AI agents and exit
+        features:
+          - streaming-sse: Server-Sent Events (data: JSON chunks, data: [DONE])
+          - tool-calling: OpenAI-compatible tools/tool_choice/tool_calls
+          - think-reasoning: <think> tag extraction into reasoning_content field
+          - stop-sequences: Buffer-based stop matching across chunk boundaries
+          - json-mode: response_format json_object and json_schema
+          - gateway-proxy: Auto-discover and proxy to local LLM backends
+          - vision-ocr: Extract text/tables from images (afm vision)
+          - webui: Built-in browser chat interface (-w flag)
+          - lora-adapters: Apple Foundation Model LoRA adapter support (-a flag)
+        api_compatibility: OpenAI Chat Completions API (https://platform.openai.com/docs/api-reference/chat/create)
+        extra_response_fields:
+          choices[].message.reasoning_content: Extracted reasoning (AFM-specific)
+        notes:
+          - developer role is mapped to system
+          - max_completion_tokens is accepted alongside max_tokens
+        gateway_backends: [Ollama, LM Studio, Jan, any OpenAI-compatible local endpoint]
         skill:
-          what_it_does: Provides local OpenAI-compatible LLM inference on Apple Silicon. Two modes — Apple Foundation Models (on-device, macOS 26+) and MLX (open-source HuggingFace models).
+          what_it_does: All-in-one local AI server for Mac — runs Apple's on-device Foundation Models, open-source MLX models from Hugging Face, or proxies to other local backends, all through a single OpenAI-compatible API. No cloud, no API keys, no Python.
           repository: https://github.com/scouzi1966/maclocal-api
+          when_to_use:
+            - You need a local OpenAI-compatible API server on Mac (coding agents, chat apps, automation)
+            - You want to use Apple's built-in Foundation Models (macOS 26+) via standard OpenAI API
+            - You want a unified gateway that discovers and proxies Ollama, LM Studio, Jan, etc.
+            - You need OCR/table extraction from images (afm vision)
+            - You want a local WebUI chat interface for any supported model
+          when_not_to_use:
+            - You need cloud-scale throughput or multi-GPU (use vLLM, TGI, or cloud APIs)
+            - You are not on macOS / Apple Silicon
+            - You need GGUF models specifically (use Ollama, or use afm -g to gateway to Ollama)
+          integration_pattern: Start with `afm mlx -m <model>` or just `afm` for Apple models. Point any OpenAI SDK at http://127.0.0.1:9999/v1. Works with OpenCode, Cursor, Continue, any OpenAI client.
           modes:
-            - "afm" — Apple Foundation Models (on-device, requires macOS 26+)
-            - "afm mlx -m <model>" — MLX open-source models from Hugging Face
-            - "afm vision -f <file>" — Vision OCR text/table extraction
-            - "afm -g" — API gateway proxying to local backends
+            - afm — Apple Foundation Models server (macOS 26+, on-device, no download needed)
+            - afm mlx -m <model> — MLX model server (any Hugging Face MLX model)
+            - afm -g — Gateway mode (discover and proxy to Ollama, LM Studio, Jan, etc.)
+            - afm vision -f <image> — OCR and table extraction from images
+            - afm -w — Any mode with built-in WebUI chat interface
+          limitations:
+            - Apple Silicon Mac required
+            - Foundation Models require macOS 26+
+            - MLX mode is single-sequence (one request at a time, queued)
+            - Gateway mode proxies but does not modify or enhance backend capabilities
         triggers:
           - start local LLM server
           - run MLX model locally
@@ -930,12 +1064,16 @@ struct MacLocalAPI: ParsableCommand {
           - local tool calling server
           - vision OCR text extraction
           - API gateway for local LLM backends
+          - run local AI without cloud or API keys
         examples:
           - afm --port 9999
+          - afm -w
           - afm mlx -m Qwen/Qwen3-Coder-Next-4bit --port 9999
           - afm mlx -m mlx-community/Meta-Llama-3.1-8B-Instruct-4bit -s "Hello"
           - afm vision -f image.png
           - afm -g --port 9999
+          - 'curl http://127.0.0.1:9999/v1/chat/completions -d ''{"model":"m","messages":[{"role":"user","content":"Hi"}]}'''
+          - curl http://127.0.0.1:9999/v1/models
         ---
 
         Use -w to enable the WebUI, -g to enable API gateway mode, or `afm mlx` for local MLX models.
@@ -988,14 +1126,48 @@ struct RootCommand: ParsableCommand {
           --no-streaming: Disable streaming
           --prewarm: Pre-warm model on startup (y/n, default: y)
           --help-json: Print machine-readable JSON capability card for AI agents and exit
+        features:
+          - streaming-sse: Server-Sent Events (data: JSON chunks, data: [DONE])
+          - tool-calling: OpenAI-compatible tools/tool_choice/tool_calls
+          - think-reasoning: <think> tag extraction into reasoning_content field
+          - stop-sequences: Buffer-based stop matching across chunk boundaries
+          - json-mode: response_format json_object and json_schema
+          - gateway-proxy: Auto-discover and proxy to local LLM backends
+          - vision-ocr: Extract text/tables from images (afm vision)
+          - webui: Built-in browser chat interface (-w flag)
+          - lora-adapters: Apple Foundation Model LoRA adapter support (-a flag)
+        api_compatibility: OpenAI Chat Completions API (https://platform.openai.com/docs/api-reference/chat/create)
+        extra_response_fields:
+          choices[].message.reasoning_content: Extracted reasoning (AFM-specific)
+        notes:
+          - developer role is mapped to system
+          - max_completion_tokens is accepted alongside max_tokens
+        gateway_backends: [Ollama, LM Studio, Jan, any OpenAI-compatible local endpoint]
         skill:
-          what_it_does: Provides local OpenAI-compatible LLM inference on Apple Silicon. Two modes — Apple Foundation Models (on-device, macOS 26+) and MLX (open-source HuggingFace models).
+          what_it_does: All-in-one local AI server for Mac — runs Apple's on-device Foundation Models, open-source MLX models from Hugging Face, or proxies to other local backends, all through a single OpenAI-compatible API. No cloud, no API keys, no Python.
           repository: https://github.com/scouzi1966/maclocal-api
+          when_to_use:
+            - You need a local OpenAI-compatible API server on Mac (coding agents, chat apps, automation)
+            - You want to use Apple's built-in Foundation Models (macOS 26+) via standard OpenAI API
+            - You want a unified gateway that discovers and proxies Ollama, LM Studio, Jan, etc.
+            - You need OCR/table extraction from images (afm vision)
+            - You want a local WebUI chat interface for any supported model
+          when_not_to_use:
+            - You need cloud-scale throughput or multi-GPU (use vLLM, TGI, or cloud APIs)
+            - You are not on macOS / Apple Silicon
+            - You need GGUF models specifically (use Ollama, or use afm -g to gateway to Ollama)
+          integration_pattern: Start with `afm mlx -m <model>` or just `afm` for Apple models. Point any OpenAI SDK at http://127.0.0.1:9999/v1. Works with OpenCode, Cursor, Continue, any OpenAI client.
           modes:
-            - "afm" — Apple Foundation Models (on-device, requires macOS 26+)
-            - "afm mlx -m <model>" — MLX open-source models from Hugging Face
-            - "afm vision -f <file>" — Vision OCR text/table extraction
-            - "afm -g" — API gateway proxying to local backends
+            - afm — Apple Foundation Models server (macOS 26+, on-device, no download needed)
+            - afm mlx -m <model> — MLX model server (any Hugging Face MLX model)
+            - afm -g — Gateway mode (discover and proxy to Ollama, LM Studio, Jan, etc.)
+            - afm vision -f <image> — OCR and table extraction from images
+            - afm -w — Any mode with built-in WebUI chat interface
+          limitations:
+            - Apple Silicon Mac required
+            - Foundation Models require macOS 26+
+            - MLX mode is single-sequence (one request at a time, queued)
+            - Gateway mode proxies but does not modify or enhance backend capabilities
         triggers:
           - start local LLM server
           - run MLX model locally
@@ -1004,12 +1176,16 @@ struct RootCommand: ParsableCommand {
           - local tool calling server
           - vision OCR text extraction
           - API gateway for local LLM backends
+          - run local AI without cloud or API keys
         examples:
           - afm --port 9999
+          - afm -w
           - afm mlx -m Qwen/Qwen3-Coder-Next-4bit --port 9999
           - afm mlx -m mlx-community/Meta-Llama-3.1-8B-Instruct-4bit -s "Hello"
           - afm vision -f image.png
           - afm -g --port 9999
+          - 'curl http://127.0.0.1:9999/v1/chat/completions -d ''{"model":"m","messages":[{"role":"user","content":"Hi"}]}'''
+          - curl http://127.0.0.1:9999/v1/models
         ---
 
         Use -w to enable the WebUI, -g to enable API gateway mode, or `afm mlx` for local MLX models.
