@@ -687,7 +687,8 @@ elif $USE_AUTO_MODELS; then
       [[ -z "$line" ]] && continue
       [[ "$line" == MACAFM_MLX_MODEL_CACHE=* ]] && continue
       [[ "$line" == *"models found"* ]] && continue
-      MODELS+=("$line")
+      # Extract just the model name (first field), ignoring size columns
+      MODELS+=("$(echo "$line" | awk '{print $1}')")
     done < <(models)
   elif [ -d "$MACAFM_MLX_MODEL_CACHE" ]; then
     SKIP="hub|gguf|xet|models"
