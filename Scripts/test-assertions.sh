@@ -743,6 +743,68 @@ except Exception as e:
     run_test "Tools" "Multi-tool: at least 1 tool call with 2 tools" ">=1 calls" "$multi_valid" "$dur"
   fi
 
+  # Test: tool with array-type parameter (regression PR #37 — array params must not serialize as strings)
+  ARRAY_TOOL='[{"type":"function","function":{"name":"todowrite","description":"Write todo items","parameters":{"type":"object","properties":{"todos":{"type":"array","items":{"type":"string"},"description":"List of todo items"}},"required":["todos"]}}}]'
+  t0=$(now_ms)
+  resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Create todos: Buy milk, Call dentist, Fix bug\"}],\"tools\":$ARRAY_TOOL,\"max_tokens\":300,\"stream\":false,\"temperature\":0}")
+  dur=$(( $(now_ms) - t0 ))
+  array_param=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        todos = args.get('todos', args.get('items', None))
+        if isinstance(todos, list):
+            print('PASS')
+        elif isinstance(todos, str):
+            print('FAIL: todos is string (not array)')
+        else:
+            print(f'FAIL: todos type={type(todos).__name__}')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$array_param" = "PASS" ]; then
+    run_test "Tools" "Array param: todos is JSON array (not string)" "array" "PASS" "$dur"
+  else
+    run_test "Tools" "Array param: todos is JSON array (not string)" "array" "$array_param" "$dur"
+  fi
+
+  # Test: tool with nullable parameter schema (regression PR #33 — anyOf [string, null] must not crash Jinja)
+  NULLABLE_TOOL='[{"type":"function","function":{"name":"get_weather","description":"Get weather","parameters":{"type":"object","properties":{"location":{"type":"string","description":"City name"},"units":{"anyOf":[{"type":"string"},{"type":"null"}],"description":"Temperature units","default":null}},"required":["location"]}}}]'
+  t0=$(now_ms)
+  resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Chicago?\"}],\"tools\":$NULLABLE_TOOL,\"max_tokens\":300,\"stream\":false,\"temperature\":0}")
+  dur=$(( $(now_ms) - t0 ))
+  nullable_ok=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if 'error' in d:
+        print(f'FAIL: server error: {d[\"error\"].get(\"message\",\"\")}')
+    else:
+        tc = d['choices'][0]['message'].get('tool_calls', [])
+        if tc and tc[0]['function']['name'] == 'get_weather':
+            print('PASS')
+        elif tc:
+            print(f'PASS')  # tool call made, no crash
+        else:
+            content = d['choices'][0]['message'].get('content', '')
+            if content:
+                print('PASS')  # no crash, model responded with text
+            else:
+                print('FAIL: no tool calls and no content')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$nullable_ok" = "PASS" ]; then
+    run_test "Tools" "Nullable param: anyOf [string, null] does not crash" "no crash" "PASS" "$dur"
+  else
+    run_test "Tools" "Nullable param: anyOf [string, null] does not crash" "no crash" "$nullable_ok" "$dur"
+  fi
+
   # Test: no tools provided = normal response
   t0=$(now_ms)
   resp=$(api_call '{"messages":[{"role":"user","content":"What is 2+2?"}],"max_tokens":20,"stream":false,"temperature":0}')

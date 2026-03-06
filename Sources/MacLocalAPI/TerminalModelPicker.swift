@@ -44,6 +44,9 @@ func discoverAllModels(resolver: MLXCacheResolver) -> [CachedModelEntry] {
             let orgDir = baseDir.appendingPathComponent(org)
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: orgDir.path, isDirectory: &isDir), isDir.boolValue else { continue }
+            // Skip HF hub-style directories (contain models-- prefixed entries)
+            if let children = try? fm.contentsOfDirectory(atPath: orgDir.path),
+               children.contains(where: { $0.hasPrefix("models--") }) { continue }
             guard let models = try? fm.contentsOfDirectory(atPath: orgDir.path) else { continue }
             for model in models {
                 let modelDir = orgDir.appendingPathComponent(model)
@@ -153,30 +156,54 @@ func runInteractiveModelPicker(models: [CachedModelEntry]) -> String? {
     // Hide cursor
     print("\u{1B}[?25l", terminator: "")
 
-    // Print banner before entering raw mode
+    // Get terminal height for viewport
+    var ws = winsize()
+    let termHeight: Int
+    if ioctl(STDOUT_FILENO, UInt(TIOCGWINSZ), &ws) == 0, ws.ws_row > 0 {
+        termHeight = Int(ws.ws_row)
+    } else {
+        termHeight = 24  // fallback
+    }
+
+    // Print banner
     let s = models.count == 1 ? "" : "s"
     print("\u{1B}[1;33mFound \(models.count) model\(s) cached locally (no download needed).\u{1B}[0m")
     print("\u{1B}[1;33mSelect a model (\u{2191}\u{2193} navigate, Enter select, q quit):\u{1B}[0m\n")
 
-    var selected = 0
-    var firstDraw = true
     let headerLines = 3  // banner + instruction + blank
+    let maxVisible = max(termHeight - headerLines - 1, 5)  // reserve 1 line for safety
+    let visibleCount = min(models.count, maxVisible)
+
+    var selected = 0
+    var scrollOffset = 0
+    var firstDraw = true
 
     func draw() {
         // Move cursor up to overwrite previous draw (except first time)
         if !firstDraw {
-            let totalLines = models.count
-            print("\u{1B}[\(totalLines)A", terminator: "")
+            print("\u{1B}[\(visibleCount)A", terminator: "")
         }
         firstDraw = false
 
-        for (i, m) in models.enumerated() {
-            let suffix = m.source.isEmpty ? "" : "  \(m.source)"
-            if i == selected {
-                // Reverse video for selected line
-                print("\u{1B}[2K \u{1B}[7m> \(m.id)\(suffix)\u{1B}[0m")
+        // Adjust scroll offset to keep selection visible
+        if selected < scrollOffset {
+            scrollOffset = selected
+        } else if selected >= scrollOffset + visibleCount {
+            scrollOffset = selected - visibleCount + 1
+        }
+
+        for row in 0..<visibleCount {
+            let i = scrollOffset + row
+            if i < models.count {
+                let m = models[i]
+                let suffix = m.source.isEmpty ? "" : "  \(m.source)"
+                if i == selected {
+                    print("\u{1B}[2K \u{1B}[7m> \(m.id)\(suffix)\u{1B}[0m")
+                } else {
+                    print("\u{1B}[2K   \(m.id)\(suffix)")
+                }
             } else {
-                print("\u{1B}[2K   \(m.id)\(suffix)")
+                print("\u{1B}[2K")
             }
         }
         fflush(stdout)

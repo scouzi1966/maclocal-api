@@ -131,19 +131,111 @@ struct MlxCommand: ParsableCommand {
           MACAFM_MLX_METALLIB: Override Metal library path
           AFM_DEBUG: Enable debug logging (KVCache stats, tool call detection, timing)
           AFM_PERF: Enable per-token performance breakdown (model, eval, sync, overhead)
+        cli_flags:
+          -m, --model: Model id (org/model or just model name, defaults to mlx-community org)
+          -s, --single-prompt: Run a single prompt and exit (no server)
+          -i, --instructions: System prompt / custom instructions (default: "You are a helpful assistant")
+          -p, --port: Server port (default: 9999, auto-fallback to ephemeral if busy)
+          -H, --hostname: Bind address (default: 127.0.0.1)
+          -v, --verbose: Enable verbose logging
+          -V, --very-verbose: Log full requests/responses and all parameters
+          -w, --webui: Enable WebUI and open in browser
+          -t, --temperature: Sampling temperature (0.0-2.0)
+          --top-p: Nucleus sampling threshold (0.0-1.0)
+          --top-k: Keep only k most likely tokens (0 = disabled)
+          --min-p: Filter tokens below min_p * max_prob (0.0 = disabled)
+          --presence-penalty: Additive penalty for tokens already generated
+          --repetition-penalty: Penalize repeated tokens
+          --max-tokens: Maximum tokens per response (default: 8192)
+          --seed: Random seed for reproducible output
+          --max-logprobs: Max top logprobs per token (default: 20)
+          --stop: Stop sequences, comma-separated (e.g. "###,END")
+          --guided-json: Constrain output to JSON schema (vLLM-compatible)
+          --no-streaming: Disable streaming (streaming enabled by default)
+          --raw: Output raw model text without extracting <think> tags
+          --vlm: Force load as vision model (VLM) instead of text-only LLM
+          --media: Image/video paths for VLM single-prompt mode (implies --vlm)
+          --kv-bits: Quantize KV cache (4 or 8 bits) to reduce memory
+          --prefill-step-size: Prompt tokens per GPU pass (default: 2048)
+          --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
+          --tool-call-parser: Override tool call format (hermes, llama3_json, gemma, mistral, qwen3_xml)
+          --fix-tool-args: Post-process tool call arg names to match original tool schema
+          --no-think: Disable thinking/reasoning (sets enable_thinking=false)
+          --default-chat-template-kwargs: JSON object merged into chat template context
+          --openclaw-config: Print OpenClaw provider config JSON and exit
+          --help-json: Print machine-readable JSON capability card for AI agents and exit
         sampling_parameters: [temperature, top_p, top_k, min_p, presence_penalty, repetition_penalty, seed, max_tokens, logprobs, top_logprobs]
-        features: [streaming-sse, tool-calling, think-reasoning-extraction, stop-sequences, json-mode, prompt-caching, vlm-image-input]
+        features: [streaming-sse, tool-calling, think-reasoning-extraction, stop-sequences, json-mode, json-schema, prompt-caching, vlm-image-input, kv-cache-quantization, openclaw-integration]
+        api_compatibility: OpenAI Chat Completions API (https://platform.openai.com/docs/api-reference/chat/create)
+        extra_request_fields:
+          top_k: int (not in OpenAI spec)
+          min_p: float (not in OpenAI spec)
+          repetition_penalty: float (also accepts repeat_penalty, not in OpenAI spec)
+          chat_template_kwargs: object e.g. {"enable_thinking": false} (AFM-specific)
+        extra_response_fields:
+          choices[].message.reasoning_content: Extracted <think> reasoning (AFM-specific)
+          usage.prompt_tokens_details.cached_tokens: Prefix cache hit count (AFM-specific)
+        notes:
+          - frequency_penalty is parsed but silently ignored
+          - developer role is mapped to system
+          - max_completion_tokens is accepted alongside max_tokens
+        supported_model_types: [llama, qwen2, qwen3, qwen3_moe, qwen3_5_moe, gemma, gemma2, phi3, starcoder2, openelm, cohere2, deepseek_v3, glm4, glm4_moe, lfm2, lfm2_moe, nemotron_h, minimax_m2, kimi_k2]
+        tool_calling:
+          auto_detection: Tool call format is auto-detected from model_type in config.json. Most models work without --tool-call-parser.
+          parser_overrides:
+            hermes: JSON format with Hermes chat template (Llama, Qwen, most models)
+            llama3_json: JSON format with Llama-3 chat template
+            mistral: JSON format with Mistral chat template
+            qwen3_xml: XML function format with Qwen3-Coder chat template
+            gemma: Gemma function call format (uses model's built-in template)
+          auto_detected_formats:
+            json: Default for Llama, Qwen, most models (<tool_call>...</tool_call> tags)
+            xml_function: Qwen3 Coder, Qwen3.5 MoE (<function=name><parameter=key>value</parameter></function>)
+            lfm2: LFM2 models (<|tool_call_start|>...<|tool_call_end|>)
+            glm4: GLM4 models (<arg_key>k</arg_key><arg_value>v</arg_value>)
+            gemma: Gemma models (call:name{key:value})
+            kimi_k2: Kimi K2 (functions.name:0<|tool_call_argument_begin|>{...})
+            minimax_m2: MiniMax M2 (<invoke name="f"><parameter name="k">v</parameter></invoke>)
+          fix_tool_args: --fix-tool-args post-processes argument names to match original tool schema (fixes model renaming e.g. path to filePath)
+        skill:
+          what_it_does: Runs open-source LLM/VLM models locally on Apple Silicon via MLX, exposing an OpenAI-compatible API. No cloud, no API keys, no Python runtime.
+          repository: https://github.com/scouzi1966/maclocal-api
+          when_to_use:
+            - You need a local OpenAI-compatible LLM endpoint for coding agents, chat apps, or tool-calling workflows
+            - You want to run Hugging Face MLX models (Qwen, Llama, Gemma, DeepSeek, Phi, etc.) on Mac
+            - You need streaming, tool calling, logprobs, or thinking/reasoning extraction locally
+            - You want vision/multimodal inference with local VLM models
+          when_not_to_use:
+            - You need cloud-scale throughput or multi-GPU inference (use vLLM, TGI, or cloud APIs)
+            - You need GGUF/llama.cpp format models (use Ollama or llama-server instead)
+            - You are not on Apple Silicon (MLX is Apple-only)
+          integration_pattern: Start server with `afm mlx -m <model>`, then point any OpenAI SDK client at http://127.0.0.1:9999/v1. Drop-in replacement for OpenAI API.
+          limitations:
+            - Single-sequence inference only (one request at a time, queued)
+            - MLX-format models only (safetensors from Hugging Face, not GGUF)
+            - JSON mode uses prompt injection, not grammar-constrained decoding
+            - Apple Silicon Mac required (M1/M2/M3/M4)
+          typical_workflow:
+            - 1. Download model — afm mlx -m mlx-community/Qwen3.5-35B-A3B-4bit (auto-downloads on first use)
+            - 2. Start server — afm mlx -m mlx-community/Qwen3.5-35B-A3B-4bit --port 9999
+            - 3. Send requests — curl http://127.0.0.1:9999/v1/chat/completions -d '{...}'
+            - 4. Or use WebUI — afm mlx -m <model> -w (opens browser chat interface)
         triggers:
           - run MLX model
           - local Hugging Face model inference
           - MLX tool calling
           - MLX streaming server
           - quantized model inference
+          - run local LLM with tool calling
+          - vision model inference with images
         examples:
           - afm mlx -m Qwen/Qwen3-Coder-Next-4bit --port 9999
           - afm mlx -m mlx-community/Llama-3.1-8B-Instruct-4bit --top-k 40 --min-p 0.05
           - afm mlx -m org/model -s "Explain quicksort" --temperature 0.7
           - afm mlx -m org/model --vlm --media photo.jpg -s "Describe this image"
+          - afm mlx -m org/model --no-think --tool-call-parser qwen3_xml
+          - afm mlx -m org/model --kv-bits 4 --enable-prefix-caching
+          - 'curl http://127.0.0.1:9999/v1/chat/completions -d ''{"model":"m","messages":[{"role":"user","content":"Hi"}],"stream":true}'''
           - MACAFM_MLX_MODEL_CACHE=/path/to/cache afm mlx -m org/model
         ---
 
@@ -247,7 +339,15 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Print OpenClaw provider config JSON and exit")
     var openclawConfig: Bool = false
 
+    @Flag(name: .long, help: "Print machine-readable JSON capability card for AI agents and exit")
+    var helpJson: Bool = false
+
     func run() throws {
+        if helpJson {
+            printHelpJson(command: "afm mlx")
+            return
+        }
+
         if gateway {
             print("Error: -g/--gateway is not supported in 'afm mlx' mode.")
             throw ExitCode.failure
@@ -618,6 +718,158 @@ struct MlxCommand: ParsableCommand {
     }
 }
 
+// MARK: - Help JSON
+
+/// Extract the YAML capability card from a command's discussion text and emit it as JSON.
+/// Parses the YAML between `---` delimiters in the ArgumentParser discussion field.
+func printHelpJson(command: String) {
+    let config: CommandConfiguration
+    switch command {
+    case "afm mlx":
+        config = MlxCommand.configuration
+    case "afm vision":
+        config = VisionCommand.configuration
+    default:
+        config = RootCommand.configuration
+    }
+
+    let discussion = config.discussion ?? ""
+    guard !discussion.isEmpty else {
+        print("{}")
+        return
+    }
+
+    // Extract YAML between --- delimiters
+    let lines = discussion.components(separatedBy: "\n")
+    var yamlLines: [String] = []
+    var inYaml = false
+    for line in lines {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed == "---" {
+            if inYaml { break }
+            inYaml = true
+            continue
+        }
+        if inYaml { yamlLines.append(line) }
+    }
+
+    // Determine baseline indentation from first non-empty YAML line
+    let baseIndent = yamlLines.first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty })?
+        .prefix(while: { $0 == " " }).count ?? 0
+
+    // YAML-to-dict parser: supports 3 levels of nesting with scalars, inline arrays, dicts, and lists
+    var root: [String: Any] = [:]
+    root["version"] = BuildInfo.fullVersion
+
+    // Level 1: top-level key being accumulated
+    var l1Key: String?
+    var l1List: [Any]?
+    var l1Dict: [String: Any]?
+
+    // Level 2: sub-key within an l1 dict
+    var l2Key: String?
+    var l2List: [String]?
+    var l2Dict: [String: String]?
+
+    func flushL2() {
+        guard let k2 = l2Key else { return }
+        if let list = l2List { l1Dict?[k2] = list }
+        else if let dict = l2Dict { l1Dict?[k2] = dict }
+        l2Key = nil
+        l2List = nil
+        l2Dict = nil
+    }
+
+    func flushL1() {
+        flushL2()
+        guard let k1 = l1Key else { return }
+        if let dict = l1Dict { root[k1] = dict }
+        else if let list = l1List { root[k1] = list }
+        l1Key = nil
+        l1List = nil
+        l1Dict = nil
+    }
+
+    for line in yamlLines {
+        let stripped = line.trimmingCharacters(in: .whitespaces)
+        if stripped.isEmpty { continue }
+        let indent = line.prefix(while: { $0 == " " }).count
+        let rel = indent - baseIndent
+
+        if rel == 0 && stripped.contains(":") && !stripped.hasPrefix("- ") {
+            // Top-level key (indent 0)
+            flushL1()
+            let parts = stripped.split(separator: ":", maxSplits: 1)
+            let key = String(parts[0]).trimmingCharacters(in: .whitespaces)
+            let value = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces) : ""
+            if !value.isEmpty {
+                if value.hasPrefix("[") && value.hasSuffix("]") {
+                    let inner = String(value.dropFirst().dropLast())
+                    root[key] = inner.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                } else {
+                    root[key] = value
+                }
+            } else {
+                l1Key = key
+            }
+        } else if rel == 2 && stripped.contains(":") && !stripped.hasPrefix("- ") {
+            // Level-2 key (child of current l1Key)
+            flushL2()
+            let parts = stripped.split(separator: ":", maxSplits: 1)
+            let key = String(parts[0]).trimmingCharacters(in: .whitespaces)
+            let value = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces) : ""
+            if l1Dict == nil && l1List == nil { l1Dict = [:] }
+            if let _ = l1Dict {
+                if !value.isEmpty {
+                    if value.hasPrefix("[") && value.hasSuffix("]") {
+                        let inner = String(value.dropFirst().dropLast())
+                        l1Dict?[key] = inner.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                    } else {
+                        l1Dict?[key] = value
+                    }
+                } else {
+                    l2Key = key
+                }
+            }
+        } else if stripped.hasPrefix("- ") {
+            let item = String(stripped.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+            if l2Key != nil {
+                if l2List == nil { l2List = [] }
+                l2List?.append(item)
+            } else {
+                if l1List == nil { l1List = [] }
+                if item.contains(": ") && !item.hasPrefix("afm") && !item.hasPrefix("curl") && !item.hasPrefix("'") && !item.hasPrefix("MACAFM") && !item.hasPrefix("\"") {
+                    let kv = item.split(separator: ":", maxSplits: 1)
+                    if kv.count == 2 {
+                        l1List?.append([String(kv[0]).trimmingCharacters(in: .whitespaces): String(kv[1]).trimmingCharacters(in: .whitespaces)])
+                        continue
+                    }
+                }
+                l1List?.append(item)
+            }
+        } else if rel == 4 && l2Key != nil && stripped.contains(":") && !stripped.hasPrefix("- ") {
+            // Level-3 key: child of l2 sub-dict
+            let parts = stripped.split(separator: ":", maxSplits: 1)
+            if parts.count == 2 {
+                if l2Dict == nil { l2Dict = [:] }
+                l2Dict?[String(parts[0]).trimmingCharacters(in: .whitespaces)] = String(parts[1]).trimmingCharacters(in: .whitespaces)
+            }
+        } else if rel > 0 && stripped.contains(":") {
+            let parts = stripped.split(separator: ":", maxSplits: 1)
+            if parts.count == 2 {
+                if l1Dict == nil && l1List == nil { l1Dict = [:] }
+                l1Dict?[String(parts[0]).trimmingCharacters(in: .whitespaces)] = String(parts[1]).trimmingCharacters(in: .whitespaces)
+            }
+        }
+    }
+    flushL1()
+
+    if let jsonData = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]),
+       let jsonString = String(data: jsonData, encoding: .utf8) {
+        print(jsonString)
+    }
+}
+
 struct MacLocalAPI: ParsableCommand {
     static let buildVersion: String = BuildInfo.fullVersion
 
@@ -627,15 +879,49 @@ struct MacLocalAPI: ParsableCommand {
         discussion: """
         ---
         name: afm
-        description: OpenAI-compatible local LLM inference server for Apple Silicon. Supports Apple Foundation Models (on-device), MLX models from Hugging Face, API gateway proxying to local backends, and Vision OCR. Exposes /v1/chat/completions and /v1/models endpoints.
+        description: OpenAI-compatible local LLM inference server for Apple Silicon. Supports Apple Foundation Models (on-device, macOS 26+), MLX models from Hugging Face, API gateway proxying to local backends (Ollama, LM Studio, Jan), and Vision OCR. Exposes /v1/chat/completions and /v1/models endpoints.
         tags: [llm, inference, apple-silicon, openai-compatible, mlx, foundation-models, local, server, api, streaming, tool-calling, vision, ocr, gateway]
-        subcommands: [serve, mlx, vision]
-        api_endpoints: [/v1/chat/completions, /v1/models]
+        subcommands:
+          mlx:
+            description: Run MLX-format LLM/VLM models from Hugging Face on Apple Silicon
+            usage: afm mlx -m <model> [options]
+            full_details: afm mlx --help-json
+          vision:
+            description: Extract text and tables from images/PDFs using Apple Vision OCR
+            usage: afm vision -f <file> [--table]
+            full_details: afm vision --help-json
+        api_endpoints: [/v1/chat/completions, /v1/models, /health]
         env_vars:
           MACAFM_MLX_MODEL_CACHE: Override model cache directory
           MACAFM_MLX_METALLIB: Override metallib path
           AFM_DEBUG: Enable debug logging (KVCache, tool calls, timing)
           AFM_PERF: Enable per-token performance instrumentation
+        cli_flags:
+          -s, --single-prompt: Run a single prompt and exit (no server)
+          -i, --instructions: System prompt / custom instructions
+          -p, --port: Server port (default: 9999)
+          -H, --hostname: Bind address (default: 127.0.0.1)
+          -v, --verbose: Enable verbose logging
+          -V, --very-verbose: Log full requests/responses
+          -w, --webui: Enable WebUI and open in browser
+          -g, --gateway: Enable API gateway (discover/proxy Ollama, LM Studio, Jan, etc.)
+          -t, --temperature: Sampling temperature (0.0-1.0)
+          -r, --randomness: "greedy", "random", "random:top-p=0.9", "random:top-k=40", ":seed=42"
+          -P, --permissive-guardrails: Disable safety guardrails
+          -a, --adapter: Path to .fmadapter LoRA adapter file
+          --stop: Stop sequences, comma-separated
+          --guided-json: Constrain output to JSON schema
+          --no-streaming: Disable streaming
+          --prewarm: Pre-warm model on startup (y/n, default: y)
+          --help-json: Print machine-readable JSON capability card for AI agents and exit
+        skill:
+          what_it_does: Provides local OpenAI-compatible LLM inference on Apple Silicon. Two modes — Apple Foundation Models (on-device, macOS 26+) and MLX (open-source HuggingFace models).
+          repository: https://github.com/scouzi1966/maclocal-api
+          modes:
+            - "afm" — Apple Foundation Models (on-device, requires macOS 26+)
+            - "afm mlx -m <model>" — MLX open-source models from Hugging Face
+            - "afm vision -f <file>" — Vision OCR text/table extraction
+            - "afm -g" — API gateway proxying to local backends
         triggers:
           - start local LLM server
           - run MLX model locally
@@ -667,15 +953,49 @@ struct RootCommand: ParsableCommand {
         discussion: """
         ---
         name: afm
-        description: OpenAI-compatible local LLM inference server for Apple Silicon. Supports Apple Foundation Models (on-device), MLX models from Hugging Face, API gateway proxying to local backends, and Vision OCR. Exposes /v1/chat/completions and /v1/models endpoints.
+        description: OpenAI-compatible local LLM inference server for Apple Silicon. Supports Apple Foundation Models (on-device, macOS 26+), MLX models from Hugging Face, API gateway proxying to local backends (Ollama, LM Studio, Jan), and Vision OCR. Exposes /v1/chat/completions and /v1/models endpoints.
         tags: [llm, inference, apple-silicon, openai-compatible, mlx, foundation-models, local, server, api, streaming, tool-calling, vision, ocr, gateway]
-        subcommands: [serve, mlx, vision]
-        api_endpoints: [/v1/chat/completions, /v1/models]
+        subcommands:
+          mlx:
+            description: Run MLX-format LLM/VLM models from Hugging Face on Apple Silicon
+            usage: afm mlx -m <model> [options]
+            full_details: afm mlx --help-json
+          vision:
+            description: Extract text and tables from images/PDFs using Apple Vision OCR
+            usage: afm vision -f <file> [--table]
+            full_details: afm vision --help-json
+        api_endpoints: [/v1/chat/completions, /v1/models, /health]
         env_vars:
           MACAFM_MLX_MODEL_CACHE: Override model cache directory
           MACAFM_MLX_METALLIB: Override metallib path
           AFM_DEBUG: Enable debug logging (KVCache, tool calls, timing)
           AFM_PERF: Enable per-token performance instrumentation
+        cli_flags:
+          -s, --single-prompt: Run a single prompt and exit (no server)
+          -i, --instructions: System prompt / custom instructions
+          -p, --port: Server port (default: 9999)
+          -H, --hostname: Bind address (default: 127.0.0.1)
+          -v, --verbose: Enable verbose logging
+          -V, --very-verbose: Log full requests/responses
+          -w, --webui: Enable WebUI and open in browser
+          -g, --gateway: Enable API gateway (discover/proxy Ollama, LM Studio, Jan, etc.)
+          -t, --temperature: Sampling temperature (0.0-1.0)
+          -r, --randomness: "greedy", "random", "random:top-p=0.9", "random:top-k=40", ":seed=42"
+          -P, --permissive-guardrails: Disable safety guardrails
+          -a, --adapter: Path to .fmadapter LoRA adapter file
+          --stop: Stop sequences, comma-separated
+          --guided-json: Constrain output to JSON schema
+          --no-streaming: Disable streaming
+          --prewarm: Pre-warm model on startup (y/n, default: y)
+          --help-json: Print machine-readable JSON capability card for AI agents and exit
+        skill:
+          what_it_does: Provides local OpenAI-compatible LLM inference on Apple Silicon. Two modes — Apple Foundation Models (on-device, macOS 26+) and MLX (open-source HuggingFace models).
+          repository: https://github.com/scouzi1966/maclocal-api
+          modes:
+            - "afm" — Apple Foundation Models (on-device, requires macOS 26+)
+            - "afm mlx -m <model>" — MLX open-source models from Hugging Face
+            - "afm vision -f <file>" — Vision OCR text/table extraction
+            - "afm -g" — API gateway proxying to local backends
         triggers:
           - start local LLM server
           - run MLX model locally
@@ -748,7 +1068,15 @@ struct RootCommand: ParsableCommand {
     @Option(name: .long, help: "Pre-warm the model on server startup for faster first response (y/n, default: y)")
     var prewarm: String = "y"
 
+    @Flag(name: .long, help: "Print machine-readable JSON capability card for AI agents and exit")
+    var helpJson: Bool = false
+
     func run() throws {
+        if helpJson {
+            printHelpJson(command: "afm")
+            return
+        }
+
         // Validate temperature parameter
         if let temp = temperature {
             guard temp >= 0.0 && temp <= 1.0 else {

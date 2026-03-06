@@ -20,17 +20,25 @@ fi
 SKIP="hub|gguf|xet|models"
 
 models=()
+sizes=()
 for org_dir in "$CACHE_DIR"/*/; do
   org=$(basename "$org_dir")
   echo "$org" | grep -qE "^($SKIP)$|^models--" && continue
   for model_dir in "$org_dir"*/; do
     [ -d "$model_dir" ] || continue
     model=$(basename "$model_dir")
+    # Get total size in bytes, convert to GB
+    bytes=$(du -sk "$model_dir" 2>/dev/null | awk '{print $1}')
+    gb=$(awk "BEGIN {printf \"%.1f\", $bytes / 1048576}")
     models+=("$org/$model")
+    sizes+=("$gb")
   done
 done
 
-printf '%s\n' "${models[@]}" | sort
+# Sort by name and display with size
+paste <(printf '%s\n' "${models[@]}") <(printf '%s\n' "${sizes[@]}") | sort -t$'\t' -k1 | while IFS=$'\t' read -r name size; do
+  printf "%-60s %6s GB\n" "$name" "$size"
+done
 
 echo ""
 echo "${#models[@]} models found in $CACHE_DIR"

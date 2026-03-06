@@ -852,6 +852,25 @@ max_tokens: 4096
 tools: [{"type":"function","function":{"name":"search_files","description":"Search for files matching criteria","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Directory to search"},"pattern":{"type":"string","description":"Glob pattern"},"options":{"type":"object","properties":{"recursive":{"type":"boolean"},"max_results":{"type":"integer"}}}},"required":["path","pattern"]}}}]
 Search recursively for all Swift files under Sources/ with a max of 50 results.
 
+# AI: Tests tool call with array-type parameter (regression: PR #37).
+# AI: Expected: todowrite tool call with todos parameter as a JSON array ["Buy milk", "Call dentist", "Fix bug #42"],
+# AI: NOT a serialized string. finish_reason="tool_calls". Validates array params survive serialization.
+[@ tool-call-array-param]
+temperature: 0.0
+max_tokens: 4096
+tools: [{"type":"function","function":{"name":"todowrite","description":"Write a list of todo items","parameters":{"type":"object","properties":{"todos":{"type":"array","items":{"type":"string"},"description":"List of todo items to create"}},"required":["todos"]}}}]
+Create three todo items: Buy milk, Call dentist, Fix bug #42.
+
+# AI: Tests tool call with nullable parameter schema (regression: PR #33).
+# AI: Expected: get_weather tool call with location as a string. The "units" parameter has
+# AI: anyOf [string, null] with default null — this must NOT crash Jinja template rendering.
+# AI: finish_reason="tool_calls". Validates nullable schemas don't cause server errors.
+[@ tool-call-nullable-param]
+temperature: 0.0
+max_tokens: 4096
+tools: [{"type":"function","function":{"name":"get_weather","description":"Get weather for a location","parameters":{"type":"object","properties":{"location":{"type":"string","description":"City name"},"units":{"anyOf":[{"type":"string"},{"type":"null"}],"description":"Temperature units","default":null}},"required":["location"]}}}]
+What is the weather in Chicago?
+
 # AI: Tests tool-bait prompt WITHOUT tools provided. Feature: no-tool hallucination check.
 # AI: Expected: model answers naturally ("I don't have real-time data" or general info),
 # AI: does NOT hallucinate tool_calls. finish_reason="stop" (not "tool_calls").

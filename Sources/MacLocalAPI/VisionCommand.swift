@@ -10,6 +10,7 @@ struct VisionCommand: ParsableCommand {
         name: afm-vision
         description: Extract text and tables from images and documents using Apple's Vision framework OCR. Outputs plain text or CSV-formatted tables. Runs locally on-device with no network access required.
         tags: [vision, ocr, text-extraction, table-extraction, pdf, image, csv, apple-vision, on-device]
+        repository: https://github.com/scouzi1966/maclocal-api
         supported_formats: [PNG, JPG, JPEG, HEIC, PDF]
         triggers:
           - extract text from image
@@ -47,8 +48,16 @@ struct VisionCommand: ParsableCommand {
     
     @Flag(name: [.customShort("D")], help: .hidden)
     var debug: Bool = false
-    
+
+    @Flag(name: .long, help: "Print machine-readable JSON capability card for AI agents and exit")
+    var helpJson: Bool = false
+
     func run() async throws {
+        if helpJson {
+            printHelpJson(command: "afm vision")
+            return
+        }
+
         // Validate that the file path was provided
         guard !file.isEmpty else {
             print("Error: File path is required. Use -f or --file to specify the input file.")
