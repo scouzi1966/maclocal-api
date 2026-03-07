@@ -1,0 +1,61 @@
+{"group": "Preflight", "name": "Binary exists at .build/release/afm", "status": "PASS", "duration_ms": 11}
+{"group": "Preflight", "name": "Server reachable at http://127.0.0.1:9998", "status": "PASS", "duration_ms": 22}
+{"group": "Lifecycle", "name": "/v1/models contains model ID", "status": "PASS", "duration_ms": 34}
+{"group": "Lifecycle", "name": "Basic completion returns content", "status": "PASS", "duration_ms": 3652}
+{"group": "Stop", "name": "Stop string '5' absent from output", "status": "PASS", "duration_ms": 1867}
+{"group": "Stop", "name": "finish_reason is 'stop' with stop sequence", "status": "PASS", "duration_ms": 15}
+{"group": "Stop", "name": "Multi-word stop 'and' truncates correctly", "status": "PASS", "duration_ms": 1827}
+{"group": "Stop", "name": "Stop on newline produces single line", "status": "FAIL", "duration_ms": 2881}
+{"group": "Stop", "name": "Multiple stop sequences [7, 12]", "status": "PASS", "duration_ms": 1828}
+{"group": "Stop", "name": "Empty stop array is no-op", "status": "PASS", "duration_ms": 4432}
+{"group": "Stop", "name": "Streaming: stop string '5' absent", "status": "PASS", "duration_ms": 1839}
+{"group": "Stop", "name": "Stop sequence '3.' truncates list", "status": "PASS", "duration_ms": 953}
+{"group": "Stop", "name": "Stop 'stopped' doesn't fire on 'stopping'", "status": "PASS", "duration_ms": 2179}
+{"group": "Stop", "name": "Stop 'llo' fires mid-word in 'hello'", "status": "PASS", "duration_ms": 1462}
+{"group": "Logprobs", "name": "ChoiceLogprobs JSON schema valid", "status": "PASS", "duration_ms": 129}
+{"group": "Logprobs", "name": "top_logprobs count <= requested (5)", "status": "PASS", "duration_ms": 128}
+{"group": "Logprobs", "name": "logprobs=false returns null", "status": "PASS", "duration_ms": 107}
+{"group": "Logprobs", "name": "top_logprobs=99 returns 400", "status": "PASS", "duration_ms": 20}
+{"group": "Logprobs", "name": "Streaming logprobs present and valid", "status": "PASS", "duration_ms": 123}
+{"group": "Logprobs", "name": "top_logprobs=0 returns empty arrays", "status": "PASS", "duration_ms": 115}
+{"group": "Think", "name": "reasoning_content present in response", "status": "PASS", "duration_ms": 14}
+{"group": "Think", "name": "No <think> tags in content field", "status": "PASS", "duration_ms": 28}
+{"group": "Think", "name": "Streaming: reasoning_content in deltas", "status": "PASS", "duration_ms": 937}
+{"group": "Think", "name": "Stop sequence doesn't break think extraction", "status": "PASS", "duration_ms": 1809}
+{"group": "Think", "name": "reasoning_content has meaningful length (>5 chars)", "status": "PASS", "duration_ms": 26}
+{"group": "Tools", "name": "Basic tool call: finish_reason=tool_calls, valid args", "status": "PASS", "duration_ms": 1071}
+{"group": "Tools", "name": "tool_choice=none suppresses tool calls", "status": "FAIL", "duration_ms": 1072}
+{"group": "Tools", "name": "Tool arguments are valid JSON dict", "status": "PASS", "duration_ms": 1283}
+{"group": "Tools", "name": "Streaming: tool calls with finish_reason", "status": "PASS", "duration_ms": 1079}
+{"group": "Tools", "name": "Multi-tool: at least 1 tool call with 2 tools", "status": "PASS", "duration_ms": 1515}
+{"group": "Tools", "name": "Array param: todos is JSON array (not string)", "status": "PASS", "duration_ms": 1045}
+{"group": "Tools", "name": "Nullable param: anyOf [string, null] does not crash", "status": "PASS", "duration_ms": 1217}
+{"group": "Tools", "name": "No tools: normal text response", "status": "PASS", "duration_ms": 241}
+{"group": "Cache", "name": "First request: cached_tokens=0", "status": "PASS", "duration_ms": 265}
+{"group": "Cache", "name": "Second identical request: cached_tokens>0", "status": "FAIL", "duration_ms": 262}
+{"group": "Cache", "name": "Different prompt: cached_tokens=0", "status": "PASS", "duration_ms": 260}
+{"group": "Cache", "name": "Streaming: cached_tokens>0 in usage chunk", "status": "FAIL", "duration_ms": 337}
+{"group": "Concurrent", "name": "Two simultaneous requests: both 200", "status": "PASS", "duration_ms": 199}
+{"group": "Concurrent", "name": "Three simultaneous requests: all 200", "status": "PASS", "duration_ms": 287}
+{"group": "Error", "name": "Empty messages \u2192 400", "status": "PASS", "duration_ms": 20}
+{"group": "Error", "name": "Malformed JSON \u2192 400", "status": "PASS", "duration_ms": 20}
+{"group": "Error", "name": "Missing messages field \u2192 400", "status": "PASS", "duration_ms": 19}
+{"group": "Error", "name": "response_format json_object returns valid JSON", "status": "PASS", "duration_ms": 196}
+{"group": "Error", "name": "max_tokens=5 is respected", "status": "PASS", "duration_ms": 132}
+{"group": "Error", "name": "OPTIONS /v1/chat/completions \u2192 200 (CORS)", "status": "PASS", "duration_ms": 19}
+{"group": "Error", "name": "developer role accepted (mapped to system)", "status": "PASS", "duration_ms": 4431}
+{"group": "Kwargs", "name": "enable_thinking=false disables thinking", "status": "PASS", "duration_ms": 104}
+{"group": "Kwargs", "name": "Streaming: enable_thinking=false disables thinking", "status": "PASS", "duration_ms": 102}
+{"group": "Kwargs", "name": "Default (no kwargs) retains thinking", "status": "FAIL", "duration_ms": 1805}
+{"group": "Kwargs", "name": "enable_thinking=false (2K tokens) returns content", "status": "PASS", "duration_ms": 105}
+{"group": "Kwargs", "name": "enable_thinking=true explicitly keeps thinking", "status": "FAIL", "duration_ms": 1804}
+{"group": "XMLTools", "name": "Function name correctly extracted", "status": "PASS", "duration_ms": 1068}
+{"group": "XMLTools", "name": "Parameter values are correct string types", "status": "PASS", "duration_ms": 971}
+{"group": "XMLTools", "name": "Mixed-type params (string+bool+int) parse correctly", "status": "PASS", "duration_ms": 1465}
+{"group": "XMLTools", "name": "Nested object param survives XML parsing", "status": "PASS", "duration_ms": 1482}
+{"group": "XMLTools", "name": "tool_choice=required forces tool call", "status": "PASS", "duration_ms": 1086}
+{"group": "XMLTools", "name": "tool_choice={function: get_time} calls correct function", "status": "PASS", "duration_ms": 1182}
+{"group": "XMLTools", "name": "Tool call IDs are unique", "status": "PASS", "duration_ms": 1695}
+{"group": "XMLTools", "name": "Streaming: XML tool call assembles valid JSON args", "status": "PASS", "duration_ms": 1038}
+{"group": "XMLTools", "name": "Streaming: array param is JSON array (not string)", "status": "PASS", "duration_ms": 1389}
+{"group": "XMLTools", "name": "Tool call matches OpenAI schema (id, type, function.name, function.arguments)", "status": "PASS", "duration_ms": 1091}
