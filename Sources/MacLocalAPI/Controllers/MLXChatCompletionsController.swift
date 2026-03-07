@@ -480,16 +480,8 @@ struct MLXChatCompletionsController: RouteCollection {
                                             let funcName = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
                                             emitKey = self.remapSingleKey(rawKey, toolName: funcName, tools: chatRequest.tools)
                                         }
-                                        // Look up schema type for coercion (XML params are always strings)
-                                        let paramSchemaType: String? = {
-                                            let fn = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
-                                            guard let tool = chatRequest.tools?.first(where: { $0.function.name == fn }),
-                                                  let params = tool.function.parameters?.toSendable() as? [String: Any],
-                                                  let props = params["properties"] as? [String: Any],
-                                                  let prop = props[emitKey] as? [String: Any],
-                                                  let t = prop["type"] as? String else { return nil }
-                                            return t
-                                        }()
+                                        let toolName = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
+                                        let paramSchemaType = MLXModelService.schemaType(forParam: emitKey, toolName: toolName, tools: chatRequest.tools)
                                         let jsonValue = Self.jsonEncodeValue(value, schemaType: paramSchemaType)
                                         let fragment: String
                                         if incrementalParamCount == 0 {
@@ -678,16 +670,8 @@ struct MLXChatCompletionsController: RouteCollection {
                                             emitKey = self.remapSingleKey(rawKey, toolName: funcName, tools: chatRequest.tools)
                                         }
 
-                                        // Look up schema type for coercion (XML params are always strings)
-                                        let paramSchemaType: String? = {
-                                            let fn = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
-                                            guard let tool = chatRequest.tools?.first(where: { $0.function.name == fn }),
-                                                  let params = tool.function.parameters?.toSendable() as? [String: Any],
-                                                  let props = params["properties"] as? [String: Any],
-                                                  let prop = props[emitKey] as? [String: Any],
-                                                  let t = prop["type"] as? String else { return nil }
-                                            return t
-                                        }()
+                                        let toolName = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
+                                        let paramSchemaType = MLXModelService.schemaType(forParam: emitKey, toolName: toolName, tools: chatRequest.tools)
                                         let jsonValue = Self.jsonEncodeValue(value, schemaType: paramSchemaType)
                                         let fragment: String
                                         if incrementalParamCount == 0 {
@@ -1270,22 +1254,12 @@ struct MLXChatCompletionsController: RouteCollection {
     /// JSON-encode a parameter value: if it parses as a JSON array or object,
     /// return it as-is (structured); otherwise encode as a JSON string.
     static func jsonEncodeValue(_ s: String, schemaType: String? = nil) -> String {
-        // Coerce to native JSON type if schema says it's not a string
-        if let schemaType {
-            switch schemaType {
-            case "integer":
-                if let v = Int(s) { return "\(v)" }
-            case "number":
-                if let v = Double(s) {
-                    let i = Int(v)
-                    return v == Double(i) ? "\(i)" : "\(v)"
-                }
-            case "boolean":
-                let lower = s.lowercased()
-                if ["true", "1", "yes"].contains(lower) { return "true" }
-                if ["false", "0", "no"].contains(lower) { return "false" }
-            default:
-                break
+        // Coerce to native JSON type using the shared helper
+        if let schemaType, let coerced = MLXModelService.coerceStringValue(s, schemaType: schemaType) {
+            if let data = try? JSONSerialization.data(withJSONObject: [coerced]),
+               let str = String(data: data, encoding: .utf8),
+               str.hasPrefix("["), str.hasSuffix("]") {
+                return String(str.dropFirst().dropLast())
             }
         }
         if let data = s.data(using: .utf8),

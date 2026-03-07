@@ -912,6 +912,47 @@ final class MLXModelService: @unchecked Sendable {
         return String((0..<24).map { _ in chars.randomElement()! })
     }
 
+    /// Coerce a string value to the native type declared in the JSON Schema.
+    /// Returns `nil` if the value cannot be coerced or the schema type is `string`.
+    /// Used by both `coerceArgumentTypes` and the streaming `jsonEncodeValue`.
+    static func coerceStringValue(_ stringValue: String, schemaType: String) -> Any? {
+        switch schemaType {
+        case "integer":
+            return Int(stringValue)
+        case "number":
+            if let d = Double(stringValue) {
+                let i = Int(d)
+                return d == Double(i) ? i : d
+            }
+            return nil
+        case "boolean":
+            switch stringValue.lowercased() {
+            case "true": return true
+            case "false": return false
+            default: return nil
+            }
+        case "array", "object":
+            if let jsonData = stringValue.data(using: .utf8),
+               let parsed = try? JSONSerialization.jsonObject(with: jsonData) {
+                return parsed
+            }
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    /// Look up the JSON Schema `type` for a parameter in a tool definition.
+    static func schemaType(forParam paramKey: String, toolName: String, tools: [RequestTool]?) -> String? {
+        guard let tools,
+              let tool = tools.first(where: { $0.function.name == toolName }),
+              let paramsAny = tool.function.parameters?.toSendable() as? [String: Any],
+              let props = paramsAny["properties"] as? [String: Any],
+              let prop = props[paramKey] as? [String: Any],
+              let t = prop["type"] as? String else { return nil }
+        return t
+    }
+
     /// Coerce tool call argument types to match the tool schema.
     /// XML parsers produce all values as strings; this converts numbers, booleans, etc.
     /// based on the `type` declared in the tool's JSON Schema.
@@ -928,30 +969,7 @@ final class MLXModelService: @unchecked Sendable {
             guard let stringValue = value as? String,
                   let propSchema = props[key] as? [String: Any],
                   let schemaType = propSchema["type"] as? String else { continue }
-
-            let coerced: Any?
-            switch schemaType {
-            case "integer":
-                coerced = Int(stringValue)
-            case "number":
-                if let d = Double(stringValue) {
-                    let i = Int(d)
-                    coerced = d == Double(i) ? i : d
-                } else { coerced = nil }
-            case "boolean":
-                let lower = stringValue.lowercased()
-                if ["true", "1", "yes"].contains(lower) { coerced = true }
-                else if ["false", "0", "no"].contains(lower) { coerced = false }
-                else { coerced = nil }
-            case "array", "object":
-                if let jsonData = stringValue.data(using: .utf8),
-                   let parsed = try? JSONSerialization.jsonObject(with: jsonData) {
-                    coerced = parsed
-                } else { coerced = nil }
-            default:
-                coerced = nil
-            }
-            if let coerced {
+            if let coerced = coerceStringValue(stringValue, schemaType: schemaType) {
                 argsDict[key] = coerced
                 changed = true
             }
