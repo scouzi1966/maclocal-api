@@ -154,14 +154,20 @@ if [ -f "$BUILDINFO" ]; then
 fi
 
 log_step "Building afm ($BUILD_CONFIG)"
+# Disable MemberImportVisibility — async-kit (transitive from Vapor) is missing
+# explicit imports for DequeModule/OrderedCollections, which Swift 6 enforces.
 if [ "$BUILD_CONFIG" = "release" ]; then
   swift build -c release \
     --product afm \
     -Xswiftc -O \
     -Xswiftc -whole-module-optimization \
-    -Xswiftc -cross-module-optimization
+    -Xswiftc -cross-module-optimization \
+    -Xswiftc -disable-upcoming-feature \
+    -Xswiftc MemberImportVisibility
 else
-  swift build -c "$BUILD_CONFIG"
+  swift build -c "$BUILD_CONFIG" \
+    -Xswiftc -disable-upcoming-feature \
+    -Xswiftc MemberImportVisibility
 fi
 
 BIN_PATH_1="$ROOT_DIR/.build/arm64-apple-macosx/$BUILD_CONFIG/afm"
