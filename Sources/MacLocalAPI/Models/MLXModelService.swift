@@ -457,7 +457,7 @@ final class MLXModelService: @unchecked Sendable {
         }
 
         let responseToolCalls: [ResponseToolCall]? = finalToolCalls.isEmpty ? nil : finalToolCalls.enumerated().map { (i, tc) in
-            var converted = Self.convertToolCall(tc, index: i)
+            var converted = Self.coerceArgumentTypes(Self.convertToolCall(tc, index: i), tools: tools)
             if self.fixToolArgs, let requestTools = tools {
                 // Re-parse arguments JSON, remap keys, re-serialize
                 if let data = converted.function.arguments.data(using: .utf8),
@@ -910,6 +910,60 @@ final class MLXModelService: @unchecked Sendable {
     private static func generateCallID() -> String {
         let chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
         return String((0..<24).map { _ in chars.randomElement()! })
+    }
+
+    /// Coerce tool call argument types to match the tool schema.
+    /// XML parsers produce all values as strings; this converts numbers, booleans, etc.
+    /// based on the `type` declared in the tool's JSON Schema.
+    static func coerceArgumentTypes(_ rtc: ResponseToolCall, tools: [RequestTool]?) -> ResponseToolCall {
+        guard let tools, !tools.isEmpty else { return rtc }
+        guard let tool = tools.first(where: { $0.function.name == rtc.function.name }),
+              let paramsAny = tool.function.parameters?.toSendable() as? [String: Any],
+              let props = paramsAny["properties"] as? [String: Any] else { return rtc }
+        guard let data = rtc.function.arguments.data(using: .utf8),
+              var argsDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return rtc }
+
+        var changed = false
+        for (key, value) in argsDict {
+            guard let stringValue = value as? String,
+                  let propSchema = props[key] as? [String: Any],
+                  let schemaType = propSchema["type"] as? String else { continue }
+
+            let coerced: Any?
+            switch schemaType {
+            case "integer":
+                coerced = Int(stringValue)
+            case "number":
+                if let d = Double(stringValue) {
+                    let i = Int(d)
+                    coerced = d == Double(i) ? i : d
+                } else { coerced = nil }
+            case "boolean":
+                let lower = stringValue.lowercased()
+                if ["true", "1", "yes"].contains(lower) { coerced = true }
+                else if ["false", "0", "no"].contains(lower) { coerced = false }
+                else { coerced = nil }
+            case "array", "object":
+                if let jsonData = stringValue.data(using: .utf8),
+                   let parsed = try? JSONSerialization.jsonObject(with: jsonData) {
+                    coerced = parsed
+                } else { coerced = nil }
+            default:
+                coerced = nil
+            }
+            if let coerced {
+                argsDict[key] = coerced
+                changed = true
+            }
+        }
+
+        guard changed,
+              let newData = try? JSONSerialization.data(withJSONObject: argsDict, options: [.sortedKeys]),
+              let newStr = String(data: newData, encoding: .utf8) else { return rtc }
+        return ResponseToolCall(
+            id: rtc.id, type: rtc.type,
+            function: ResponseToolCallFunction(name: rtc.function.name, arguments: newStr)
+        )
     }
 
     /// Fallback tool call extraction for formats the vendor parser misses.
