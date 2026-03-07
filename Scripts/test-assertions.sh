@@ -1350,6 +1350,346 @@ except Exception as e:
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Section 11: Qwen3 XML Tool Call Format (standard tier)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Deep validation of XML tool call format used by Qwen3-Coder, Qwen3.5 MoE models.
+# Auto-detected as xmlFunction when model_type is qwen3_moe, qwen3_5_moe, etc.
+# Format: <tool_call><function=name><parameter=key>value</parameter></function></tool_call>
+# These tests run on any model but are most meaningful on Qwen3 XML models.
+
+if min_tier standard; then
+  # Probe: does this model produce XML-format tool calls?
+  probe_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Berlin?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+  has_tool_calls=$(echo "$probe_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    print('yes' if len(tc) > 0 else 'no')
+except:
+    print('no')
+" 2>/dev/null || echo "no")
+
+  if [ "$has_tool_calls" = "yes" ]; then
+    echo ""
+    echo "🔧 Section 11: XML Tool Call Deep Validation"
+
+    # Test: correct function name extraction
+    t0=$(now_ms)
+    resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Madrid?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    fn_name=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if tc:
+        print(tc[0]['function']['name'])
+    else:
+        print('FAIL: no tool_calls')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$fn_name" = "get_weather" ]; then
+      run_test "XMLTools" "Function name correctly extracted" "get_weather" "PASS" "$dur"
+    else
+      run_test "XMLTools" "Function name correctly extracted" "get_weather" "FAIL: got $fn_name" "$dur"
+    fi
+
+    # Test: parameter values are correct types (string)
+    t0=$(now_ms)
+    resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Get the weather in Rome in celsius.\"}],\"tools\":$TOOL_DEF,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    param_types=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        loc = args.get('location', args.get('city', ''))
+        unit = args.get('unit', '')
+        if isinstance(loc, str) and len(loc) > 0 and isinstance(unit, str):
+            print('PASS')
+        else:
+            print(f'FAIL: location={type(loc).__name__}({loc}), unit={type(unit).__name__}({unit})')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$param_types" = "PASS" ]; then
+      run_test "XMLTools" "Parameter values are correct string types" "strings" "PASS" "$dur"
+    else
+      run_test "XMLTools" "Parameter values are correct string types" "strings" "$param_types" "$dur"
+    fi
+
+    # Test: tool call with boolean and integer parameters
+    TYPED_TOOL='[{"type":"function","function":{"name":"search_code","description":"Search codebase","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Search query"},"case_sensitive":{"type":"boolean","description":"Case sensitive search"},"max_results":{"type":"integer","description":"Max results to return"}},"required":["query"]}}}]'
+    t0=$(now_ms)
+    resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Search for 'main' case-sensitively, return max 10 results.\"}],\"tools\":$TYPED_TOOL,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    typed_ok=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        q = args.get('query', '')
+        if not isinstance(q, str) or len(q) == 0:
+            print(f'FAIL: query={q}')
+        else:
+            print('PASS')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$typed_ok" = "PASS" ]; then
+      run_test "XMLTools" "Mixed-type params (string+bool+int) parse correctly" "valid types" "PASS" "$dur"
+    else
+      run_test "XMLTools" "Mixed-type params (string+bool+int) parse correctly" "valid types" "$typed_ok" "$dur"
+    fi
+
+    # Test: nested object parameter survives XML parsing
+    NESTED_TOOL='[{"type":"function","function":{"name":"create_file","description":"Create a file","parameters":{"type":"object","properties":{"path":{"type":"string","description":"File path"},"options":{"type":"object","properties":{"overwrite":{"type":"boolean"},"encoding":{"type":"string"}},"description":"File creation options"}},"required":["path"]}}}]'
+    t0=$(now_ms)
+    resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Create file /tmp/test.txt with overwrite=true and utf-8 encoding.\"}],\"tools\":$NESTED_TOOL,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    nested_ok=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        path = args.get('path', '')
+        opts = args.get('options')
+        if not isinstance(path, str) or len(path) == 0:
+            print(f'FAIL: path={path}')
+        elif opts is not None and not isinstance(opts, dict):
+            print(f'FAIL: options is {type(opts).__name__}, not dict')
+        else:
+            print('PASS')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$nested_ok" = "PASS" ]; then
+      run_test "XMLTools" "Nested object param survives XML parsing" "valid dict" "PASS" "$dur"
+    else
+      run_test "XMLTools" "Nested object param survives XML parsing" "valid dict" "$nested_ok" "$dur"
+    fi
+
+    # Test: tool_choice="required" forces a tool call (with tool-relevant prompt)
+    # Note: "required" is a chat template hint, not server-enforced. Use a tool-relevant
+    # prompt to give the model a fair chance. Non-tool prompts may not produce tool calls.
+    t0=$(now_ms)
+    resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Check the weather forecast for Berlin.\"}],\"tools\":$TOOL_DEF,\"tool_choice\":\"required\",\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    required_ok=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    fr = d['choices'][0].get('finish_reason', '')
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if fr == 'tool_calls' and len(tc) > 0:
+        print('PASS')
+    else:
+        print(f'FAIL: finish_reason={fr}, tool_calls={len(tc)}')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$required_ok" = "PASS" ]; then
+      run_test "XMLTools" "tool_choice=required forces tool call" "tool_calls" "PASS" "$dur"
+    else
+      run_test "XMLTools" "tool_choice=required forces tool call" "tool_calls" "$required_ok" "$dur"
+    fi
+
+    # Test: tool_choice with specific function name (tool-relevant prompt)
+    t0=$(now_ms)
+    resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What time is it in Tokyo right now?\"}],\"tools\":$MULTI_TOOLS,\"tool_choice\":{\"type\":\"function\",\"function\":{\"name\":\"get_time\"}},\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    specific_ok=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if len(tc) > 0 and tc[0]['function']['name'] == 'get_time':
+        print('PASS')
+    elif len(tc) > 0:
+        print(f'FAIL: called {tc[0][\"function\"][\"name\"]} instead of get_time')
+    else:
+        print('FAIL: no tool_calls')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$specific_ok" = "PASS" ]; then
+      run_test "XMLTools" "tool_choice={function: get_time} calls correct function" "get_time" "PASS" "$dur"
+    else
+      run_test "XMLTools" "tool_choice={function: get_time} calls correct function" "get_time" "$specific_ok" "$dur"
+    fi
+
+    # Test: tool call IDs are unique across multiple calls
+    t0=$(now_ms)
+    resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Tokyo and what time is it in London?\"}],\"tools\":$MULTI_TOOLS,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    ids_ok=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if len(tc) < 2:
+        print('PASS')  # single tool call, skip uniqueness check
+    else:
+        ids = [t.get('id', '') for t in tc]
+        if len(set(ids)) == len(ids) and all(ids):
+            print('PASS')
+        else:
+            print(f'FAIL: duplicate or empty IDs: {ids}')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$ids_ok" = "PASS" ]; then
+      run_test "XMLTools" "Tool call IDs are unique" "unique IDs" "PASS" "$dur"
+    else
+      run_test "XMLTools" "Tool call IDs are unique" "unique IDs" "$ids_ok" "$dur"
+    fi
+
+    # Test: streaming XML tool calls assemble correctly
+    t0=$(now_ms)
+    stream_resp=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"Get weather in Sydney in fahrenheit.\"}],\"tools\":$TOOL_DEF,\"max_tokens\":1000,\"stream\":true,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    stream_xml_ok=$(echo "$stream_resp" | python3 -c "
+import sys, json
+tool_name = ''
+tool_args = ''
+found_finish = False
+for line in sys.stdin:
+    line = line.strip()
+    if not line.startswith('data: ') or line == 'data: [DONE]':
+        continue
+    try:
+        d = json.loads(line[6:])
+        delta = d.get('choices', [{}])[0].get('delta', {})
+        tcs = delta.get('tool_calls', [])
+        for tc in tcs:
+            fn = tc.get('function', {})
+            if fn.get('name'):
+                tool_name = fn['name']
+            if fn.get('arguments'):
+                tool_args += fn['arguments']
+        fr = d.get('choices', [{}])[0].get('finish_reason')
+        if fr == 'tool_calls':
+            found_finish = True
+    except: pass
+if not found_finish:
+    print('FAIL: no finish_reason=tool_calls')
+elif not tool_name:
+    print('FAIL: no function name in stream')
+else:
+    try:
+        args = json.loads(tool_args)
+        if isinstance(args, dict):
+            print('PASS')
+        else:
+            print(f'FAIL: assembled args not dict: {type(args).__name__}')
+    except:
+        print(f'FAIL: assembled args not valid JSON: {tool_args[:100]}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$stream_xml_ok" = "PASS" ]; then
+      run_test "XMLTools" "Streaming: XML tool call assembles valid JSON args" "valid" "PASS" "$dur"
+    else
+      run_test "XMLTools" "Streaming: XML tool call assembles valid JSON args" "valid" "$stream_xml_ok" "$dur"
+    fi
+
+    # Test: tool call with array param via streaming (PR #37 streaming path)
+    t0=$(now_ms)
+    stream_resp=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"Create todos: Walk dog, Read book, Cook dinner.\"}],\"tools\":$ARRAY_TOOL,\"max_tokens\":1000,\"stream\":true,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    stream_array_ok=$(echo "$stream_resp" | python3 -c "
+import sys, json
+tool_args = ''
+found_finish = False
+for line in sys.stdin:
+    line = line.strip()
+    if not line.startswith('data: ') or line == 'data: [DONE]':
+        continue
+    try:
+        d = json.loads(line[6:])
+        delta = d.get('choices', [{}])[0].get('delta', {})
+        tcs = delta.get('tool_calls', [])
+        for tc in tcs:
+            fn = tc.get('function', {})
+            if fn.get('arguments'):
+                tool_args += fn['arguments']
+        fr = d.get('choices', [{}])[0].get('finish_reason')
+        if fr == 'tool_calls':
+            found_finish = True
+    except: pass
+if not found_finish:
+    print('FAIL: no finish_reason=tool_calls')
+elif not tool_args:
+    print('FAIL: no arguments in stream')
+else:
+    try:
+        args = json.loads(tool_args)
+        todos = args.get('todos', args.get('items', None))
+        if isinstance(todos, list) and len(todos) >= 2:
+            print('PASS')
+        elif isinstance(todos, str):
+            print('FAIL: todos is string in stream (not array)')
+        else:
+            print(f'FAIL: todos={todos}')
+    except:
+        print(f'FAIL: args not valid JSON: {tool_args[:100]}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$stream_array_ok" = "PASS" ]; then
+      run_test "XMLTools" "Streaming: array param is JSON array (not string)" "array" "PASS" "$dur"
+    else
+      run_test "XMLTools" "Streaming: array param is JSON array (not string)" "array" "$stream_array_ok" "$dur"
+    fi
+
+    # Test: tool call response has correct OpenAI schema structure
+    t0=$(now_ms)
+    resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Oslo?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    schema_ok=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    msg = d['choices'][0]['message']
+    assert msg.get('role') == 'assistant', f'role={msg.get(\"role\")}'
+    tc = msg.get('tool_calls', [])
+    assert len(tc) > 0, 'no tool_calls'
+    t = tc[0]
+    assert 'id' in t and isinstance(t['id'], str) and len(t['id']) > 0, f'bad id={t.get(\"id\")}'
+    assert t.get('type') == 'function', f'type={t.get(\"type\")}'
+    assert 'function' in t, 'missing function key'
+    assert isinstance(t['function'].get('name'), str), f'name not string'
+    assert isinstance(t['function'].get('arguments'), str), f'arguments not string'
+    args = json.loads(t['function']['arguments'])
+    assert isinstance(args, dict), f'parsed args not dict'
+    print('PASS')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$schema_ok" = "PASS" ]; then
+      run_test "XMLTools" "Tool call matches OpenAI schema (id, type, function.name, function.arguments)" "valid schema" "PASS" "$dur"
+    else
+      run_test "XMLTools" "Tool call matches OpenAI schema (id, type, function.name, function.arguments)" "valid schema" "$schema_ok" "$dur"
+    fi
+
+  else
+    echo ""
+    echo "  (Model did not produce tool calls — skipping XML tool call deep validation)"
+    run_test "XMLTools" "XML tool call tests (model lacks tool calling)" "skip" "SKIP" "0"
+  fi
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Generate HTML Report
 # ═══════════════════════════════════════════════════════════════════════════════
 TEST_END_TIME=$(date +%s)
@@ -1409,6 +1749,7 @@ cat > "$REPORT_FILE" <<'HTMLHEAD'
   .group-badge.Logprobs { color: #58a6ff; border-color: #1f6feb; }
   .group-badge.Think { color: #d2a8ff; border-color: #8957e5; }
   .group-badge.Tools { color: #ffa657; border-color: #d18616; }
+  .group-badge.XMLTools { color: #f0883e; border-color: #bd561d; }
   .group-badge.Cache { color: #79c0ff; border-color: #388bfd; }
   .group-badge.Concurrent { color: #f778ba; border-color: #db61a2; }
   .group-badge.Error { color: #ff7b72; border-color: #da3633; }

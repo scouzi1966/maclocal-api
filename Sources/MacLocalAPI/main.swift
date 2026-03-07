@@ -179,7 +179,7 @@ struct MlxCommand: ParsableCommand {
           - frequency_penalty is parsed but silently ignored
           - developer role is mapped to system
           - max_completion_tokens is accepted alongside max_tokens
-        supported_model_types: [llama, qwen2, qwen3, qwen3_moe, qwen3_5_moe, gemma, gemma2, phi3, starcoder2, openelm, cohere2, deepseek_v3, glm4, glm4_moe, lfm2, lfm2_moe, nemotron_h, minimax_m2, kimi_k2]
+        supported_model_types: [llama, qwen2, qwen3, qwen3_moe, qwen3_5, qwen3_5_moe, gemma, gemma2, phi3, starcoder2, openelm, cohere2, deepseek_v3, glm4, glm4_moe, lfm2, lfm2_moe, nemotron_h, minimax_m2, kimi_k2]
         tool_calling:
           auto_detection: Tool call format is auto-detected from model_type in config.json. Most models work without --tool-call-parser.
           parser_overrides:
