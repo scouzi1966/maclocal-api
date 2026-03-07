@@ -480,7 +480,9 @@ struct MLXChatCompletionsController: RouteCollection {
                                             let funcName = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
                                             emitKey = self.remapSingleKey(rawKey, toolName: funcName, tools: chatRequest.tools)
                                         }
-                                        let jsonValue = Self.jsonEncodeValue(value)
+                                        let toolName = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
+                                        let paramSchemaType = MLXModelService.schemaType(forParam: emitKey, toolName: toolName, tools: chatRequest.tools)
+                                        let jsonValue = Self.jsonEncodeValue(value, schemaType: paramSchemaType)
                                         let fragment: String
                                         if incrementalParamCount == 0 {
                                             fragment = "{\"\(Self.jsonEscapeKey(emitKey))\":\(jsonValue)"
@@ -527,7 +529,7 @@ struct MLXChatCompletionsController: RouteCollection {
                                 let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
                                 for tc in parsed {
                                     hasToolCalls = true
-                                    let rtc = self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: incrementalToolIndex, paramNameMapping: paramNameMapping), tools: chatRequest.tools)
+                                    let rtc = self.applyFixToolArgs(MLXModelService.coerceArgumentTypes(MLXModelService.convertToolCall(tc, index: incrementalToolIndex, paramNameMapping: paramNameMapping), tools: chatRequest.tools), tools: chatRequest.tools)
                                     // Replace the placeholder we added earlier
                                     if incrementalToolIndex < collectedToolCalls.count {
                                         collectedToolCalls[incrementalToolIndex] = rtc
@@ -552,7 +554,7 @@ struct MLXChatCompletionsController: RouteCollection {
                                 }
                                 for tc in parsed {
                                     hasToolCalls = true
-                                    let rtc = self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools)
+                                    let rtc = self.applyFixToolArgs(MLXModelService.coerceArgumentTypes(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools), tools: chatRequest.tools)
                                     collectedToolCalls.append(rtc)
                                     if self.veryVerbose {
                                         print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (fallback): \(rtc.function.name)\n  id=\(rtc.id)\n  args=\(rtc.function.arguments)\(Self.reset)")
@@ -668,7 +670,9 @@ struct MLXChatCompletionsController: RouteCollection {
                                             emitKey = self.remapSingleKey(rawKey, toolName: funcName, tools: chatRequest.tools)
                                         }
 
-                                        let jsonValue = Self.jsonEncodeValue(value)
+                                        let toolName = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
+                                        let paramSchemaType = MLXModelService.schemaType(forParam: emitKey, toolName: toolName, tools: chatRequest.tools)
+                                        let jsonValue = Self.jsonEncodeValue(value, schemaType: paramSchemaType)
                                         let fragment: String
                                         if incrementalParamCount == 0 {
                                             fragment = "{\"\(Self.jsonEscapeKey(emitKey))\":\(jsonValue)"
@@ -849,7 +853,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
                         for tc in parsed {
                             hasToolCalls = true
-                            let rtc = self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: incrementalToolIndex, paramNameMapping: paramNameMapping), tools: chatRequest.tools)
+                            let rtc = self.applyFixToolArgs(MLXModelService.coerceArgumentTypes(MLXModelService.convertToolCall(tc, index: incrementalToolIndex, paramNameMapping: paramNameMapping), tools: chatRequest.tools), tools: chatRequest.tools)
                             if incrementalToolIndex < collectedToolCalls.count {
                                 collectedToolCalls[incrementalToolIndex] = rtc
                             } else {
@@ -861,7 +865,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
                         for tc in parsed {
                             hasToolCalls = true
-                            let rtc = self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools)
+                            let rtc = self.applyFixToolArgs(MLXModelService.coerceArgumentTypes(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools), tools: chatRequest.tools)
                             collectedToolCalls.append(rtc)
                             let delta = StreamDeltaToolCall(
                                 index: collectedToolCalls.count - 1,
@@ -904,7 +908,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     if !parsed.isEmpty {
                         hasToolCalls = true
                         for tc in parsed {
-                            let rtc = self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools)
+                            let rtc = self.applyFixToolArgs(MLXModelService.coerceArgumentTypes(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools), tools: chatRequest.tools)
                             collectedToolCalls.append(rtc)
                             let delta = StreamDeltaToolCall(
                                 index: collectedToolCalls.count - 1,
@@ -1249,7 +1253,15 @@ struct MLXChatCompletionsController: RouteCollection {
 
     /// JSON-encode a parameter value: if it parses as a JSON array or object,
     /// return it as-is (structured); otherwise encode as a JSON string.
-    static func jsonEncodeValue(_ s: String) -> String {
+    static func jsonEncodeValue(_ s: String, schemaType: String? = nil) -> String {
+        // Coerce to native JSON type using the shared helper
+        if let schemaType, let coerced = MLXModelService.coerceStringValue(s, schemaType: schemaType) {
+            if let data = try? JSONSerialization.data(withJSONObject: [coerced]),
+               let str = String(data: data, encoding: .utf8),
+               str.hasPrefix("["), str.hasSuffix("]") {
+                return String(str.dropFirst().dropLast())
+            }
+        }
         if let data = s.data(using: .utf8),
            let parsed = try? JSONSerialization.jsonObject(with: data),
            (parsed is [Any] || parsed is [String: Any]),

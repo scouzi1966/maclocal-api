@@ -82,7 +82,7 @@ Use this skill when the user asks to:
 | 7 | Concurrent | standard | 2 and 3 simultaneous requests |
 | 8 | Error | standard | HTTP errors, CORS, json_object, max_tokens, developer role |
 | 10 | Kwargs | standard | `chat_template_kwargs` enable_thinking control |
-| 11 | XMLTools | standard | **XML tool call deep validation** (10 tests) |
+| 11 | XMLTools | standard | **XML tool call deep validation** (18 tests) |
 | 9 | Perf | full | TTFT, tok/s, long context (2K, 4K tokens) |
 
 ### Section 11: XML Tool Call Deep Validation (Key Tests)
@@ -92,7 +92,14 @@ These are the most important tests for Qwen3/Qwen3.5 models:
 |------|-------------------|
 | Function name correctly extracted | XML `<function=name>` parsed to `function.name` |
 | Parameter values are correct string types | `<parameter=key>value</parameter>` produces strings |
-| Mixed-type params (string+bool+int) | Boolean/integer params survive XML round-trip |
+| Integer param is JSON number (#38) | `max_results` is `10` not `"10"` |
+| Boolean param is JSON boolean (#38) | `enabled` is `true` not `"true"` |
+| Number param is JSON number (#38) | `temperature` is `0.7` not `"0.7"` |
+| Mixed types: string/int/bool correct (#38) | String stays string, int is int, bool is bool — no false coercion |
+| Streaming: integer is number (#38) | Streamed `max_results` assembled as int, not string |
+| Streaming: boolean is boolean (#38) | Streamed `enabled` assembled as bool, not string |
+| Boolean false is JSON false (#38) | `enabled: false` not `"false"` — tests the false path |
+| No-schema-type stays string (#38) | Param without `type` in schema is not falsely coerced |
 | Nested object param | JSON objects inside XML parameters parse correctly |
 | tool_choice=required | Model produces tool call when required |
 | tool_choice={function: name} | Specific function is called |
@@ -116,6 +123,7 @@ These are the most important tests for Qwen3/Qwen3.5 models:
 | No tool_calls at all | Wrong tool call format detection. Check `model_type` in config.json |
 | Arguments not valid JSON | XML parameter parsing bug. Check `extractToolCallsFallback()` |
 | Array params as strings | PR #37 regression. Check `serializeToolCallArguments()` |
+| Int/bool/number params as strings | PR #38 regression. Check `coerceArgumentTypes()` and `jsonEncodeValue()` |
 | Server error on nullable schema | PR #33 regression. Check Jinja template with `anyOf` |
 | NaN/garbage in long context | SDPA regression. Check MLX version (pin to 0.30.3) |
 | Streaming tool calls missing finish_reason | Check `MLXChatCompletionsController` streaming state machine |
