@@ -1424,12 +1424,12 @@ except Exception as e:
       run_test "XMLTools" "Parameter values are correct string types" "strings" "$param_types" "$dur"
     fi
 
-    # Test: tool call with boolean and integer parameters
-    TYPED_TOOL='[{"type":"function","function":{"name":"search_code","description":"Search codebase","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Search query"},"case_sensitive":{"type":"boolean","description":"Case sensitive search"},"max_results":{"type":"integer","description":"Max results to return"}},"required":["query"]}}}]'
+    # Test: integer param is a JSON number, not a string (#38)
+    INT_TOOL='[{"type":"function","function":{"name":"search_code","description":"Search codebase","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Search query"},"max_results":{"type":"integer","description":"Max results to return"}},"required":["query","max_results"]}}}]'
     t0=$(now_ms)
-    resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Search for 'main' case-sensitively, return max 10 results.\"}],\"tools\":$TYPED_TOOL,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Search for the word 'main' and return max 10 results.\"}],\"tools\":$INT_TOOL,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
     dur=$(( $(now_ms) - t0 ))
-    typed_ok=$(echo "$resp" | python3 -c "
+    int_ok=$(echo "$resp" | python3 -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
@@ -1438,18 +1438,223 @@ try:
         print('FAIL: no tool_calls')
     else:
         args = json.loads(tc[0]['function']['arguments'])
-        q = args.get('query', '')
-        if not isinstance(q, str) or len(q) == 0:
-            print(f'FAIL: query={q}')
+        mr = args.get('max_results')
+        if mr is None:
+            print('FAIL: max_results missing')
+        elif isinstance(mr, str):
+            print(f'FAIL: max_results is string \"{mr}\" (expected int)')
+        elif isinstance(mr, int) and not isinstance(mr, bool):
+            print('PASS')
+        else:
+            print(f'FAIL: max_results is {type(mr).__name__}={mr}')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$int_ok" = "PASS" ]; then
+      run_test "XMLTools" "Integer param is JSON number, not string (#38)" "int" "PASS" "$dur"
+    else
+      run_test "XMLTools" "Integer param is JSON number, not string (#38)" "int" "$int_ok" "$dur"
+    fi
+
+    # Test: boolean param is a JSON boolean, not a string (#38)
+    BOOL_TOOL='[{"type":"function","function":{"name":"toggle_setting","description":"Toggle a setting","parameters":{"type":"object","properties":{"setting_name":{"type":"string","description":"Setting to toggle"},"enabled":{"type":"boolean","description":"Enable or disable"}},"required":["setting_name","enabled"]}}}]'
+    t0=$(now_ms)
+    resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Enable the dark_mode setting.\"}],\"tools\":$BOOL_TOOL,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    bool_ok=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        en = args.get('enabled')
+        if en is None:
+            print('FAIL: enabled missing')
+        elif isinstance(en, str):
+            print(f'FAIL: enabled is string \"{en}\" (expected bool)')
+        elif isinstance(en, bool):
+            print('PASS')
+        else:
+            print(f'FAIL: enabled is {type(en).__name__}={en}')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$bool_ok" = "PASS" ]; then
+      run_test "XMLTools" "Boolean param is JSON boolean, not string (#38)" "bool" "PASS" "$dur"
+    else
+      run_test "XMLTools" "Boolean param is JSON boolean, not string (#38)" "bool" "$bool_ok" "$dur"
+    fi
+
+    # Test: number (float) param is a JSON number (#38)
+    NUM_TOOL='[{"type":"function","function":{"name":"configure_sampler","description":"Configure sampling","parameters":{"type":"object","properties":{"method":{"type":"string","description":"Sampling method"},"temperature":{"type":"number","description":"Sampling temperature"}},"required":["method","temperature"]}}}]'
+    t0=$(now_ms)
+    resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Configure sampler with method greedy and temperature 0.7.\"}],\"tools\":$NUM_TOOL,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    num_ok=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        temp = args.get('temperature')
+        if temp is None:
+            print('FAIL: temperature missing')
+        elif isinstance(temp, str):
+            print(f'FAIL: temperature is string \"{temp}\" (expected number)')
+        elif isinstance(temp, (int, float)) and not isinstance(temp, bool):
+            print('PASS')
+        else:
+            print(f'FAIL: temperature is {type(temp).__name__}={temp}')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$num_ok" = "PASS" ]; then
+      run_test "XMLTools" "Number param is JSON number, not string (#38)" "number" "PASS" "$dur"
+    else
+      run_test "XMLTools" "Number param is JSON number, not string (#38)" "number" "$num_ok" "$dur"
+    fi
+
+    # Test: mixed types — string stays string, int is int, bool is bool (#38)
+    MIXED_TOOL='[{"type":"function","function":{"name":"search_code","description":"Search codebase","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Search query"},"case_sensitive":{"type":"boolean","description":"Case sensitive search"},"max_results":{"type":"integer","description":"Max results to return"}},"required":["query","case_sensitive","max_results"]}}}]'
+    t0=$(now_ms)
+    resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Search for 'main' case-sensitively, return max 10 results.\"}],\"tools\":$MIXED_TOOL,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    mixed_ok=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        errs = []
+        q = args.get('query')
+        cs = args.get('case_sensitive')
+        mr = args.get('max_results')
+        if q is not None and not isinstance(q, str):
+            errs.append(f'query is {type(q).__name__} (expected str)')
+        if cs is not None and not isinstance(cs, bool):
+            errs.append(f'case_sensitive is {type(cs).__name__}=\"{cs}\" (expected bool)')
+        if mr is not None and isinstance(mr, str):
+            errs.append(f'max_results is string \"{mr}\" (expected int)')
+        elif mr is not None and isinstance(mr, bool):
+            errs.append(f'max_results is bool (expected int)')
+        if errs:
+            print('FAIL: ' + '; '.join(errs))
         else:
             print('PASS')
 except Exception as e:
     print(f'FAIL: {e}')
 " 2>/dev/null || echo "FAIL: parse error")
-    if [ "$typed_ok" = "PASS" ]; then
-      run_test "XMLTools" "Mixed-type params (string+bool+int) parse correctly" "valid types" "PASS" "$dur"
+    if [ "$mixed_ok" = "PASS" ]; then
+      run_test "XMLTools" "Mixed types: string stays string, int/bool correct (#38)" "types" "PASS" "$dur"
     else
-      run_test "XMLTools" "Mixed-type params (string+bool+int) parse correctly" "valid types" "$typed_ok" "$dur"
+      run_test "XMLTools" "Mixed types: string stays string, int/bool correct (#38)" "types" "$mixed_ok" "$dur"
+    fi
+
+    # Test: streaming integer param is a number, not string (#38)
+    t0=$(now_ms)
+    stream_resp=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"Search for 'main' and return max 10 results.\"}],\"tools\":$INT_TOOL,\"max_tokens\":1000,\"stream\":true,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    stream_int_ok=$(echo "$stream_resp" | python3 -c "
+import sys, json
+tool_args = ''
+found_finish = False
+for line in sys.stdin:
+    line = line.strip()
+    if not line.startswith('data: ') or line == 'data: [DONE]':
+        continue
+    try:
+        d = json.loads(line[6:])
+        delta = d.get('choices', [{}])[0].get('delta', {})
+        tcs = delta.get('tool_calls', [])
+        for tc in tcs:
+            fn = tc.get('function', {})
+            if fn.get('arguments'):
+                tool_args += fn['arguments']
+        fr = d.get('choices', [{}])[0].get('finish_reason')
+        if fr == 'tool_calls':
+            found_finish = True
+    except: pass
+if not found_finish:
+    print('FAIL: no finish_reason=tool_calls')
+elif not tool_args:
+    print('FAIL: no arguments in stream')
+else:
+    try:
+        args = json.loads(tool_args)
+        mr = args.get('max_results')
+        if mr is None:
+            print('FAIL: max_results missing')
+        elif isinstance(mr, str):
+            print(f'FAIL: max_results is string \"{mr}\" in stream (expected int)')
+        elif isinstance(mr, int) and not isinstance(mr, bool):
+            print('PASS')
+        else:
+            print(f'FAIL: max_results is {type(mr).__name__}={mr}')
+    except:
+        print(f'FAIL: args not valid JSON: {tool_args[:100]}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$stream_int_ok" = "PASS" ]; then
+      run_test "XMLTools" "Streaming: integer param is number, not string (#38)" "stream int" "PASS" "$dur"
+    else
+      run_test "XMLTools" "Streaming: integer param is number, not string (#38)" "stream int" "$stream_int_ok" "$dur"
+    fi
+
+    # Test: streaming boolean param is boolean, not string (#38)
+    t0=$(now_ms)
+    stream_resp=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"Enable the dark_mode setting.\"}],\"tools\":$BOOL_TOOL,\"max_tokens\":1000,\"stream\":true,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    stream_bool_ok=$(echo "$stream_resp" | python3 -c "
+import sys, json
+tool_args = ''
+found_finish = False
+for line in sys.stdin:
+    line = line.strip()
+    if not line.startswith('data: ') or line == 'data: [DONE]':
+        continue
+    try:
+        d = json.loads(line[6:])
+        delta = d.get('choices', [{}])[0].get('delta', {})
+        tcs = delta.get('tool_calls', [])
+        for tc in tcs:
+            fn = tc.get('function', {})
+            if fn.get('arguments'):
+                tool_args += fn['arguments']
+        fr = d.get('choices', [{}])[0].get('finish_reason')
+        if fr == 'tool_calls':
+            found_finish = True
+    except: pass
+if not found_finish:
+    print('FAIL: no finish_reason=tool_calls')
+elif not tool_args:
+    print('FAIL: no arguments in stream')
+else:
+    try:
+        args = json.loads(tool_args)
+        en = args.get('enabled')
+        if en is None:
+            print('FAIL: enabled missing')
+        elif isinstance(en, str):
+            print(f'FAIL: enabled is string \"{en}\" in stream (expected bool)')
+        elif isinstance(en, bool):
+            print('PASS')
+        else:
+            print(f'FAIL: enabled is {type(en).__name__}={en}')
+    except:
+        print(f'FAIL: args not valid JSON: {tool_args[:100]}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$stream_bool_ok" = "PASS" ]; then
+      run_test "XMLTools" "Streaming: boolean param is boolean, not string (#38)" "stream bool" "PASS" "$dur"
+    else
+      run_test "XMLTools" "Streaming: boolean param is boolean, not string (#38)" "stream bool" "$stream_bool_ok" "$dur"
     fi
 
     # Test: nested object parameter survives XML parsing
