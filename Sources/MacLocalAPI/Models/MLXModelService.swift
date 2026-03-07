@@ -89,6 +89,7 @@ private final class PromptCacheBox: @unchecked Sendable {
 }
 
 private let debugLogging = ProcessInfo.processInfo.environment["AFM_DEBUG"].map { $0 == "1" } ?? false
+private let clearGPUCachePerRequest = ProcessInfo.processInfo.environment["AFM_CLEAR_GPU_CACHE"].map { $0 == "1" } ?? false
 
 final class MLXModelService: @unchecked Sendable {
     private let resolver: MLXCacheResolver
@@ -381,48 +382,60 @@ final class MLXModelService: @unchecked Sendable {
             var visibleContentStart: String.Index? = nil  // Index where content after </think> begins
             let genStart = Date()
             var firstTokenTime: Date?
-            for await piece in try MLXLMCommon.generate(input: generateInput, cache: generationCache, parameters: params, context: context) {
-                if debugLogging {
-                    print("[DEBUG] Generation piece: \(piece)")
-                }
-                if case .chunk(let text) = piece {
-                    if firstTokenTime == nil { firstTokenTime = Date() }
-                    // Track <think> boundaries — stop sequences only apply outside
-                    if text.contains("<think>") { insideThink = true }
-                    if text.contains("</think>") { insideThink = false }
-                    out += text
-                    // Record where visible content starts (after </think>)
-                    if !insideThink && visibleContentStart == nil {
-                        if let thinkEnd = out.range(of: "</think>") {
-                            visibleContentStart = thinkEnd.upperBound
-                        } else {
-                            visibleContentStart = out.startIndex
-                        }
-                    }
-                    // Only check stop sequences against visible content (after </think>)
-                    if !activeStops.isEmpty && !insideThink, let vcStart = visibleContentStart {
-                        let visibleContent = String(out[vcStart...])
-                        if let match = activeStops.first(where: { visibleContent.contains($0) }) {
-                            if let range = visibleContent.range(of: match) {
-                                let keepEnd = out.index(vcStart, offsetBy: visibleContent.distance(from: visibleContent.startIndex, to: range.lowerBound))
-                                out = String(out[..<keepEnd])
-                            }
-                            break
-                        }
-                    }
-                } else if case .tokenLogprobs(let lps) = piece {
-                    collectedLogprobs.append(contentsOf: lps)
-                } else if case .toolCall(let tc) = piece {
+            do {
+                for await piece in try MLXLMCommon.generate(input: generateInput, cache: generationCache, parameters: params, context: context) {
                     if debugLogging {
-                        print("[DEBUG] Tool call detected: \(tc.function.name)(\(tc.function.arguments))")
+                        print("[DEBUG] Generation piece: \(piece)")
                     }
-                    collectedToolCalls.append(tc)
-                } else if case .info(let info) = piece {
-                    completionInfo = info
+                    if case .chunk(let text) = piece {
+                        if firstTokenTime == nil { firstTokenTime = Date() }
+                        // Track <think> boundaries — stop sequences only apply outside
+                        if text.contains("<think>") { insideThink = true }
+                        if text.contains("</think>") { insideThink = false }
+                        out += text
+                        // Record where visible content starts (after </think>)
+                        if !insideThink && visibleContentStart == nil {
+                            if let thinkEnd = out.range(of: "</think>") {
+                                visibleContentStart = thinkEnd.upperBound
+                            } else {
+                                visibleContentStart = out.startIndex
+                            }
+                        }
+                        // Only check stop sequences against visible content (after </think>)
+                        if !activeStops.isEmpty && !insideThink, let vcStart = visibleContentStart {
+                            let visibleContent = String(out[vcStart...])
+                            if let match = activeStops.first(where: { visibleContent.contains($0) }) {
+                                if let range = visibleContent.range(of: match) {
+                                    let keepEnd = out.index(vcStart, offsetBy: visibleContent.distance(from: visibleContent.startIndex, to: range.lowerBound))
+                                    out = String(out[..<keepEnd])
+                                }
+                                break
+                            }
+                        }
+                    } else if case .tokenLogprobs(let lps) = piece {
+                        collectedLogprobs.append(contentsOf: lps)
+                    } else if case .toolCall(let tc) = piece {
+                        if debugLogging {
+                            print("[DEBUG] Tool call detected: \(tc.function.name)(\(tc.function.arguments))")
+                        }
+                        collectedToolCalls.append(tc)
+                    } else if case .info(let info) = piece {
+                        completionInfo = info
+                    }
                 }
+            } catch {
+                // On generation error, invalidate prompt cache inside the
+                // serialized block so no stale state leaks to the next request.
+                promptCache.invalidate()
+                throw error
             }
 
             Stream.gpu.synchronize()
+            // Optional per-request GPU memory cleanup (gated to avoid throughput hit).
+            // Enable with AFM_CLEAR_GPU_CACHE=1 if you see memory-related crashes.
+            if clearGPUCachePerRequest {
+                Memory.clearCache()
+            }
             if debugLogging {
                 let ttft = firstTokenTime.map { $0.timeIntervalSince(genStart) } ?? 0
                 let total = Date().timeIntervalSince(genStart)
@@ -505,7 +518,15 @@ final class MLXModelService: @unchecked Sendable {
         chatTemplateKwargs: [String: AnyCodable]? = nil
     ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int, toolCallStartTag: String?, toolCallEndTag: String?) {
         try beginOperation()
-        defer { endOperation() }
+        var endOperationOnExit = true
+        defer {
+            if endOperationOnExit {
+                endOperation()
+            }
+        }
+        // Streaming keeps the operation open until the background Task finishes.
+        // The fallback defer above only handles setup failures before the Task
+        // is created; the Task itself owns the normal endOperation() call.
 
         let modelID = try await ensureLoaded(model: model, countOperation: false)
         guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
@@ -536,6 +557,7 @@ final class MLXModelService: @unchecked Sendable {
         let promptCache = self.promptCache
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             let task = Task {
+                defer { self.endOperation() }
                 do {
                     try await container.perform { context in
                         let input = try await context.processor.prepare(input: userInput)
@@ -618,68 +640,75 @@ final class MLXModelService: @unchecked Sendable {
                         var firstTokenTime: Date?
 
                         var pendingLogprobs: [TokenLogprobData]? = nil
-                        for await piece in try MLXLMCommon.generate(input: generateInput, cache: generationCache, parameters: params, context: context) {
-                            if Task.isCancelled {
-                                print("[MLX] Generation cancelled by client")
-                                break
-                            }
-                            if case .tokenLogprobs(let lps) = piece {
-                                pendingLogprobs = lps
-                            } else if case .chunk(let text) = piece {
-                                if firstTokenTime == nil { firstTokenTime = Date() }
-                                let resolved: [ResolvedLogprob]?
-                                if let lps = pendingLogprobs {
-                                    resolved = self.resolveLogprobs(lps, tokenizer: context.tokenizer)
-                                } else {
-                                    resolved = nil
+                        do {
+                            for await piece in try MLXLMCommon.generate(input: generateInput, cache: generationCache, parameters: params, context: context) {
+                                if Task.isCancelled {
+                                    print("[MLX] Generation cancelled by client")
+                                    break
                                 }
+                                if case .tokenLogprobs(let lps) = piece {
+                                    pendingLogprobs = lps
+                                } else if case .chunk(let text) = piece {
+                                    if firstTokenTime == nil { firstTokenTime = Date() }
+                                    let resolved: [ResolvedLogprob]?
+                                    if let lps = pendingLogprobs {
+                                        resolved = self.resolveLogprobs(lps, tokenizer: context.tokenizer)
+                                    } else {
+                                        resolved = nil
+                                    }
 
-                                // Track <think> boundaries for stop sequence scoping
-                                let wasInsideThink = insideThink
-                                if text.contains("<think>") { insideThink = true }
-                                if text.contains("</think>") { insideThink = false }
+                                    // Track <think> boundaries for stop sequence scoping
+                                    let wasInsideThink = insideThink
+                                    if text.contains("<think>") { insideThink = true }
+                                    if text.contains("</think>") { insideThink = false }
 
-                                if !activeStops.isEmpty && !insideThink {
-                                    // If we just transitioned out of think, only buffer text after </think>
-                                    if wasInsideThink, let thinkEndRange = text.range(of: "</think>") {
-                                        let afterThink = String(text[thinkEndRange.upperBound...])
-                                        if !afterThink.isEmpty {
-                                            stopBuffer += afterThink
+                                    if !activeStops.isEmpty && !insideThink {
+                                        // If we just transitioned out of think, only buffer text after </think>
+                                        if wasInsideThink, let thinkEndRange = text.range(of: "</think>") {
+                                            let afterThink = String(text[thinkEndRange.upperBound...])
+                                            if !afterThink.isEmpty {
+                                                stopBuffer += afterThink
+                                            }
+                                        } else {
+                                            stopBuffer += text
+                                        }
+                                        // Check for a complete stop string match
+                                        if let match = activeStops.first(where: { stopBuffer.contains($0) }) {
+                                            // Emit text up to the stop string
+                                            if let range = stopBuffer.range(of: match) {
+                                                let before = String(stopBuffer[..<range.lowerBound])
+                                                if !before.isEmpty {
+                                                    continuation.yield(StreamChunk(text: before, logprobs: resolved))
+                                                }
+                                            }
+                                            break
+                                        }
+                                        // Flush safe portion of the buffer (keep tail that could be partial stop match)
+                                        if stopBuffer.count > maxStopLen {
+                                            let flushEnd = stopBuffer.index(stopBuffer.endIndex, offsetBy: -maxStopLen)
+                                            let flushText = String(stopBuffer[..<flushEnd])
+                                            stopBuffer = String(stopBuffer[flushEnd...])
+                                            continuation.yield(StreamChunk(text: flushText, logprobs: resolved))
                                         }
                                     } else {
-                                        stopBuffer += text
+                                        // Inside <think> or no stop sequences — pass through
+                                        continuation.yield(StreamChunk(text: text, logprobs: resolved))
                                     }
-                                    // Check for a complete stop string match
-                                    if let match = activeStops.first(where: { stopBuffer.contains($0) }) {
-                                        // Emit text up to the stop string
-                                        if let range = stopBuffer.range(of: match) {
-                                            let before = String(stopBuffer[..<range.lowerBound])
-                                            if !before.isEmpty {
-                                                continuation.yield(StreamChunk(text: before, logprobs: resolved))
-                                            }
-                                        }
-                                        break
-                                    }
-                                    // Flush safe portion of the buffer (keep tail that could be partial stop match)
-                                    if stopBuffer.count > maxStopLen {
-                                        let flushEnd = stopBuffer.index(stopBuffer.endIndex, offsetBy: -maxStopLen)
-                                        let flushText = String(stopBuffer[..<flushEnd])
-                                        stopBuffer = String(stopBuffer[flushEnd...])
-                                        continuation.yield(StreamChunk(text: flushText, logprobs: resolved))
-                                    }
-                                } else {
-                                    // Inside <think> or no stop sequences — pass through
-                                    continuation.yield(StreamChunk(text: text, logprobs: resolved))
+                                    pendingLogprobs = nil
+                                } else if case .toolCall(let tc) = piece {
+                                    // Emit tool call as a stream chunk with empty text
+                                    let responseTC = Self.convertToolCall(tc, index: 0)
+                                    continuation.yield(StreamChunk(text: "", toolCalls: [responseTC]))
+                                } else if case .info(let info) = piece {
+                                    // Emit real token counts and timing as a final info chunk
+                                    continuation.yield(StreamChunk(text: "", promptTokens: info.promptTokenCount, completionTokens: info.generationTokenCount, promptTime: info.promptTime, generateTime: info.generateTime))
                                 }
-                                pendingLogprobs = nil
-                            } else if case .toolCall(let tc) = piece {
-                                // Emit tool call as a stream chunk with empty text
-                                let responseTC = Self.convertToolCall(tc, index: 0)
-                                continuation.yield(StreamChunk(text: "", toolCalls: [responseTC]))
-                            } else if case .info(let info) = piece {
-                                // Emit real token counts and timing as a final info chunk
-                                continuation.yield(StreamChunk(text: "", promptTokens: info.promptTokenCount, completionTokens: info.generationTokenCount, promptTime: info.promptTime, generateTime: info.generateTime))
                             }
+                        } catch {
+                            // On generation error, invalidate prompt cache inside the
+                            // serialized block so no stale state leaks to the next request.
+                            promptCache.invalidate()
+                            throw error
                         }
                         // Flush any remaining buffered text (no stop match found)
                         if !activeStops.isEmpty && !stopBuffer.isEmpty {
@@ -687,6 +716,14 @@ final class MLXModelService: @unchecked Sendable {
                         }
                         // Synchronize GPU after generation completes (or breaks early).
                         Stream.gpu.synchronize()
+                        // Optional per-request GPU memory cleanup (gated to avoid throughput hit).
+                        if clearGPUCachePerRequest {
+                            Memory.clearCache()
+                        }
+                        // Invalidate prompt cache on cancellation to prevent stale state
+                        if Task.isCancelled {
+                            promptCache.invalidate()
+                        }
                         if debugLogging {
                             let ttft = firstTokenTime.map { $0.timeIntervalSince(genStart) } ?? 0
                             let total = Date().timeIntervalSince(genStart)
@@ -697,10 +734,11 @@ final class MLXModelService: @unchecked Sendable {
                         if useCache && !inputTokens.isEmpty && !Task.isCancelled {
                             self.savePromptCacheState(cache: generationCache, promptTokens: inputTokens, modelID: modelID)
                         }
-                    }
+                    } // container.perform
                     self.cleanupTempFiles(mediaTempFiles)
                     continuation.finish()
                 } catch {
+                    self.promptCache.invalidate()
                     self.cleanupTempFiles(mediaTempFiles)
                     continuation.finish(throwing: error)
                 }
@@ -730,6 +768,7 @@ final class MLXModelService: @unchecked Sendable {
             toolTags = nil
         }
 
+        endOperationOnExit = false
         return (modelID, stream, promptTokens, toolTags?.start, toolTags?.end)
     }
 

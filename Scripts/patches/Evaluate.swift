@@ -479,7 +479,8 @@ public struct TokenIterator: Sequence, IteratorProtocol {
     let model: any LanguageModel
     var state: LMOutput.State?
 
-    var y: LMInput.Text
+    // Optional so teardown() can drop the final token array explicitly.
+    var y: LMInput.Text?
     var cache: [KVCache]
     var processor: LogitProcessor?
     let sampler: LogitSampler
@@ -530,7 +531,8 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         parameters: GenerateParameters
     ) throws {
         self.model = model
-        self.y = .init(tokens: prompt)
+        let promptText = LMInput.Text(tokens: prompt)
+        self.y = promptText
         self.cache = cache ?? model.newCache(parameters: parameters)
 
         self.processor = parameters.processor()
@@ -547,7 +549,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         self.temperatureForLogprobs = parameters.temperature
 
         self.promptPrefillTime = try measure {
-            try prepare(input: .init(text: y), windowSize: parameters.prefillStepSize)
+            try prepare(input: .init(text: promptText), windowSize: parameters.prefillStepSize)
         }
     }
 
@@ -635,13 +637,15 @@ public struct TokenIterator: Sequence, IteratorProtocol {
             y = tokens
 
             // evaluate the remainder of the prompt -- this primes the pump
-            let token = step(previous: y)
+            let token = step(previous: tokens)
             y = .init(tokens: token)
-            asyncEval(y.tokens)
+            asyncEval(token)
 
         case .logits(let result):
             y = .init(tokens: convertToToken(logits: result.logits))
-            asyncEval(y.tokens)
+            if let y {
+                asyncEval(y.tokens)
+            }
 
             break
         }
@@ -738,14 +742,15 @@ public struct TokenIterator: Sequence, IteratorProtocol {
             return nil
         }
 
+        guard let previousY = y else {
+            return nil
+        }
+
         let tStart: UInt64 = Self.perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
 
         // Promote pending logprob info: the logprob computed during the PREVIOUS
         // step() corresponds to the token we are about to return (previousY).
         lastLogprobInfo = pendingLogprobInfo
-
-        // save current value -- this will be returned
-        let previousY = y
 
         // compute the next state and async eval the next token
         let token = step(previous: previousY)
@@ -813,6 +818,17 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         [PERF]   overhead      : \(String(format: "%8.1f", overheadMs))ms  \(pct(overheadMs))  (\(String(format: "%.3f", overheadMs / Double(perfTokenCount)))ms/tok)
         [PERF]   GPU sync probe@100: \(String(format: "%.3f", toMs(perfGpuSyncNs)))ms (0=async working, >0=GPU was still busy)
         """)
+    }
+
+    /// Explicitly release iterator-held generation state so ARC can drop
+    /// MLX-backed arrays before the final stream synchronization.
+    public mutating func teardown() {
+        cache = []
+        state = nil
+        y = nil
+        processor = nil
+        pendingLogprobInfo = nil
+        lastLogprobInfo = nil
     }
 }
 
@@ -1314,6 +1330,11 @@ public func generateTask(
             print("[PERF] Loop overhead: detokenize+yield=\(String(format: "%.1f", detokMs))ms (\(String(format: "%.2f", detokMs / Double(iterator.perfTokenCount)))ms/tok)")
         }
         iterator.printPerfSummary()
+
+        // Explicitly release iterator-held GPU arrays (cache, last token, state)
+        // before synchronizing. This ensures no stale references survive into
+        // the next request's generation pass.
+        iterator.teardown()
 
         let now = Date.timeIntervalSinceReferenceDate
         let generateTime = now - start
