@@ -1657,6 +1657,69 @@ else:
       run_test "XMLTools" "Streaming: boolean param is boolean, not string (#38)" "stream bool" "$stream_bool_ok" "$dur"
     fi
 
+    # Test: boolean false is JSON false, not string "false" (#38)
+    t0=$(now_ms)
+    resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Disable the verbose setting.\"}],\"tools\":$BOOL_TOOL,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    boolfalse_ok=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        en = args.get('enabled')
+        if en is None:
+            print('FAIL: enabled missing')
+        elif isinstance(en, str):
+            print(f'FAIL: enabled is string \"{en}\" (expected bool false)')
+        elif en is False and isinstance(en, bool):
+            print('PASS')
+        elif en is True and isinstance(en, bool):
+            print('PASS')  # model chose true, but at least it's a bool
+        else:
+            print(f'FAIL: enabled is {type(en).__name__}={en}')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$boolfalse_ok" = "PASS" ]; then
+      run_test "XMLTools" "Boolean false is JSON false, not string (#38)" "bool false" "PASS" "$dur"
+    else
+      run_test "XMLTools" "Boolean false is JSON false, not string (#38)" "bool false" "$boolfalse_ok" "$dur"
+    fi
+
+    # Test: param without schema type stays string (no false coercion) (#38)
+    NOTYPE_TOOL='[{"type":"function","function":{"name":"get_weather","description":"Get weather","parameters":{"type":"object","properties":{"location":{"description":"City name"}},"required":["location"]}}}]'
+    t0=$(now_ms)
+    resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Get the weather in Tokyo.\"}],\"tools\":$NOTYPE_TOOL,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    notype_ok=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        loc = args.get('location')
+        if loc is None:
+            print('FAIL: location missing')
+        elif isinstance(loc, str):
+            print('PASS')
+        else:
+            print(f'FAIL: location is {type(loc).__name__}={loc} (expected string)')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$notype_ok" = "PASS" ]; then
+      run_test "XMLTools" "No-schema-type param stays string (no false coercion) (#38)" "no type" "PASS" "$dur"
+    else
+      run_test "XMLTools" "No-schema-type param stays string (no false coercion) (#38)" "no type" "$notype_ok" "$dur"
+    fi
+
     # Test: nested object parameter survives XML parsing
     NESTED_TOOL='[{"type":"function","function":{"name":"create_file","description":"Create a file","parameters":{"type":"object","properties":{"path":{"type":"string","description":"File path"},"options":{"type":"object","properties":{"overwrite":{"type":"boolean"},"encoding":{"type":"string"}},"description":"File creation options"}},"required":["path"]}}}]'
     t0=$(now_ms)

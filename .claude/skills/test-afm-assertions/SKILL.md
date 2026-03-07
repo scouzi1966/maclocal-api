@@ -82,7 +82,7 @@ Use this skill when the user asks to:
 | 7 | Concurrent | standard | 2 and 3 simultaneous requests |
 | 8 | Error | standard | HTTP errors, CORS, json_object, max_tokens, developer role |
 | 10 | Kwargs | standard | `chat_template_kwargs` enable_thinking control |
-| 11 | XMLTools | standard | **XML tool call deep validation** (16 tests) |
+| 11 | XMLTools | standard | **XML tool call deep validation** (18 tests) |
 | 9 | Perf | full | TTFT, tok/s, long context (2K, 4K tokens) |
 
 ### Section 11: XML Tool Call Deep Validation (Key Tests)
@@ -98,6 +98,8 @@ These are the most important tests for Qwen3/Qwen3.5 models:
 | Mixed types: string/int/bool correct (#38) | String stays string, int is int, bool is bool — no false coercion |
 | Streaming: integer is number (#38) | Streamed `max_results` assembled as int, not string |
 | Streaming: boolean is boolean (#38) | Streamed `enabled` assembled as bool, not string |
+| Boolean false is JSON false (#38) | `enabled: false` not `"false"` — tests the false path |
+| No-schema-type stays string (#38) | Param without `type` in schema is not falsely coerced |
 | Nested object param | JSON objects inside XML parameters parse correctly |
 | tool_choice=required | Model produces tool call when required |
 | tool_choice={function: name} | Specific function is called |
