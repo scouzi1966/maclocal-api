@@ -2053,6 +2053,183 @@ except Exception as e:
       run_test "AdaptiveXML" "Tool call valid (xgrammar requires compile flag)" "valid" "$xg_ok" "$dur"
     fi
 
+    # ── Test 12.8: Array of objects coercion ──────────────────────────────────
+    # Regression test: model generates JSON array inside <parameter> tags but
+    # afm sends it as a string. Covers the question tool pattern from OpenCode.
+    ARRAY_OBJ_TOOL='[{"type":"function","function":{"name":"ask_questions","description":"Ask user multiple-choice questions","parameters":{"type":"object","properties":{"questions":{"type":"array","description":"List of questions","items":{"type":"object","properties":{"text":{"type":"string"},"options":{"type":"array","items":{"type":"string"}}}}},"title":{"type":"string","description":"Form title"}},"required":["questions","title"]}}}]'
+    t0=$(now_ms)
+    arr_obj_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Ask the user 2 questions: What is your favorite color (red, blue, green) and what is your favorite animal (cat, dog, fish).\"}],\"tools\":$ARRAY_OBJ_TOOL,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    arr_obj_ok=$(echo "$arr_obj_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        qs = args.get('questions')
+        if qs is None:
+            print('FAIL: questions param missing')
+        elif isinstance(qs, str):
+            print(f'FAIL: questions is string (not coerced to array)')
+        elif not isinstance(qs, list):
+            print(f'FAIL: questions is {type(qs).__name__}, expected list')
+        elif len(qs) == 0:
+            print('FAIL: questions array is empty')
+        elif not isinstance(qs[0], dict):
+            print(f'FAIL: questions[0] is {type(qs[0]).__name__}, expected dict')
+        else:
+            title = args.get('title')
+            if title is not None and not isinstance(title, str):
+                print(f'FAIL: title is {type(title).__name__}, expected str')
+            else:
+                print('PASS')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$arr_obj_ok" = "PASS" ]; then
+      run_test "AdaptiveXML" "Array of objects coercion (question tool pattern)" "array of dicts" "PASS" "$dur"
+    else
+      run_test "AdaptiveXML" "Array of objects coercion (question tool pattern)" "array of dicts" "$arr_obj_ok" "$dur"
+    fi
+
+    # ── Test 12.9: Number (float) coercion ────────────────────────────────────
+    NUMBER_TOOL='[{"type":"function","function":{"name":"set_temperature","description":"Set thermostat temperature","parameters":{"type":"object","properties":{"celsius":{"type":"number","description":"Temperature in Celsius"},"enabled":{"type":"boolean","description":"Enable thermostat"}},"required":["celsius","enabled"]}}}]'
+    t0=$(now_ms)
+    num_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Set the thermostat to 22.5 degrees celsius and enable it.\"}],\"tools\":$NUMBER_TOOL,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    num_ok=$(echo "$num_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        issues = []
+        c = args.get('celsius')
+        e = args.get('enabled')
+        if c is not None and isinstance(c, str):
+            issues.append(f'celsius=str({c})')
+        elif c is not None and not isinstance(c, (int, float)):
+            issues.append(f'celsius={type(c).__name__}({c})')
+        if e is not None and not isinstance(e, bool):
+            issues.append(f'enabled={type(e).__name__}({e})')
+        if issues:
+            print(f'FAIL: type coercion: {issues}')
+        else:
+            print('PASS')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$num_ok" = "PASS" ]; then
+      run_test "AdaptiveXML" "Number (float) and boolean coercion" "correct types" "PASS" "$dur"
+    else
+      run_test "AdaptiveXML" "Number (float) and boolean coercion" "correct types" "$num_ok" "$dur"
+    fi
+
+    # ── Test 12.10: Nested object coercion ────────────────────────────────────
+    NESTED_OBJ_TOOL='[{"type":"function","function":{"name":"create_config","description":"Create a configuration object","parameters":{"type":"object","properties":{"name":{"type":"string"},"settings":{"type":"object","description":"Configuration settings","properties":{"debug":{"type":"boolean"},"timeout":{"type":"integer"},"tags":{"type":"array","items":{"type":"string"}}}}},"required":["name","settings"]}}}]'
+    t0=$(now_ms)
+    nested_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Create config named 'prod' with debug false, timeout 30, tags: api, backend.\"}],\"tools\":$NESTED_OBJ_TOOL,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    nested_ok=$(echo "$nested_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        issues = []
+        name = args.get('name')
+        settings = args.get('settings')
+        if name is not None and not isinstance(name, str):
+            issues.append(f'name={type(name).__name__}')
+        if settings is None:
+            issues.append('settings missing')
+        elif isinstance(settings, str):
+            issues.append('settings=str (not coerced to object)')
+        elif not isinstance(settings, dict):
+            issues.append(f'settings={type(settings).__name__}')
+        else:
+            dbg = settings.get('debug')
+            to = settings.get('timeout')
+            tg = settings.get('tags')
+            if dbg is not None and not isinstance(dbg, bool):
+                issues.append(f'settings.debug={type(dbg).__name__}({dbg})')
+            if to is not None and isinstance(to, str):
+                issues.append(f'settings.timeout=str({to})')
+            if tg is not None and isinstance(tg, str):
+                issues.append(f'settings.tags=str (not coerced to array)')
+        if issues:
+            print(f'FAIL: {issues}')
+        else:
+            print('PASS')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$nested_ok" = "PASS" ]; then
+      run_test "AdaptiveXML" "Nested object with typed fields coercion" "correct types" "PASS" "$dur"
+    else
+      run_test "AdaptiveXML" "Nested object with typed fields coercion" "correct types" "$nested_ok" "$dur"
+    fi
+
+    # ── Test 12.11: Streaming tool call — array param delivered correctly ─────
+    # Same as 12.8 but with stream:true to test incremental path specifically.
+    t0=$(now_ms)
+    stream_arr_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Ask the user: What is your favorite fruit? Options: apple, banana, cherry.\"}],\"tools\":$ARRAY_OBJ_TOOL,\"max_tokens\":1000,\"stream\":true,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    stream_arr_ok=$(echo "$stream_arr_resp" | python3 -c "
+import sys, json
+lines = sys.stdin.read().strip().split('\n')
+args_str = ''
+tool_name = ''
+for line in lines:
+    line = line.strip()
+    if not line.startswith('data: ') or line == 'data: [DONE]':
+        continue
+    try:
+        chunk = json.loads(line[6:])
+        delta = chunk.get('choices', [{}])[0].get('delta', {})
+        tcs = delta.get('tool_calls', [])
+        for tc in tcs:
+            f = tc.get('function', {})
+            if f.get('name'):
+                tool_name = f['name']
+            if f.get('arguments') is not None:
+                args_str += f['arguments']
+    except:
+        continue
+if not tool_name:
+    print('FAIL: no tool call in stream')
+elif not args_str:
+    print('FAIL: no arguments in stream')
+else:
+    try:
+        args = json.loads(args_str)
+        qs = args.get('questions')
+        if qs is None:
+            print('FAIL: questions param missing')
+        elif isinstance(qs, str):
+            print('FAIL: questions is string (streaming incremental path did not coerce)')
+        elif not isinstance(qs, list):
+            print(f'FAIL: questions is {type(qs).__name__}, expected list')
+        else:
+            print('PASS')
+    except json.JSONDecodeError as e:
+        print(f'FAIL: invalid JSON arguments: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$stream_arr_ok" = "PASS" ]; then
+      run_test "AdaptiveXML" "Streaming array coercion (incremental path)" "array in stream" "PASS" "$dur"
+    else
+      run_test "AdaptiveXML" "Streaming array coercion (incremental path)" "array in stream" "$stream_arr_ok" "$dur"
+    fi
+
   else
     echo ""
     echo "  (Model did not produce tool calls — skipping afm_adaptive_xml tests)"

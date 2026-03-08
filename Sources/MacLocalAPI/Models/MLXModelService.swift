@@ -1220,9 +1220,7 @@ final class MLXModelService: @unchecked Sendable {
             guard let keyRange = Range(pm.range(at: 1), in: body),
                   let valRange = Range(pm.range(at: 2), in: body) else { continue }
             let key = String(body[keyRange])
-            var val = String(body[valRange])
-            if val.hasPrefix("\n") { val = String(val.dropFirst()) }
-            if val.hasSuffix("\n") { val = String(val.dropLast()) }
+            var val = String(body[valRange]).trimmingCharacters(in: .whitespacesAndNewlines)
             // Keep first non-empty value — Qwen3-Coder-Next sometimes emits
             // duplicate parameters where the second is malformed/empty.
             // See: https://github.com/anomalyco/opencode/issues/6918
@@ -1397,8 +1395,12 @@ final class MLXModelService: @unchecked Sendable {
             proc.matcherHandle = matcher
             proc.tokenMask = matcher.nextTokenMask()
             proc.onTokenSampled = { [weak matcher] tokenID in
-                matcher?.acceptToken(tokenID)
-                proc.tokenMask = matcher?.nextTokenMask()
+                guard let matcher, !matcher.isTerminated() else {
+                    proc.tokenMask = nil
+                    return
+                }
+                matcher.acceptToken(tokenID)
+                proc.tokenMask = matcher.nextTokenMask()
             }
 
             if debugLogging {
@@ -1416,15 +1418,13 @@ final class MLXModelService: @unchecked Sendable {
 
     /// Set up grammar-constrained decoding for XML tool call format (afm_adaptive_xml).
     /// Uses xgrammar EBNF to force valid <tool_call><function=...> structure.
+    /// Grammar enforces minimum required parameter count per tool from the schema.
     private func setupToolCallGrammarConstraint(
         modelID: String,
         tokenizer: any Tokenizer,
         tools: [RequestTool]?
     ) -> GrammarLogitProcessor? {
         guard let tools, !tools.isEmpty else { return nil }
-
-        let toolNames = tools.map { $0.function.name }
-        guard !toolNames.isEmpty else { return nil }
 
         do {
             // Initialize xgrammar service if needed (same pattern as json_schema path)
@@ -1442,7 +1442,7 @@ final class MLXModelService: @unchecked Sendable {
 
             guard let service = xgrammarService else { return nil }
 
-            let ebnfGrammar = Self.buildToolCallEBNF(toolNames: toolNames)
+            let ebnfGrammar = Self.buildToolCallEBNF(tools: tools)
             if debugLogging {
                 print("[XGrammar] Tool call EBNF grammar:\n\(ebnfGrammar)")
             }
@@ -1453,12 +1453,16 @@ final class MLXModelService: @unchecked Sendable {
             proc.matcherHandle = matcher
             proc.tokenMask = matcher.nextTokenMask()
             proc.onTokenSampled = { [weak matcher] tokenID in
-                matcher?.acceptToken(tokenID)
-                proc.tokenMask = matcher?.nextTokenMask()
+                guard let matcher, !matcher.isTerminated() else {
+                    proc.tokenMask = nil
+                    return
+                }
+                matcher.acceptToken(tokenID)
+                proc.tokenMask = matcher.nextTokenMask()
             }
 
             if debugLogging {
-                print("[XGrammar] Grammar constraint active for tool_call (EBNF, \(toolNames.count) tools, vocab_size=\(service.vocabSize))")
+                print("[XGrammar] Grammar constraint active for tool_call (EBNF, \(tools.count) tools, vocab_size=\(service.vocabSize))")
             }
 
             return proc
@@ -1471,20 +1475,55 @@ final class MLXModelService: @unchecked Sendable {
     }
 
     /// Build an EBNF grammar that allows free text OR valid XML tool calls.
-    /// The grammar constrains tool call structure while allowing normal text generation.
-    static func buildToolCallEBNF(toolNames: [String]) -> String {
-        let nameAlternation = toolNames.map { "\"\($0)\"" }.joined(separator: " | ")
-        // xgrammar EBNF dialect — allows free text followed by zero or more tool calls
+    /// Generates per-tool rules enforcing minimum required parameter count from schema.
+    static func buildToolCallEBNF(tools: [RequestTool]) -> String {
+        var toolRules: [String] = []
+        var toolVariantNames: [String] = []
+
+        for tool in tools {
+            let name = tool.function.name
+            // Safe name for EBNF rule (replace non-alphanumeric with _)
+            let safeName = name.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? String($0) : "_" }.joined()
+
+            // Extract required param count from JSON Schema parameters
+            let requiredCount = Self.requiredParamCount(for: tool)
+
+            // Build param chain: require at least requiredCount params
+            let minParams = requiredCount > 0 ? String(repeating: "param ", count: requiredCount) : ""
+            let ruleName = "call_\(safeName)"
+            toolRules.append("\(ruleName) ::= \"<function=\(name)>\\n\" \(minParams)extra_params \"</function>\\n\"")
+            toolVariantNames.append(ruleName)
+        }
+
+        let toolAlternation = toolVariantNames.joined(separator: " | ")
+
         return """
         root ::= free_text (tool_call free_text)*
         free_text ::= [^<]*
-        tool_call ::= "<tool_call>\\n<function=" tool_name ">\\n" params "</function>\\n</tool_call>"
-        tool_name ::= \(nameAlternation)
-        params ::= param*
+        tool_call ::= "<tool_call>\\n" tool_variant "</tool_call>"
+        tool_variant ::= \(toolAlternation)
+        \(toolRules.joined(separator: "\n        "))
+        extra_params ::= param*
         param ::= "<parameter=" param_name ">\\n" param_value "\\n</parameter>\\n"
         param_name ::= [a-zA-Z_] [a-zA-Z0-9_]*
         param_value ::= [^<]+ | "<" [^/] [^<]*
         """
+    }
+
+    /// Extract the number of required parameters from a tool's JSON Schema.
+    private static func requiredParamCount(for tool: RequestTool) -> Int {
+        guard let params = tool.function.parameters else { return 1 }
+        // AnyCodable wraps the JSON schema — extract "required" array
+        if let dict = params.value as? [String: Any],
+           let required = dict["required"] as? [String] {
+            return max(1, required.count)
+        }
+        // If no required field but properties exist, require at least 1
+        if let dict = params.value as? [String: Any],
+           let props = dict["properties"] as? [String: Any], !props.isEmpty {
+            return 1
+        }
+        return 1
     }
 
     /// Returns true when the model has a VLM config layout that can't be loaded

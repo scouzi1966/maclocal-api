@@ -2,6 +2,9 @@
 import PackageDescription
 import Foundation
 
+// Strip absolute build paths from __FILE__ macros in C++ warnings (privacy: don't leak dev machine paths)
+let packageDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
+
 let package = Package(
     name: "MacLocalAPI",
     platforms: [
@@ -52,6 +55,8 @@ let package = Package(
                 .headerSearchPath("xgrammar/include"),
                 .headerSearchPath("xgrammar/3rdparty/dlpack/include"),
                 .headerSearchPath("xgrammar/3rdparty/picojson"),
+                // Strip local build paths from __FILE__ macros in xgrammar warnings
+                .unsafeFlags(["-ffile-prefix-map=\(packageDir)/Sources/CXGrammar/="])
             ]
         ),
         .executableTarget(
