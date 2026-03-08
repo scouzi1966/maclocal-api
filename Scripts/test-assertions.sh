@@ -1786,21 +1786,21 @@ except Exception as e:
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Section 12: llamacpp_tool_parser (JSON-in-XML fallback + xgrammar)
+# Section 12: afm_adaptive_xml (JSON-in-XML fallback + xgrammar)
 # ═══════════════════════════════════════════════════════════════════════════════
-# Tests for --tool-call-parser llamacpp_tool_parser.
+# Tests for --tool-call-parser afm_adaptive_xml.
 # Validates: JSON-in-XML fallback parsing, normal XML tool calls still work,
 # xgrammar EBNF constraint activation, and streaming tool call emission.
 #
 # NOTE: This section requires the server to be started with:
-#   --tool-call-parser llamacpp_tool_parser
+#   --tool-call-parser afm_adaptive_xml
 # If the server wasn't started with this flag, tests are skipped.
 
 if should_run_section 12 && min_tier standard; then
   echo ""
-  echo "🔧 Section 12: llamacpp_tool_parser"
+  echo "🔧 Section 12: afm_adaptive_xml"
 
-  # Probe: was the server started with --tool-call-parser llamacpp_tool_parser?
+  # Probe: was the server started with --tool-call-parser afm_adaptive_xml?
   # We detect this by checking if a normal XML tool call works (it should with any parser).
   # The real test is whether JSON-in-XML bodies are also handled.
   probe_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Berlin?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
@@ -1839,9 +1839,9 @@ except Exception as e:
     print(f'FAIL: {e}')
 " 2>/dev/null || echo "FAIL: parse error")
     if [ "$tc_ok" = "PASS" ]; then
-      run_test "LlamaCppParser" "Normal XML tool call works with llamacpp_tool_parser" "valid tool call" "PASS" "$dur"
+      run_test "AdaptiveXML" "Normal XML tool call works with afm_adaptive_xml" "valid tool call" "PASS" "$dur"
     else
-      run_test "LlamaCppParser" "Normal XML tool call works with llamacpp_tool_parser" "valid tool call" "$tc_ok" "$dur"
+      run_test "AdaptiveXML" "Normal XML tool call works with afm_adaptive_xml" "valid tool call" "$tc_ok" "$dur"
     fi
 
     # ── Test 12.2: Streaming tool call emission ─────────────────────────────
@@ -1894,9 +1894,9 @@ else:
             print(f'FAIL: args not valid JSON: {full_args[:100]}')
 " 2>/dev/null || echo "FAIL: parse error")
     if [ "$stream_tc" = "PASS" ]; then
-      run_test "LlamaCppParser" "Streaming tool call emits valid deltas" "name + JSON args" "PASS" "$dur"
+      run_test "AdaptiveXML" "Streaming tool call emits valid deltas" "name + JSON args" "PASS" "$dur"
     else
-      run_test "LlamaCppParser" "Streaming tool call emits valid deltas" "name + JSON args" "$stream_tc" "$dur"
+      run_test "AdaptiveXML" "Streaming tool call emits valid deltas" "name + JSON args" "$stream_tc" "$dur"
     fi
 
     # ── Test 12.3: Multi-turn tool call conversation ────────────────────────
@@ -1929,9 +1929,9 @@ except Exception as e:
     print(f'FAIL: {e}')
 " 2>/dev/null || echo "FAIL: parse error")
     if [ "$multi_ok" = "PASS" ]; then
-      run_test "LlamaCppParser" "Multi-turn: model responds after tool result" "non-empty content" "PASS" "$dur"
+      run_test "AdaptiveXML" "Multi-turn: model responds after tool result" "non-empty content" "PASS" "$dur"
     else
-      run_test "LlamaCppParser" "Multi-turn: model responds after tool result" "non-empty content" "$multi_ok" "$dur"
+      run_test "AdaptiveXML" "Multi-turn: model responds after tool result" "non-empty content" "$multi_ok" "$dur"
     fi
 
     # ── Test 12.4: tool_choice=none still suppresses tool calls ─────────────
@@ -1952,9 +1952,9 @@ except Exception as e:
     print(f'FAIL: {e}')
 " 2>/dev/null || echo "FAIL: parse error")
     if [ "$none_ok" = "PASS" ]; then
-      run_test "LlamaCppParser" "tool_choice=none suppresses tool calls" "no tool_calls" "PASS" "$dur"
+      run_test "AdaptiveXML" "tool_choice=none suppresses tool calls" "no tool_calls" "PASS" "$dur"
     else
-      run_test "LlamaCppParser" "tool_choice=none suppresses tool calls" "no tool_calls" "$none_ok" "$dur"
+      run_test "AdaptiveXML" "tool_choice=none suppresses tool calls" "no tool_calls" "$none_ok" "$dur"
     fi
 
     # ── Test 12.5: Multiple tool definitions — correct one selected ─────────
@@ -1979,9 +1979,9 @@ except Exception as e:
     print(f'FAIL: {e}')
 " 2>/dev/null || echo "FAIL: parse error")
     if [ "$multi_tool_ok" = "PASS" ]; then
-      run_test "LlamaCppParser" "Multiple tools: correct function selected" "get_time" "PASS" "$dur"
+      run_test "AdaptiveXML" "Multiple tools: correct function selected" "get_time" "PASS" "$dur"
     else
-      run_test "LlamaCppParser" "Multiple tools: correct function selected" "get_time" "$multi_tool_ok" "$dur"
+      run_test "AdaptiveXML" "Multiple tools: correct function selected" "get_time" "$multi_tool_ok" "$dur"
     fi
 
     # ── Test 12.6: Argument types coerced correctly ─────────────────────────
@@ -2018,9 +2018,9 @@ except Exception as e:
     print(f'FAIL: {e}')
 " 2>/dev/null || echo "FAIL: parse error")
     if [ "$typed_ok" = "PASS" ]; then
-      run_test "LlamaCppParser" "Argument types coerced (string, bool, int)" "correct types" "PASS" "$dur"
+      run_test "AdaptiveXML" "Argument types coerced (string, bool, int)" "correct types" "PASS" "$dur"
     else
-      run_test "LlamaCppParser" "Argument types coerced (string, bool, int)" "correct types" "$typed_ok" "$dur"
+      run_test "AdaptiveXML" "Argument types coerced (string, bool, int)" "correct types" "$typed_ok" "$dur"
     fi
 
     # ── Test 12.7: xgrammar constraint logged (debug check) ─────────────────
@@ -2047,15 +2047,15 @@ except Exception as e:
     print(f'FAIL: {e}')
 " 2>/dev/null || echo "FAIL: parse error")
     if [ "$xg_ok" = "PASS" ]; then
-      run_test "LlamaCppParser" "Tool call valid with xgrammar constraint active" "valid" "PASS" "$dur"
+      run_test "AdaptiveXML" "Tool call valid with xgrammar constraint active" "valid" "PASS" "$dur"
     else
-      run_test "LlamaCppParser" "Tool call valid with xgrammar constraint active" "valid" "$xg_ok" "$dur"
+      run_test "AdaptiveXML" "Tool call valid with xgrammar constraint active" "valid" "$xg_ok" "$dur"
     fi
 
   else
     echo ""
-    echo "  (Model did not produce tool calls — skipping llamacpp_tool_parser tests)"
-    run_test "LlamaCppParser" "llamacpp_tool_parser tests (model lacks tool calling)" "skip" "SKIP" "0"
+    echo "  (Model did not produce tool calls — skipping afm_adaptive_xml tests)"
+    run_test "AdaptiveXML" "afm_adaptive_xml tests (model lacks tool calling)" "skip" "SKIP" "0"
   fi
 fi
 

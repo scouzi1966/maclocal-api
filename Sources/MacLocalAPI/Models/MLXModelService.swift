@@ -200,7 +200,7 @@ final class MLXModelService: @unchecked Sendable {
         // --tool-call-parser override: force format for the specified parser
         if let parser = toolCallParser {
             switch parser {
-            case "qwen3_xml", "llamacpp_tool_parser":
+            case "qwen3_xml", "afm_adaptive_xml":
                 detectedFormat = .xmlFunction
             case "hermes", "llama3_json", "mistral":
                 detectedFormat = .json
@@ -319,7 +319,7 @@ final class MLXModelService: @unchecked Sendable {
                 grammarProcessor = self.setupGrammarConstraint(
                     modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
                 )
-            } else if self.toolCallParser == "llamacpp_tool_parser",
+            } else if self.toolCallParser == "afm_adaptive_xml",
                       ProcessInfo.processInfo.environment["AFM_XGRAMMAR_TOOL_CONSTRAINT"] == "1" {
                 grammarProcessor = self.setupToolCallGrammarConstraint(
                     modelID: modelID, tokenizer: context.tokenizer, tools: tools
@@ -599,7 +599,7 @@ final class MLXModelService: @unchecked Sendable {
                             grammarProcessor = self.setupGrammarConstraint(
                                 modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
                             )
-                        } else if self.toolCallParser == "llamacpp_tool_parser",
+                        } else if self.toolCallParser == "afm_adaptive_xml",
                                   ProcessInfo.processInfo.environment["AFM_XGRAMMAR_TOOL_CONSTRAINT"] == "1" {
                             grammarProcessor = self.setupToolCallGrammarConstraint(
                                 modelID: modelID, tokenizer: context.tokenizer, tools: tools
@@ -1391,7 +1391,7 @@ final class MLXModelService: @unchecked Sendable {
         }
     }
 
-    /// Set up grammar-constrained decoding for XML tool call format (llamacpp_tool_parser).
+    /// Set up grammar-constrained decoding for XML tool call format (afm_adaptive_xml).
     /// Uses xgrammar EBNF to force valid <tool_call><function=...> structure.
     private func setupToolCallGrammarConstraint(
         modelID: String,
@@ -1616,7 +1616,7 @@ final class MLXModelService: @unchecked Sendable {
         if let parser = toolCallParser, tools != nil, !tools!.isEmpty {
             let templateOverride: String?
             switch parser {
-            case "qwen3_xml", "llamacpp_tool_parser":
+            case "qwen3_xml", "afm_adaptive_xml":
                 templateOverride = Self.qwen3XMLTemplate
             case "hermes":
                 templateOverride = Self.hermesTemplate

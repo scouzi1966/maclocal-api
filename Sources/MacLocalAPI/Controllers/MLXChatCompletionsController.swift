@@ -558,8 +558,8 @@ struct MLXChatCompletionsController: RouteCollection {
                                 // Fall back to single-chunk emission.
                                 var parsed: [ToolCall] = []
 
-                                // llamacpp_tool_parser: try direct JSON parse first (handles model format-switching)
-                                if self.service.toolCallParser == "llamacpp_tool_parser" {
+                                // afm_adaptive_xml: try direct JSON parse first (handles model format-switching)
+                                if self.service.toolCallParser == "afm_adaptive_xml" {
                                     let trimmedBody = currentToolText.trimmingCharacters(in: .whitespacesAndNewlines)
                                     if trimmedBody.hasPrefix("{"),
                                        let data = trimmedBody.data(using: .utf8),
@@ -571,7 +571,7 @@ struct MLXChatCompletionsController: RouteCollection {
                                         }
                                         parsed = [ToolCall(function: .init(name: name, arguments: arguments))]
                                         if self.veryVerbose {
-                                            print("\(Self.gold)[\(Self.timestamp())] llamacpp_tool_parser: JSON-in-XML fallback parsed '\(name)' with \(arguments.count) args\(Self.reset)")
+                                            print("\(Self.gold)[\(Self.timestamp())] afm_adaptive_xml: JSON-in-XML fallback parsed '\(name)' with \(arguments.count) args\(Self.reset)")
                                             fflush(stdout)
                                         }
                                     }
