@@ -569,9 +569,23 @@ struct MLXChatCompletionsController: RouteCollection {
                                         if let args = (json["arguments"] as? [String: Any]) ?? (json["parameters"] as? [String: Any]) {
                                             for (k, v) in args { arguments[k] = v as Sendable }
                                         }
-                                        parsed = [ToolCall(function: .init(name: name, arguments: arguments))]
+                                        // Validate tool name against request schema; fuzzy-match if hallucinated
+                                        let validNames = effectiveTools?.map { $0.function.name } ?? []
+                                        let resolvedName: String
+                                        if validNames.contains(name) {
+                                            resolvedName = name
+                                        } else if let match = Self.fuzzyMatchToolName(name, candidates: validNames) {
+                                            resolvedName = match
+                                            if self.veryVerbose {
+                                                print("\(Self.gold)[\(Self.timestamp())] afm_adaptive_xml: corrected hallucinated tool '\(name)' → '\(match)'\n\(Self.reset)")
+                                                fflush(stdout)
+                                            }
+                                        } else {
+                                            resolvedName = name  // pass through, let client report the error
+                                        }
+                                        parsed = [ToolCall(function: .init(name: resolvedName, arguments: arguments))]
                                         if self.veryVerbose {
-                                            print("\(Self.gold)[\(Self.timestamp())] afm_adaptive_xml: JSON-in-XML fallback parsed '\(name)' with \(arguments.count) args\n\(Self.reset)")
+                                            print("\(Self.gold)[\(Self.timestamp())] afm_adaptive_xml: JSON-in-XML fallback parsed '\(resolvedName)' with \(arguments.count) args\n\(Self.reset)")
                                             fflush(stdout)
                                         }
                                     }
@@ -582,6 +596,24 @@ struct MLXChatCompletionsController: RouteCollection {
                                     let wrapped = "\(toolCallStartTag!)\(currentToolText)\(toolCallEndTag!)"
                                     let (regexParsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
                                     parsed = regexParsed
+                                }
+
+                                // Validate/correct tool names against request schema
+                                if self.service.toolCallParser == "afm_adaptive_xml" {
+                                    let validNames = effectiveTools?.map { $0.function.name } ?? []
+                                    if !validNames.isEmpty {
+                                        parsed = parsed.map { tc in
+                                            if validNames.contains(tc.function.name) { return tc }
+                                            if let match = Self.fuzzyMatchToolName(tc.function.name, candidates: validNames) {
+                                                if self.veryVerbose {
+                                                    print("\(Self.gold)[\(Self.timestamp())] afm_adaptive_xml: corrected hallucinated tool '\(tc.function.name)' → '\(match)'\n\(Self.reset)")
+                                                    fflush(stdout)
+                                                }
+                                                return ToolCall(function: .init(name: match, arguments: tc.function.arguments))
+                                            }
+                                            return tc
+                                        }
+                                    }
                                 }
 
                                 if parsed.isEmpty {
@@ -1189,6 +1221,39 @@ struct MLXChatCompletionsController: RouteCollection {
 
     private static func timestamp() -> String {
         isoFormatter.string(from: Date())
+    }
+
+    /// Fuzzy-match a hallucinated tool name against valid candidates.
+    /// Returns the best match if edit distance ≤ 3, otherwise nil.
+    private static func fuzzyMatchToolName(_ name: String, candidates: [String]) -> String? {
+        var bestMatch: String?
+        var bestDist = Int.max
+        for candidate in candidates {
+            let d = editDistance(name.lowercased(), candidate.lowercased())
+            if d < bestDist {
+                bestDist = d
+                bestMatch = candidate
+            }
+        }
+        return bestDist <= 3 ? bestMatch : nil
+    }
+
+    /// Levenshtein edit distance between two strings.
+    private static func editDistance(_ a: String, _ b: String) -> Int {
+        let a = Array(a), b = Array(b)
+        let m = a.count, n = b.count
+        if m == 0 { return n }
+        if n == 0 { return m }
+        var prev = Array(0...n)
+        var curr = [Int](repeating: 0, count: n + 1)
+        for i in 1...m {
+            curr[0] = i
+            for j in 1...n {
+                curr[j] = a[i-1] == b[j-1] ? prev[j-1] : 1 + Swift.min(prev[j], curr[j-1], prev[j-1])
+            }
+            prev = curr
+        }
+        return prev[n]
     }
 
     /// Extract argument key names from a JSON arguments string for log preview.
