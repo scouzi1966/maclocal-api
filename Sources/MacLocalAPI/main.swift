@@ -158,7 +158,7 @@ struct MlxCommand: ParsableCommand {
           --kv-bits: Quantize KV cache (4 or 8 bits) to reduce memory
           --prefill-step-size: Prompt tokens per GPU pass (default: 2048)
           --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
-          --tool-call-parser: Override tool call format (hermes, llama3_json, gemma, mistral, qwen3_xml)
+          --tool-call-parser: Override tool call format (hermes, llama3_json, gemma, mistral, qwen3_xml, llamacpp_tool_parser)
           --fix-tool-args: Post-process tool call arg names to match original tool schema
           --no-think: Disable thinking/reasoning (sets enable_thinking=false)
           --default-chat-template-kwargs: JSON object merged into chat template context
@@ -188,6 +188,7 @@ struct MlxCommand: ParsableCommand {
             mistral: JSON format with Mistral chat template
             qwen3_xml: XML function format with Qwen3-Coder chat template
             gemma: Gemma function call format (uses model's built-in template)
+            llamacpp_tool_parser: Robust XML parser with JSON-in-XML fallback + xgrammar constrained generation
           auto_detected_formats:
             json: Default for Llama, Qwen, most models (<tool_call>...</tool_call> tags)
             xml_function: Qwen3 Coder, Qwen3.5 MoE (<function=name><parameter=key>value</parameter></function>)
@@ -322,7 +323,7 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible)")
     var guidedJson: String?
 
-    @Option(name: .long, help: "Tool call parser override: hermes, llama3_json, gemma, mistral, qwen3_xml. Forces a custom chat template and tool call format for reliable tool calling.")
+    @Option(name: .long, help: "Tool call parser override: hermes, llama3_json, gemma, mistral, qwen3_xml, llamacpp_tool_parser. llamacpp_tool_parser adds JSON-in-XML fallback + xgrammar constrained generation for models that switch between XML and JSON formats.")
     var toolCallParser: String?
 
     @Flag(name: .long, help: "Post-process tool call argument names to match the original tool schema (fixes model renaming e.g. path→filePath)")

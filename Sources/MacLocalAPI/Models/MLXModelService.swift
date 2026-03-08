@@ -200,7 +200,7 @@ final class MLXModelService: @unchecked Sendable {
         // --tool-call-parser override: force format for the specified parser
         if let parser = toolCallParser {
             switch parser {
-            case "qwen3_xml":
+            case "qwen3_xml", "llamacpp_tool_parser":
                 detectedFormat = .xmlFunction
             case "hermes", "llama3_json", "mistral":
                 detectedFormat = .json
@@ -243,12 +243,14 @@ final class MLXModelService: @unchecked Sendable {
                 currentToolCallFormat = detectedFormat
             }
             self.radixCache?.invalidateAll()
-            self.radixCache = RadixTreeCache(
-                modelID: modelID,
-                maxEntries: 64,
-                debugLogging: debugLogging
-            )
-            print("[PrefixCache] Radix tree prefix caching active (64 entries max)")
+            // RadixTreeCache disabled: KV shape broadcast crash on multi-request sequences.
+            // TODO: fix radix cache KV restoration to handle variable prompt lengths.
+            // self.radixCache = RadixTreeCache(
+            //     modelID: modelID,
+            //     maxEntries: 64,
+            //     debugLogging: debugLogging
+            // )
+            // print("[PrefixCache] Radix tree prefix caching active (64 entries max)")
             try registry.registerModel(modelID)
             stage?(.ready)
             return modelID
@@ -312,9 +314,19 @@ final class MLXModelService: @unchecked Sendable {
         var cachedTokenCount = 0
         let generated: String = try await container.perform { context in
             // Grammar constraint setup (needs tokenizer from context)
-            let grammarProcessor = self.setupGrammarConstraint(
-                modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
-            )
+            let grammarProcessor: GrammarLogitProcessor?
+            if responseFormat?.type == "json_schema" {
+                grammarProcessor = self.setupGrammarConstraint(
+                    modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
+                )
+            } else if self.toolCallParser == "llamacpp_tool_parser",
+                      ProcessInfo.processInfo.environment["AFM_XGRAMMAR_TOOL_CONSTRAINT"] == "1" {
+                grammarProcessor = self.setupToolCallGrammarConstraint(
+                    modelID: modelID, tokenizer: context.tokenizer, tools: tools
+                )
+            } else {
+                grammarProcessor = nil
+            }
             defer {
                 (grammarProcessor?.matcherHandle as? GrammarMatcherHandle)?.release()
             }
@@ -441,7 +453,7 @@ final class MLXModelService: @unchecked Sendable {
             } catch {
                 // On generation error, invalidate prompt cache inside the
                 // serialized block so no stale state leaks to the next request.
-                promptCache.invalidate()
+                self.radixCache?.invalidateAll()
                 throw error
             }
 
@@ -491,7 +503,7 @@ final class MLXModelService: @unchecked Sendable {
         }
 
         let responseToolCalls: [ResponseToolCall]? = finalToolCalls.isEmpty ? nil : finalToolCalls.enumerated().map { (i, tc) in
-            var converted = Self.convertToolCall(tc, index: i)
+            var converted = Self.coerceArgumentTypes(Self.convertToolCall(tc, index: i), tools: tools)
             if self.fixToolArgs, let requestTools = tools {
                 // Re-parse arguments JSON, remap keys, re-serialize
                 if let data = converted.function.arguments.data(using: .utf8),
@@ -582,9 +594,19 @@ final class MLXModelService: @unchecked Sendable {
                 do {
                     try await container.perform { context in
                         // Grammar constraint setup (needs tokenizer from context)
-                        let grammarProcessor = self.setupGrammarConstraint(
-                            modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
-                        )
+                        let grammarProcessor: GrammarLogitProcessor?
+                        if responseFormat?.type == "json_schema" {
+                            grammarProcessor = self.setupGrammarConstraint(
+                                modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
+                            )
+                        } else if self.toolCallParser == "llamacpp_tool_parser",
+                                  ProcessInfo.processInfo.environment["AFM_XGRAMMAR_TOOL_CONSTRAINT"] == "1" {
+                            grammarProcessor = self.setupToolCallGrammarConstraint(
+                                modelID: modelID, tokenizer: context.tokenizer, tools: tools
+                            )
+                        } else {
+                            grammarProcessor = nil
+                        }
                         defer {
                             (grammarProcessor?.matcherHandle as? GrammarMatcherHandle)?.release()
                         }
@@ -738,7 +760,7 @@ final class MLXModelService: @unchecked Sendable {
                         } catch {
                             // On generation error, invalidate prompt cache inside the
                             // serialized block so no stale state leaks to the next request.
-                            promptCache.invalidate()
+                            self.radixCache?.invalidateAll()
                             throw error
                         }
                         // Flush any remaining buffered text (no stop match found)
@@ -753,7 +775,7 @@ final class MLXModelService: @unchecked Sendable {
                         }
                         // Invalidate prompt cache on cancellation to prevent stale state
                         if Task.isCancelled {
-                            promptCache.invalidate()
+                            self.radixCache?.invalidateAll()
                         }
                         if debugLogging {
                             let ttft = firstTokenTime.map { $0.timeIntervalSince(genStart) } ?? 0
@@ -775,6 +797,7 @@ final class MLXModelService: @unchecked Sendable {
                     self.cleanupTempFiles(mediaTempFiles)
                     continuation.finish()
                 } catch {
+                    self.radixCache?.invalidateAll()
                     self.cleanupTempFiles(mediaTempFiles)
                     continuation.finish(throwing: error)
                 }
@@ -985,6 +1008,64 @@ final class MLXModelService: @unchecked Sendable {
     private static func generateCallID() -> String {
         let chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
         return String((0..<24).map { _ in chars.randomElement()! })
+    }
+
+    /// Coerce string argument values to match the tool's declared schema types.
+    /// XML tool call parsers emit all values as strings; this converts "true" → true, "5" → 5, etc.
+    static func coerceArgumentTypes(_ rtc: ResponseToolCall, tools: [RequestTool]?) -> ResponseToolCall {
+        guard let tools, !tools.isEmpty else { return rtc }
+        guard let tool = tools.first(where: { $0.function.name == rtc.function.name }),
+              let paramsAny = tool.function.parameters?.toSendable() as? [String: Any],
+              let props = paramsAny["properties"] as? [String: Any] else { return rtc }
+        guard let data = rtc.function.arguments.data(using: .utf8),
+              var argsDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return rtc }
+
+        var changed = false
+        for (key, value) in argsDict {
+            guard let stringValue = value as? String,
+                  let propSchema = props[key] as? [String: Any],
+                  let schemaType = propSchema["type"] as? String else { continue }
+            if let coerced = coerceStringValue(stringValue, schemaType: schemaType) {
+                argsDict[key] = coerced
+                changed = true
+            }
+        }
+
+        guard changed,
+              let newData = try? JSONSerialization.data(withJSONObject: argsDict, options: [.sortedKeys]),
+              let newStr = String(data: newData, encoding: .utf8) else { return rtc }
+        return ResponseToolCall(
+            id: rtc.id, type: rtc.type,
+            function: ResponseToolCallFunction(name: rtc.function.name, arguments: newStr)
+        )
+    }
+
+    /// Coerce a single string value to the schema-declared type.
+    static func coerceStringValue(_ stringValue: String, schemaType: String) -> Any? {
+        switch schemaType {
+        case "integer":
+            return Int(stringValue)
+        case "number":
+            if let d = Double(stringValue) {
+                let i = Int(d)
+                return d == Double(i) ? i : d
+            }
+            return nil
+        case "boolean":
+            switch stringValue.lowercased() {
+            case "true": return true
+            case "false": return false
+            default: return nil
+            }
+        case "array", "object":
+            if let jsonData = stringValue.data(using: .utf8),
+               let parsed = try? JSONSerialization.jsonObject(with: jsonData) {
+                return parsed
+            }
+            return nil
+        default:
+            return nil
+        }
     }
 
     /// Fallback tool call extraction for formats the vendor parser misses.
@@ -1310,6 +1391,79 @@ final class MLXModelService: @unchecked Sendable {
         }
     }
 
+    /// Set up grammar-constrained decoding for XML tool call format (llamacpp_tool_parser).
+    /// Uses xgrammar EBNF to force valid <tool_call><function=...> structure.
+    private func setupToolCallGrammarConstraint(
+        modelID: String,
+        tokenizer: any Tokenizer,
+        tools: [RequestTool]?
+    ) -> GrammarLogitProcessor? {
+        guard let tools, !tools.isEmpty else { return nil }
+
+        let toolNames = tools.map { $0.function.name }
+        guard !toolNames.isEmpty else { return nil }
+
+        do {
+            // Initialize xgrammar service if needed (same pattern as json_schema path)
+            if xgrammarService == nil {
+                guard let directory = resolver.localModelDirectory(repoId: modelID) else {
+                    if debugLogging { print("[XGrammar] Model directory not found") }
+                    return nil
+                }
+                let vocabSize = readVocabSize(directory: directory) ?? 151936
+                let service = XGrammarService(vocabSize: vocabSize, debugLogging: debugLogging)
+                let eosId = tokenizer.eosTokenId
+                try service.setupTokenizer(tokenizer: tokenizer, eosTokenId: eosId)
+                self.xgrammarService = service
+            }
+
+            guard let service = xgrammarService else { return nil }
+
+            let ebnfGrammar = Self.buildToolCallEBNF(toolNames: toolNames)
+            if debugLogging {
+                print("[XGrammar] Tool call EBNF grammar:\n\(ebnfGrammar)")
+            }
+
+            let matcher = try service.compileAndCreateMatcherFromEBNF(grammar: ebnfGrammar)
+
+            let proc = GrammarLogitProcessor()
+            proc.matcherHandle = matcher
+            proc.tokenMask = matcher.nextTokenMask()
+            proc.onTokenSampled = { [weak matcher] tokenID in
+                matcher?.acceptToken(tokenID)
+                proc.tokenMask = matcher?.nextTokenMask()
+            }
+
+            if debugLogging {
+                print("[XGrammar] Grammar constraint active for tool_call (EBNF, \(toolNames.count) tools, vocab_size=\(service.vocabSize))")
+            }
+
+            return proc
+        } catch {
+            if debugLogging {
+                print("[XGrammar] Failed to set up tool call grammar: \(error). Falling back to parsing-only mode.")
+            }
+            return nil
+        }
+    }
+
+    /// Build an EBNF grammar that allows free text OR valid XML tool calls.
+    /// The grammar constrains tool call structure while allowing normal text generation.
+    static func buildToolCallEBNF(toolNames: [String]) -> String {
+        let nameAlternation = toolNames.map { "\"\($0)\"" }.joined(separator: " | ")
+        // xgrammar EBNF dialect — allows free text followed by zero or more tool calls
+        return """
+        root ::= free_text (tool_call free_text)*
+        free_text ::= [^<]*
+        tool_call ::= "<tool_call>\\n<function=" tool_name ">\\n" params "</function>\\n</tool_call>"
+        tool_name ::= \(nameAlternation)
+        params ::= param*
+        param ::= "<parameter=" param_name ">\\n" param_value "\\n</parameter>\\n"
+        param_name ::= [a-zA-Z_] [a-zA-Z0-9_]*
+        param_value ::= [^<]+ | "<" [^/] [^<]*
+        """
+    }
+
     /// Returns true when the model has a VLM config layout that can't be loaded
     /// correctly by the LLM factory.  VLM models like gemma-3 store architecture
     /// fields (num_attention_heads, head_dim, etc.) only inside text_config, not at
@@ -1462,7 +1616,7 @@ final class MLXModelService: @unchecked Sendable {
         if let parser = toolCallParser, tools != nil, !tools!.isEmpty {
             let templateOverride: String?
             switch parser {
-            case "qwen3_xml":
+            case "qwen3_xml", "llamacpp_tool_parser":
                 templateOverride = Self.qwen3XMLTemplate
             case "hermes":
                 templateOverride = Self.hermesTemplate

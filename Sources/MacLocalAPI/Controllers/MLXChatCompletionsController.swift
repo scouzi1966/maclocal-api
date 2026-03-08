@@ -1,5 +1,6 @@
 import Vapor
 import Foundation
+import MLXLMCommon
 
 struct MLXChatCompletionsController: RouteCollection {
     private let streamingEnabled: Bool
@@ -113,7 +114,16 @@ struct MLXChatCompletionsController: RouteCollection {
                 req.logger.info("[\(Self.timestamp())] MLX request model '\(requestedModelRaw)' does not match active model '\(modelID)'; serving active model")
             }
 
-            let hasTools = chatRequest.tools != nil && !(chatRequest.tools?.isEmpty ?? true)
+            // Suppress tools when tool_choice=none
+            let toolChoiceNone: Bool
+            if case .mode(let m) = chatRequest.toolChoice, m == "none" {
+                toolChoiceNone = true
+            } else {
+                toolChoiceNone = false
+            }
+            let effectiveTools: [RequestTool]? = toolChoiceNone ? nil : chatRequest.tools
+
+            let hasTools = effectiveTools != nil && !(effectiveTools?.isEmpty ?? true)
             if hasTools && veryVerbose {
                 let toolNames = chatRequest.tools!.map { $0.function.name }.joined(separator: ", ")
                 req.logger.info("\(Self.gold)[\(Self.timestamp())] RECV tools: [\(toolNames)]\(Self.reset)")
@@ -156,7 +166,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 seed: effectiveSeed,
                 logprobs: chatRequest.logprobs,
                 topLogprobs: chatRequest.topLogprobs,
-                tools: chatRequest.tools,
+                tools: effectiveTools,
                 stop: effectiveStop,
                 responseFormat: chatRequest.responseFormat,
                 chatTemplateKwargs: chatRequest.chatTemplateKwargs
@@ -265,6 +275,10 @@ struct MLXChatCompletionsController: RouteCollection {
             let effectivePresencePenalty = chatRequest.presencePenalty ?? self.presencePenalty
             let effectiveSeed = chatRequest.seed ?? self.seed
             let effectiveStop = self.mergeStopSequences(cliStop: self.stop, apiStop: chatRequest.stop)
+            let effectiveTools: [RequestTool]? = {
+                if case .mode(let m) = chatRequest.toolChoice, m == "none" { return nil }
+                return chatRequest.tools
+            }()
 
             do {
                 if self.veryVerbose {
@@ -287,7 +301,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     seed: effectiveSeed,
                     logprobs: chatRequest.logprobs,
                     topLogprobs: chatRequest.topLogprobs,
-                    tools: chatRequest.tools,
+                    tools: effectiveTools,
                     stop: effectiveStop,
                     responseFormat: chatRequest.responseFormat,
                     chatTemplateKwargs: chatRequest.chatTemplateKwargs
@@ -527,7 +541,7 @@ struct MLXChatCompletionsController: RouteCollection {
                                 let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
                                 for tc in parsed {
                                     hasToolCalls = true
-                                    let rtc = self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: incrementalToolIndex, paramNameMapping: paramNameMapping), tools: chatRequest.tools)
+                                    let rtc = MLXModelService.coerceArgumentTypes(self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: incrementalToolIndex, paramNameMapping: paramNameMapping), tools: chatRequest.tools), tools: chatRequest.tools)
                                     // Replace the placeholder we added earlier
                                     if incrementalToolIndex < collectedToolCalls.count {
                                         collectedToolCalls[incrementalToolIndex] = rtc
@@ -542,17 +556,44 @@ struct MLXChatCompletionsController: RouteCollection {
                             } else {
                                 // Incremental parsing never kicked in (non-XML format).
                                 // Fall back to single-chunk emission.
-                                let wrapped = "\(toolCallStartTag!)\(currentToolText)\(toolCallEndTag!)"
-                                let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
+                                var parsed: [ToolCall] = []
+
+                                // llamacpp_tool_parser: try direct JSON parse first (handles model format-switching)
+                                if self.service.toolCallParser == "llamacpp_tool_parser" {
+                                    let trimmedBody = currentToolText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    if trimmedBody.hasPrefix("{"),
+                                       let data = trimmedBody.data(using: .utf8),
+                                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                                       let name = json["name"] as? String {
+                                        var arguments: [String: any Sendable] = [:]
+                                        if let args = (json["arguments"] as? [String: Any]) ?? (json["parameters"] as? [String: Any]) {
+                                            for (k, v) in args { arguments[k] = v as Sendable }
+                                        }
+                                        parsed = [ToolCall(function: .init(name: name, arguments: arguments))]
+                                        if self.veryVerbose {
+                                            print("\(Self.gold)[\(Self.timestamp())] llamacpp_tool_parser: JSON-in-XML fallback parsed '\(name)' with \(arguments.count) args\(Self.reset)")
+                                            fflush(stdout)
+                                        }
+                                    }
+                                }
+
+                                // Fall back to regex extraction (existing behavior)
+                                if parsed.isEmpty {
+                                    let wrapped = "\(toolCallStartTag!)\(currentToolText)\(toolCallEndTag!)"
+                                    let (regexParsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
+                                    parsed = regexParsed
+                                }
+
                                 if parsed.isEmpty {
                                     if self.veryVerbose {
-                                        print("\(Self.gold)[\(Self.timestamp())] SEND tool_call fallback: found 0 tool calls\n  body=\(currentToolText)\(Self.reset)")
+                                        let bodyPreview = currentToolText.count > 200 ? "\(currentToolText.prefix(100))...\(currentToolText.suffix(100))" : currentToolText
+                                        print("\(Self.gold)[\(Self.timestamp())] SEND tool_call fallback: found 0 tool calls\n  body=\(bodyPreview)\(Self.reset)")
                                         fflush(stdout)
                                     }
                                 }
                                 for tc in parsed {
                                     hasToolCalls = true
-                                    let rtc = self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools)
+                                    let rtc = MLXModelService.coerceArgumentTypes(self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools), tools: chatRequest.tools)
                                     collectedToolCalls.append(rtc)
                                     if self.veryVerbose {
                                         print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (fallback): \(rtc.function.name)\n  id=\(rtc.id)\n  args=\(rtc.function.arguments)\(Self.reset)")
@@ -600,6 +641,15 @@ struct MLXChatCompletionsController: RouteCollection {
                                 if let nameRange = matchStr.range(of: "="),
                                    let closeRange = matchStr.range(of: ">", options: .backwards) {
                                     let funcName = String(matchStr[nameRange.upperBound..<closeRange.lowerBound])
+                                    // If funcName looks like JSON (contains " or {), the model emitted
+                                    // JSON inside XML tags. Skip incremental emission — the end-tag
+                                    // handler will try JSON fallback parsing instead.
+                                    if funcName.contains("\"") || funcName.contains("{") {
+                                        if self.veryVerbose {
+                                            print("\(Self.gold)[\(Self.timestamp())] Skipping incremental emit: funcName looks like JSON: \(funcName.prefix(60))\(Self.reset)")
+                                            fflush(stdout)
+                                        }
+                                    } else {
                                     incrementalCallId = "call_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(24))"
                                     incrementalToolIndex = collectedToolCalls.count
                                     // Add a placeholder to collectedToolCalls
@@ -632,6 +682,7 @@ struct MLXChatCompletionsController: RouteCollection {
                                         print("\(Self.gold)[\(Self.timestamp())] SEND tool_call name: \(funcName)\n  id=\(incrementalCallId)\(Self.reset)")
                                         fflush(stdout)
                                     }
+                                    } // else (funcName is not JSON)
                                 }
                             }
 
@@ -849,7 +900,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
                         for tc in parsed {
                             hasToolCalls = true
-                            let rtc = self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: incrementalToolIndex, paramNameMapping: paramNameMapping), tools: chatRequest.tools)
+                            let rtc = MLXModelService.coerceArgumentTypes(self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: incrementalToolIndex, paramNameMapping: paramNameMapping), tools: chatRequest.tools), tools: chatRequest.tools)
                             if incrementalToolIndex < collectedToolCalls.count {
                                 collectedToolCalls[incrementalToolIndex] = rtc
                             } else {
@@ -861,7 +912,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
                         for tc in parsed {
                             hasToolCalls = true
-                            let rtc = self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools)
+                            let rtc = MLXModelService.coerceArgumentTypes(self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools), tools: chatRequest.tools)
                             collectedToolCalls.append(rtc)
                             let delta = StreamDeltaToolCall(
                                 index: collectedToolCalls.count - 1,
@@ -904,7 +955,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     if !parsed.isEmpty {
                         hasToolCalls = true
                         for tc in parsed {
-                            let rtc = self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools)
+                            let rtc = MLXModelService.coerceArgumentTypes(self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools), tools: chatRequest.tools)
                             collectedToolCalls.append(rtc)
                             let delta = StreamDeltaToolCall(
                                 index: collectedToolCalls.count - 1,

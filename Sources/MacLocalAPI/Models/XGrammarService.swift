@@ -129,6 +129,37 @@ final class XGrammarService: @unchecked Sendable {
             debugLogging: debugLogging
         )
     }
+
+    /// Compile an EBNF grammar and create a matcher.
+    func compileAndCreateMatcherFromEBNF(grammar: String) throws -> GrammarMatcherHandle {
+        guard let info = tokenizerInfo else {
+            throw XGrammarServiceError.notInitialized
+        }
+
+        let compiled = grammar.withCString { cStr in
+            compile_ebnf_grammar(info, cStr, grammar.utf8.count)
+        }
+        guard let compiled else {
+            let err = Self.consumeError() ?? "unknown EBNF compilation error"
+            throw XGrammarServiceError.compilationFailed(err)
+        }
+
+        let matcher = grammar_matcher_new(compiled)
+        compiled_grammar_free(compiled)
+
+        guard let matcher else {
+            let err = Self.consumeError() ?? "unknown matcher error"
+            throw XGrammarServiceError.matcherFailed(err)
+        }
+
+        let bitmaskSize = Int(grammar_bitmask_size(Int32(vocabSize)))
+        return GrammarMatcherHandle(
+            pointer: matcher,
+            vocabSize: vocabSize,
+            bitmaskSize: bitmaskSize,
+            debugLogging: debugLogging
+        )
+    }
 }
 
 // MARK: - GrammarMatcherHandle
