@@ -102,6 +102,10 @@ final class MLXModelService: @unchecked Sendable {
     var kvEvictionPolicy: String = "none"  // "none" or "streaming"
     var enablePrefixCaching: Bool = false
     var defaultChatTemplateKwargs: [String: Any]?
+    /// Detected think start/end tags from the tokenizer vocabulary (e.g., "<think>"/"</think>").
+    /// Set after model load. nil if the model doesn't have think tokens.
+    private(set) var thinkStartTag: String?
+    private(set) var thinkEndTag: String?
     private var xgrammarService: XGrammarService?
     init(resolver: MLXCacheResolver) {
         self.resolver = resolver
@@ -251,6 +255,28 @@ final class MLXModelService: @unchecked Sendable {
                 currentModelID = modelID
                 currentToolCallFormat = detectedFormat
             }
+            // Detect think start/end tags from tokenizer vocabulary
+            do {
+                let ctx = try await loaded.perform { context in context }
+                let knownThinkPairs: [(start: String, end: String)] = [
+                    ("<think>", "</think>"),
+                    ("<|think|>", "<|/think|>"),
+                    ("<reasoning>", "</reasoning>"),
+                ]
+                for pair in knownThinkPairs {
+                    if ctx.tokenizer.convertTokenToId(pair.start) != nil {
+                        self.thinkStartTag = pair.start
+                        self.thinkEndTag = pair.end
+                        if debugLogging {
+                            print("[\(ts())] [Think] Detected think tags: \(pair.start) / \(pair.end)")
+                        }
+                        break
+                    }
+                }
+                if self.thinkStartTag == nil && debugLogging {
+                    print("[\(ts())] [Think] No think tokens found in vocabulary")
+                }
+            }
             self.radixCache?.invalidateAll()
             if enablePrefixCaching {
                 self.radixCache = RadixTreeCache(
@@ -365,18 +391,19 @@ final class MLXModelService: @unchecked Sendable {
                 print("[\(ts())] [DEBUG] Full tokenized prompt (\(allTokens.count) tokens):\n\(decoded)\n[/DEBUG]")
             }
 
-            // If the chat template appended <think>, prepend it so extractors can detect it
+            // If the chat template appended a think start tag, prepend it so extractors can detect it
+            let thinkStart = self.thinkStartTag
             let tokens = input.text.tokens
             let ndim = tokens.ndim
             let seqLen = tokens.dim(ndim - 1)
             var out = ""
             var templateInjectedThink = false
-            if seqLen >= 2 {
+            if let thinkStart, seqLen >= 2 {
                 let flat = tokens.reshaped(-1)
                 let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
                 let decoded = context.tokenizer.decode(tokens: lastTwo)
-                if decoded.contains("<think>") {
-                    out = "<think>"
+                if decoded.contains(thinkStart) {
+                    out = thinkStart
                     templateInjectedThink = true
                 }
             }
@@ -438,13 +465,13 @@ final class MLXModelService: @unchecked Sendable {
                     }
                     if case .chunk(let text) = piece {
                         if firstTokenTime == nil { firstTokenTime = Date() }
-                        // Track <think> boundaries — stop sequences only apply outside
-                        if text.contains("<think>") { insideThink = true }
-                        if text.contains("</think>") { insideThink = false }
+                        // Track think boundaries — stop sequences only apply outside
+                        if let ts = thinkStart, text.contains(ts) { insideThink = true }
+                        if let te = self.thinkEndTag, text.contains(te) { insideThink = false }
                         out += text
-                        // Record where visible content starts (after </think>)
+                        // Record where visible content starts (after think end tag)
                         if !insideThink && visibleContentStart == nil {
-                            if let thinkEnd = out.range(of: "</think>") {
+                            if let te = self.thinkEndTag, let thinkEnd = out.range(of: te) {
                                 visibleContentStart = thinkEnd.upperBound
                             } else {
                                 visibleContentStart = out.startIndex
@@ -574,7 +601,7 @@ final class MLXModelService: @unchecked Sendable {
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
         chatTemplateKwargs: [String: AnyCodable]? = nil
-    ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int, toolCallStartTag: String?, toolCallEndTag: String?) {
+    ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int, toolCallStartTag: String?, toolCallEndTag: String?, thinkStartTag: String?, thinkEndTag: String?) {
         try beginOperation()
         var endOperationOnExit = true
         defer {
@@ -650,18 +677,19 @@ final class MLXModelService: @unchecked Sendable {
 
                         let input = try await context.processor.prepare(input: userInput)
 
-                        // If the chat template appended <think> to the prompt, inject it
+                        // If the chat template appended a think tag, inject it
                         // into the stream so the reasoning extractor can detect it.
+                        let thinkStart = self.thinkStartTag
                         var templateInjectedThink = false
                         let tokens = input.text.tokens
                         let ndim = tokens.ndim
                         let seqLen = tokens.dim(ndim - 1)
-                        if seqLen >= 2 {
+                        if let thinkStart, seqLen >= 2 {
                             let flat = tokens.reshaped(-1)
                             let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
                             let decoded = context.tokenizer.decode(tokens: lastTwo)
-                            if decoded.contains("<think>") {
-                                continuation.yield(StreamChunk(text: "<think>"))
+                            if decoded.contains(thinkStart) {
+                                continuation.yield(StreamChunk(text: thinkStart))
                                 templateInjectedThink = true
                             }
                         }
@@ -744,14 +772,14 @@ final class MLXModelService: @unchecked Sendable {
                                         resolved = nil
                                     }
 
-                                    // Track <think> boundaries for stop sequence scoping
+                                    // Track think boundaries for stop sequence scoping
                                     let wasInsideThink = insideThink
-                                    if text.contains("<think>") { insideThink = true }
-                                    if text.contains("</think>") { insideThink = false }
+                                    if let ts = thinkStart, text.contains(ts) { insideThink = true }
+                                    if let te = self.thinkEndTag, text.contains(te) { insideThink = false }
 
                                     if !activeStops.isEmpty && !insideThink {
-                                        // If we just transitioned out of think, only buffer text after </think>
-                                        if wasInsideThink, let thinkEndRange = text.range(of: "</think>") {
+                                        // If we just transitioned out of think, only buffer text after end tag
+                                        if wasInsideThink, let te = self.thinkEndTag, let thinkEndRange = text.range(of: te) {
                                             let afterThink = String(text[thinkEndRange.upperBound...])
                                             if !afterThink.isEmpty {
                                                 stopBuffer += afterThink
@@ -862,7 +890,7 @@ final class MLXModelService: @unchecked Sendable {
         }
 
         endOperationOnExit = false
-        return (modelID, stream, promptTokens, toolTags?.start, toolTags?.end)
+        return (modelID, stream, promptTokens, toolTags?.start, toolTags?.end, self.thinkStartTag, self.thinkEndTag)
     }
 
     func shutdownAndReleaseResources(verbose: Bool = false, timeoutSeconds: TimeInterval = 30) async {
@@ -1606,22 +1634,24 @@ final class MLXModelService: @unchecked Sendable {
 
             guard let service = xgrammarService else { return nil }
 
-            // Build structural tag JSON (TagDispatch: free text until trigger, then constrained)
-            let structuralTagJSON = Self.buildToolCallStructuralTag(tools: tools)
+            // Build EBNF grammar with literal tool names (llama.cpp approach).
+            // Reasoner gating suspends the grammar during <think>...</think>,
+            // so the free_text rule doesn't need to handle think tags.
+            let ebnfGrammar = Self.buildToolCallEBNF(tools: tools)
             if debugLogging {
-                print("[\(ts())] [XGrammar] Tool call structural tag:\n\(structuralTagJSON)")
+                print("[\(ts())] [XGrammar] Tool call EBNF grammar:\n\(ebnfGrammar)")
             }
 
             let matcher: GrammarMatcherHandle
             do {
-                matcher = try service.compileAndCreateMatcherFromStructuralTag(json: structuralTagJSON)
-            } catch {
-                // Fallback to EBNF if structural tag compilation fails
-                if debugLogging {
-                    print("[\(ts())] [XGrammar] Structural tag failed (\(error)), falling back to EBNF")
-                }
-                let ebnfGrammar = Self.buildToolCallEBNF(tools: tools)
                 matcher = try service.compileAndCreateMatcherFromEBNF(grammar: ebnfGrammar)
+            } catch {
+                // Fallback to structural tag if EBNF compilation fails
+                if debugLogging {
+                    print("[\(ts())] [XGrammar] EBNF failed (\(error)), falling back to structural tag")
+                }
+                let structuralTagJSON = Self.buildToolCallStructuralTag(tools: tools)
+                matcher = try service.compileAndCreateMatcherFromStructuralTag(json: structuralTagJSON)
             }
 
             let proc = GrammarLogitProcessor()
@@ -1677,7 +1707,7 @@ final class MLXModelService: @unchecked Sendable {
             }
 
             if debugLogging {
-                print("[\(ts())] [XGrammar] Grammar constraint active for tool_call (StructuralTag, \(tools.count) tools, vocab_size=\(service.vocabSize), reasoner gating=\(thinkTokenId != nil ? "enabled" : "disabled"))")
+                print("[\(ts())] [XGrammar] Grammar constraint active for tool_call (EBNF, \(tools.count) tools, vocab_size=\(service.vocabSize), reasoner gating=\(thinkTokenId != nil ? "enabled" : "disabled"))")
             }
 
             return proc

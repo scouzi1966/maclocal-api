@@ -221,7 +221,11 @@ struct MLXChatCompletionsController: RouteCollection {
             let finalContent: String
             let reasoningContent: String?
             if extractThinking {
-                (finalContent, reasoningContent) = Self.extractThinkContent(from: cleanedContent)
+                (finalContent, reasoningContent) = Self.extractThinkContent(
+                    from: cleanedContent,
+                    startTag: service.thinkStartTag ?? "<think>",
+                    endTag: service.thinkEndTag ?? "</think>"
+                )
             } else {
                 finalContent = cleanedContent
                 reasoningContent = nil
@@ -340,6 +344,8 @@ struct MLXChatCompletionsController: RouteCollection {
                 // streams normally; only the tool call body is buffered and parsed.
                 let toolCallStartTag = res.toolCallStartTag
                 let toolCallEndTag = res.toolCallEndTag
+                let thinkStartTag = res.thinkStartTag
+                let thinkEndTag = res.thinkEndTag
                 var inToolCall = false
                 var madeToolCall = false
                 var currentToolText = ""
@@ -494,7 +500,24 @@ struct MLXChatCompletionsController: RouteCollection {
                                             let funcName = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
                                             emitKey = self.remapSingleKey(rawKey, toolName: funcName, tools: chatRequest.tools)
                                         }
-                                        let jsonValue = Self.jsonEncodeValue(value)
+                                        // Coerce value to schema type before JSON encoding
+                                        // (XML text is always strings; numbers/booleans need coercion)
+                                        let jsonValue: String
+                                        let incFuncName = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
+                                        if let schemaType = Self.schemaTypeForParam(emitKey, toolName: incFuncName, tools: chatRequest.tools),
+                                           let coerced = MLXModelService.coerceStringValue(value, schemaType: schemaType) {
+                                            if let intVal = coerced as? Int {
+                                                jsonValue = "\(intVal)"
+                                            } else if let dblVal = coerced as? Double {
+                                                jsonValue = "\(dblVal)"
+                                            } else if let boolVal = coerced as? Bool {
+                                                jsonValue = boolVal ? "true" : "false"
+                                            } else {
+                                                jsonValue = Self.jsonEncodeValue(value)
+                                            }
+                                        } else {
+                                            jsonValue = Self.jsonEncodeValue(value)
+                                        }
                                         let fragment: String
                                         if incrementalParamCount == 0 {
                                             fragment = "{\"\(Self.jsonEscapeKey(emitKey))\":\(jsonValue)"
@@ -748,7 +771,23 @@ struct MLXChatCompletionsController: RouteCollection {
                                             emitKey = self.remapSingleKey(rawKey, toolName: funcName, tools: chatRequest.tools)
                                         }
 
-                                        let jsonValue = Self.jsonEncodeValue(value)
+                                        // Coerce value to schema type before JSON encoding
+                                        let jsonValue: String
+                                        let tokFuncName = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
+                                        if let schemaType = Self.schemaTypeForParam(emitKey, toolName: tokFuncName, tools: chatRequest.tools),
+                                           let coerced = MLXModelService.coerceStringValue(value, schemaType: schemaType) {
+                                            if let intVal = coerced as? Int {
+                                                jsonValue = "\(intVal)"
+                                            } else if let dblVal = coerced as? Double {
+                                                jsonValue = "\(dblVal)"
+                                            } else if let boolVal = coerced as? Bool {
+                                                jsonValue = boolVal ? "true" : "false"
+                                            } else {
+                                                jsonValue = Self.jsonEncodeValue(value)
+                                            }
+                                        } else {
+                                            jsonValue = Self.jsonEncodeValue(value)
+                                        }
                                         let fragment: String
                                         if incrementalParamCount == 0 {
                                             fragment = "{\"\(Self.jsonEscapeKey(emitKey))\":\(jsonValue)"
@@ -785,16 +824,29 @@ struct MLXChatCompletionsController: RouteCollection {
                     fullContent += piece
 
                     // Detect RAW think tags but defer logging until after extraction flush
-                    if self.veryVerbose && (piece.contains("<think>") || piece.contains("</think>")) {
+                    let tst = thinkStartTag ?? "<think>"
+                    let tet = thinkEndTag ?? "</think>"
+                    if self.veryVerbose && (piece.contains(tst) || piece.contains(tet)) {
                         pendingRawTag = piece.debugDescription
                     }
 
                     if extractThinking {
-                        thinkBuffer += piece
+                        // If the piece is exactly the think start tag (template-injected or
+                        // model-generated), just flip the state without adding the literal
+                        // tag to the buffer. Prevents double-tag leaks when the template
+                        // injects a think tag and the model also generates one.
+                        let trimmedPiece = piece.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if let tst = thinkStartTag, trimmedPiece == tst && !insideThinkBlock {
+                            insideThinkBlock = true
+                        } else {
+                            thinkBuffer += piece
+                        }
 
                         let extracted = Self.extractThinkTags(
                             buffer: &thinkBuffer,
-                            insideThinkBlock: &insideThinkBlock
+                            insideThinkBlock: &insideThinkBlock,
+                            startTag: thinkStartTag ?? "<think>",
+                            endTag: thinkEndTag ?? "</think>"
                         )
 
                         let emitContent = extracted.content
@@ -1026,7 +1078,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 } else {
                     finishReason = completionTokens >= effectiveMaxTokens ? "length" : "stop"
                     if self.veryVerbose {
-                        let (finalAnswer, _) = Self.extractThinkContent(from: fullContent)
+                        let (finalAnswer, _) = Self.extractThinkContent(from: fullContent, startTag: thinkStartTag ?? "<think>", endTag: thinkEndTag ?? "</think>")
                         let trimmedAnswer = finalAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !trimmedAnswer.isEmpty {
                             print("\(Self.teal)[\(Self.timestamp())] MLX full answer:\n  \(trimmedAnswer)\n\(Self.reset)")
@@ -1107,7 +1159,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 let generationDuration = max(Date().timeIntervalSince(started), 0.001)
                 let tokPerSec = generationDuration > 0 ? Double(completionTokens) / generationDuration : 0
                 if self.veryVerbose {
-                    let (finalAnswer, _) = Self.extractThinkContent(from: fullContent)
+                    let (finalAnswer, _) = Self.extractThinkContent(from: fullContent, startTag: self.service.thinkStartTag ?? "<think>", endTag: self.service.thinkEndTag ?? "</think>")
                     let trimmedAnswer = finalAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmedAnswer.isEmpty {
                         print("\(Self.teal)[\(Self.timestamp())] MLX full answer (before error):\n  \(trimmedAnswer)\n\(Self.reset)")
@@ -1279,19 +1331,23 @@ struct MLXChatCompletionsController: RouteCollection {
     /// The buffer retains incomplete tag fragments for the next call.
     private static func extractThinkTags(
         buffer: inout String,
-        insideThinkBlock: inout Bool
+        insideThinkBlock: inout Bool,
+        startTag: String = "<think>",
+        endTag: String = "</think>"
     ) -> (reasoning: String?, content: String?) {
         var reasoning = ""
         var content = ""
+        let startTagLen = startTag.count
+        let endTagLen = endTag.count
 
         while !buffer.isEmpty {
             if insideThinkBlock {
-                if let endRange = buffer.range(of: "</think>") {
+                if let endRange = buffer.range(of: endTag) {
                     reasoning += String(buffer[buffer.startIndex..<endRange.lowerBound])
                     buffer = String(buffer[endRange.upperBound...])
                     insideThinkBlock = false
-                } else if buffer.count > 8 {
-                    let safeEnd = buffer.index(buffer.endIndex, offsetBy: -8)
+                } else if buffer.count > endTagLen {
+                    let safeEnd = buffer.index(buffer.endIndex, offsetBy: -endTagLen)
                     reasoning += String(buffer[buffer.startIndex..<safeEnd])
                     buffer = String(buffer[safeEnd...])
                     break
@@ -1299,13 +1355,13 @@ struct MLXChatCompletionsController: RouteCollection {
                     break
                 }
             } else {
-                if let startRange = buffer.range(of: "<think>") {
+                if let startRange = buffer.range(of: startTag) {
                     let before = String(buffer[buffer.startIndex..<startRange.lowerBound])
                     content += before
                     buffer = String(buffer[startRange.upperBound...])
                     insideThinkBlock = true
-                } else if buffer.count > 7 {
-                    let safeEnd = buffer.index(buffer.endIndex, offsetBy: -7)
+                } else if buffer.count > startTagLen {
+                    let safeEnd = buffer.index(buffer.endIndex, offsetBy: -startTagLen)
                     content += String(buffer[buffer.startIndex..<safeEnd])
                     buffer = String(buffer[safeEnd...])
                     break
@@ -1325,16 +1381,16 @@ struct MLXChatCompletionsController: RouteCollection {
         return (reasoning: r, content: c)
     }
 
-    /// Extract `<think>...</think>` from a complete (non-streaming) response.
-    private static func extractThinkContent(from text: String) -> (content: String, reasoning: String?) {
-        guard text.contains("<think>") else { return (text, nil) }
+    /// Extract think tags from a complete (non-streaming) response.
+    private static func extractThinkContent(from text: String, startTag: String = "<think>", endTag: String = "</think>") -> (content: String, reasoning: String?) {
+        guard text.contains(startTag) else { return (text, nil) }
         var buffer = text
         var inside = false
         var allReasoning = ""
         var allContent = ""
 
         while !buffer.isEmpty {
-            let extracted = extractThinkTags(buffer: &buffer, insideThinkBlock: &inside)
+            let extracted = extractThinkTags(buffer: &buffer, insideThinkBlock: &inside, startTag: startTag, endTag: endTag)
             if let r = extracted.reasoning { allReasoning += r }
             if let c = extracted.content { allContent += c }
             if extracted.reasoning == nil && extracted.content == nil { break }
@@ -1371,6 +1427,17 @@ struct MLXChatCompletionsController: RouteCollection {
             )
         }
         return ChoiceLogprobs(content: content)
+    }
+
+    /// Look up the schema type for a parameter in a tool's function schema.
+    static func schemaTypeForParam(_ paramName: String, toolName: String, tools: [RequestTool]?) -> String? {
+        guard let tools else { return nil }
+        guard let tool = tools.first(where: { $0.function.name == toolName }),
+              let paramsAny = tool.function.parameters?.toSendable() as? [String: Any],
+              let props = paramsAny["properties"] as? [String: Any],
+              let propSchema = props[paramName] as? [String: Any],
+              let schemaType = propSchema["type"] as? String else { return nil }
+        return schemaType
     }
 
     /// JSON-encode a parameter value: if it parses as a JSON array or object,
