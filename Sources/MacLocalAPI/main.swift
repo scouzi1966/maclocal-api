@@ -156,7 +156,7 @@ struct MlxCommand: ParsableCommand {
           --vlm: Force load as vision model (VLM) instead of text-only LLM
           --media: Image/video paths for VLM single-prompt mode (implies --vlm)
           --kv-bits: Quantize KV cache (4 or 8 bits) to reduce memory
-          --prefill-step-size: Prompt tokens per GPU pass (default: 2048)
+          --prefill-step-size: Prompt tokens per GPU pass (default: 1024)
           --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
           --tool-call-parser: Override tool call format (hermes, llama3_json, gemma, mistral, qwen3_xml, afm_adaptive_xml)
           --fix-tool-args: Post-process tool call arg names to match original tool schema

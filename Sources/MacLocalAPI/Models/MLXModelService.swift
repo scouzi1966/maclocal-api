@@ -86,7 +86,7 @@ final class MLXModelService: @unchecked Sendable {
     private var gpuInitialized = false
     private var radixCache: RadixTreeCache?
     private var currentToolCallFormat: ToolCallFormat?
-    var prefillStepSize: Int = 2048
+    var prefillStepSize: Int = 1024
     var toolCallParser: String?
     var fixToolArgs: Bool = false
     var forceVLM: Bool = false

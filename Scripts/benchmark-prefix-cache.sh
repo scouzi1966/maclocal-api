@@ -109,6 +109,7 @@ wait_for_server() {
 }
 
 # Send a request and return JSON with timing info
+# If $7 is set, it's a path to a JSON file containing the full messages array
 send_request() {
   local port=$1
   local user_msg="$2"
@@ -116,6 +117,7 @@ send_request() {
   local mode="$4"      # "cache" or "nocache"
   local run_num="$5"
   local stream="$6"    # "true" or "false"
+  local messages_file="${7:-}"
 
   python3 << PYEOF
 import json, time, sys
@@ -123,20 +125,28 @@ import json, time, sys
 port = ${port}
 max_tokens = ${MAX_TOKENS}
 temperature = ${TEMPERATURE}
-user_msg = json.loads($(python3 -c "import json,sys; print(json.dumps(json.dumps(sys.argv[1])))" "$user_msg"))
-system_prompt = json.loads($(python3 -c "import json,sys; print(json.dumps(json.dumps(sys.argv[1])))" "$SYSTEM_PROMPT"))
-tools = json.loads('''${TOOLS}''')
 stream = "${stream}" == "true"
 label = "${label}"
 mode = "${mode}"
 run_num = ${run_num}
+messages_file = "${messages_file}"
+
+tools = json.loads('''${TOOLS}''')
+
+if messages_file:
+    with open(messages_file) as f:
+        messages = json.load(f)
+else:
+    user_msg = json.loads($(python3 -c "import json,sys; print(json.dumps(json.dumps(sys.argv[1])))" "$user_msg"))
+    system_prompt = json.loads($(python3 -c "import json,sys; print(json.dumps(json.dumps(sys.argv[1])))" "$SYSTEM_PROMPT"))
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_msg}
+    ]
 
 payload = {
     "model": "any",
-    "messages": [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_msg}
-    ],
+    "messages": messages,
     "tools": tools,
     "max_tokens": max_tokens,
     "temperature": temperature,
@@ -284,6 +294,49 @@ for ((r=1; r<=RUNS; r++)); do
   echo "$result" >> "$RESULTS_FILE"
 done
 
+# Scenario D: Multi-turn conversation (growing prefix)
+echo ""
+echo "  ── Scenario D: Multi-turn conversation (5 turns) ──"
+
+# Build multi-turn messages files — each turn adds user+assistant to history
+python3 << MTEOF
+import json, os
+
+system_prompt = json.loads($(python3 -c "import json,sys; print(json.dumps(json.dumps(sys.argv[1])))" "$SYSTEM_PROMPT"))
+report_dir = "${REPORT_DIR}"
+
+turns = [
+    {"user": "Read the file main.py and tell me what it does.", "assistant": "I'll read the file for you.\n\nThe file main.py is the entry point of the file organizer application. It imports argparse for CLI parsing and the organizer module. It defines two subcommands: 'organize' which takes a directory path and an optional --dry-run flag, and 'stats' which shows file type statistics. The main() function parses arguments and dispatches to the appropriate handler."},
+    {"user": "Now read organizer.py and explain how it categorizes files.", "assistant": "Let me read that file.\n\nThe organizer.py module contains the core logic. It defines a FILE_CATEGORIES dict mapping extensions to folder names: .jpg/.png/.gif -> Images, .pdf/.docx/.txt -> Documents, .mp4/.mov/.avi -> Videos, .zip/.tar/.gz -> Archives. The organize() function iterates over files in the target directory, looks up each extension in the mapping, creates the target folder if needed, and moves the file. Unknown extensions go to an 'Other' folder."},
+    {"user": "There's a bug - it crashes when a file has no extension. Can you fix it?", "assistant": "I see the issue. In organizer.py line 23, it calls `path.suffix[1:]` to get the extension without the dot, but when a file has no extension, `path.suffix` returns an empty string, and `[1:]` on an empty string returns empty string which isn't in FILE_CATEGORIES. But the crash is actually on line 28 where it tries `ext.lower()` — when ext is from a file like 'Makefile' with no dot, path.suffix returns '' and the code doesn't handle that. Let me fix it by adding a guard."},
+    {"user": "Good. Now add a --verbose flag that prints each file move operation.", "assistant": "I'll add the verbose flag. In main.py, I'll add a --verbose/-v argument to the organize subparser. In organizer.py, I'll pass verbose through and add print statements showing 'Moving {filename} -> {category}/{filename}' for each file processed. When --dry-run is active, it will show 'Would move {filename} -> {category}/{filename}' instead."},
+    {"user": "Run the tests to make sure nothing is broken after these changes.", "assistant": "I'll run the test suite now to verify everything still works."},
+]
+
+messages = [{"role": "system", "content": system_prompt}]
+
+for i, turn in enumerate(turns):
+    messages.append({"role": "user", "content": turn["user"]})
+    # Save messages BEFORE adding assistant response (this is what we send)
+    msg_file = os.path.join(report_dir, f"multiturn-{i+1}.json")
+    with open(msg_file, "w") as f:
+        json.dump(messages, f)
+    # Add assistant response for next turn's context
+    messages.append({"role": "assistant", "content": turn["assistant"]})
+
+print("OK")
+MTEOF
+
+for turn in 1 2 3 4 5; do
+  msg_file="$REPORT_DIR/multiturn-${turn}.json"
+  result=$(send_request $PORT "" "turn-${turn}" "nocache" "$turn" "false" "$msg_file")
+  pt=$(echo "$result" | python3 -c "import json,sys; print(json.load(sys.stdin).get('prompt_time_s','?'))")
+  ct=$(echo "$result" | python3 -c "import json,sys; print(json.load(sys.stdin).get('cached_tokens',0))")
+  ptok=$(echo "$result" | python3 -c "import json,sys; print(json.load(sys.stdin).get('prompt_tokens',0))")
+  echo "     Turn $turn: prompt_tokens=${ptok}  prompt_time=${pt}s  cached_tokens=${ct}"
+  echo "$result" >> "$RESULTS_FILE"
+done
+
 kill $AFM_PID 2>/dev/null || true
 wait $AFM_PID 2>/dev/null || true
 kill_port $PORT
@@ -341,6 +394,19 @@ for ((r=1; r<=RUNS; r++)); do
   pt=$(echo "$result" | python3 -c "import json,sys; print(json.load(sys.stdin).get('prompt_time_s','?'))")
   ct=$(echo "$result" | python3 -c "import json,sys; print(json.load(sys.stdin).get('cached_tokens',0))")
   echo "     Run $r: prompt_time=${pt}s  cached_tokens=${ct}"
+  echo "$result" >> "$RESULTS_FILE"
+done
+
+# Scenario D: Multi-turn conversation (growing prefix) — reuses msg files from Phase 1
+echo ""
+echo "  ── Scenario D: Multi-turn conversation (5 turns) ──"
+for turn in 1 2 3 4 5; do
+  msg_file="$REPORT_DIR/multiturn-${turn}.json"
+  result=$(send_request $PORT "" "turn-${turn}" "cache" "$turn" "false" "$msg_file")
+  pt=$(echo "$result" | python3 -c "import json,sys; print(json.load(sys.stdin).get('prompt_time_s','?'))")
+  ct=$(echo "$result" | python3 -c "import json,sys; print(json.load(sys.stdin).get('cached_tokens',0))")
+  ptok=$(echo "$result" | python3 -c "import json,sys; print(json.load(sys.stdin).get('prompt_tokens',0))")
+  echo "     Turn $turn: prompt_tokens=${ptok}  prompt_time=${pt}s  cached_tokens=${ct}"
   echo "$result" >> "$RESULTS_FILE"
 done
 
@@ -567,14 +633,72 @@ plt.savefig(chart4, dpi=150, bbox_inches="tight")
 plt.close()
 print(f"  Chart 4: {chart4}")
 
+# ── Chart 5: Multi-turn Conversation ──────────────────────────────────────
+
+turn_labels = [f"turn-{i}" for i in range(1, 6)]
+nc_turn_pts = [r for r in results if r["label"].startswith("turn-") and r["mode"] == "nocache"]
+ca_turn_pts = [r for r in results if r["label"].startswith("turn-") and r["mode"] == "cache"]
+
+if nc_turn_pts and ca_turn_pts:
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    fig.suptitle("Multi-Turn Conversation: Prefix Cache Impact", fontsize=14, fontweight="bold")
+
+    # 5a: Prompt time per turn
+    ax = axes[0]
+    nc_sorted = sorted(nc_turn_pts, key=lambda r: r["run"])
+    ca_sorted = sorted(ca_turn_pts, key=lambda r: r["run"])
+
+    nc_times = [r["prompt_time_s"] for r in nc_sorted if r.get("prompt_time_s") is not None]
+    ca_times = [r["prompt_time_s"] for r in ca_sorted if r.get("prompt_time_s") is not None]
+    nc_runs = list(range(1, len(nc_times)+1))
+    ca_runs = list(range(1, len(ca_times)+1))
+
+    if nc_times:
+        ax.plot(nc_runs, nc_times, "-o", color="#e74c3c", label="No Cache", linewidth=2, markersize=8)
+    if ca_times:
+        ax.plot(ca_runs, ca_times, "-s", color="#2ecc71", label="Cache", linewidth=2, markersize=8)
+
+    ax.set_xlabel("Conversation Turn")
+    ax.set_ylabel("Prompt Time (s)")
+    ax.set_title("TTFT per Turn (growing context)")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+
+    # 5b: Cached tokens + prompt tokens per turn
+    ax = axes[1]
+    ca_cached = [r["cached_tokens"] for r in ca_sorted]
+    ca_prompt = [r["prompt_tokens"] for r in ca_sorted]
+    nc_prompt = [r["prompt_tokens"] for r in nc_sorted]
+    turns_x = list(range(1, len(ca_sorted)+1))
+
+    if ca_prompt:
+        ax.bar(turns_x, ca_prompt, color="#3498db", alpha=0.4, label="Total Prompt Tokens")
+        ax.bar(turns_x, ca_cached, color="#2ecc71", alpha=0.85, label="Cached Tokens (reused)")
+
+    ax.set_xlabel("Conversation Turn")
+    ax.set_ylabel("Tokens")
+    ax.set_title("Prefix Reuse per Turn")
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis="y")
+    ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+
+    plt.tight_layout()
+    chart5 = os.path.join(report_dir, "multiturn-comparison.jpg")
+    plt.savefig(chart5, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"  Chart 5: {chart5}")
+
 # ── Summary Table ──────────────────────────────────────────────────────────
 
+# Include multi-turn in scenarios
+all_scenarios = scenarios + turn_labels
 print()
 print("  ┌─────────────────────────┬──────────────┬──────────────┬──────────┐")
 print("  │ Scenario                │ No Cache (s) │ Cache (s)    │ Speedup  │")
 print("  ├─────────────────────────┼──────────────┼──────────────┼──────────┤")
 
-for scenario in scenarios:
+for scenario in all_scenarios:
     nc_pts = [r for r in results if r["label"] == scenario and r["mode"] == "nocache"
               and r.get("prompt_time_s") is not None]
     ca_pts = [r for r in results if r["label"] == scenario and r["mode"] == "cache"
