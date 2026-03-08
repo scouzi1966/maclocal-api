@@ -335,6 +335,9 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Default chat template kwargs as JSON (e.g. '{\"enable_thinking\": false}')")
     var defaultChatTemplateKwargs: String?
 
+    @Flag(name: .long, help: "Enable radix tree prefix caching for KV cache reuse across requests")
+    var enablePrefixCaching: Bool = false
+
     @Flag(name: .long, help: "Disable thinking/reasoning (sets enable_thinking=false in chat template)")
     var noThink: Bool = false
 
@@ -365,6 +368,7 @@ struct MlxCommand: ParsableCommand {
         service.kvBits = kvBits
         if let prefillStepSize { service.prefillStepSize = prefillStepSize }
         service.kvEvictionPolicy = kvEviction ?? "none"
+        service.enablePrefixCaching = enablePrefixCaching
 
         // Parse --default-chat-template-kwargs and --no-think into defaultChatTemplateKwargs
         var parsedKwargs: [String: Any] = [:]

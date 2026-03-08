@@ -1,0 +1,9 @@
+{"group": "Preflight", "name": "Binary exists at .build/release/afm", "status": "PASS", "duration_ms": 21}
+{"group": "Preflight", "name": "Server reachable at http://127.0.0.1:9998", "status": "PASS", "duration_ms": 25}
+{"group": "AdaptiveXML", "name": "Normal XML tool call works with afm_adaptive_xml", "status": "PASS", "duration_ms": 591}
+{"group": "AdaptiveXML", "name": "Streaming tool call emits valid deltas", "status": "PASS", "duration_ms": 816}
+{"group": "AdaptiveXML", "name": "Multi-turn: model responds after tool result", "status": "PASS", "duration_ms": 585}
+{"group": "AdaptiveXML", "name": "tool_choice=none suppresses tool calls", "status": "PASS", "duration_ms": 1441}
+{"group": "AdaptiveXML", "name": "Multiple tools: correct function selected", "status": "PASS", "duration_ms": 692}
+{"group": "AdaptiveXML", "name": "Argument types coerced (string, bool, int)", "status": "PASS", "duration_ms": 956}
+{"group": "AdaptiveXML", "name": "Tool call valid (xgrammar requires compile flag)", "status": "PASS", "duration_ms": 598}

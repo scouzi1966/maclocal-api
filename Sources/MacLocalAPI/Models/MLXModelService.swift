@@ -92,6 +92,7 @@ final class MLXModelService: @unchecked Sendable {
     var forceVLM: Bool = false
     var kvBits: Int?
     var kvEvictionPolicy: String = "none"  // "none" or "streaming"
+    var enablePrefixCaching: Bool = false
     var defaultChatTemplateKwargs: [String: Any]?
     private var xgrammarService: XGrammarService?
     init(resolver: MLXCacheResolver) {
@@ -243,14 +244,16 @@ final class MLXModelService: @unchecked Sendable {
                 currentToolCallFormat = detectedFormat
             }
             self.radixCache?.invalidateAll()
-            // RadixTreeCache disabled: KV shape broadcast crash on multi-request sequences.
-            // TODO: fix radix cache KV restoration to handle variable prompt lengths.
-            // self.radixCache = RadixTreeCache(
-            //     modelID: modelID,
-            //     maxEntries: 64,
-            //     debugLogging: debugLogging
-            // )
-            // print("[PrefixCache] Radix tree prefix caching active (64 entries max)")
+            if enablePrefixCaching {
+                self.radixCache = RadixTreeCache(
+                    modelID: modelID,
+                    maxEntries: 64,
+                    debugLogging: debugLogging
+                )
+                print("[PrefixCache] Radix tree prefix caching active (64 entries max)")
+            } else {
+                self.radixCache = nil
+            }
             try registry.registerModel(modelID)
             stage?(.ready)
             return modelID
