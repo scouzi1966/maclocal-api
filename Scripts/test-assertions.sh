@@ -2023,9 +2023,10 @@ except Exception as e:
       run_test "AdaptiveXML" "Argument types coerced (string, bool, int)" "correct types" "$typed_ok" "$dur"
     fi
 
-    # ── Test 12.7: xgrammar constraint logged (debug check) ─────────────────
-    # This is a soft check — we verify the response is valid. The xgrammar
-    # constraint is best verified via debug logs (AFM_DEBUG=1).
+    # ── Test 12.7: tool call valid (xgrammar constraint requires compile flag) ──
+    # Verifies tool call response is valid. xgrammar EBNF constraint is compiled
+    # out by default (requires -DENABLE_XGRAMMAR_TOOL_CONSTRAINT). This test
+    # validates the response regardless — with or without grammar constraint.
     t0=$(now_ms)
     xg_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Berlin?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
     dur=$(( $(now_ms) - t0 ))
@@ -2047,9 +2048,9 @@ except Exception as e:
     print(f'FAIL: {e}')
 " 2>/dev/null || echo "FAIL: parse error")
     if [ "$xg_ok" = "PASS" ]; then
-      run_test "AdaptiveXML" "Tool call valid with xgrammar constraint active" "valid" "PASS" "$dur"
+      run_test "AdaptiveXML" "Tool call valid (xgrammar requires compile flag)" "valid" "PASS" "$dur"
     else
-      run_test "AdaptiveXML" "Tool call valid with xgrammar constraint active" "valid" "$xg_ok" "$dur"
+      run_test "AdaptiveXML" "Tool call valid (xgrammar requires compile flag)" "valid" "$xg_ok" "$dur"
     fi
 
   else
