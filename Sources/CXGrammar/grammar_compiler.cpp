@@ -53,6 +53,20 @@ void* compile_regex_grammar(void* tokenizer_info,
     }
 }
 
+void* compile_structural_tag(void* tokenizer_info,
+                              const char* json, size_t length) {
+    try {
+        auto* info = static_cast<TokenizerInfo*>(tokenizer_info);
+        GrammarCompiler compiler(*info);
+        std::string json_str(json, length);
+        auto compiled = compiler.CompileStructuralTag(json_str);
+        return new CompiledGrammar(compiled);
+    } catch (const std::exception& e) {
+        catch_error(e.what());
+        return nullptr;
+    }
+}
+
 void compiled_grammar_free(void* compiled_grammar) {
     delete static_cast<CompiledGrammar*>(compiled_grammar);
 }

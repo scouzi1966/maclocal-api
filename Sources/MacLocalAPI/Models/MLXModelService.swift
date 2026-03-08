@@ -75,6 +75,14 @@ enum MLXServiceError: Error, LocalizedError {
 private let debugLogging = ProcessInfo.processInfo.environment["AFM_DEBUG"].map { $0 == "1" } ?? false
 private let clearGPUCachePerRequest = ProcessInfo.processInfo.environment["AFM_CLEAR_GPU_CACHE"].map { $0 == "1" } ?? false
 
+private let _tsFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+    f.locale = Locale(identifier: "en_US_POSIX")
+    return f
+}()
+private func ts() -> String { _tsFormatter.string(from: Date()) }
+
 final class MLXModelService: @unchecked Sendable {
     private let resolver: MLXCacheResolver
     private let registry = MLXModelRegistry()
@@ -121,7 +129,7 @@ final class MLXModelService: @unchecked Sendable {
         var previousWired: size_t = 0
         mlx_set_wired_limit(&previousWired, size_t(wiredLimitBytes))
 
-        print("MLX GPU: cache=\(cacheMB)MB wired=\(wiredLimitBytes / (1024*1024))MB (system \(totalMemoryGB)GB)")
+        print("[\(ts())] MLX GPU: cache=\(cacheMB)MB wired=\(wiredLimitBytes / (1024*1024))MB (system \(totalMemoryGB)GB)")
     }
 
     /// Apply StreamingLLM eviction to the given KV cache layers.
@@ -141,7 +149,7 @@ final class MLXModelService: @unchecked Sendable {
             }
         }
         if debugLogging {
-            print("[KVCache] StreamingLLM eviction applied: kept \(sinkCount) sinks + \(windowSize) recent tokens")
+            print("[\(ts())] [KVCache] StreamingLLM eviction applied: kept \(sinkCount) sinks + \(windowSize) recent tokens")
         }
     }
 
@@ -211,7 +219,7 @@ final class MLXModelService: @unchecked Sendable {
                 break
             }
             if debugLogging {
-                print("[ToolCallParser] Forcing \(String(describing: detectedFormat)) format for \(parser) parser")
+                print("[\(ts())] [ToolCallParser] Forcing \(String(describing: detectedFormat)) format for \(parser) parser")
             }
         }
         config.toolCallFormat = detectedFormat
@@ -250,7 +258,7 @@ final class MLXModelService: @unchecked Sendable {
                     maxEntries: 64,
                     debugLogging: debugLogging
                 )
-                print("[PrefixCache] Radix tree prefix caching active (64 entries max)")
+                print("[\(ts())] [PrefixCache] Radix tree prefix caching active (64 entries max)")
             } else {
                 self.radixCache = nil
             }
@@ -354,7 +362,7 @@ final class MLXModelService: @unchecked Sendable {
             if debugLogging {
                 let allTokens = input.text.tokens.reshaped(-1).asArray(Int.self)
                 let decoded = context.tokenizer.decode(tokens: allTokens)
-                print("[DEBUG] Full tokenized prompt (\(allTokens.count) tokens):\n\(decoded)\n[/DEBUG]")
+                print("[\(ts())] [DEBUG] Full tokenized prompt (\(allTokens.count) tokens):\n\(decoded)\n[/DEBUG]")
             }
 
             // If the chat template appended <think>, prepend it so extractors can detect it
@@ -401,20 +409,20 @@ final class MLXModelService: @unchecked Sendable {
                     generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
                     cachedTokenCount = effectivePrefix
                     if debugLogging {
-                        print("[KVCache] Radix hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
+                        print("[\(ts())] [KVCache] Radix hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
                     }
                 } else {
                     generationCache = context.model.newCache(parameters: params)
                     generateInput = input
                     if debugLogging {
-                        print("[KVCache] Cache miss, full prefill for \(inputTokens.count) tokens")
+                        print("[\(ts())] [KVCache] Cache miss, full prefill for \(inputTokens.count) tokens")
                     }
                 }
             } else {
                 generationCache = context.model.newCache(parameters: params)
                 generateInput = input
                 if debugLogging {
-                    print("[KVCache] Multimodal input, skipping cache")
+                    print("[\(ts())] [KVCache] Multimodal input, skipping cache")
                 }
             }
 
@@ -426,7 +434,7 @@ final class MLXModelService: @unchecked Sendable {
             do {
                 for await piece in try MLXLMCommon.generate(input: generateInput, cache: generationCache, parameters: params, context: context) {
                     if debugLogging {
-                        print("[DEBUG] Generation piece: \(piece)")
+                        print("[\(ts())] [DEBUG] Generation piece: \(piece)")
                     }
                     if case .chunk(let text) = piece {
                         if firstTokenTime == nil { firstTokenTime = Date() }
@@ -457,7 +465,7 @@ final class MLXModelService: @unchecked Sendable {
                         collectedLogprobs.append(contentsOf: lps)
                     } else if case .toolCall(let tc) = piece {
                         if debugLogging {
-                            print("[DEBUG] Tool call detected: \(tc.function.name)(\(tc.function.arguments))")
+                            print("[\(ts())] [DEBUG] Tool call detected: \(tc.function.name)(\(tc.function.arguments))")
                         }
                         collectedToolCalls.append(tc)
                     } else if case .info(let info) = piece {
@@ -482,7 +490,7 @@ final class MLXModelService: @unchecked Sendable {
                 let total = Date().timeIntervalSince(genStart)
                 let promptTok = completionInfo?.promptTokenCount ?? 0
                 let genTok = completionInfo?.generationTokenCount ?? 0
-                print("[KVCache] Timing: TTFT=\(String(format: "%.3f", ttft))s total=\(String(format: "%.3f", total))s prompt_tokens=\(promptTok) gen_tokens=\(genTok)")
+                print("[\(ts())] [KVCache] Timing: TTFT=\(String(format: "%.3f", ttft))s total=\(String(format: "%.3f", total))s prompt_tokens=\(promptTok) gen_tokens=\(genTok)")
             }
 
             // Save prompt cache state into radix tree
@@ -509,6 +517,9 @@ final class MLXModelService: @unchecked Sendable {
         var finalToolCalls = collectedToolCalls
         var finalContent = generated
         if finalToolCalls.isEmpty && tools != nil {
+            if debugLogging {
+                print("[\(ts())] [ToolCallParser] Vendor parser found 0 tool calls, trying fallback on \(generated.count) chars")
+            }
             let (parsed, remaining) = Self.extractToolCallsFallback(from: generated)
             if !parsed.isEmpty {
                 finalToolCalls = parsed
@@ -684,20 +695,20 @@ final class MLXModelService: @unchecked Sendable {
                                 generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
                                 streamCachedTokens = effectivePrefix
                                 if debugLogging {
-                                    print("[KVCache] Radix hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
+                                    print("[\(ts())] [KVCache] Radix hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
                                 }
                             } else {
                                 generationCache = context.model.newCache(parameters: params)
                                 generateInput = input
                                 if debugLogging {
-                                    print("[KVCache] Cache miss, full prefill for \(inputTokens.count) tokens")
+                                    print("[\(ts())] [KVCache] Cache miss, full prefill for \(inputTokens.count) tokens")
                                 }
                             }
                         } else {
                             generationCache = context.model.newCache(parameters: params)
                             generateInput = input
                             if debugLogging {
-                                print("[KVCache] Multimodal input, skipping cache")
+                                print("[\(ts())] [KVCache] Multimodal input, skipping cache")
                             }
                         }
 
@@ -719,7 +730,7 @@ final class MLXModelService: @unchecked Sendable {
                         do {
                             for await piece in try MLXLMCommon.generate(input: generateInput, cache: generationCache, parameters: params, context: context) {
                                 if Task.isCancelled {
-                                    print("[MLX] Generation cancelled by client")
+                                    print("[\(ts())] [MLX] Generation cancelled by client")
                                     break
                                 }
                                 if case .tokenLogprobs(let lps) = piece {
@@ -803,7 +814,7 @@ final class MLXModelService: @unchecked Sendable {
                         if debugLogging {
                             let ttft = firstTokenTime.map { $0.timeIntervalSince(genStart) } ?? 0
                             let total = Date().timeIntervalSince(genStart)
-                            print("[KVCache] Timing: TTFT=\(String(format: "%.3f", ttft))s total=\(String(format: "%.3f", total))s (streaming)")
+                            print("[\(ts())] [KVCache] Timing: TTFT=\(String(format: "%.3f", ttft))s total=\(String(format: "%.3f", total))s (streaming)")
                         }
 
                         // Save prompt cache state into radix tree
@@ -968,7 +979,7 @@ final class MLXModelService: @unchecked Sendable {
             let keyLower = key.lowercased()
             if let idx = schemaKeysLower.firstIndex(of: keyLower) {
                 let mapped = schemaKeys[idx]
-                if debugLogging { print("[ToolCallRemap] \(key) → \(mapped) (case-insensitive)") }
+                if debugLogging { print("[\(ts())] [ToolCallRemap] \(key) → \(mapped) (case-insensitive)") }
                 remapped[mapped] = value
                 continue
             }
@@ -977,14 +988,14 @@ final class MLXModelService: @unchecked Sendable {
             // Try converting key from snake_case to camelCase
             let camelized = snakeToCamel(key)
             if camelized != key, props[camelized] != nil {
-                if debugLogging { print("[ToolCallRemap] \(key) → \(camelized) (snake→camel)") }
+                if debugLogging { print("[\(ts())] [ToolCallRemap] \(key) → \(camelized) (snake→camel)") }
                 remapped[camelized] = value
                 continue
             }
             // Try converting key from camelCase to snake_case
             let snaked = camelToSnake(key)
             if snaked != key, props[snaked] != nil {
-                if debugLogging { print("[ToolCallRemap] \(key) → \(snaked) (camel→snake)") }
+                if debugLogging { print("[\(ts())] [ToolCallRemap] \(key) → \(snaked) (camel→snake)") }
                 remapped[snaked] = value
                 continue
             }
@@ -995,7 +1006,7 @@ final class MLXModelService: @unchecked Sendable {
             }
             if suffixCandidates.count == 1 {
                 let mapped = suffixCandidates[0]
-                if debugLogging { print("[ToolCallRemap] \(key) → \(mapped) (suffix)") }
+                if debugLogging { print("[\(ts())] [ToolCallRemap] \(key) → \(mapped) (suffix)") }
                 remapped[mapped] = value
                 continue
             }
@@ -1035,6 +1046,7 @@ final class MLXModelService: @unchecked Sendable {
 
     /// Coerce string argument values to match the tool's declared schema types.
     /// XML tool call parsers emit all values as strings; this converts "true" → true, "5" → 5, etc.
+    /// Also fills in default values for missing required parameters (model omission fix).
     static func coerceArgumentTypes(_ rtc: ResponseToolCall, tools: [RequestTool]?) -> ResponseToolCall {
         guard let tools, !tools.isEmpty else { return rtc }
         guard let tool = tools.first(where: { $0.function.name == rtc.function.name }),
@@ -1044,6 +1056,8 @@ final class MLXModelService: @unchecked Sendable {
               var argsDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return rtc }
 
         var changed = false
+
+        // Type coercion: "5" → 5, "true" → true, etc.
         for (key, value) in argsDict {
             guard let stringValue = value as? String,
                   let propSchema = props[key] as? [String: Any],
@@ -1052,6 +1066,14 @@ final class MLXModelService: @unchecked Sendable {
                 argsDict[key] = coerced
                 changed = true
             }
+        }
+
+        // Fill missing required parameters with type-appropriate defaults (recursive).
+        // Models (especially Qwen3-Coder) often omit required params like "description"
+        // which causes downstream validation errors ("expected string, received undefined").
+        // This walks the full schema tree: top-level object → array items → nested objects.
+        if fillMissingRequired(&argsDict, schema: paramsAny, toolName: rtc.function.name) {
+            changed = true
         }
 
         guard changed,
@@ -1091,6 +1113,62 @@ final class MLXModelService: @unchecked Sendable {
         }
     }
 
+    /// Recursively fill missing required fields in a JSON object according to its schema.
+    /// Walks: object → check required keys; array → iterate items; nested objects → recurse.
+    /// Returns true if any fields were filled.
+    @discardableResult
+    private static func fillMissingRequired(_ dict: inout [String: Any], schema: [String: Any], toolName: String, path: String = "") -> Bool {
+        guard let props = schema["properties"] as? [String: Any] else { return false }
+        var filled = false
+
+        // 1. Fill missing required keys at this level
+        if let required = schema["required"] as? [String] {
+            for key in required where dict[key] == nil {
+                if let propSchema = props[key] as? [String: Any],
+                   let schemaType = propSchema["type"] as? String {
+                    let fullPath = path.isEmpty ? key : "\(path).\(key)"
+                    switch schemaType {
+                    case "string":  dict[key] = ""; filled = true
+                    case "boolean": dict[key] = false; filled = true
+                    case "integer", "number": dict[key] = 0; filled = true
+                    case "array":   dict[key] = [Any](); filled = true
+                    case "object":  dict[key] = [String: Any](); filled = true
+                    default: break
+                    }
+                    print("[\(ts())] [ToolCallParser] Filled missing required param '\(fullPath)' (\(schemaType)) with default for \(toolName)")
+                }
+            }
+        }
+
+        // 2. Recurse into existing values that have nested schemas
+        for (key, propSchema) in props {
+            guard let propDict = propSchema as? [String: Any],
+                  let propType = propDict["type"] as? String else { continue }
+            let childPath = path.isEmpty ? key : "\(path).\(key)"
+
+            if propType == "object", var nested = dict[key] as? [String: Any] {
+                // Recurse into nested object
+                if fillMissingRequired(&nested, schema: propDict, toolName: toolName, path: childPath) {
+                    dict[key] = nested
+                    filled = true
+                }
+            } else if propType == "array", let itemSchema = propDict["items"] as? [String: Any],
+                      itemSchema["type"] as? String == "object",
+                      var arr = dict[key] as? [[String: Any]] {
+                // Recurse into each array item
+                for i in 0..<arr.count {
+                    let itemPath = "\(childPath)[\(i)]"
+                    if fillMissingRequired(&arr[i], schema: itemSchema, toolName: toolName, path: itemPath) {
+                        filled = true
+                    }
+                }
+                if filled { dict[key] = arr }
+            }
+        }
+
+        return filled
+    }
+
     /// Fallback tool call extraction for formats the vendor parser misses.
     /// Handles <tool_call><function=name><parameter=key>value</parameter></function></tool_call>
     /// and <tool_call>{"name":"func","arguments":{...}}</tool_call> patterns.
@@ -1105,6 +1183,10 @@ final class MLXModelService: @unchecked Sendable {
             options: [.dotMatchesLineSeparators]
         )
         let matches = toolCallRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+
+        if debugLogging && !matches.isEmpty {
+            print("[\(ts())] [ToolCallParser] extractToolCallsFallback: found \(matches.count) <tool_call> block(s)")
+        }
 
         for match in matches.reversed() {
             guard let innerRange = Range(match.range(at: 1), in: text) else { continue }
@@ -1121,6 +1203,9 @@ final class MLXModelService: @unchecked Sendable {
 
             // Try JSON format: {"name":"func","arguments":{...}}
             if let tc = parseJSONToolCall(inner) {
+                if debugLogging {
+                    print("[\(ts())] [ToolCallParser] JSON-in-XML: \(tc.function.name)(\(tc.function.arguments.keys.joined(separator: ", ")))")
+                }
                 toolCalls.insert(tc, at: 0)
                 if let fullRange = Range(match.range, in: remaining) {
                     remaining.removeSubrange(fullRange)
@@ -1132,6 +1217,9 @@ final class MLXModelService: @unchecked Sendable {
         if toolCalls.isEmpty {
             let trimmed = remaining.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.hasPrefix("[TOOL_CALLS]") {
+                if debugLogging {
+                    print("[\(ts())] [ToolCallParser] Trying Mistral [TOOL_CALLS] format")
+                }
                 let afterPrefix = String(trimmed.dropFirst("[TOOL_CALLS]".count)).trimmingCharacters(in: .whitespacesAndNewlines)
 
                 // Format 1: [TOOL_CALLS][{"name":"func","arguments":{...}}]
@@ -1181,6 +1269,9 @@ final class MLXModelService: @unchecked Sendable {
             let trimmed = remaining.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.hasPrefix("{") && trimmed.hasSuffix("}") {
                 if let tc = parseJSONToolCall(trimmed) {
+                    if debugLogging {
+                        print("[\(ts())] [ToolCallParser] Bare JSON: \(tc.function.name)(\(tc.function.arguments.keys.joined(separator: ", ")))")
+                    }
                     toolCalls.append(tc)
                     remaining = ""
                 }
@@ -1192,22 +1283,93 @@ final class MLXModelService: @unchecked Sendable {
             .replacingOccurrences(of: #"<think>\s*</think>"#, with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
+        if debugLogging && !toolCalls.isEmpty {
+            let names = toolCalls.map { "\($0.function.name)(\($0.function.arguments.count) args)" }.joined(separator: ", ")
+            print("[\(ts())] [ToolCallParser] extractToolCallsFallback result: \(toolCalls.count) tool call(s) → \(names)")
+        }
+
         return (toolCalls, remaining)
     }
 
-    /// Parse <function=name><parameter=key>value</parameter></function>
+    /// Parse <function=name><parameter=key>value</parameter></function> using Foundation XMLParser.
+    /// Normalizes the non-standard XML tag format to standard XML, then uses SAX
+    /// parsing for correct entity decoding (&lt; → <, &amp; → &, etc.).
+    /// Falls back to regex if XMLParser fails (e.g. bare unescaped < in values).
     private static func parseXMLFunction(_ content: String) -> ToolCall? {
+        // Extract function name via regex (the <function=NAME> tag is non-standard XML)
+        let funcNameRegex = try! NSRegularExpression(
+            pattern: #"<function=([^>]+)>"#, options: []
+        )
+        guard let nameMatch = funcNameRegex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
+              let nameRange = Range(nameMatch.range(at: 1), in: content) else {
+            return nil
+        }
+        let funcName = String(content[nameRange])
+
+        // Normalize to standard XML:
+        //   <function=NAME>...</function> → <function name="NAME">...</function>
+        //   <parameter=KEY>...</parameter> → <parameter name="KEY">...</parameter>
+        var xml = content
+        // Replace <function=X> (but not </function>)
+        xml = xml.replacingOccurrences(
+            of: #"<function=([^>]+)>"#,
+            with: #"<function name="$1">"#,
+            options: .regularExpression
+        )
+        // Replace <parameter=X> (but not </parameter>)
+        xml = xml.replacingOccurrences(
+            of: #"<parameter=([^>]+)>"#,
+            with: #"<parameter name="$1">"#,
+            options: .regularExpression
+        )
+        // Wrap in root element for XMLParser
+        let wrappedXML = "<root>\(xml)</root>"
+
+        // Try XMLParser first — handles entity decoding, multiline values, CDATA, etc.
+        if let data = wrappedXML.data(using: .utf8) {
+            let delegate = ToolCallXMLDelegate()
+            let parser = XMLParser(data: data)
+            parser.delegate = delegate
+            if parser.parse(), let parsedName = delegate.functionName {
+                var arguments: [String: any Sendable] = [:]
+                for (key, val) in delegate.parameters {
+                    let trimmed = val.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if trimmed.isEmpty { continue }
+                    // Keep first non-empty value (dedup)
+                    if arguments[key] != nil { continue }
+                    // Try to parse as JSON (array/object)
+                    if let jsonData = trimmed.data(using: .utf8),
+                       let parsed = try? JSONSerialization.jsonObject(with: jsonData),
+                       (parsed is [Any] || parsed is [String: Any]) {
+                        arguments[key] = parsed
+                    } else {
+                        arguments[key] = trimmed
+                    }
+                }
+                if debugLogging {
+                    print("[\(ts())] [ToolCallParser] XMLParser: \(parsedName)(\(arguments.keys.sorted().joined(separator: ", ")))")
+                }
+                return ToolCall(function: .init(name: parsedName, arguments: arguments))
+            }
+        }
+
+        // Fallback: regex parsing with entity decoding (handles bare < in values)
+        if debugLogging {
+            print("[\(ts())] [ToolCallParser] XMLParser failed for '\(funcName)', falling back to regex")
+        }
+        return parseXMLFunctionRegex(content, funcName: funcName)
+    }
+
+    /// Regex-based fallback for parseXMLFunction when XMLParser fails.
+    private static func parseXMLFunctionRegex(_ content: String, funcName: String) -> ToolCall? {
         let funcRegex = try! NSRegularExpression(
             pattern: #"<function=([^>]+)>(.*?)</function>"#,
             options: [.dotMatchesLineSeparators]
         )
         guard let funcMatch = funcRegex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
-              let nameRange = Range(funcMatch.range(at: 1), in: content),
               let bodyRange = Range(funcMatch.range(at: 2), in: content) else {
             return nil
         }
-
-        let funcName = String(content[nameRange])
         let body = String(content[bodyRange])
 
         var arguments: [String: any Sendable] = [:]
@@ -1220,13 +1382,8 @@ final class MLXModelService: @unchecked Sendable {
             guard let keyRange = Range(pm.range(at: 1), in: body),
                   let valRange = Range(pm.range(at: 2), in: body) else { continue }
             let key = String(body[keyRange])
-            var val = String(body[valRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-            // Keep first non-empty value — Qwen3-Coder-Next sometimes emits
-            // duplicate parameters where the second is malformed/empty.
-            // See: https://github.com/anomalyco/opencode/issues/6918
+            let val = decodeXMLEntities(String(body[valRange]).trimmingCharacters(in: .whitespacesAndNewlines))
             if !val.isEmpty, arguments[key] == nil {
-                // Try to parse as JSON (array/object) so it's preserved as
-                // structured data rather than flattened to a string.
                 if let data = val.data(using: .utf8),
                    let parsed = try? JSONSerialization.jsonObject(with: data),
                    (parsed is [Any] || parsed is [String: Any]) {
@@ -1237,8 +1394,7 @@ final class MLXModelService: @unchecked Sendable {
             }
         }
 
-        // Salvage unclosed parameters (e.g. model hit max_tokens mid-content).
-        // Look for <parameter=KEY>VALUE... without a closing </parameter>.
+        // Salvage unclosed parameters (e.g. model hit max_tokens mid-content)
         let unclosedRegex = try! NSRegularExpression(
             pattern: #"<parameter=([^>]+)>([\s\S]+)$"#,
             options: []
@@ -1248,30 +1404,38 @@ final class MLXModelService: @unchecked Sendable {
            let valRange = Range(unclosedMatch.range(at: 2), in: body) {
             let key = String(body[keyRange])
             if arguments[key] == nil {
-                var val = String(body[valRange])
-                if val.hasPrefix("\n") { val = String(val.dropFirst()) }
-                if val.hasSuffix("\n") { val = String(val.dropLast()) }
-                // Strip any trailing </function> tag that may be part of the parent
+                var val = String(body[valRange]).trimmingCharacters(in: .whitespacesAndNewlines)
                 if let funcEnd = val.range(of: "</function>") {
-                    val = String(val[..<funcEnd.lowerBound])
-                    if val.hasSuffix("\n") { val = String(val.dropLast()) }
+                    val = String(val[..<funcEnd.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
                 }
-                if !val.isEmpty {
-                    if let data = val.data(using: .utf8),
+                let decoded = decodeXMLEntities(val)
+                if !decoded.isEmpty {
+                    if let data = decoded.data(using: .utf8),
                        let parsed = try? JSONSerialization.jsonObject(with: data),
                        (parsed is [Any] || parsed is [String: Any]) {
                         arguments[key] = parsed
                     } else {
-                        arguments[key] = val
+                        arguments[key] = decoded
                     }
                     if debugLogging {
-                        print("[ToolCallParser] Salvaged unclosed parameter '\(key)' (\(val.count) chars)")
+                        print("[\(ts())] [ToolCallParser] Salvaged unclosed parameter '\(key)' (\(decoded.count) chars)")
                     }
                 }
             }
         }
 
         return ToolCall(function: .init(name: funcName, arguments: arguments))
+    }
+
+    /// Decode the five standard XML entities in a string value.
+    static func decodeXMLEntities(_ s: String) -> String {
+        guard s.contains("&") else { return s }
+        return s
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&apos;", with: "'")
     }
 
     /// Parse {"name":"func","arguments":{...}} JSON tool call
@@ -1370,7 +1534,7 @@ final class MLXModelService: @unchecked Sendable {
             // Initialize service if needed
             if xgrammarService == nil {
                 guard let directory = resolver.localModelDirectory(repoId: modelID) else {
-                    if debugLogging { print("[XGrammar] Model directory not found") }
+                    if debugLogging { print("[\(ts())] [XGrammar] Model directory not found") }
                     return nil
                 }
                 let vocabSize = readVocabSize(directory: directory) ?? 151936
@@ -1404,13 +1568,13 @@ final class MLXModelService: @unchecked Sendable {
             }
 
             if debugLogging {
-                print("[XGrammar] Grammar constraint active for json_schema (native C++, vocab_size=\(service.vocabSize))")
+                print("[\(ts())] [XGrammar] Grammar constraint active for json_schema (native C++, vocab_size=\(service.vocabSize))")
             }
 
             return proc
         } catch {
             if debugLogging {
-                print("[XGrammar] Failed to set up grammar: \(error). Falling back to prompt injection.")
+                print("[\(ts())] [XGrammar] Failed to set up grammar: \(error). Falling back to prompt injection.")
             }
             return nil
         }
@@ -1430,7 +1594,7 @@ final class MLXModelService: @unchecked Sendable {
             // Initialize xgrammar service if needed (same pattern as json_schema path)
             if xgrammarService == nil {
                 guard let directory = resolver.localModelDirectory(repoId: modelID) else {
-                    if debugLogging { print("[XGrammar] Model directory not found") }
+                    if debugLogging { print("[\(ts())] [XGrammar] Model directory not found") }
                     return nil
                 }
                 let vocabSize = readVocabSize(directory: directory) ?? 151936
@@ -1442,39 +1606,132 @@ final class MLXModelService: @unchecked Sendable {
 
             guard let service = xgrammarService else { return nil }
 
-            let ebnfGrammar = Self.buildToolCallEBNF(tools: tools)
+            // Build structural tag JSON (TagDispatch: free text until trigger, then constrained)
+            let structuralTagJSON = Self.buildToolCallStructuralTag(tools: tools)
             if debugLogging {
-                print("[XGrammar] Tool call EBNF grammar:\n\(ebnfGrammar)")
+                print("[\(ts())] [XGrammar] Tool call structural tag:\n\(structuralTagJSON)")
             }
 
-            let matcher = try service.compileAndCreateMatcherFromEBNF(grammar: ebnfGrammar)
+            let matcher: GrammarMatcherHandle
+            do {
+                matcher = try service.compileAndCreateMatcherFromStructuralTag(json: structuralTagJSON)
+            } catch {
+                // Fallback to EBNF if structural tag compilation fails
+                if debugLogging {
+                    print("[\(ts())] [XGrammar] Structural tag failed (\(error)), falling back to EBNF")
+                }
+                let ebnfGrammar = Self.buildToolCallEBNF(tools: tools)
+                matcher = try service.compileAndCreateMatcherFromEBNF(grammar: ebnfGrammar)
+            }
 
             let proc = GrammarLogitProcessor()
             proc.matcherHandle = matcher
-            proc.tokenMask = matcher.nextTokenMask()
+
+            // vLLM-style reasoner gating: disable grammar during <think>...</think>
+            // The grammar only applies AFTER reasoning ends (</think> detected).
+            let thinkTokenId = tokenizer.convertTokenToId("<think>")
+            let endThinkTokenId = tokenizer.convertTokenToId("</think>")
+            var inReasoning = false
+            let dbg = debugLogging
+
+            // Initial mask: nil (model may start with <think>, so don't constrain yet)
+            // If model's first token is NOT <think>, we enable the grammar in onTokenSampled.
+            proc.tokenMask = nil
+
+            var firstToken = true
             proc.onTokenSampled = { [weak matcher] tokenID in
                 guard let matcher, !matcher.isTerminated() else {
                     proc.tokenMask = nil
                     return
                 }
+
+                // Track reasoning state
+                if firstToken {
+                    firstToken = false
+                    if tokenID == thinkTokenId {
+                        inReasoning = true
+                        if dbg { print("[\(ts())] [XGrammar] Reasoning started, grammar suspended") }
+                        proc.tokenMask = nil
+                        return  // Don't advance grammar during thinking
+                    }
+                    // First token is not <think> — enable grammar immediately
+                    if dbg { print("[\(ts())] [XGrammar] No reasoning, grammar active from token 1") }
+                }
+
+                if inReasoning {
+                    if tokenID == endThinkTokenId {
+                        inReasoning = false
+                        if dbg { print("[\(ts())] [XGrammar] Reasoning ended, grammar active") }
+                        // Start applying grammar from here
+                        proc.tokenMask = matcher.nextTokenMask()
+                    } else {
+                        // Still in reasoning — don't advance grammar, don't apply mask
+                        proc.tokenMask = nil
+                    }
+                    return
+                }
+
+                // Outside reasoning: advance grammar normally
                 matcher.acceptToken(tokenID)
                 proc.tokenMask = matcher.nextTokenMask()
             }
 
             if debugLogging {
-                print("[XGrammar] Grammar constraint active for tool_call (EBNF, \(tools.count) tools, vocab_size=\(service.vocabSize))")
+                print("[\(ts())] [XGrammar] Grammar constraint active for tool_call (StructuralTag, \(tools.count) tools, vocab_size=\(service.vocabSize), reasoner gating=\(thinkTokenId != nil ? "enabled" : "disabled"))")
             }
 
             return proc
         } catch {
             if debugLogging {
-                print("[XGrammar] Failed to set up tool call grammar: \(error). Falling back to parsing-only mode.")
+                print("[\(ts())] [XGrammar] Failed to set up tool call grammar: \(error). Falling back to parsing-only mode.")
             }
             return nil
         }
     }
 
-    /// Build an EBNF grammar that allows free text OR valid XML tool calls.
+    /// Build a structural tag JSON spec for xgrammar's TagDispatch.
+    /// Uses TriggeredTagsFormat: allows ALL text until "<tool_call>\n<function=" trigger,
+    /// then constrains to valid XML parameter format per tool schema.
+    /// This is the same approach vLLM/SGLang use — no character-class issues with <think> etc.
+    static func buildToolCallStructuralTag(tools: [RequestTool]) -> String {
+        var tags: [[String: Any]] = []
+        for tool in tools {
+            let name = tool.function.name
+            // Build JSON schema for the tool's parameters
+            var paramSchema: Any = true  // true = any JSON
+            if let params = tool.function.parameters?.toSendable() as? [String: Any] {
+                paramSchema = params
+            }
+            tags.append([
+                "type": "tag",
+                "begin": "<tool_call>\n<function=\(name)>\n",
+                "content": [
+                    "type": "qwen_xml_parameter",
+                    "json_schema": paramSchema
+                ] as [String: Any],
+                "end": "\n</function>\n</tool_call>"
+            ])
+        }
+
+        let triggeredTags: [String: Any] = [
+            "type": "triggered_tags",
+            "triggers": ["<tool_call>\n<function="],
+            "tags": tags,
+            "at_least_one": false,
+            "stop_after_first": false,
+            "excludes": [] as [String]  // Think tokens handled by reasoner gating, not excludes
+        ]
+
+        let structuralTag: [String: Any] = [
+            "type": "structural_tag",
+            "format": triggeredTags
+        ]
+
+        let data = try! JSONSerialization.data(withJSONObject: structuralTag, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8)!
+    }
+
+    /// Build an EBNF grammar that allows free text OR valid XML tool calls (fallback).
     /// Generates per-tool rules enforcing minimum required parameter count from schema.
     static func buildToolCallEBNF(tools: [RequestTool]) -> String {
         var toolRules: [String] = []
@@ -1499,7 +1756,8 @@ final class MLXModelService: @unchecked Sendable {
 
         return """
         root ::= free_text (tool_call free_text)*
-        free_text ::= [^<]*
+        free_text ::= free_char*
+        free_char ::= [^<] | "<" [^t] | "<t" [^o] | "<to" [^o] | "<too" [^l] | "<tool" [^_] | "<tool_" [^c] | "<tool_c" [^a] | "<tool_ca" [^l] | "<tool_cal" [^l] | "<tool_call" [^>]
         tool_call ::= "<tool_call>\\n" tool_variant "</tool_call>"
         tool_variant ::= \(toolAlternation)
         \(toolRules.joined(separator: "\n        "))
@@ -1698,7 +1956,7 @@ final class MLXModelService: @unchecked Sendable {
                 input.additionalContext?["chatTemplateOverride"] = tpl
             }
             if debugLogging {
-                print("[ToolCallParser] Using \(parser) chat template override")
+                print("[\(ts())] [ToolCallParser] Using \(parser) chat template override")
             }
         }
 
@@ -1715,7 +1973,7 @@ final class MLXModelService: @unchecked Sendable {
                 input.additionalContext?[key] = value
             }
             if debugLogging {
-                print("[ChatTemplateKwargs] Merged into additionalContext: \(resolvedKwargs.keys.sorted().joined(separator: ", "))")
+                print("[\(ts())] [ChatTemplateKwargs] Merged into additionalContext: \(resolvedKwargs.keys.sorted().joined(separator: ", "))")
             }
         }
 
@@ -2324,4 +2582,46 @@ final class MLXModelService: @unchecked Sendable {
     {%- endfor %}
     """
 
+}
+
+// MARK: - XMLParser delegate for tool call parsing
+
+/// SAX-style XML parser delegate that extracts function name and parameter key/value
+/// pairs from normalized XML tool call bodies. Handles XML entity decoding automatically
+/// (e.g. &lt; → <, &amp; → &) which regex-based parsers miss.
+private class ToolCallXMLDelegate: NSObject, XMLParserDelegate {
+    var functionName: String?
+    /// Parameters in order of appearance. May contain duplicates — caller deduplicates.
+    var parameters: [(key: String, value: String)] = []
+
+    private var currentElement: String = ""
+    private var currentParameterName: String?
+    private var characterBuffer: String = ""
+
+    func parser(_ parser: XMLParser, didStartElement elementName: String,
+                namespaceURI: String?, qualifiedName: String?,
+                attributes attributeDict: [String: String] = [:]) {
+        currentElement = elementName
+        if elementName == "function", let name = attributeDict["name"] {
+            functionName = name
+        } else if elementName == "parameter", let name = attributeDict["name"] {
+            currentParameterName = name
+            characterBuffer = ""
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if currentParameterName != nil {
+            characterBuffer += string
+        }
+    }
+
+    func parser(_ parser: XMLParser, didEndElement elementName: String,
+                namespaceURI: String?, qualifiedName: String?) {
+        if elementName == "parameter", let name = currentParameterName {
+            parameters.append((key: name, value: characterBuffer))
+            currentParameterName = nil
+            characterBuffer = ""
+        }
+    }
 }

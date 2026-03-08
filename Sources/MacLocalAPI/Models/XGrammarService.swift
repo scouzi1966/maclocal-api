@@ -160,6 +160,39 @@ final class XGrammarService: @unchecked Sendable {
             debugLogging: debugLogging
         )
     }
+
+    /// Compile a structural tag JSON spec and create a matcher.
+    /// Uses xgrammar's TagDispatch which allows all tokens until a trigger
+    /// string is detected, then constrains output to the tag schema.
+    func compileAndCreateMatcherFromStructuralTag(json: String) throws -> GrammarMatcherHandle {
+        guard let info = tokenizerInfo else {
+            throw XGrammarServiceError.notInitialized
+        }
+
+        let compiled = json.withCString { cStr in
+            compile_structural_tag(info, cStr, json.utf8.count)
+        }
+        guard let compiled else {
+            let err = Self.consumeError() ?? "unknown structural tag compilation error"
+            throw XGrammarServiceError.compilationFailed(err)
+        }
+
+        let matcher = grammar_matcher_new(compiled)
+        compiled_grammar_free(compiled)
+
+        guard let matcher else {
+            let err = Self.consumeError() ?? "unknown matcher error"
+            throw XGrammarServiceError.matcherFailed(err)
+        }
+
+        let bitmaskSize = Int(grammar_bitmask_size(Int32(vocabSize)))
+        return GrammarMatcherHandle(
+            pointer: matcher,
+            vocabSize: vocabSize,
+            bitmaskSize: bitmaskSize,
+            debugLogging: debugLogging
+        )
+    }
 }
 
 // MARK: - GrammarMatcherHandle
