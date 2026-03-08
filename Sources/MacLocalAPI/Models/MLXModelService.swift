@@ -314,22 +314,13 @@ final class MLXModelService: @unchecked Sendable {
         var cachedTokenCount = 0
         let generated: String = try await container.perform { context in
             // Grammar constraint setup (needs tokenizer from context)
-            //
-            // DISABLED: xgrammar EBNF tool call constraint for afm_adaptive_xml.
-            // RadixTreeCache (feature/inference-optimizations) has a broadcast_shapes crash
-            // on the 3rd+ request. The xgrammar constraint shares the KV cache and triggers
-            // the same crash path. To re-enable, fix RadixTreeCache first, then build with:
-            //   swift build -Xswiftc -DENABLE_XGRAMMAR_TOOL_CONSTRAINT
-            // See: feature/merge-41-inference-optimizations-llamacpp branch history.
+            // xgrammar EBNF tool call constraint is ON by default for afm_adaptive_xml.
+            // To disable, build with: swift build -Xswiftc -DDISABLE_XGRAMMAR_TOOL_CONSTRAINT
             let grammarProcessor: GrammarLogitProcessor?
-            #if ENABLE_XGRAMMAR_TOOL_CONSTRAINT
+            #if DISABLE_XGRAMMAR_TOOL_CONSTRAINT
             if responseFormat?.type == "json_schema" {
                 grammarProcessor = self.setupGrammarConstraint(
                     modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
-                )
-            } else if self.toolCallParser == "afm_adaptive_xml" {
-                grammarProcessor = self.setupToolCallGrammarConstraint(
-                    modelID: modelID, tokenizer: context.tokenizer, tools: tools
                 )
             } else {
                 grammarProcessor = nil
@@ -338,6 +329,10 @@ final class MLXModelService: @unchecked Sendable {
             if responseFormat?.type == "json_schema" {
                 grammarProcessor = self.setupGrammarConstraint(
                     modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
+                )
+            } else if self.toolCallParser == "afm_adaptive_xml" {
+                grammarProcessor = self.setupToolCallGrammarConstraint(
+                    modelID: modelID, tokenizer: context.tokenizer, tools: tools
                 )
             } else {
                 grammarProcessor = nil
@@ -609,17 +604,12 @@ final class MLXModelService: @unchecked Sendable {
                 defer { self.endOperation() }
                 do {
                     try await container.perform { context in
-                        // Grammar constraint setup (needs tokenizer from context)
-                        // See non-streaming path for ENABLE_XGRAMMAR_TOOL_CONSTRAINT details.
+                        // Grammar constraint setup — see non-streaming path for details.
                         let grammarProcessor: GrammarLogitProcessor?
-                        #if ENABLE_XGRAMMAR_TOOL_CONSTRAINT
+                        #if DISABLE_XGRAMMAR_TOOL_CONSTRAINT
                         if responseFormat?.type == "json_schema" {
                             grammarProcessor = self.setupGrammarConstraint(
                                 modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
-                            )
-                        } else if self.toolCallParser == "afm_adaptive_xml" {
-                            grammarProcessor = self.setupToolCallGrammarConstraint(
-                                modelID: modelID, tokenizer: context.tokenizer, tools: tools
                             )
                         } else {
                             grammarProcessor = nil
@@ -628,6 +618,10 @@ final class MLXModelService: @unchecked Sendable {
                         if responseFormat?.type == "json_schema" {
                             grammarProcessor = self.setupGrammarConstraint(
                                 modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
+                            )
+                        } else if self.toolCallParser == "afm_adaptive_xml" {
+                            grammarProcessor = self.setupToolCallGrammarConstraint(
+                                modelID: modelID, tokenizer: context.tokenizer, tools: tools
                             )
                         } else {
                             grammarProcessor = nil
@@ -1417,13 +1411,8 @@ final class MLXModelService: @unchecked Sendable {
         }
     }
 
-    #if ENABLE_XGRAMMAR_TOOL_CONSTRAINT
     /// Set up grammar-constrained decoding for XML tool call format (afm_adaptive_xml).
     /// Uses xgrammar EBNF to force valid <tool_call><function=...> structure.
-    ///
-    /// DISABLED by default — requires `swift build -Xswiftc -DENABLE_XGRAMMAR_TOOL_CONSTRAINT`.
-    /// Blocked by RadixTreeCache broadcast_shapes crash on 3rd+ request.
-    /// The JSON-in-XML fallback parser handles format-switching without this constraint.
     private func setupToolCallGrammarConstraint(
         modelID: String,
         tokenizer: any Tokenizer,
@@ -1494,7 +1483,6 @@ final class MLXModelService: @unchecked Sendable {
         param_value ::= [^<]+ | "<" [^/] [^<]*
         """
     }
-    #endif
 
     /// Returns true when the model has a VLM config layout that can't be loaded
     /// correctly by the LLM factory.  VLM models like gemma-3 store architecture
