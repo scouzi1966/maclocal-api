@@ -1055,8 +1055,17 @@ private class Qwen3_5VLTextModel: Module, KVCacheDimensionProvider {
 
         var positionIds = providedPositionIds
 
+        // Use full-attention layer offset for position tracking.
+        // MambaCache layers always have offset=0 (they're recurrent, not positional),
+        // so cache.first/last.offset is unreliable in hybrid Mamba+Attention models.
+        let faIdx = args.fullAttentionInterval - 1
+        let cacheOffset: Int = {
+            guard let cache, faIdx < cache.count else { return 0 }
+            return cache[faIdx].offset
+        }()
+
         if positionIds == nil && (mask == nil || mask?.ndim == 2) {
-            if (cache?.first?.offset ?? 0) == 0 || ropeDeltas == nil || cache == nil {
+            if cacheOffset == 0 || ropeDeltas == nil || cache == nil {
                 if let inputIds {
                     let (computed, deltas) = Qwen3VLLanguage.getRopeIndex(
                         inputIds: inputIds,
@@ -1073,11 +1082,10 @@ private class Qwen3_5VLTextModel: Module, KVCacheDimensionProvider {
                 } else if let cache, ropeDeltas == nil {
                     let batch = inputEmbeddings!.dim(0)
                     let seqLength = inputEmbeddings!.dim(1)
-                    let currentOffset = cache.first?.offset ?? 0
 
                     var base = MLXArray(0 ..< seqLength).asType(.int32)
                     base = tiled(base[.newAxis, 0...], repetitions: [batch, 1])
-                    let offsetValue = MLXArray(currentOffset).asType(.int32)
+                    let offsetValue = MLXArray(cacheOffset).asType(.int32)
                     base = base + offsetValue
 
                     positionIds = base[.newAxis, 0..., 0...]
@@ -1087,9 +1095,7 @@ private class Qwen3_5VLTextModel: Module, KVCacheDimensionProvider {
                 let batch = (inputIds ?? inputEmbeddings!).dim(0)
                 let seqLength = (inputIds ?? inputEmbeddings!).dim(1)
 
-                let lastCacheOffset = cache.last?.offset ?? 0
-
-                var delta = MLXArray(lastCacheOffset).asType(.int32) + ropeDeltas.asType(.int32)
+                var delta = MLXArray(cacheOffset).asType(.int32) + ropeDeltas.asType(.int32)
 
                 var base = MLXArray(0 ..< seqLength).asType(.int32)
                 base = base[.newAxis, 0...]

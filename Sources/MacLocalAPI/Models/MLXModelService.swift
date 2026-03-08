@@ -345,9 +345,10 @@ final class MLXModelService: @unchecked Sendable {
                         // Reuse cached KV cache, trimmed to prefix length
                         generationCache = promptCache.cache
                         self.trimCacheToLength(generationCache, keepTokens: prefixLen)
-                        // Build suffix-only input
+                        // Build suffix-only input — reshape to [1, N] to preserve batch dim
+                        // (VLM models expect 2D token arrays from the tokenizer)
                         let suffixTokens = Array(inputTokens[prefixLen...])
-                        generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
+                        generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens).reshaped(1, suffixTokens.count)))
                         cachedTokenCount = prefixLen
                         if debugLogging {
                             print("[KVCache] Prefix match: \(prefixLen)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix tokens")
@@ -598,7 +599,7 @@ final class MLXModelService: @unchecked Sendable {
                                     generationCache = promptCache.cache
                                     self.trimCacheToLength(generationCache, keepTokens: prefixLen)
                                     let suffixTokens = Array(inputTokens[prefixLen...])
-                                    generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
+                                    generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens).reshaped(1, suffixTokens.count)))
                                     streamCachedTokens = prefixLen
                                     if debugLogging {
                                         print("[KVCache] Prefix match: \(prefixLen)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix tokens")
