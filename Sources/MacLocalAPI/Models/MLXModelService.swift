@@ -1159,14 +1159,18 @@ final class MLXModelService: @unchecked Sendable {
                    let schemaType = propSchema["type"] as? String {
                     let fullPath = path.isEmpty ? key : "\(path).\(key)"
                     switch schemaType {
-                    case "string":  dict[key] = ""; filled = true
+                    case "string":  // Don't fill strings — let client report "missing"
+                        print("[\(ts())] [ToolCallParser] Missing required string param '\(fullPath)' for \(toolName) — not filling")
                     case "boolean": dict[key] = false; filled = true
+                        print("[\(ts())] [ToolCallParser] Filled missing required param '\(fullPath)' (\(schemaType)) with default for \(toolName)")
                     case "integer", "number": dict[key] = 0; filled = true
+                        print("[\(ts())] [ToolCallParser] Filled missing required param '\(fullPath)' (\(schemaType)) with default for \(toolName)")
                     case "array":   dict[key] = [Any](); filled = true
+                        print("[\(ts())] [ToolCallParser] Filled missing required param '\(fullPath)' (\(schemaType)) with default for \(toolName)")
                     case "object":  dict[key] = [String: Any](); filled = true
+                        print("[\(ts())] [ToolCallParser] Filled missing required param '\(fullPath)' (\(schemaType)) with default for \(toolName)")
                     default: break
                     }
-                    print("[\(ts())] [ToolCallParser] Filled missing required param '\(fullPath)' (\(schemaType)) with default for \(toolName)")
                 }
             }
         }
@@ -1322,10 +1326,9 @@ final class MLXModelService: @unchecked Sendable {
         return (toolCalls, remaining)
     }
 
-    /// Parse <function=name><parameter=key>value</parameter></function> using Foundation XMLParser.
-    /// Normalizes the non-standard XML tag format to standard XML, then uses SAX
-    /// parsing for correct entity decoding (&lt; → <, &amp; → &, etc.).
-    /// Falls back to regex if XMLParser fails (e.g. bare unescaped < in values).
+    /// Parse <function=name><parameter=key>value</parameter></function> via regex.
+    /// NSXMLParser silently drops parameters when values contain bare < or & (common in code),
+    /// so we go straight to regex which handles arbitrary content correctly.
     private static func parseXMLFunction(_ content: String) -> ToolCall? {
         // Extract function name via regex (the <function=NAME> tag is non-standard XML)
         let funcNameRegex = try! NSRegularExpression(
@@ -1337,62 +1340,13 @@ final class MLXModelService: @unchecked Sendable {
         }
         let funcName = String(content[nameRange])
 
-        // Normalize to standard XML:
-        //   <function=NAME>...</function> → <function name="NAME">...</function>
-        //   <parameter=KEY>...</parameter> → <parameter name="KEY">...</parameter>
-        var xml = content
-        // Replace <function=X> (but not </function>)
-        xml = xml.replacingOccurrences(
-            of: #"<function=([^>]+)>"#,
-            with: #"<function name="$1">"#,
-            options: .regularExpression
-        )
-        // Replace <parameter=X> (but not </parameter>)
-        xml = xml.replacingOccurrences(
-            of: #"<parameter=([^>]+)>"#,
-            with: #"<parameter name="$1">"#,
-            options: .regularExpression
-        )
-        // Wrap in root element for XMLParser
-        let wrappedXML = "<root>\(xml)</root>"
-
-        // Try XMLParser first — handles entity decoding, multiline values, CDATA, etc.
-        if let data = wrappedXML.data(using: .utf8) {
-            let delegate = ToolCallXMLDelegate()
-            let parser = XMLParser(data: data)
-            parser.delegate = delegate
-            if parser.parse(), let parsedName = delegate.functionName {
-                var arguments: [String: any Sendable] = [:]
-                for (key, val) in delegate.parameters {
-                    let trimmed = val.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if trimmed.isEmpty { continue }
-                    // Keep first non-empty value (dedup)
-                    if arguments[key] != nil { continue }
-                    // Try to parse as JSON (array/object)
-                    if let jsonData = trimmed.data(using: .utf8),
-                       let parsed = try? JSONSerialization.jsonObject(with: jsonData),
-                       (parsed is [Any] || parsed is [String: Any]) {
-                        arguments[key] = parsed
-                    } else {
-                        arguments[key] = trimmed
-                    }
-                }
-                if debugLogging {
-                    print("[\(ts())] [ToolCallParser] XMLParser: \(parsedName)(\(arguments.keys.sorted().joined(separator: ", ")))")
-                }
-                return ToolCall(function: .init(name: parsedName, arguments: arguments))
-            }
-        }
-
-        // Fallback: regex parsing with entity decoding (handles bare < in values)
         if debugLogging {
-            let bodyPreview = content.count > 300 ? "\(content.prefix(150))...\(content.suffix(150))" : content
-            print("[\(ts())] [ToolCallParser] XMLParser failed for '\(funcName)', falling back to regex\n  body=\(bodyPreview)")
+            print("[\(ts())] [ToolCallParser] parseXMLFunction: \(funcName) (\(content.count) chars)")
         }
         return parseXMLFunctionRegex(content, funcName: funcName)
     }
 
-    /// Regex-based fallback for parseXMLFunction when XMLParser fails.
+    /// Regex-based XML function parser with entity decoding.
     private static func parseXMLFunctionRegex(_ content: String, funcName: String) -> ToolCall? {
         let funcRegex = try! NSRegularExpression(
             pattern: #"<function=([^>]+)>(.*?)</function>"#,
@@ -2646,44 +2600,3 @@ final class MLXModelService: @unchecked Sendable {
 
 }
 
-// MARK: - XMLParser delegate for tool call parsing
-
-/// SAX-style XML parser delegate that extracts function name and parameter key/value
-/// pairs from normalized XML tool call bodies. Handles XML entity decoding automatically
-/// (e.g. &lt; → <, &amp; → &) which regex-based parsers miss.
-private class ToolCallXMLDelegate: NSObject, XMLParserDelegate {
-    var functionName: String?
-    /// Parameters in order of appearance. May contain duplicates — caller deduplicates.
-    var parameters: [(key: String, value: String)] = []
-
-    private var currentElement: String = ""
-    private var currentParameterName: String?
-    private var characterBuffer: String = ""
-
-    func parser(_ parser: XMLParser, didStartElement elementName: String,
-                namespaceURI: String?, qualifiedName: String?,
-                attributes attributeDict: [String: String] = [:]) {
-        currentElement = elementName
-        if elementName == "function", let name = attributeDict["name"] {
-            functionName = name
-        } else if elementName == "parameter", let name = attributeDict["name"] {
-            currentParameterName = name
-            characterBuffer = ""
-        }
-    }
-
-    func parser(_ parser: XMLParser, foundCharacters string: String) {
-        if currentParameterName != nil {
-            characterBuffer += string
-        }
-    }
-
-    func parser(_ parser: XMLParser, didEndElement elementName: String,
-                namespaceURI: String?, qualifiedName: String?) {
-        if elementName == "parameter", let name = currentParameterName {
-            parameters.append((key: name, value: characterBuffer))
-            currentParameterName = nil
-            characterBuffer = ""
-        }
-    }
-}
