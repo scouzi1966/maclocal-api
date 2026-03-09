@@ -2230,6 +2230,51 @@ else:
       run_test "AdaptiveXML" "Streaming array coercion (incremental path)" "array in stream" "$stream_arr_ok" "$dur"
     fi
 
+    # ── Test 12.12: XML entity decoding in tool call values ───────────────────
+    # Regression test: model XML-encodes < > & in parameter values (correct XML
+    # behavior), but afm must decode entities before delivering to client.
+    # Without decoding, Python code gets "if size &lt; 1024" instead of "if size < 1024".
+    WRITE_TOOL='[{"type":"function","function":{"name":"write_file","description":"Write content to a file","parameters":{"type":"object","properties":{"path":{"type":"string","description":"File path"},"content":{"type":"string","description":"File content"}},"required":["path","content"]}}}]'
+    t0=$(now_ms)
+    entity_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Write a Python file at /tmp/test.py with a function that checks if a number is less than 10 and greater than 0, using < and > operators.\"}],\"tools\":$WRITE_TOOL,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    entity_ok=$(echo "$entity_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        content = args.get('content', '')
+        if not content:
+            print('FAIL: content param empty')
+        elif '&lt;' in content or '&gt;' in content or '&amp;' in content:
+            # Find the offending entity for diagnostics
+            for ent in ['&lt;', '&gt;', '&amp;']:
+                if ent in content:
+                    idx = content.index(ent)
+                    ctx = content[max(0,idx-15):idx+20]
+                    print(f'FAIL: XML entity not decoded: {ent} in ...{ctx}...')
+                    break
+        elif '<' in content or '>' in content:
+            print('PASS')
+        else:
+            # Model might not use < > at all — check it at least wrote Python
+            if 'def ' in content or 'if ' in content:
+                print('PASS')
+            else:
+                print(f'FAIL: no comparison operators in content ({len(content)} chars)')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$entity_ok" = "PASS" ]; then
+      run_test "AdaptiveXML" "XML entity decoding in tool call values" "decoded" "PASS" "$dur"
+    else
+      run_test "AdaptiveXML" "XML entity decoding in tool call values" "decoded" "$entity_ok" "$dur"
+    fi
+
   else
     echo ""
     echo "  (Model did not produce tool calls — skipping afm_adaptive_xml tests)"

@@ -38,6 +38,24 @@ Other gotchas:
 - OpenCode config is loaded from both `~/.config/opencode/opencode.json` (global) AND `$WORKDIR/opencode.json` (local) — local overrides global
 - The workdir should be a **git repo** (`git init`) for OpenCode to function properly
 
+## OpenCode Log Location
+
+OpenCode writes logs to `~/.local/share/opencode/log/` in timestamp-named files (e.g., `2026-03-09T172212.log`).
+
+```bash
+# Find the latest OpenCode log
+ls -t ~/.local/share/opencode/log/*.log | head -1
+
+# Monitor the latest log in real-time
+tail -f "$(ls -t ~/.local/share/opencode/log/*.log | head -1)"
+```
+
+When monitoring both afm and OpenCode simultaneously:
+- **afm log**: `/tmp/afm-opencode-test.log` (or wherever you tee'd it)
+- **OpenCode log**: `~/.local/share/opencode/log/<latest>.log`
+
+Start OpenCode with `--log-level DEBUG --print-logs` for maximum verbosity.
+
 ## Execution Workflow
 
 ### 1. Setup
