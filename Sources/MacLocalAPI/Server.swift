@@ -1,6 +1,7 @@
 import Vapor
 import Foundation
 import Compression
+import Logging
 
 // Storage key for the continuation
 struct ContinuationKey: StorageKey {
@@ -86,7 +87,9 @@ class Server {
 
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
-        try LoggingSystem.bootstrap(from: &env)
+        LoggingSystem.bootstrap { label in
+            CompactLogHandler(label: label)
+        }
 
         self.app = try await Application.make(env)
 
@@ -1046,4 +1049,40 @@ struct GenerationParams: Content {
 struct Modalities: Content {
     let vision: Bool
     let audio: Bool
+}
+
+// Compact log handler that prints "[INFO]" instead of Vapor's padded "[ INFO ]"
+struct CompactLogHandler: LogHandler {
+    var metadata: Logger.Metadata = [:]
+    var logLevel: Logger.Level = .info
+    let label: String
+
+    init(label: String) {
+        self.label = label
+    }
+
+    subscript(metadataKey key: String) -> Logger.Metadata.Value? {
+        get { metadata[key] }
+        set { metadata[key] = newValue }
+    }
+
+    func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?,
+             source: String, file: String, function: String, line: UInt) {
+        let levelStr = level.rawValue.uppercased()
+        let metaStr = Self.formatMetadata(self.metadata, metadata)
+        if metaStr.isEmpty {
+            print("[\(levelStr)] \(message)")
+        } else {
+            print("[\(levelStr)] \(message) \(metaStr)")
+        }
+    }
+
+    private static func formatMetadata(_ base: Logger.Metadata, _ extra: Logger.Metadata?) -> String {
+        var merged = base
+        if let extra { merged.merge(extra) { _, new in new } }
+        guard !merged.isEmpty else { return "" }
+        return merged.sorted(by: { $0.key < $1.key })
+            .map { "[\($0.key): \($0.value)]" }
+            .joined(separator: " ")
+    }
 }

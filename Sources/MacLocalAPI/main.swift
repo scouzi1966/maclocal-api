@@ -158,7 +158,7 @@ struct MlxCommand: ParsableCommand {
           --kv-bits: Quantize KV cache (4 or 8 bits) to reduce memory
           --prefill-step-size: Prompt tokens per GPU pass (default: 1024)
           --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
-          --tool-call-parser: Override tool call format (hermes, llama3_json, gemma, mistral, qwen3_xml, afm_adaptive_xml)
+          --tool-call-parser: Override tool call format (afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml)
           --fix-tool-args: Post-process tool call arg names to match original tool schema
           --no-think: Disable thinking/reasoning (sets enable_thinking=false)
           --default-chat-template-kwargs: JSON object merged into chat template context
@@ -183,12 +183,12 @@ struct MlxCommand: ParsableCommand {
         tool_calling:
           auto_detection: Tool call format is auto-detected from model_type in config.json. Most models work without --tool-call-parser.
           parser_overrides:
+            afm_adaptive_xml: Adaptive XML parser with JSON-in-XML fallback, type coercion, and optional xgrammar EBNF constrained decoding. Best for Qwen3+ models.
             hermes: JSON format with Hermes chat template (Llama, Qwen, most models)
             llama3_json: JSON format with Llama-3 chat template
             mistral: JSON format with Mistral chat template
             qwen3_xml: XML function format with Qwen3-Coder chat template
             gemma: Gemma function call format (uses model's built-in template)
-            afm_adaptive_xml: Adaptive XML parser with JSON-in-XML fallback, type coercion, and optional xgrammar EBNF constrained decoding
           auto_detected_formats:
             json: Default for Llama, Qwen, most models (<tool_call>...</tool_call> tags)
             xml_function: Qwen3 Coder, Qwen3.5 MoE (<function=name><parameter=key>value</parameter></function>)
@@ -323,7 +323,7 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible)")
     var guidedJson: String?
 
-    @Option(name: .long, help: "Tool call parser override: hermes, llama3_json, gemma, mistral, qwen3_xml, afm_adaptive_xml. afm_adaptive_xml adds JSON-in-XML fallback, type coercion, and optional xgrammar EBNF constrained decoding for models that switch between XML and JSON formats.")
+    @Option(name: .long, help: "Tool call parser override: afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml. afm_adaptive_xml adds JSON-in-XML fallback, type coercion, and optional xgrammar EBNF constrained decoding for models that switch between XML and JSON formats. Recommended for Qwen3+ models.")
     var toolCallParser: String?
 
     @Flag(name: .long, help: "Post-process tool call argument names to match the original tool schema (fixes model renaming e.g. path→filePath)")
