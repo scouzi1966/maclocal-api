@@ -54,7 +54,7 @@ When monitoring both afm and OpenCode simultaneously:
 - **afm log**: `/tmp/afm-opencode-test.log` (or wherever you tee'd it)
 - **OpenCode log**: `~/.local/share/opencode/log/<latest>.log`
 
-Start OpenCode with `--log-level DEBUG --print-logs` for maximum verbosity.
+**ALWAYS** start OpenCode with `--log-level "DEBUG" --print-logs` — both `opencode serve` and `opencode run` commands must include these flags. Without them, tool call errors are invisible.
 
 ## Execution Workflow
 
@@ -146,7 +146,7 @@ Where `MODEL_SLUG` is the model ID with `/` replaced by `_`.
 set timeout 600
 log_user 1
 
-spawn opencode run --attach http://localhost:${OC_PORT} --print-logs --format json "${PROMPT}"
+spawn opencode run --attach http://localhost:${OC_PORT} --log-level "DEBUG" --print-logs --format json "${PROMPT}"
 expect {
     timeout { puts "TIMEOUT"; exit 1 }
     eof { puts "EOF"; exit 0 }
