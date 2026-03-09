@@ -1091,6 +1091,9 @@ final class MLXModelService: @unchecked Sendable {
                   let propSchema = props[key] as? [String: Any],
                   let schemaType = propSchema["type"] as? String else { continue }
             if let coerced = coerceStringValue(stringValue, schemaType: schemaType) {
+                if debugLogging {
+                    print("[\(ts())] [ToolCallParser] coerce \(rtc.function.name).\(key): \"\(stringValue)\" → \(coerced) (schema: \(schemaType))")
+                }
                 argsDict[key] = coerced
                 changed = true
             }
@@ -1383,7 +1386,8 @@ final class MLXModelService: @unchecked Sendable {
 
         // Fallback: regex parsing with entity decoding (handles bare < in values)
         if debugLogging {
-            print("[\(ts())] [ToolCallParser] XMLParser failed for '\(funcName)', falling back to regex")
+            let bodyPreview = content.count > 300 ? "\(content.prefix(150))...\(content.suffix(150))" : content
+            print("[\(ts())] [ToolCallParser] XMLParser failed for '\(funcName)', falling back to regex\n  body=\(bodyPreview)")
         }
         return parseXMLFunctionRegex(content, funcName: funcName)
     }
@@ -1669,11 +1673,14 @@ final class MLXModelService: @unchecked Sendable {
             proc.tokenMask = nil
 
             var firstToken = true
+            var grammarTokenCount = 0
+            var grammarTerminatedOnce = false
             proc.onTokenSampled = { [weak matcher] tokenID in
-                guard let matcher, !matcher.isTerminated() else {
+                guard let matcher else {
                     proc.tokenMask = nil
                     return
                 }
+                grammarTokenCount += 1
 
                 // Track reasoning state
                 if firstToken {
@@ -1701,9 +1708,34 @@ final class MLXModelService: @unchecked Sendable {
                     return
                 }
 
+                // If grammar previously terminated (reached accepting state), keep
+                // trying to advance it. The EBNF `root ::= free_text (tool_call free_text)*`
+                // reaches an accepting state after the initial free_text, but we need the
+                // grammar to stay alive to constrain subsequent tool_call sequences.
+                if matcher.isTerminated() {
+                    if !grammarTerminatedOnce && dbg {
+                        print("[\(ts())] [XGrammar] Grammar reached accepting state at token \(grammarTokenCount) — continuing without constraint until reset")
+                        grammarTerminatedOnce = true
+                    }
+                    // Don't advance terminated matcher — just passthrough
+                    proc.tokenMask = nil
+                    return
+                }
+
                 // Outside reasoning: advance grammar normally
-                matcher.acceptToken(tokenID)
-                proc.tokenMask = matcher.nextTokenMask()
+                let accepted = matcher.acceptToken(tokenID)
+                if !accepted && dbg {
+                    print("[\(ts())] [XGrammar] WARNING: acceptToken(\(tokenID)) returned false — grammar state may be corrupted")
+                    if let err = XGrammarService.consumeLastError() {
+                        print("[\(ts())] [XGrammar] C++ error: \(err)")
+                    }
+                }
+                let mask = matcher.nextTokenMask()
+                proc.tokenMask = mask
+                if mask == nil && !matcher.isTerminated() && dbg {
+                    // nil mask on non-terminated grammar means all tokens are allowed.
+                    print("[\(ts())] [XGrammar] INFO: nextTokenMask() returned nil (all tokens allowed) at token \(grammarTokenCount)")
+                }
             }
 
             if debugLogging {

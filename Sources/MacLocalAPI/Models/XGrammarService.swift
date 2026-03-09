@@ -39,6 +39,12 @@ final class XGrammarService: @unchecked Sendable {
 
     // MARK: - Error handling
 
+    /// Public accessor for consuming the last error from C++ exceptions.
+    /// Used by diagnostic logging in the grammar callback.
+    static func consumeLastError() -> String? {
+        return consumeError()
+    }
+
     private static func consumeError() -> String? {
         errorLock.lock()
         let err = lastError
@@ -253,9 +259,11 @@ final class GrammarMatcherHandle: @unchecked Sendable {
     }
 
     /// Accept a sampled token, advancing grammar state.
-    func acceptToken(_ tokenID: Int) {
-        guard let p = pointer else { return }
-        _ = grammar_matcher_accept_token(p, Int32(tokenID))
+    /// Returns true if the token was accepted, false if rejected or on error.
+    @discardableResult
+    func acceptToken(_ tokenID: Int) -> Bool {
+        guard let p = pointer else { return false }
+        return grammar_matcher_accept_token(p, Int32(tokenID))
     }
 
     /// Check if the grammar has reached a terminal state.
