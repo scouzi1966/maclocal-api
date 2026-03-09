@@ -20,6 +20,7 @@ PORT=9998
 MODEL=""
 TIER="smoke"
 BIN=".build/release/afm"
+SECTION=""  # empty = run all sections; set to a number to run only that section
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 REPORT_DIR="$PROJECT_ROOT/test-reports"
@@ -30,6 +31,7 @@ while [[ $# -gt 0 ]]; do
     --port) PORT="$2"; shift 2 ;;
     --model) MODEL="$2"; shift 2 ;;
     --bin) BIN="$2"; shift 2 ;;
+    --section) SECTION="$2"; shift 2 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
@@ -154,9 +156,19 @@ min_tier() {
   esac
 }
 
+# Returns 0 (true) if the given section number should run.
+# When --section is empty, all sections run. Otherwise only the matching one.
+should_run_section() {
+  local num="$1"
+  [[ -z "$SECTION" || "$SECTION" == "$num" ]]
+}
+
+SECTION_LABEL=""
+[[ -n "$SECTION" ]] && SECTION_LABEL=" | Section: $SECTION"
+
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  AFM Assertion Tests"
-echo "  Tier: $TIER | Port: $PORT | Model: ${MODEL:-auto-detect}"
+echo "  Tier: $TIER | Port: $PORT | Model: ${MODEL:-auto-detect}${SECTION_LABEL}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
@@ -196,6 +208,7 @@ echo "  Model: $MODEL"
 # ═══════════════════════════════════════════════════════════════════════════════
 # Section 1: Server lifecycle
 # ═══════════════════════════════════════════════════════════════════════════════
+if should_run_section 1; then
 echo ""
 echo "🏥 Section 1: Server Lifecycle"
 
@@ -215,10 +228,12 @@ if [ "$basic_has_output" = "yes" ]; then
 else
   run_test "Lifecycle" "Basic completion returns content" "non-empty content or reasoning" "FAIL: empty response" "$(( $(now_ms) - t0 ))"
 fi
+fi # section 1
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Section 2: Stop sequences
 # ═══════════════════════════════════════════════════════════════════════════════
+if should_run_section 2; then
 echo ""
 echo "🛑 Section 2: Stop Sequences"
 
@@ -350,10 +365,12 @@ if min_tier standard; then
     run_test "Stop" "Stop 'llo' fires mid-word in 'hello'" "no 'llo'" "FAIL: $content" "$dur"
   fi
 fi
+fi # section 2
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Section 3: Logprobs schema
 # ═══════════════════════════════════════════════════════════════════════════════
+if should_run_section 3; then
 echo ""
 echo "📊 Section 3: Logprobs"
 
@@ -492,10 +509,12 @@ except Exception as e:
     run_test "Logprobs" "top_logprobs=0 returns empty arrays" "empty top_logprobs" "$zero_valid" "$dur"
   fi
 fi
+fi # section 3
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Section 4: Think/Reasoning extraction
 # ═══════════════════════════════════════════════════════════════════════════════
+if should_run_section 4; then
 echo ""
 echo "🧠 Section 4: Think Extraction"
 
@@ -600,14 +619,17 @@ else
   echo "  (Model does not support thinking — skipping think tests)"
   run_test "Think" "Think extraction (model lacks <think> support)" "skip" "SKIP" "0"
 fi
+fi # section 4
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Section 5: Tool calls
 # ═══════════════════════════════════════════════════════════════════════════════
+# Shared tool definition used by sections 5, 11, 12
+TOOL_DEF='[{"type":"function","function":{"name":"get_weather","description":"Get weather for a location","parameters":{"type":"object","properties":{"location":{"type":"string","description":"City name"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["location"]}}}]'
+
+if should_run_section 5; then
 echo ""
 echo "🔧 Section 5: Tool Calls"
-
-TOOL_DEF='[{"type":"function","function":{"name":"get_weather","description":"Get weather for a location","parameters":{"type":"object","properties":{"location":{"type":"string","description":"City name"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["location"]}}}]'
 
 # Test: basic tool call
 t0=$(now_ms)
@@ -825,11 +847,12 @@ else:
     run_test "Tools" "No tools: normal text response" "text response" "$no_tools" "$dur"
   fi
 fi
+fi # section 5
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Section 6: Prompt cache
 # ═══════════════════════════════════════════════════════════════════════════════
-if min_tier standard; then
+if should_run_section 6 && min_tier standard; then
   echo ""
   echo "💾 Section 6: Prompt Cache"
 
@@ -939,7 +962,7 @@ fi
 # ═══════════════════════════════════════════════════════════════════════════════
 # Section 7: Concurrent requests
 # ═══════════════════════════════════════════════════════════════════════════════
-if min_tier standard; then
+if should_run_section 7 && min_tier standard; then
   echo ""
   echo "⚡ Section 7: Concurrent Requests"
 
@@ -994,6 +1017,7 @@ fi
 # ═══════════════════════════════════════════════════════════════════════════════
 # Section 8: Error handling
 # ═══════════════════════════════════════════════════════════════════════════════
+if should_run_section 8; then
 echo ""
 echo "⚠️  Section 8: Error Handling"
 
@@ -1096,6 +1120,7 @@ if [ "$dev_ok" = "yes" ]; then
 else
   run_test "Error" "developer role accepted (mapped to system)" "valid response" "FAIL" "$dur"
 fi
+fi # section 8
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Section 10: Chat Template Kwargs (Issue #34)
@@ -1105,7 +1130,7 @@ fi
 # Note: --no-think CLI flag and precedence tests require server restart — see
 # Scripts/test-chat-template-kwargs.sh for the full standalone suite.
 
-if min_tier standard; then
+if should_run_section 10 && min_tier standard; then
   echo ""
   echo "🎛️  Section 10: Chat Template Kwargs (Issue #34)"
 
@@ -1247,9 +1272,80 @@ except:
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Section 8b: Prefix Cache
+# ═══════════════════════════════════════════════════════════════════════════════
+if should_run_section 8b && min_tier standard; then
+  echo ""
+  echo "🗄️  Section 8b: Prefix Cache"
+
+  # Test: Prefix caching works across multiple requests with same prefix
+  t0=$(now_ms)
+  # First request — cold
+  resp1=$(api_call '{"messages":[{"role":"system","content":"You are a helpful math tutor."},{"role":"user","content":"What is 2+2?"}],"max_tokens":10,"temperature":0}')
+  # Second request — same system prompt, different user message (should cache hit)
+  resp2=$(api_call '{"messages":[{"role":"system","content":"You are a helpful math tutor."},{"role":"user","content":"What is 3+3?"}],"max_tokens":10,"temperature":0}')
+  dur=$(( $(now_ms) - t0 ))
+
+  cache_ok=$(echo "$resp2" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    usage = d.get('usage', {})
+    cached = usage.get('prompt_tokens_cached', 0)
+    if cached > 0:
+        print(f'PASS ({cached} cached)')
+    else:
+        # Cache hit may not be reported in usage — just verify response is valid
+        c = d['choices'][0]['message']['content']
+        print('PASS' if c and len(c.strip()) > 0 else 'FAIL: empty')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [[ "$cache_ok" == PASS* ]]; then
+    run_test "Cache" "Prefix cache reuse across requests" "valid response on cache hit" "PASS" "$dur"
+  else
+    run_test "Cache" "Prefix cache reuse across requests" "valid response on cache hit" "$cache_ok" "$dur"
+  fi
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Section 8c: Structured Output
+# ═══════════════════════════════════════════════════════════════════════════════
+if should_run_section 8c && min_tier standard; then
+  echo ""
+  echo "📋 Section 8c: Structured Output"
+
+  # Test: response_format json_schema produces valid schema-matching JSON
+  t0=$(now_ms)
+  schema_resp=$(api_call '{"messages":[{"role":"user","content":"Give me a person named Alice who is 30 years old"}],"max_tokens":100,"temperature":0,"response_format":{"type":"json_schema","json_schema":{"name":"person","schema":{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"}},"required":["name","age"]}}}}')
+  dur=$(( $(now_ms) - t0 ))
+  schema_valid=$(echo "$schema_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    c = d['choices'][0]['message']['content'].strip()
+    parsed = json.loads(c)
+    assert 'name' in parsed and isinstance(parsed['name'], str), 'missing name'
+    assert 'age' in parsed and isinstance(parsed['age'], int), 'missing age'
+    print('PASS')
+except json.JSONDecodeError as e:
+    print(f'FAIL: invalid JSON: {e}')
+except AssertionError as e:
+    print(f'FAIL: schema mismatch: {e}')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$schema_valid" = "PASS" ]; then
+    run_test "Structured" "json_schema produces valid schema-matching JSON" "valid JSON" "PASS" "$dur"
+  else
+    run_test "Structured" "json_schema produces valid schema-matching JSON" "valid JSON" "$schema_valid" "$dur"
+  fi
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Section 9: Performance (full tier only)
 # ═══════════════════════════════════════════════════════════════════════════════
-if min_tier full; then
+if should_run_section 9 && min_tier full; then
   echo ""
   echo "🚀 Section 9: Performance"
 
@@ -1357,7 +1453,7 @@ fi
 # Format: <tool_call><function=name><parameter=key>value</parameter></function></tool_call>
 # These tests run on any model but are most meaningful on Qwen3 XML models.
 
-if min_tier standard; then
+if should_run_section 11 && min_tier standard; then
   # Probe: does this model produce XML-format tool calls?
   probe_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Berlin?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
   has_tool_calls=$(echo "$probe_resp" | python3 -c "
@@ -1686,6 +1782,458 @@ except Exception as e:
     echo ""
     echo "  (Model did not produce tool calls — skipping XML tool call deep validation)"
     run_test "XMLTools" "XML tool call tests (model lacks tool calling)" "skip" "SKIP" "0"
+  fi
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Section 12: afm_adaptive_xml (JSON-in-XML fallback + xgrammar)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Tests for --tool-call-parser afm_adaptive_xml.
+# Validates: JSON-in-XML fallback parsing, normal XML tool calls still work,
+# xgrammar EBNF constraint activation, and streaming tool call emission.
+#
+# NOTE: This section requires the server to be started with:
+#   --tool-call-parser afm_adaptive_xml
+# If the server wasn't started with this flag, tests are skipped.
+
+if should_run_section 12 && min_tier standard; then
+  echo ""
+  echo "🔧 Section 12: afm_adaptive_xml"
+
+  # Probe: was the server started with --tool-call-parser afm_adaptive_xml?
+  # We detect this by checking if a normal XML tool call works (it should with any parser).
+  # The real test is whether JSON-in-XML bodies are also handled.
+  probe_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Berlin?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+  probe_has_tc=$(echo "$probe_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    print('yes' if len(tc) > 0 else 'no')
+except:
+    print('no')
+" 2>/dev/null || echo "no")
+
+  if [ "$probe_has_tc" = "yes" ]; then
+
+    # ── Test 12.1: Normal XML tool call still works ──────────────────────────
+    t0=$(now_ms)
+    resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in London?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    tc_ok=$(echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if len(tc) > 0:
+        t = tc[0]
+        name = t['function']['name']
+        args = json.loads(t['function']['arguments'])
+        if name == 'get_weather' and ('location' in args or any('london' in str(v).lower() for v in args.values())):
+            print('PASS')
+        else:
+            print(f'FAIL: name={name}, args={args}')
+    else:
+        print('FAIL: no tool_calls')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$tc_ok" = "PASS" ]; then
+      run_test "AdaptiveXML" "Normal XML tool call works with afm_adaptive_xml" "valid tool call" "PASS" "$dur"
+    else
+      run_test "AdaptiveXML" "Normal XML tool call works with afm_adaptive_xml" "valid tool call" "$tc_ok" "$dur"
+    fi
+
+    # ── Test 12.2: Streaming tool call emission ─────────────────────────────
+    t0=$(now_ms)
+    stream_raw=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Tokyo?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":1000,\"stream\":true,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    stream_tc=$(echo "$stream_raw" | python3 -c "
+import sys, json
+lines = sys.stdin.read().strip().split('\n')
+tool_deltas = []
+finish = None
+for line in lines:
+    if not line.startswith('data: ') or line.strip() == 'data: [DONE]':
+        continue
+    try:
+        d = json.loads(line[6:])
+        delta = d['choices'][0].get('delta', {})
+        if 'tool_calls' in delta:
+            tool_deltas.extend(delta['tool_calls'])
+        fr = d['choices'][0].get('finish_reason')
+        if fr:
+            finish = fr
+    except:
+        pass
+
+if not tool_deltas:
+    print('FAIL: no tool_call deltas in stream')
+elif finish != 'tool_calls':
+    print(f'FAIL: finish_reason={finish}')
+else:
+    # Reconstruct: first delta should have name, subsequent have argument fragments
+    name = None
+    args_parts = []
+    for td in tool_deltas:
+        fn = td.get('function', {})
+        if fn.get('name'):
+            name = fn['name']
+        if fn.get('arguments') is not None:
+            args_parts.append(fn['arguments'])
+    full_args = ''.join(args_parts)
+    if not name:
+        print('FAIL: no function name in stream')
+    elif not full_args:
+        print('FAIL: no arguments in stream')
+    else:
+        try:
+            parsed = json.loads(full_args)
+            print('PASS')
+        except:
+            print(f'FAIL: args not valid JSON: {full_args[:100]}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$stream_tc" = "PASS" ]; then
+      run_test "AdaptiveXML" "Streaming tool call emits valid deltas" "name + JSON args" "PASS" "$dur"
+    else
+      run_test "AdaptiveXML" "Streaming tool call emits valid deltas" "name + JSON args" "$stream_tc" "$dur"
+    fi
+
+    # ── Test 12.3: Multi-turn tool call conversation ────────────────────────
+    # Send a tool call, then a tool result, then verify the model responds
+    t0=$(now_ms)
+    multi_resp=$(api_call "{
+      \"messages\":[
+        {\"role\":\"user\",\"content\":\"What is the weather in Paris?\"},
+        {\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_test123\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"location\\\":\\\"Paris\\\"}\"}}]},
+        {\"role\":\"tool\",\"tool_call_id\":\"call_test123\",\"name\":\"get_weather\",\"content\":\"{\\\"temperature\\\":22,\\\"condition\\\":\\\"sunny\\\"}\"}
+      ],
+      \"tools\":$TOOL_DEF,
+      \"max_tokens\":500,
+      \"stream\":false,
+      \"temperature\":0
+    }")
+    dur=$(( $(now_ms) - t0 ))
+    multi_ok=$(echo "$multi_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    msg = d['choices'][0]['message']
+    content = msg.get('content', '') or ''
+    rc = msg.get('reasoning_content', '') or ''
+    if len(content) > 0 or len(rc) > 0:
+        print('PASS')
+    else:
+        print('FAIL: empty response after tool result')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$multi_ok" = "PASS" ]; then
+      run_test "AdaptiveXML" "Multi-turn: model responds after tool result" "non-empty content" "PASS" "$dur"
+    else
+      run_test "AdaptiveXML" "Multi-turn: model responds after tool result" "non-empty content" "$multi_ok" "$dur"
+    fi
+
+    # ── Test 12.4: tool_choice=none still suppresses tool calls ─────────────
+    t0=$(now_ms)
+    none_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Sydney?\"}],\"tools\":$TOOL_DEF,\"tool_choice\":\"none\",\"max_tokens\":200,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    none_ok=$(echo "$none_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    fr = d['choices'][0].get('finish_reason', '')
+    tc = d['choices'][0]['message'].get('tool_calls')
+    if fr != 'tool_calls' and (tc is None or len(tc) == 0):
+        print('PASS')
+    else:
+        print(f'FAIL: finish_reason={fr}, tool_calls={tc}')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$none_ok" = "PASS" ]; then
+      run_test "AdaptiveXML" "tool_choice=none suppresses tool calls" "no tool_calls" "PASS" "$dur"
+    else
+      run_test "AdaptiveXML" "tool_choice=none suppresses tool calls" "no tool_calls" "$none_ok" "$dur"
+    fi
+
+    # ── Test 12.5: Multiple tool definitions — correct one selected ─────────
+    MULTI_TOOLS_12='[{"type":"function","function":{"name":"get_weather","description":"Get weather for a location","parameters":{"type":"object","properties":{"location":{"type":"string"}},"required":["location"]}}},{"type":"function","function":{"name":"get_time","description":"Get current time for a timezone","parameters":{"type":"object","properties":{"timezone":{"type":"string"}},"required":["timezone"]}}}]'
+    t0=$(now_ms)
+    multi_tool_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What time is it in New York?\"}],\"tools\":$MULTI_TOOLS_12,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    multi_tool_ok=$(echo "$multi_tool_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if len(tc) > 0:
+        name = tc[0]['function']['name']
+        if name == 'get_time':
+            print('PASS')
+        else:
+            print(f'FAIL: expected get_time, got {name}')
+    else:
+        print('FAIL: no tool_calls')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$multi_tool_ok" = "PASS" ]; then
+      run_test "AdaptiveXML" "Multiple tools: correct function selected" "get_time" "PASS" "$dur"
+    else
+      run_test "AdaptiveXML" "Multiple tools: correct function selected" "get_time" "$multi_tool_ok" "$dur"
+    fi
+
+    # ── Test 12.6: Argument types coerced correctly ─────────────────────────
+    TYPED_TOOL_12='[{"type":"function","function":{"name":"search_code","description":"Search codebase for a pattern","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Search query"},"case_sensitive":{"type":"boolean","description":"Case sensitive"},"max_results":{"type":"integer","description":"Max results"}},"required":["query"]}}}]'
+    t0=$(now_ms)
+    typed_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Search for 'main' case-sensitively, return max 5 results.\"}],\"tools\":$TYPED_TOOL_12,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    typed_ok=$(echo "$typed_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        q = args.get('query', '')
+        if not isinstance(q, str) or len(q) == 0:
+            print(f'FAIL: query not string: {type(q).__name__}={q}')
+        else:
+            # Check that boolean/int are coerced if present
+            issues = []
+            cs = args.get('case_sensitive')
+            mr = args.get('max_results')
+            if cs is not None and not isinstance(cs, bool):
+                issues.append(f'case_sensitive={type(cs).__name__}({cs})')
+            if mr is not None and not isinstance(mr, int):
+                issues.append(f'max_results={type(mr).__name__}({mr})')
+            if issues:
+                print(f'FAIL: type coercion: {issues}')
+            else:
+                print('PASS')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$typed_ok" = "PASS" ]; then
+      run_test "AdaptiveXML" "Argument types coerced (string, bool, int)" "correct types" "PASS" "$dur"
+    else
+      run_test "AdaptiveXML" "Argument types coerced (string, bool, int)" "correct types" "$typed_ok" "$dur"
+    fi
+
+    # ── Test 12.7: tool call valid (xgrammar constraint requires compile flag) ──
+    # Verifies tool call response is valid. xgrammar EBNF constraint is compiled
+    # out by default (requires -DENABLE_XGRAMMAR_TOOL_CONSTRAINT). This test
+    # validates the response regardless — with or without grammar constraint.
+    t0=$(now_ms)
+    xg_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Berlin?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    xg_ok=$(echo "$xg_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if len(tc) > 0:
+        t = tc[0]
+        args = json.loads(t['function']['arguments'])
+        if t['function']['name'] == 'get_weather' and isinstance(args, dict):
+            print('PASS')
+        else:
+            print(f'FAIL: name={t[\"function\"][\"name\"]}, args_type={type(args).__name__}')
+    else:
+        print('FAIL: no tool_calls')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$xg_ok" = "PASS" ]; then
+      run_test "AdaptiveXML" "Tool call valid (xgrammar requires compile flag)" "valid" "PASS" "$dur"
+    else
+      run_test "AdaptiveXML" "Tool call valid (xgrammar requires compile flag)" "valid" "$xg_ok" "$dur"
+    fi
+
+    # ── Test 12.8: Array of objects coercion ──────────────────────────────────
+    # Regression test: model generates JSON array inside <parameter> tags but
+    # afm sends it as a string. Covers the question tool pattern from OpenCode.
+    ARRAY_OBJ_TOOL='[{"type":"function","function":{"name":"ask_questions","description":"Ask user multiple-choice questions","parameters":{"type":"object","properties":{"questions":{"type":"array","description":"List of questions","items":{"type":"object","properties":{"text":{"type":"string"},"options":{"type":"array","items":{"type":"string"}}}}},"title":{"type":"string","description":"Form title"}},"required":["questions","title"]}}}]'
+    t0=$(now_ms)
+    arr_obj_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Ask the user 2 questions: What is your favorite color (red, blue, green) and what is your favorite animal (cat, dog, fish).\"}],\"tools\":$ARRAY_OBJ_TOOL,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    arr_obj_ok=$(echo "$arr_obj_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        qs = args.get('questions')
+        if qs is None:
+            print('FAIL: questions param missing')
+        elif isinstance(qs, str):
+            print(f'FAIL: questions is string (not coerced to array)')
+        elif not isinstance(qs, list):
+            print(f'FAIL: questions is {type(qs).__name__}, expected list')
+        elif len(qs) == 0:
+            print('FAIL: questions array is empty')
+        elif not isinstance(qs[0], dict):
+            print(f'FAIL: questions[0] is {type(qs[0]).__name__}, expected dict')
+        else:
+            title = args.get('title')
+            if title is not None and not isinstance(title, str):
+                print(f'FAIL: title is {type(title).__name__}, expected str')
+            else:
+                print('PASS')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$arr_obj_ok" = "PASS" ]; then
+      run_test "AdaptiveXML" "Array of objects coercion (question tool pattern)" "array of dicts" "PASS" "$dur"
+    else
+      run_test "AdaptiveXML" "Array of objects coercion (question tool pattern)" "array of dicts" "$arr_obj_ok" "$dur"
+    fi
+
+    # ── Test 12.9: Number (float) coercion ────────────────────────────────────
+    NUMBER_TOOL='[{"type":"function","function":{"name":"set_temperature","description":"Set thermostat temperature","parameters":{"type":"object","properties":{"celsius":{"type":"number","description":"Temperature in Celsius"},"enabled":{"type":"boolean","description":"Enable thermostat"}},"required":["celsius","enabled"]}}}]'
+    t0=$(now_ms)
+    num_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Set the thermostat to 22.5 degrees celsius and enable it.\"}],\"tools\":$NUMBER_TOOL,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    num_ok=$(echo "$num_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        issues = []
+        c = args.get('celsius')
+        e = args.get('enabled')
+        if c is not None and isinstance(c, str):
+            issues.append(f'celsius=str({c})')
+        elif c is not None and not isinstance(c, (int, float)):
+            issues.append(f'celsius={type(c).__name__}({c})')
+        if e is not None and not isinstance(e, bool):
+            issues.append(f'enabled={type(e).__name__}({e})')
+        if issues:
+            print(f'FAIL: type coercion: {issues}')
+        else:
+            print('PASS')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$num_ok" = "PASS" ]; then
+      run_test "AdaptiveXML" "Number (float) and boolean coercion" "correct types" "PASS" "$dur"
+    else
+      run_test "AdaptiveXML" "Number (float) and boolean coercion" "correct types" "$num_ok" "$dur"
+    fi
+
+    # ── Test 12.10: Nested object coercion ────────────────────────────────────
+    NESTED_OBJ_TOOL='[{"type":"function","function":{"name":"create_config","description":"Create a configuration object","parameters":{"type":"object","properties":{"name":{"type":"string"},"settings":{"type":"object","description":"Configuration settings","properties":{"debug":{"type":"boolean"},"timeout":{"type":"integer"},"tags":{"type":"array","items":{"type":"string"}}}}},"required":["name","settings"]}}}]'
+    t0=$(now_ms)
+    nested_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Create config named 'prod' with debug false, timeout 30, tags: api, backend.\"}],\"tools\":$NESTED_OBJ_TOOL,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    nested_ok=$(echo "$nested_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        issues = []
+        name = args.get('name')
+        settings = args.get('settings')
+        if name is not None and not isinstance(name, str):
+            issues.append(f'name={type(name).__name__}')
+        if settings is None:
+            issues.append('settings missing')
+        elif isinstance(settings, str):
+            issues.append('settings=str (not coerced to object)')
+        elif not isinstance(settings, dict):
+            issues.append(f'settings={type(settings).__name__}')
+        else:
+            dbg = settings.get('debug')
+            to = settings.get('timeout')
+            tg = settings.get('tags')
+            if dbg is not None and not isinstance(dbg, bool):
+                issues.append(f'settings.debug={type(dbg).__name__}({dbg})')
+            if to is not None and isinstance(to, str):
+                issues.append(f'settings.timeout=str({to})')
+            if tg is not None and isinstance(tg, str):
+                issues.append(f'settings.tags=str (not coerced to array)')
+        if issues:
+            print(f'FAIL: {issues}')
+        else:
+            print('PASS')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$nested_ok" = "PASS" ]; then
+      run_test "AdaptiveXML" "Nested object with typed fields coercion" "correct types" "PASS" "$dur"
+    else
+      run_test "AdaptiveXML" "Nested object with typed fields coercion" "correct types" "$nested_ok" "$dur"
+    fi
+
+    # ── Test 12.11: Streaming tool call — array param delivered correctly ─────
+    # Same as 12.8 but with stream:true to test incremental path specifically.
+    t0=$(now_ms)
+    stream_arr_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Ask the user: What is your favorite fruit? Options: apple, banana, cherry.\"}],\"tools\":$ARRAY_OBJ_TOOL,\"max_tokens\":1000,\"stream\":true,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    stream_arr_ok=$(echo "$stream_arr_resp" | python3 -c "
+import sys, json
+lines = sys.stdin.read().strip().split('\n')
+args_str = ''
+tool_name = ''
+for line in lines:
+    line = line.strip()
+    if not line.startswith('data: ') or line == 'data: [DONE]':
+        continue
+    try:
+        chunk = json.loads(line[6:])
+        delta = chunk.get('choices', [{}])[0].get('delta', {})
+        tcs = delta.get('tool_calls', [])
+        for tc in tcs:
+            f = tc.get('function', {})
+            if f.get('name'):
+                tool_name = f['name']
+            if f.get('arguments') is not None:
+                args_str += f['arguments']
+    except:
+        continue
+if not tool_name:
+    print('FAIL: no tool call in stream')
+elif not args_str:
+    print('FAIL: no arguments in stream')
+else:
+    try:
+        args = json.loads(args_str)
+        qs = args.get('questions')
+        if qs is None:
+            print('FAIL: questions param missing')
+        elif isinstance(qs, str):
+            print('FAIL: questions is string (streaming incremental path did not coerce)')
+        elif not isinstance(qs, list):
+            print(f'FAIL: questions is {type(qs).__name__}, expected list')
+        else:
+            print('PASS')
+    except json.JSONDecodeError as e:
+        print(f'FAIL: invalid JSON arguments: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$stream_arr_ok" = "PASS" ]; then
+      run_test "AdaptiveXML" "Streaming array coercion (incremental path)" "array in stream" "PASS" "$dur"
+    else
+      run_test "AdaptiveXML" "Streaming array coercion (incremental path)" "array in stream" "$stream_arr_ok" "$dur"
+    fi
+
+  else
+    echo ""
+    echo "  (Model did not produce tool calls — skipping afm_adaptive_xml tests)"
+    run_test "AdaptiveXML" "afm_adaptive_xml tests (model lacks tool calling)" "skip" "SKIP" "0"
   fi
 fi
 

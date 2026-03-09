@@ -156,9 +156,9 @@ struct MlxCommand: ParsableCommand {
           --vlm: Force load as vision model (VLM) instead of text-only LLM
           --media: Image/video paths for VLM single-prompt mode (implies --vlm)
           --kv-bits: Quantize KV cache (4 or 8 bits) to reduce memory
-          --prefill-step-size: Prompt tokens per GPU pass (default: 2048)
+          --prefill-step-size: Prompt tokens per GPU pass (default: 1024)
           --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
-          --tool-call-parser: Override tool call format (hermes, llama3_json, gemma, mistral, qwen3_xml)
+          --tool-call-parser: Override tool call format (hermes, llama3_json, gemma, mistral, qwen3_xml, afm_adaptive_xml)
           --fix-tool-args: Post-process tool call arg names to match original tool schema
           --no-think: Disable thinking/reasoning (sets enable_thinking=false)
           --default-chat-template-kwargs: JSON object merged into chat template context
@@ -188,6 +188,7 @@ struct MlxCommand: ParsableCommand {
             mistral: JSON format with Mistral chat template
             qwen3_xml: XML function format with Qwen3-Coder chat template
             gemma: Gemma function call format (uses model's built-in template)
+            afm_adaptive_xml: Adaptive XML parser with JSON-in-XML fallback, type coercion, and optional xgrammar EBNF constrained decoding
           auto_detected_formats:
             json: Default for Llama, Qwen, most models (<tool_call>...</tool_call> tags)
             xml_function: Qwen3 Coder, Qwen3.5 MoE (<function=name><parameter=key>value</parameter></function>)
@@ -306,8 +307,6 @@ struct MlxCommand: ParsableCommand {
     var prefillStepSize: Int?
     @Flag(name: .long, help: "Trust remote code (compatibility)")
     var trustRemoteCode: Bool = false
-    @Flag(name: .long, inversion: .prefixedNo, help: "Enable automatic prefix caching (KV cache reuse across requests)")
-    var enablePrefixCaching: Bool = false
     @Option(name: .long, help: "Chat template (compatibility)")
     var chatTemplate: String?
     @Option(name: .long, help: "Dtype (compatibility)")
@@ -324,14 +323,20 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible)")
     var guidedJson: String?
 
-    @Option(name: .long, help: "Tool call parser override: hermes, llama3_json, gemma, mistral, qwen3_xml. Forces a custom chat template and tool call format for reliable tool calling.")
+    @Option(name: .long, help: "Tool call parser override: hermes, llama3_json, gemma, mistral, qwen3_xml, afm_adaptive_xml. afm_adaptive_xml adds JSON-in-XML fallback, type coercion, and optional xgrammar EBNF constrained decoding for models that switch between XML and JSON formats.")
     var toolCallParser: String?
 
     @Flag(name: .long, help: "Post-process tool call argument names to match the original tool schema (fixes model renaming e.g. path→filePath)")
     var fixToolArgs: Bool = false
 
+    @Option(name: .customLong("kv-eviction"), help: "KV cache eviction policy: streaming (StreamingLLM) or none (default)")
+    var kvEviction: String?
+
     @Option(name: .long, help: "Default chat template kwargs as JSON (e.g. '{\"enable_thinking\": false}')")
     var defaultChatTemplateKwargs: String?
+
+    @Flag(name: .long, help: "Enable radix tree prefix caching for KV cache reuse across requests")
+    var enablePrefixCaching: Bool = false
 
     @Flag(name: .long, help: "Disable thinking/reasoning (sets enable_thinking=false in chat template)")
     var noThink: Bool = false
@@ -357,12 +362,13 @@ struct MlxCommand: ParsableCommand {
 
         let resolver = MLXCacheResolver()
         let service = MLXModelService(resolver: resolver)
-        service.enablePrefixCaching = enablePrefixCaching
         service.toolCallParser = toolCallParser
         service.fixToolArgs = fixToolArgs
         service.forceVLM = vlm || !media.isEmpty
         service.kvBits = kvBits
         if let prefillStepSize { service.prefillStepSize = prefillStepSize }
+        service.kvEvictionPolicy = kvEviction ?? "none"
+        service.enablePrefixCaching = enablePrefixCaching
 
         // Parse --default-chat-template-kwargs and --no-think into defaultChatTemplateKwargs
         var parsedKwargs: [String: Any] = [:]

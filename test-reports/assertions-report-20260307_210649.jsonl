@@ -1,0 +1,9 @@
+{"group": "Preflight", "name": "Binary exists at .build/release/afm", "status": "PASS", "duration_ms": 19}
+{"group": "Preflight", "name": "Server reachable at http://127.0.0.1:9999", "status": "PASS", "duration_ms": 25}
+{"group": "Error", "name": "Empty messages \u2192 400", "status": "PASS", "duration_ms": 25}
+{"group": "Error", "name": "Malformed JSON \u2192 400", "status": "PASS", "duration_ms": 29}
+{"group": "Error", "name": "Missing messages field \u2192 400", "status": "PASS", "duration_ms": 27}
+{"group": "Error", "name": "response_format json_object returns valid JSON", "status": "PASS", "duration_ms": 1304}
+{"group": "Error", "name": "max_tokens=5 is respected", "status": "PASS", "duration_ms": 162}
+{"group": "Error", "name": "OPTIONS /v1/chat/completions \u2192 200 (CORS)", "status": "PASS", "duration_ms": 29}
+{"group": "Error", "name": "developer role accepted (mapped to system)", "status": "PASS", "duration_ms": 2414}
