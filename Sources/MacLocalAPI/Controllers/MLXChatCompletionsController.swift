@@ -16,6 +16,7 @@ struct MLXChatCompletionsController: RouteCollection {
     private let seed: Int?
     private let maxLogprobs: Int
     private let veryVerbose: Bool
+    private let trace: Bool
     private let rawOutput: Bool
     private let stop: String?
 
@@ -33,6 +34,7 @@ struct MLXChatCompletionsController: RouteCollection {
         seed: Int? = nil,
         maxLogprobs: Int = 20,
         veryVerbose: Bool = false,
+        trace: Bool = false,
         rawOutput: Bool = false,
         stop: String? = nil
     ) {
@@ -49,6 +51,7 @@ struct MLXChatCompletionsController: RouteCollection {
         self.seed = seed
         self.maxLogprobs = maxLogprobs
         self.veryVerbose = veryVerbose
+        self.trace = trace
         self.rawOutput = rawOutput
         self.stop = stop
     }
@@ -127,6 +130,21 @@ struct MLXChatCompletionsController: RouteCollection {
             if hasTools && veryVerbose {
                 let toolNames = chatRequest.tools!.map { $0.function.name }.joined(separator: ", ")
                 req.logger.info("\(Self.gold)[\(Self.timestamp())] RECV tools: [\(toolNames)]\(Self.reset)")
+            }
+            // -VV: Full tool schemas as received from client
+            if hasTools && trace {
+                for tool in effectiveTools! {
+                    let schemaJSON: String
+                    if let params = tool.function.parameters,
+                       let data = try? JSONSerialization.data(withJSONObject: params.toJinjaCompatible(), options: [.prettyPrinted, .sortedKeys]),
+                       let str = String(data: data, encoding: .utf8) {
+                        schemaJSON = str
+                    } else {
+                        schemaJSON = "(no parameters)"
+                    }
+                    print("\(Self.cyan)[\(Self.timestamp())] [VV] RECV tool schema: \(tool.function.name)\n\(schemaJSON)\(Self.reset)")
+                }
+                fflush(stdout)
             }
 
             let isWebUI = req.headers.first(name: .origin) != nil
@@ -208,6 +226,13 @@ struct MLXChatCompletionsController: RouteCollection {
                 fflush(stdout)
                 if veryVerbose {
                     req.logger.info("\(Self.teal)[\(Self.timestamp())] SEND full response:\n\(encodeJSON(response))\(Self.reset)")
+                }
+                // -VV: Non-streaming tool call details
+                if trace {
+                    for tc in toolCalls {
+                        print("\(Self.cyan)[\(Self.timestamp())] [VV] SEND→CLIENT (non-stream) tool_call \(tc.function.name):\n  \(tc.function.arguments)\(Self.reset)")
+                    }
+                    fflush(stdout)
                 }
                 return try await createSuccessResponse(req: req, response: response)
             }
@@ -475,7 +500,15 @@ struct MLXChatCompletionsController: RouteCollection {
                                 if !before.isEmpty { currentToolText += before }
                             }
                             if self.veryVerbose {
-                                print("\(Self.gold)[\(Self.timestamp())] RECV </tool_call> end tag\n  body=\(currentToolText.count) chars\(Self.reset)")
+                                let bodyPreviewForLog = currentToolText.count > 500
+                                    ? "\(currentToolText.prefix(250))...\(currentToolText.suffix(250))"
+                                    : currentToolText
+                                print("\(Self.gold)[\(Self.timestamp())] RECV </tool_call> end tag\n  body=\(currentToolText.count) chars\n  raw=\(bodyPreviewForLog)\(Self.reset)")
+                                fflush(stdout)
+                            }
+                            // -VV: Full verbatim body from model (no truncation)
+                            if self.trace {
+                                print("\(Self.cyan)[\(Self.timestamp())] [VV] RECV←MODEL tool_call body verbatim (\(currentToolText.count) chars):\n\(currentToolText)\(Self.reset)")
                                 fflush(stdout)
                             }
 
@@ -670,6 +703,11 @@ struct MLXChatCompletionsController: RouteCollection {
                                     )
                                     let tcData = try encoder.encode(tcChunk)
                                     if let jsonString = String(data: tcData, encoding: .utf8) {
+                                        // -VV: Log SSE chunk sent to client
+                                        if self.trace {
+                                            print("\(Self.cyan)[\(Self.timestamp())] [VV] SEND→CLIENT SSE tool_call:\n  data: \(jsonString)\(Self.reset)")
+                                            fflush(stdout)
+                                        }
                                         try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                                     }
                                 }
@@ -1324,6 +1362,7 @@ struct MLXChatCompletionsController: RouteCollection {
     private static let teal = "\u{1B}[38;5;43m"
     private static let purple = "\u{1B}[38;5;135m"
     private static let gold = "\u{1B}[38;5;178m"
+    private static let cyan = "\u{1B}[38;5;87m"   // -VV trace logging
     private static let reset = "\u{1B}[0m"
 
     /// Extract `<think>...</think>` content from a streaming buffer.

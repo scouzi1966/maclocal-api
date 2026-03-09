@@ -82,6 +82,11 @@ private let _tsFormatter: DateFormatter = {
     return f
 }()
 private func ts() -> String { _tsFormatter.string(from: Date()) }
+private let vvCyan = "\u{1B}[38;5;87m"
+private let vvReset = "\u{1B}[0m"
+/// Module-level trace flag, set by MLXModelService.trace when the service is configured.
+/// Used by static parsing/conversion methods that can't access instance properties.
+private var traceLogging = false
 
 final class MLXModelService: @unchecked Sendable {
     private let resolver: MLXCacheResolver
@@ -101,6 +106,7 @@ final class MLXModelService: @unchecked Sendable {
     var kvBits: Int?
     var kvEvictionPolicy: String = "none"  // "none" or "streaming"
     var enablePrefixCaching: Bool = false
+    var trace: Bool = false { didSet { traceLogging = trace } }
     var defaultChatTemplateKwargs: [String: Any]?
     /// Detected think start/end tags from the tokenizer vocabulary (e.g., "<think>"/"</think>").
     /// Set after model load. nil if the model doesn't have think tokens.
@@ -384,11 +390,16 @@ final class MLXModelService: @unchecked Sendable {
 
             let input = try await context.processor.prepare(input: userInput)
 
-            // DEBUG: decode and print the full prompt to see what the template produced
-            if debugLogging {
+            // DEBUG/VV: decode and print the full prompt to see what the template produced
+            if debugLogging || self.trace {
                 let allTokens = input.text.tokens.reshaped(-1).asArray(Int.self)
                 let decoded = context.tokenizer.decode(tokens: allTokens)
-                print("[\(ts())] [DEBUG] Full tokenized prompt (\(allTokens.count) tokens):\n\(decoded)\n[/DEBUG]")
+                if self.trace {
+                    print("\(vvCyan)[\(ts())] [VV] SEND→MODEL full prompt (\(allTokens.count) tokens):\n\(decoded)\(vvReset)")
+                    fflush(stdout)
+                } else {
+                    print("[\(ts())] [DEBUG] Full tokenized prompt (\(allTokens.count) tokens):\n\(decoded)\n[/DEBUG]")
+                }
             }
 
             // If the chat template appended a think start tag, prepend it so extractors can detect it
@@ -618,6 +629,16 @@ final class MLXModelService: @unchecked Sendable {
 
         let promptText = buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools)
+        // -VV: Log tool schemas as sent to model's Jinja template
+        if trace, let toolSpecs {
+            for spec in toolSpecs {
+                if let data = try? JSONSerialization.data(withJSONObject: spec, options: [.prettyPrinted, .sortedKeys]),
+                   let str = String(data: data, encoding: .utf8) {
+                    print("\(vvCyan)[\(ts())] [VV] SEND→MODEL tool spec (Jinja):\n\(str)\(vvReset)")
+                }
+            }
+            fflush(stdout)
+        }
         let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat, chatTemplateKwargs: chatTemplateKwargs)
         let promptTokens = estimateTokens(promptText)
         let wantLogprobs = logprobs == true
@@ -676,6 +697,14 @@ final class MLXModelService: @unchecked Sendable {
                         }
 
                         let input = try await context.processor.prepare(input: userInput)
+
+                        // -VV: decode and print the full prompt (streaming path)
+                        if self.trace {
+                            let allTokens = input.text.tokens.reshaped(-1).asArray(Int.self)
+                            let decoded = context.tokenizer.decode(tokens: allTokens)
+                            print("\(vvCyan)[\(ts())] [VV] SEND→MODEL full prompt (\(allTokens.count) tokens):\n\(decoded)\(vvReset)")
+                            fflush(stdout)
+                        }
 
                         // If the chat template appended a think tag, inject it
                         // into the stream so the reasoning extractor can detect it.
@@ -969,6 +998,12 @@ final class MLXModelService: @unchecked Sendable {
         } else {
             argsJSON = "{}"
         }
+        // -VV: Log the serialized JSON that will be sent to the client
+        if traceLogging {
+            let preview = argsJSON.count > 500 ? "\(argsJSON.prefix(250))...\(argsJSON.suffix(250))" : argsJSON
+            print("\(vvCyan)[\(ts())] [VV] SEND→CLIENT tool_call \(tc.function.name) args JSON (\(argsJSON.count) chars):\n\(preview)\(vvReset)")
+            fflush(stdout)
+        }
         return ResponseToolCall(
             id: "call_\(generateCallID())",
             type: "function",
@@ -1110,6 +1145,11 @@ final class MLXModelService: @unchecked Sendable {
         guard changed,
               let newData = try? JSONSerialization.data(withJSONObject: argsDict, options: [.sortedKeys]),
               let newStr = String(data: newData, encoding: .utf8) else { return rtc }
+        // -VV: Log coercion result
+        if traceLogging {
+            print("\(vvCyan)[\(ts())] [VV] COERCED \(rtc.function.name):\n  before: \(rtc.function.arguments.prefix(300))\n  after:  \(newStr.prefix(300))\(vvReset)")
+            fflush(stdout)
+        }
         return ResponseToolCall(
             id: rtc.id, type: rtc.type,
             function: ResponseToolCallFunction(name: rtc.function.name, arguments: newStr)
@@ -1357,6 +1397,11 @@ final class MLXModelService: @unchecked Sendable {
             return nil
         }
         let body = String(content[bodyRange])
+        // -VV: Log raw XML body exactly as model generated it
+        if traceLogging {
+            print("\(vvCyan)[\(ts())] [VV] RECV←MODEL raw XML body for \(funcName) (\(body.count) chars):\n\(body)\(vvReset)")
+            fflush(stdout)
+        }
 
         var arguments: [String: any Sendable] = [:]
         let paramRegex = try! NSRegularExpression(
@@ -1408,6 +1453,16 @@ final class MLXModelService: @unchecked Sendable {
                     }
                 }
             }
+        }
+
+        // -VV: Log each parsed parameter value (post-decode)
+        if traceLogging {
+            for (key, value) in arguments {
+                let valStr = (value as? String) ?? String(describing: value)
+                let preview = valStr.count > 200 ? "\(valStr.prefix(100))...\(valStr.suffix(100))" : valStr
+                print("\(vvCyan)[\(ts())] [VV] PARSED param \(funcName).\(key) = \(preview) (\(valStr.count) chars)\(vvReset)")
+            }
+            fflush(stdout)
         }
 
         return ToolCall(function: .init(name: funcName, arguments: arguments))
@@ -1596,8 +1651,8 @@ final class MLXModelService: @unchecked Sendable {
             // Reasoner gating suspends the grammar during <think>...</think>,
             // so the free_text rule doesn't need to handle think tags.
             let ebnfGrammar = Self.buildToolCallEBNF(tools: tools)
-            if debugLogging {
-                print("[\(ts())] [XGrammar] Tool call EBNF grammar:\n\(ebnfGrammar)")
+            if debugLogging || trace {
+                print("\(vvCyan)[\(ts())] [VV] SEND→MODEL grammar (EBNF):\n\(ebnfGrammar)\(vvReset)")
             }
 
             let matcher: GrammarMatcherHandle
@@ -1621,6 +1676,8 @@ final class MLXModelService: @unchecked Sendable {
             let endThinkTokenId = tokenizer.convertTokenToId("</think>")
             var inReasoning = false
             let dbg = debugLogging
+            let vvTrace = self.trace
+            let vvTokenizer = tokenizer
 
             // Initial mask: nil (model may start with <think>, so don't constrain yet)
             // If model's first token is NOT <think>, we enable the grammar in onTokenSampled.
@@ -1686,6 +1743,12 @@ final class MLXModelService: @unchecked Sendable {
                 }
                 let mask = matcher.nextTokenMask()
                 proc.tokenMask = mask
+                // -VV: Log each grammar-constrained token
+                if vvTrace {
+                    let tokenStr = vvTokenizer.decode(tokens: [tokenID])
+                    let maskStatus = mask != nil ? "constrained" : "unconstrained"
+                    print("\(vvCyan)[\(ts())] [VV] GRAMMAR token[\(grammarTokenCount)] id=\(tokenID) \"\(tokenStr.replacingOccurrences(of: "\n", with: "\\n"))\" accepted=\(accepted) \(maskStatus)\(vvReset)")
+                }
                 if mask == nil && !matcher.isTerminated() && dbg {
                     // nil mask on non-terminated grammar means all tokens are allowed.
                     print("[\(ts())] [XGrammar] INFO: nextTokenMask() returned nil (all tokens allowed) at token \(grammarTokenCount)")
@@ -1747,30 +1810,84 @@ final class MLXModelService: @unchecked Sendable {
         return String(data: data, encoding: .utf8)!
     }
 
-    /// Build an EBNF grammar that allows free text OR valid XML tool calls (fallback).
-    /// Generates per-tool rules enforcing minimum required parameter count from schema.
+    /// Build an EBNF grammar that allows free text OR valid XML tool calls.
+    /// For tools with `type: "array"` or `type: "object"` parameters, enumerates ALL
+    /// parameters explicitly with typed value rules — no generic `param` fallback, so
+    /// the JSON constraint is actually enforced (CFG union of alternatives can't escape).
     static func buildToolCallEBNF(tools: [RequestTool]) -> String {
         var toolRules: [String] = []
         var toolVariantNames: [String] = []
+        var typedRules: [String] = []
+        var needsJsonGrammar = false
 
         for tool in tools {
             let name = tool.function.name
-            // Safe name for EBNF rule (replace non-alphanumeric with _)
             let safeName = name.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? String($0) : "_" }.joined()
-
-            // Extract required param count from JSON Schema parameters
-            let requiredCount = Self.requiredParamCount(for: tool)
-
-            // Build param chain: require at least requiredCount params
-            let minParams = requiredCount > 0 ? String(repeating: "param ", count: requiredCount) : ""
             let ruleName = "call_\(safeName)"
-            toolRules.append("\(ruleName) ::= \"<function=\(name)>\\n\" \(minParams)extra_params \"</function>\\n\"")
+            let requiredNames = Self.requiredParamNames(for: tool)
+            let requiredSet = Set(requiredNames)
+
+            // Check for array/object parameters that need JSON grammar enforcement
+            let structured = Self.structuredParams(for: tool) // [(name, "array"|"object")]
+            let structuredNames = Set(structured.map { $0.name })
+            let allParams = Self.allParams(for: tool) // [(name, type)]
+
+            if !structuredNames.isEmpty { needsJsonGrammar = true }
+
+            // Value rule based on parameter type (JSON grammar for array/object, permissive otherwise)
+            func valueRule(for paramName: String) -> String {
+                if structuredNames.contains(paramName) {
+                    let pType = allParams.first(where: { $0.name == paramName })?.type ?? "object"
+                    return pType == "array" ? "json_array" : "json_object"
+                }
+                return "param_value"
+            }
+
+            // Generate named rules for required params — enforces each must appear, in order
+            var requiredRuleRefs: [String] = []
+            for paramName in requiredNames {
+                let rRule = "\(safeName)_rp_\(paramName)"
+                typedRules.append("\(rRule) ::= \"<parameter=\(paramName)>\\n\" \(valueRule(for: paramName)) \"\\n</parameter>\\n\"")
+                requiredRuleRefs.append(rRule)
+            }
+
+            // Build the extras section (optional params after required)
+            let optionalParams = allParams.filter { !requiredSet.contains($0.name) }
+
+            if structuredNames.isEmpty && optionalParams.isEmpty && requiredNames.isEmpty {
+                // No schema info at all — fall back to at least 1 generic param
+                toolRules.append("\(ruleName) ::= \"<function=\(name)>\\n\" param extra_params \"</function>\\n\"")
+            } else if structuredNames.isEmpty {
+                // No structured params — named required + generic extras for optional/unknown
+                let requiredPart = requiredRuleRefs.isEmpty ? "" : requiredRuleRefs.joined(separator: " ") + " "
+                toolRules.append("\(ruleName) ::= \"<function=\(name)>\\n\" \(requiredPart)extra_params \"</function>\\n\"")
+            } else {
+                // Has structured params — named required + typed union for extras
+                var optAlts: [String] = []
+                for (pName, _) in optionalParams {
+                    let oRule = "\(safeName)_op_\(pName)"
+                    typedRules.append("\(oRule) ::= \"<parameter=\(pName)>\\n\" \(valueRule(for: pName)) \"\\n</parameter>\\n\"")
+                    optAlts.append(oRule)
+                }
+
+                let requiredPart = requiredRuleRefs.joined(separator: " ")
+                if optAlts.isEmpty {
+                    toolRules.append("\(ruleName) ::= \"<function=\(name)>\\n\" \(requiredPart) \"</function>\\n\"")
+                } else {
+                    let optUnion = "\(safeName)_opt"
+                    typedRules.append("\(optUnion) ::= \(optAlts.joined(separator: " | "))")
+                    typedRules.append("\(safeName)_extra ::= \(optUnion)*")
+                    let sep = requiredPart.isEmpty ? "" : " "
+                    toolRules.append("\(ruleName) ::= \"<function=\(name)>\\n\" \(requiredPart)\(sep)\(safeName)_extra \"</function>\\n\"")
+                }
+            }
+
             toolVariantNames.append(ruleName)
         }
 
         let toolAlternation = toolVariantNames.joined(separator: " | ")
 
-        return """
+        var grammar = """
         root ::= free_text (tool_call free_text)*
         free_text ::= free_char*
         free_char ::= [^<] | "<" [^t] | "<t" [^o] | "<to" [^o] | "<too" [^l] | "<tool" [^_] | "<tool_" [^c] | "<tool_c" [^a] | "<tool_ca" [^l] | "<tool_cal" [^l] | "<tool_call" [^>]
@@ -1781,23 +1898,68 @@ final class MLXModelService: @unchecked Sendable {
         param ::= "<parameter=" param_name ">\\n" param_value "\\n</parameter>\\n"
         param_name ::= [a-zA-Z_] [a-zA-Z0-9_]*
         param_value ::= [^<]+ | "<" [^/] [^<]*
+        \(typedRules.joined(separator: "\n        "))
         """
+
+        if needsJsonGrammar {
+            grammar += "\n"
+            grammar += "        json_array ::= \"[\" json_ws (json_value (json_ws \",\" json_ws json_value)*)? json_ws \"]\"\n"
+            grammar += "        json_object ::= \"{\" json_ws (json_pair (json_ws \",\" json_ws json_pair)*)? json_ws \"}\"\n"
+            grammar += "        json_pair ::= json_string json_ws \":\" json_ws json_value\n"
+            grammar += "        json_value ::= json_string | json_number | json_object | json_array | \"true\" | \"false\" | \"null\"\n"
+            grammar += "        json_string ::= \"\\\"\" json_char* \"\\\"\"\n"
+            grammar += "        json_char ::= [^\"\\\\] | \"\\\\\" [\"\\\\bfnrt/] | \"\\\\u\" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F]\n"
+            grammar += "        json_number ::= \"-\"? (\"0\" | [1-9] [0-9]*) (\".\" [0-9]+)? ([eE] [+-]? [0-9]+)?\n"
+            grammar += "        json_ws ::= [ \\t\\n]*\n"
+        }
+
+        return grammar
     }
 
-    /// Extract the number of required parameters from a tool's JSON Schema.
-    private static func requiredParamCount(for tool: RequestTool) -> Int {
-        guard let params = tool.function.parameters else { return 1 }
-        // AnyCodable wraps the JSON schema — extract "required" array
-        if let dict = params.value as? [String: Any],
-           let required = dict["required"] as? [String] {
-            return max(1, required.count)
+    /// Extract parameters with type "array" or "object" from a tool's JSON Schema.
+    private static func structuredParams(for tool: RequestTool) -> [(name: String, type: String)] {
+        guard let params = tool.function.parameters,
+              let dict = params.value.toAny() as? [String: Any],
+              let props = dict["properties"] as? [String: Any] else { return [] }
+
+        var result: [(String, String)] = []
+        for (key, value) in props {
+            if let propDict = value as? [String: Any],
+               let propType = propDict["type"] as? String,
+               propType == "array" || propType == "object" {
+                result.append((key, propType))
+            }
         }
-        // If no required field but properties exist, require at least 1
-        if let dict = params.value as? [String: Any],
-           let props = dict["properties"] as? [String: Any], !props.isEmpty {
-            return 1
+        return result
+    }
+
+    /// Extract ALL parameters (name, type) from a tool's JSON Schema.
+    private static func allParams(for tool: RequestTool) -> [(name: String, type: String)] {
+        guard let params = tool.function.parameters,
+              let dict = params.value.toAny() as? [String: Any],
+              let props = dict["properties"] as? [String: Any] else { return [] }
+
+        var result: [(String, String)] = []
+        for (key, value) in props {
+            let propType: String
+            if let propDict = value as? [String: Any],
+               let t = propDict["type"] as? String {
+                propType = t
+            } else {
+                propType = "string" // default
+            }
+            result.append((key, propType))
         }
-        return 1
+        return result.sorted(by: { $0.0 < $1.0 }) // deterministic order
+    }
+
+    /// Extract the names of required parameters from a tool's JSON Schema, sorted alphabetically.
+    private static func requiredParamNames(for tool: RequestTool) -> [String] {
+        guard let params = tool.function.parameters,
+              let dict = params.value.toAny() as? [String: Any],
+              let required = dict["required"] as? [String],
+              !required.isEmpty else { return [] }
+        return required.sorted()
     }
 
     /// Returns true when the model has a VLM config layout that can't be loaded

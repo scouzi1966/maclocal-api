@@ -34,6 +34,7 @@ class Server {
     private let hostname: String
     private let verbose: Bool
     private let veryVerbose: Bool
+    private let trace: Bool
     private let streamingEnabled: Bool
     private let instructions: String
     private let adapter: String?
@@ -57,11 +58,12 @@ class Server {
     private let mlxSeed: Int?
     private let mlxMaxLogprobs: Int
 
-    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil) async throws {
+    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
         self.veryVerbose = veryVerbose
+        self.trace = trace
         self.streamingEnabled = streamingEnabled
         self.instructions = instructions
         self.adapter = adapter
@@ -245,6 +247,7 @@ class Server {
                 seed: mlxSeed,
                 maxLogprobs: mlxMaxLogprobs,
                 veryVerbose: veryVerbose,
+                trace: trace,
                 rawOutput: mlxRawOutput,
                 stop: stop
             )

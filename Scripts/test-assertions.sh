@@ -2275,6 +2275,90 @@ except Exception as e:
       run_test "AdaptiveXML" "XML entity decoding in tool call values" "decoded" "$entity_ok" "$dur"
     fi
 
+    # ── Test 12.13: EBNF grammar enforces all required params ─────────────────
+    # Regression test: grammar must force the model to emit ALL required params.
+    # Before this fix, the EBNF used generic "param param extra_params" which
+    # allowed the model to emit any 2 params — it could skip "description" and
+    # emit "command" twice. Now the grammar uses named rules:
+    #   call_bash ::= ... bash_rp_command bash_rp_description extra_params ...
+    REQ_PARAMS_TOOL='[{"type":"function","function":{"name":"run_cmd","description":"Run a shell command","parameters":{"type":"object","properties":{"command":{"type":"string","description":"The command to run"},"description":{"type":"string","description":"What the command does"},"timeout":{"type":"integer","description":"Timeout in seconds"}},"required":["command","description"]}}}]'
+    t0=$(now_ms)
+    req_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"List the files in /tmp\"}],\"tools\":$REQ_PARAMS_TOOL,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    req_ok=$(echo "$req_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        missing = []
+        if 'command' not in args:
+            missing.append('command')
+        if 'description' not in args:
+            missing.append('description')
+        if missing:
+            print(f'FAIL: missing required params: {missing}')
+        elif not isinstance(args['command'], str) or not args['command']:
+            print(f'FAIL: command is empty or not string')
+        elif not isinstance(args['description'], str) or not args['description']:
+            print(f'FAIL: description is empty or not string')
+        else:
+            print('PASS')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$req_ok" = "PASS" ]; then
+      run_test "AdaptiveXML" "EBNF grammar enforces all required params present" "command + description" "PASS" "$dur"
+    else
+      run_test "AdaptiveXML" "EBNF grammar enforces all required params present" "command + description" "$req_ok" "$dur"
+    fi
+
+    # ── Test 12.14: EBNF structured param types (array/object) ──────────────
+    # Regression test: array/object params must get JSON grammar enforcement.
+    # Before the AnyCodableValue.toAny() fix, structuredParams() always returned
+    # empty because params.value (an enum) couldn't cast to [String: Any].
+    # Now array params get json_array constraint, object params get json_object.
+    STRUCT_TOOL='[{"type":"function","function":{"name":"tag_files","description":"Tag files with labels","parameters":{"type":"object","properties":{"directory":{"type":"string","description":"Directory path"},"tags":{"type":"array","items":{"type":"string"},"description":"List of tags to apply"},"options":{"type":"object","description":"Additional options"}},"required":["directory","tags"]}}}]'
+    t0=$(now_ms)
+    struct_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Tag all files in /tmp/docs with labels: important, review, archive\"}],\"tools\":$STRUCT_TOOL,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    struct_ok=$(echo "$struct_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        d_val = args.get('directory')
+        t_val = args.get('tags')
+        if d_val is None:
+            print('FAIL: required param directory missing')
+        elif not isinstance(d_val, str):
+            print(f'FAIL: directory is {type(d_val).__name__}, expected string')
+        elif t_val is None:
+            print('FAIL: required param tags missing')
+        elif isinstance(t_val, str):
+            print('FAIL: tags is string (not parsed as array — JSON grammar not enforced)')
+        elif not isinstance(t_val, list):
+            print(f'FAIL: tags is {type(t_val).__name__}, expected list')
+        elif len(t_val) == 0:
+            print('FAIL: tags array is empty')
+        else:
+            print('PASS')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$struct_ok" = "PASS" ]; then
+      run_test "AdaptiveXML" "EBNF structured params: array gets json_array constraint" "tags is array" "PASS" "$dur"
+    else
+      run_test "AdaptiveXML" "EBNF structured params: array gets json_array constraint" "tags is array" "$struct_ok" "$dur"
+    fi
+
   else
     echo ""
     echo "  (Model did not produce tool calls — skipping afm_adaptive_xml tests)"

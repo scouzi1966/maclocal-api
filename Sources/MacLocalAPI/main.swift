@@ -31,10 +31,13 @@ struct ServeCommand: ParsableCommand {
 
     @Flag(name: [.customShort("V"), .long], help: "Enable very verbose logging (full requests/responses and all parameters)")
     var veryVerbose: Bool = false
-    
+
+    @Flag(name: .long, help: "Trace logging: raw model output, parsed/coerced client output, grammar constraints sent to model — all data at every boundary")
+    var vv: Bool = false
+
     @Flag(name: .long, help: "Disable streaming responses (streaming is enabled by default)")
     var noStreaming: Bool = false
-    
+
     @Option(name: [.short, .long], help: "Custom instructions for the AI assistant")
     var instructions: String = "You are a helpful assistant"
     
@@ -98,7 +101,7 @@ struct ServeCommand: ParsableCommand {
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: port, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled)
+                let server = try await Server(port: port, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose || vv, trace: vv, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -267,6 +270,9 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: [.customShort("V"), .long], help: "Enable very verbose logging (full requests/responses and all parameters)")
     var veryVerbose: Bool = false
 
+    @Flag(name: .long, help: "Trace logging: raw model output, parsed/coerced client output, grammar constraints sent to model — all data at every boundary")
+    var vv: Bool = false
+
     @Flag(name: .long, help: "Disable streaming responses (streaming is enabled by default)")
     var noStreaming: Bool = false
 
@@ -369,6 +375,7 @@ struct MlxCommand: ParsableCommand {
         if let prefillStepSize { service.prefillStepSize = prefillStepSize }
         service.kvEvictionPolicy = kvEviction ?? "none"
         service.enablePrefixCaching = enablePrefixCaching
+        service.trace = vv
 
         // Parse --default-chat-template-kwargs and --no-think into defaultChatTemplateKwargs
         var parsedKwargs: [String: Any] = [:]
@@ -496,7 +503,8 @@ struct MlxCommand: ParsableCommand {
                     port: chosenPort,
                     hostname: hostname,
                     verbose: verbose,
-                    veryVerbose: veryVerbose,
+                    veryVerbose: veryVerbose || vv,
+                    trace: vv,
                     streamingEnabled: !noStreaming,
                     instructions: instructions,
                     adapter: nil,
