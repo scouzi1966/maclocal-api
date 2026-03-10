@@ -21,6 +21,7 @@ MODEL=""
 TIER="smoke"
 BIN=".build/release/afm"
 SECTION=""  # empty = run all sections; set to a number to run only that section
+GRAMMAR_CONSTRAINTS=false  # set via --grammar-constraints when server has --enable-grammar-constraints
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 REPORT_DIR="$PROJECT_ROOT/test-reports"
@@ -32,12 +33,13 @@ while [[ $# -gt 0 ]]; do
     --model) MODEL="$2"; shift 2 ;;
     --bin) BIN="$2"; shift 2 ;;
     --section) SECTION="$2"; shift 2 ;;
+    --grammar-constraints) GRAMMAR_CONSTRAINTS=true; shift ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
 
-if [[ ! "$TIER" =~ ^(smoke|standard|full)$ ]]; then
-  echo "ERROR: --tier must be smoke, standard, or full"
+if [[ ! "$TIER" =~ ^(unit|smoke|standard|full)$ ]]; then
+  echo "ERROR: --tier must be unit, smoke, standard, or full"
   exit 1
 fi
 
@@ -54,6 +56,7 @@ SKIP=0
 TOTAL=0
 TEST_START_TIME=$(date +%s)
 declare -a RESULTS=()
+CURRENT_TIER="smoke"
 
 run_test() {
   local group="$1"
@@ -77,20 +80,22 @@ run_test() {
   fi
   local esc_expected=$(echo "$expected" | tr '|' '/')
   local esc_actual=$(echo "$actual" | tr '|' '/')
-  RESULTS+=("${actual}|${group}|${name}|${esc_expected}|${esc_actual}|${duration}")
+  RESULTS+=("${actual}|${group}|${name}|${esc_expected}|${esc_actual}|${duration}|${CURRENT_TIER}|${TOTAL}")
 
   # JSONL record
   local status_val="PASS"
   [[ "$actual" = "PASS" ]] && status_val="PASS"
   [[ "$actual" = "SKIP" ]] && status_val="SKIP"
   [[ "$actual" != "PASS" && "$actual" != "SKIP" ]] && status_val="FAIL"
-  _GROUP="$group" _NAME="$name" _STATUS="$status_val" _DUR="$duration" python3 -c "
+  _GROUP="$group" _NAME="$name" _STATUS="$status_val" _DUR="$duration" _TIER="$CURRENT_TIER" _IDX="$TOTAL" python3 -c "
 import json, os
 print(json.dumps({
+    'index': int(os.environ['_IDX']),
     'group': os.environ['_GROUP'],
     'name': os.environ['_NAME'],
     'status': os.environ['_STATUS'],
-    'duration_ms': int(os.environ['_DUR'])
+    'duration_ms': int(os.environ['_DUR']),
+    'tier': os.environ['_TIER']
 }))
 " >> "$JSONL_FILE"
 }
@@ -148,9 +153,11 @@ now_ms() {
 
 min_tier() {
   # Returns 0 (true) if current tier >= required tier
+  # Tier order: unit < smoke < standard < full
   local required="$1"
   case "$required" in
-    smoke)    return 0 ;;
+    unit)     return 0 ;;
+    smoke)    [[ "$TIER" != "unit" ]] && return 0 || return 1 ;;
     standard) [[ "$TIER" == "standard" || "$TIER" == "full" ]] && return 0 || return 1 ;;
     full)     [[ "$TIER" == "full" ]] && return 0 || return 1 ;;
   esac
@@ -173,8 +180,98 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Section 0: Preflight
+# Section U: Swift Unit Tests (offline — no server required)
 # ═══════════════════════════════════════════════════════════════════════════════
+# Runs swift test (MacLocalAPITests) and parses console output into assertion
+# format. Tests XML parsing, type coercion, EBNF grammar generation, nullable
+# schemas, etc. These are pure logic tests — no model or server needed.
+
+if should_run_section U && min_tier unit; then
+  CURRENT_TIER="unit"
+  echo "🧪 Section U: Swift Unit Tests"
+
+  t0=$(now_ms)
+  swift_test_output=$(cd "$PROJECT_ROOT" && swift test 2>&1) || true
+  swift_test_dur=$(( $(now_ms) - t0 ))
+
+  # Parse swift test console output into a temp file.
+  # Swift Testing lines look like:
+  #   􁁛  Test "test name here" passed after 0.002 seconds.
+  #   􁁕  Test "test name here" failed after 0.003 seconds.
+  #   􁁛  Suite XMLToolCallParsingTests passed after 0.006 seconds.
+  UT_PARSED_FILE=$(mktemp /tmp/afm-ut-parsed-XXXXXX.tsv)
+  echo "$swift_test_output" | python3 -c "
+import sys, re
+
+lines = sys.stdin.read()
+
+# Match individual test results (not Suite summaries)
+# Pattern: Test \"name\" passed/failed after N.NNN seconds
+# Note: test names may contain escaped quotes (\\\" in output), so match greedily up to the
+# closing quote that's followed by the pass/fail keyword
+pattern = re.compile(r'Test\s+\"(.+?)\"\s+(passed|failed)\s+after\s+([\d.]+)\s+seconds')
+
+results = []
+for line in lines.split('\n'):
+    # Skip suite summary lines
+    if 'Suite ' in line and 'Test ' not in line:
+        continue
+    m = pattern.search(line)
+    if m:
+        name = m.group(1)
+        status = 'PASS' if m.group(2) == 'passed' else 'FAIL'
+        dur_ms = int(float(m.group(3)) * 1000)
+
+        # Determine group from test name heuristics
+        name_lower = name.lower()
+        if any(kw in name_lower for kw in ['nullable', 'toany', 'tojinja', 'toolspec', 'nsnull']):
+            group = 'NullableSchema'
+        elif any(kw in name_lower for kw in ['xml', 'decode', 'parse', 'coerce', 'entity', 'json', 'regex',
+                                              'fallback', 'ebnf', 'grammar', 'tool call', 'parameter',
+                                              'function', 'bash tool', 'fill', 'required', 'mistral',
+                                              'strip', 'remaining', 'bare', 'empty', 'multiline',
+                                              'duplicate', 'mixed', 'write', 'edit', 'question']):
+            group = 'XMLParsing'
+        else:
+            group = 'UnitTest'
+
+        results.append((group, name, status, dur_ms))
+
+for group, name, status, dur_ms in results:
+    print(f'{group}\t{name}\t{status}\t{dur_ms}')
+" > "$UT_PARSED_FILE" 2>/dev/null || true
+
+  if [ -s "$UT_PARSED_FILE" ]; then
+    # Read from file (not pipe) so run_test updates global state
+    while IFS=$'\t' read -r ut_group ut_name ut_status ut_dur; do
+      if [ "$ut_status" = "PASS" ]; then
+        run_test "$ut_group" "$ut_name" "pass" "PASS" "$ut_dur"
+      else
+        run_test "$ut_group" "$ut_name" "pass" "FAIL" "$ut_dur"
+      fi
+    done < "$UT_PARSED_FILE"
+
+    ut_count=$(wc -l < "$UT_PARSED_FILE" | tr -d ' ')
+    ut_fail_count=$(grep -c $'\tFAIL\t' "$UT_PARSED_FILE" 2>/dev/null || true)
+    ut_fail_count=${ut_fail_count:-0}
+    echo "  Swift unit tests: $ut_count total, $ut_fail_count failures (${swift_test_dur}ms)"
+  else
+    # swift test failed or produced no parseable output
+    run_test "UnitTest" "swift test execution" "test output" "FAIL: no parseable output" "$swift_test_dur"
+    echo "$swift_test_output" | tail -10
+  fi
+  rm -f "$UT_PARSED_FILE"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Section 0: Preflight (smoke tier and above — requires server)
+# ═══════════════════════════════════════════════════════════════════════════════
+if ! min_tier smoke; then
+  # unit-only tier: skip all server-dependent sections
+  # Jump directly to report generation
+  :
+else
+
 echo "🔍 Section 0: Preflight"
 
 t0=$(now_ms)
@@ -331,6 +428,7 @@ else
 fi
 
 if min_tier standard; then
+  CURRENT_TIER="standard"
   # Additional stop tests for standard+ tiers
   # Test: stop sequence with JSON array format
   t0=$(now_ms)
@@ -365,6 +463,7 @@ if min_tier standard; then
     run_test "Stop" "Stop 'llo' fires mid-word in 'hello'" "no 'llo'" "FAIL: $content" "$dur"
   fi
 fi
+CURRENT_TIER="smoke"
 fi # section 2
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -458,6 +557,7 @@ else
 fi
 
 if min_tier standard; then
+  CURRENT_TIER="standard"
   # Test: streaming logprobs
   t0=$(now_ms)
   stream_resp=$(api_stream '{"messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"stream":true,"temperature":0,"logprobs":true,"top_logprobs":2}')
@@ -509,6 +609,7 @@ except Exception as e:
     run_test "Logprobs" "top_logprobs=0 returns empty arrays" "empty top_logprobs" "$zero_valid" "$dur"
   fi
 fi
+CURRENT_TIER="smoke"
 fi # section 3
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -683,6 +784,7 @@ else
 fi
 
 if min_tier standard; then
+  CURRENT_TIER="standard"
   # Test: tool arguments are valid JSON
   t0=$(now_ms)
   resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What's the weather in Tokyo in celsius?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
@@ -847,12 +949,14 @@ else:
     run_test "Tools" "No tools: normal text response" "text response" "$no_tools" "$dur"
   fi
 fi
+CURRENT_TIER="smoke"
 fi # section 5
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Section 6: Prompt cache
 # ═══════════════════════════════════════════════════════════════════════════════
 if should_run_section 6 && min_tier standard; then
+  CURRENT_TIER="standard"
   echo ""
   echo "💾 Section 6: Prompt Cache"
 
@@ -963,6 +1067,7 @@ fi
 # Section 7: Concurrent requests
 # ═══════════════════════════════════════════════════════════════════════════════
 if should_run_section 7 && min_tier standard; then
+  CURRENT_TIER="standard"
   echo ""
   echo "⚡ Section 7: Concurrent Requests"
 
@@ -1018,6 +1123,7 @@ fi
 # Section 8: Error handling
 # ═══════════════════════════════════════════════════════════════════════════════
 if should_run_section 8; then
+CURRENT_TIER="smoke"
 echo ""
 echo "⚠️  Section 8: Error Handling"
 
@@ -1131,6 +1237,7 @@ fi # section 8
 # Scripts/test-chat-template-kwargs.sh for the full standalone suite.
 
 if should_run_section 10 && min_tier standard; then
+  CURRENT_TIER="standard"
   echo ""
   echo "🎛️  Section 10: Chat Template Kwargs (Issue #34)"
 
@@ -1275,6 +1382,7 @@ fi
 # Section 8b: Prefix Cache
 # ═══════════════════════════════════════════════════════════════════════════════
 if should_run_section 8b && min_tier standard; then
+  CURRENT_TIER="standard"
   echo ""
   echo "🗄️  Section 8b: Prefix Cache"
 
@@ -1312,6 +1420,7 @@ fi
 # Section 8c: Structured Output
 # ═══════════════════════════════════════════════════════════════════════════════
 if should_run_section 8c && min_tier standard; then
+  CURRENT_TIER="standard"
   echo ""
   echo "📋 Section 8c: Structured Output"
 
@@ -1346,6 +1455,7 @@ fi
 # Section 9: Performance (full tier only)
 # ═══════════════════════════════════════════════════════════════════════════════
 if should_run_section 9 && min_tier full; then
+  CURRENT_TIER="full"
   echo ""
   echo "🚀 Section 9: Performance"
 
@@ -1454,6 +1564,7 @@ fi
 # These tests run on any model but are most meaningful on Qwen3 XML models.
 
 if should_run_section 11 && min_tier standard; then
+  CURRENT_TIER="standard"
   # Probe: does this model produce XML-format tool calls?
   probe_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Berlin?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
   has_tool_calls=$(echo "$probe_resp" | python3 -c "
@@ -1797,6 +1908,7 @@ fi
 # If the server wasn't started with this flag, tests are skipped.
 
 if should_run_section 12 && min_tier standard; then
+  CURRENT_TIER="standard"
   echo ""
   echo "🔧 Section 12: afm_adaptive_xml"
 
@@ -2023,10 +2135,10 @@ except Exception as e:
       run_test "AdaptiveXML" "Argument types coerced (string, bool, int)" "correct types" "$typed_ok" "$dur"
     fi
 
-    # ── Test 12.7: tool call valid (xgrammar constraint requires compile flag) ──
-    # Verifies tool call response is valid. xgrammar EBNF constraint is compiled
-    # out by default (requires -DENABLE_XGRAMMAR_TOOL_CONSTRAINT). This test
-    # validates the response regardless — with or without grammar constraint.
+    # ── Test 12.7: tool call valid (with or without grammar constraints) ──────
+    # Verifies tool call response is valid. xgrammar EBNF grammar constraint is
+    # opt-in via --enable-grammar-constraints at server start. This test validates
+    # the response regardless — with or without grammar constraint.
     t0=$(now_ms)
     xg_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Berlin?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":1000,\"stream\":false,\"temperature\":0}")
     dur=$(( $(now_ms) - t0 ))
@@ -2048,9 +2160,9 @@ except Exception as e:
     print(f'FAIL: {e}')
 " 2>/dev/null || echo "FAIL: parse error")
     if [ "$xg_ok" = "PASS" ]; then
-      run_test "AdaptiveXML" "Tool call valid (xgrammar requires compile flag)" "valid" "PASS" "$dur"
+      run_test "AdaptiveXML" "Tool call valid (with or without grammar constraints)" "valid" "PASS" "$dur"
     else
-      run_test "AdaptiveXML" "Tool call valid (xgrammar requires compile flag)" "valid" "$xg_ok" "$dur"
+      run_test "AdaptiveXML" "Tool call valid (with or without grammar constraints)" "valid" "$xg_ok" "$dur"
     fi
 
     # ── Test 12.8: Array of objects coercion ──────────────────────────────────
@@ -2275,11 +2387,10 @@ except Exception as e:
       run_test "AdaptiveXML" "XML entity decoding in tool call values" "decoded" "$entity_ok" "$dur"
     fi
 
-    # ── Test 12.13: EBNF grammar enforces all required params ─────────────────
-    # Regression test: grammar must force the model to emit ALL required params.
-    # Before this fix, the EBNF used generic "param param extra_params" which
-    # allowed the model to emit any 2 params — it could skip "description" and
-    # emit "command" twice. Now the grammar uses named rules:
+    # ── Test 12.13: Required params present (grammar-hardened when --enable-grammar-constraints) ──
+    # Tests that ALL required params are present in tool call output.
+    # Without grammar: model should include both params but may sometimes miss one.
+    # With --enable-grammar-constraints: EBNF named rules force both params:
     #   call_bash ::= ... bash_rp_command bash_rp_description extra_params ...
     REQ_PARAMS_TOOL='[{"type":"function","function":{"name":"run_cmd","description":"Run a shell command","parameters":{"type":"object","properties":{"command":{"type":"string","description":"The command to run"},"description":{"type":"string","description":"What the command does"},"timeout":{"type":"integer","description":"Timeout in seconds"}},"required":["command","description"]}}}]'
     t0=$(now_ms)
@@ -2316,11 +2427,11 @@ except Exception as e:
       run_test "AdaptiveXML" "EBNF grammar enforces all required params present" "command + description" "$req_ok" "$dur"
     fi
 
-    # ── Test 12.14: EBNF structured param types (array/object) ──────────────
-    # Regression test: array/object params must get JSON grammar enforcement.
-    # Before the AnyCodableValue.toAny() fix, structuredParams() always returned
-    # empty because params.value (an enum) couldn't cast to [String: Any].
-    # Now array params get json_array constraint, object params get json_object.
+    # ── Test 12.14: Structured param types (grammar-hardened when --enable-grammar-constraints) ──
+    # Tests array/object params are correct types (not strings).
+    # Without grammar: type coercion handles this post-generation.
+    # With --enable-grammar-constraints: EBNF rules enforce json_array/json_object
+    # at generation time (prevents malformed output before coercion).
     STRUCT_TOOL='[{"type":"function","function":{"name":"tag_files","description":"Tag files with labels","parameters":{"type":"object","properties":{"directory":{"type":"string","description":"Directory path"},"tags":{"type":"array","items":{"type":"string"},"description":"List of tags to apply"},"options":{"type":"object","description":"Additional options"}},"required":["directory","tags"]}}}]'
     t0=$(now_ms)
     struct_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Tag all files in /tmp/docs with labels: important, review, archive\"}],\"tools\":$STRUCT_TOOL,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
@@ -2365,6 +2476,326 @@ except Exception as e:
     run_test "AdaptiveXML" "afm_adaptive_xml tests (model lacks tool calling)" "skip" "SKIP" "0"
   fi
 fi
+
+# Section 13: Grammar Constraint Validation (standard tier, --grammar-constraints)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Tests that only run when the server has --enable-grammar-constraints active.
+# Grammar constraints use xgrammar EBNF to force valid XML structure at generation
+# time, preventing JSON-inside-XML, missing required params, and wrong types.
+# These tests are adapted from Scripts/tests/test-tool-call-parsers.py patterns
+# which were originally written when xgrammar was always active.
+
+if should_run_section 13 && min_tier standard && [ "$GRAMMAR_CONSTRAINTS" = true ]; then
+  CURRENT_TIER="standard"
+  echo ""
+  echo "🔧 Section 13: Grammar Constraint Validation"
+
+  # Define calculator tool (from test-tool-call-parsers.py patterns)
+  CALC_TOOL_13='[{"type":"function","function":{"name":"calculate","description":"Evaluate a mathematical expression and return the result","parameters":{"type":"object","properties":{"expression":{"type":"string","description":"Math expression to evaluate, e.g. 2 + 3 * 4"}},"required":["expression"]}}}]'
+
+  # Two-tool definition (weather + calculator) matching test-tool-call-parsers.py
+  DUAL_TOOLS_13='[{"type":"function","function":{"name":"get_weather","description":"Get the current weather for a given city","parameters":{"type":"object","properties":{"city":{"type":"string","description":"City name"}},"required":["city"]}}},{"type":"function","function":{"name":"calculate","description":"Evaluate a mathematical expression","parameters":{"type":"object","properties":{"expression":{"type":"string","description":"Math expression"}},"required":["expression"]}}}]'
+
+  # ── Test 13.1: Calculator tool call (non-streaming) ──────────────────────
+  # From test-tool-call-parsers.py calc_nonstream pattern
+  t0=$(now_ms)
+  calc_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Use the calculator to compute 17 * 23 + 5\"}],\"tools\":$CALC_TOOL_13,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
+  dur=$(( $(now_ms) - t0 ))
+  calc_ok=$(echo "$calc_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        name = tc[0]['function']['name']
+        args = json.loads(tc[0]['function']['arguments'])
+        if name != 'calculate':
+            print(f'FAIL: expected calculate, got {name}')
+        elif 'expression' not in args:
+            print('FAIL: missing expression param')
+        elif not isinstance(args['expression'], str):
+            print(f'FAIL: expression is {type(args[\"expression\"]).__name__}, expected str')
+        else:
+            print('PASS')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$calc_ok" = "PASS" ]; then
+    run_test "Grammar" "Calculator tool call (non-streaming)" "calculate(expression)" "PASS" "$dur"
+  else
+    run_test "Grammar" "Calculator tool call (non-streaming)" "calculate(expression)" "$calc_ok" "$dur"
+  fi
+
+  # ── Test 13.2: Calculator tool call (streaming) ──────────────────────────
+  # From test-tool-call-parsers.py calc_stream pattern
+  t0=$(now_ms)
+  calc_stream_raw=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"Please calculate 99 * 101 using the tool\"}],\"tools\":$CALC_TOOL_13,\"max_tokens\":500,\"stream\":true,\"temperature\":0}")
+  dur=$(( $(now_ms) - t0 ))
+  calc_stream_ok=$(echo "$calc_stream_raw" | python3 -c "
+import sys, json
+lines = sys.stdin.read().strip().split('\n')
+tool_name = ''
+args_parts = []
+finish = None
+for line in lines:
+    line = line.strip()
+    if not line.startswith('data: ') or line == 'data: [DONE]':
+        continue
+    try:
+        chunk = json.loads(line[6:])
+        delta = chunk['choices'][0].get('delta', {})
+        fr = chunk['choices'][0].get('finish_reason')
+        if fr: finish = fr
+        for tc in delta.get('tool_calls', []):
+            fn = tc.get('function', {})
+            if fn.get('name'): tool_name = fn['name']
+            if fn.get('arguments') is not None: args_parts.append(fn['arguments'])
+    except: pass
+if not tool_name:
+    print('FAIL: no tool call in stream')
+elif finish != 'tool_calls':
+    print(f'FAIL: finish_reason={finish}')
+else:
+    full_args = ''.join(args_parts)
+    try:
+        args = json.loads(full_args)
+        if tool_name != 'calculate':
+            print(f'FAIL: expected calculate, got {tool_name}')
+        elif 'expression' not in args:
+            print('FAIL: missing expression param')
+        else:
+            print('PASS')
+    except json.JSONDecodeError as e:
+        print(f'FAIL: invalid JSON: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$calc_stream_ok" = "PASS" ]; then
+    run_test "Grammar" "Calculator tool call (streaming)" "calculate(expression) via SSE" "PASS" "$dur"
+  else
+    run_test "Grammar" "Calculator tool call (streaming)" "calculate(expression) via SSE" "$calc_stream_ok" "$dur"
+  fi
+
+  # ── Test 13.3: Two tools — correct selection under grammar constraint ────
+  # Grammar must allow model to choose between tools correctly
+  t0=$(now_ms)
+  dual_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Tokyo?\"}],\"tools\":$DUAL_TOOLS_13,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
+  dur=$(( $(now_ms) - t0 ))
+  dual_ok=$(echo "$dual_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        name = tc[0]['function']['name']
+        if name != 'get_weather':
+            print(f'FAIL: expected get_weather, got {name}')
+        else:
+            args = json.loads(tc[0]['function']['arguments'])
+            if 'city' not in args:
+                print('FAIL: missing city param')
+            else:
+                print('PASS')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$dual_ok" = "PASS" ]; then
+    run_test "Grammar" "Two tools: grammar allows correct selection" "get_weather selected" "PASS" "$dur"
+  else
+    run_test "Grammar" "Two tools: grammar allows correct selection" "get_weather selected" "$dual_ok" "$dur"
+  fi
+
+  # ── Test 13.4: Two tools — calc selected when prompted ───────────────────
+  t0=$(now_ms)
+  dual2_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Calculate 42 * 7 using the tool\"}],\"tools\":$DUAL_TOOLS_13,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
+  dur=$(( $(now_ms) - t0 ))
+  dual2_ok=$(echo "$dual2_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        name = tc[0]['function']['name']
+        if name != 'calculate':
+            print(f'FAIL: expected calculate, got {name}')
+        else:
+            args = json.loads(tc[0]['function']['arguments'])
+            if 'expression' not in args:
+                print('FAIL: missing expression param')
+            else:
+                print('PASS')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$dual2_ok" = "PASS" ]; then
+    run_test "Grammar" "Two tools: grammar selects calculate" "calculate selected" "PASS" "$dur"
+  else
+    run_test "Grammar" "Two tools: grammar selects calculate" "calculate selected" "$dual2_ok" "$dur"
+  fi
+
+  # ── Test 13.5: Grammar prevents missing required params ──────────────────
+  # With grammar constraints, EBNF named rules force ALL required params.
+  # This test uses 3 required params to stress the grammar.
+  THREE_REQ_TOOL='[{"type":"function","function":{"name":"send_email","description":"Send an email","parameters":{"type":"object","properties":{"to":{"type":"string","description":"Recipient email"},"subject":{"type":"string","description":"Email subject"},"body":{"type":"string","description":"Email body"}},"required":["to","subject","body"]}}}]'
+  t0=$(now_ms)
+  three_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Send an email to alice@example.com with subject Hello and body How are you?\"}],\"tools\":$THREE_REQ_TOOL,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
+  dur=$(( $(now_ms) - t0 ))
+  three_ok=$(echo "$three_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        missing = [p for p in ('to', 'subject', 'body') if p not in args or not args[p]]
+        if missing:
+            print(f'FAIL: missing required params: {missing}')
+        elif not all(isinstance(args[p], str) for p in ('to', 'subject', 'body')):
+            types = {p: type(args[p]).__name__ for p in ('to', 'subject', 'body')}
+            print(f'FAIL: wrong types: {types}')
+        else:
+            print('PASS')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$three_ok" = "PASS" ]; then
+    run_test "Grammar" "Grammar enforces 3 required params (send_email)" "to + subject + body" "PASS" "$dur"
+  else
+    run_test "Grammar" "Grammar enforces 3 required params (send_email)" "to + subject + body" "$three_ok" "$dur"
+  fi
+
+  # ── Test 13.6: Grammar constrains array param at generation time ─────────
+  # With grammar, the EBNF rule for array params produces json_array constraint
+  # so the model can't emit a bare string for an array param.
+  ARRAY_TOOL_13='[{"type":"function","function":{"name":"add_tags","description":"Add tags to an item","parameters":{"type":"object","properties":{"item_id":{"type":"string","description":"Item ID"},"tags":{"type":"array","items":{"type":"string"},"description":"Tags to add"}},"required":["item_id","tags"]}}}]'
+  t0=$(now_ms)
+  arr_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Add tags bug, critical, and urgent to item PROJ-123\"}],\"tools\":$ARRAY_TOOL_13,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
+  dur=$(( $(now_ms) - t0 ))
+  arr_ok=$(echo "$arr_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        tags = args.get('tags')
+        if tags is None:
+            print('FAIL: tags param missing')
+        elif isinstance(tags, str):
+            print('FAIL: tags is string — grammar should have enforced json_array')
+        elif not isinstance(tags, list):
+            print(f'FAIL: tags is {type(tags).__name__}, expected list')
+        elif len(tags) == 0:
+            print('FAIL: tags array is empty')
+        elif not all(isinstance(t, str) for t in tags):
+            print(f'FAIL: non-string items in tags: {[type(t).__name__ for t in tags]}')
+        else:
+            print('PASS')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$arr_ok" = "PASS" ]; then
+    run_test "Grammar" "Grammar constrains array param at generation time" "tags is array" "PASS" "$dur"
+  else
+    run_test "Grammar" "Grammar constrains array param at generation time" "tags is array" "$arr_ok" "$dur"
+  fi
+
+  # ── Test 13.7: Grammar with streaming array param ────────────────────────
+  t0=$(now_ms)
+  arr_stream_raw=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"Add tags review and pending to item TASK-456\"}],\"tools\":$ARRAY_TOOL_13,\"max_tokens\":500,\"stream\":true,\"temperature\":0}")
+  dur=$(( $(now_ms) - t0 ))
+  arr_stream_ok=$(echo "$arr_stream_raw" | python3 -c "
+import sys, json
+lines = sys.stdin.read().strip().split('\n')
+tool_name = ''
+args_parts = []
+for line in lines:
+    line = line.strip()
+    if not line.startswith('data: ') or line == 'data: [DONE]':
+        continue
+    try:
+        chunk = json.loads(line[6:])
+        delta = chunk['choices'][0].get('delta', {})
+        for tc in delta.get('tool_calls', []):
+            fn = tc.get('function', {})
+            if fn.get('name'): tool_name = fn['name']
+            if fn.get('arguments') is not None: args_parts.append(fn['arguments'])
+    except: pass
+if not tool_name:
+    print('FAIL: no tool call in stream')
+else:
+    full_args = ''.join(args_parts)
+    try:
+        args = json.loads(full_args)
+        tags = args.get('tags')
+        if isinstance(tags, str):
+            print('FAIL: tags is string in streaming path')
+        elif not isinstance(tags, list):
+            print(f'FAIL: tags is {type(tags).__name__}')
+        else:
+            print('PASS')
+    except json.JSONDecodeError as e:
+        print(f'FAIL: invalid JSON: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$arr_stream_ok" = "PASS" ]; then
+    run_test "Grammar" "Grammar array param via streaming" "tags is array (SSE)" "PASS" "$dur"
+  else
+    run_test "Grammar" "Grammar array param via streaming" "tags is array (SSE)" "$arr_stream_ok" "$dur"
+  fi
+
+  # ── Test 13.8: Grammar with nested object + mixed types ──────────────────
+  # Complex schema that exercises grammar enforcement of nested structures
+  COMPLEX_TOOL_13='[{"type":"function","function":{"name":"create_task","description":"Create a project task","parameters":{"type":"object","properties":{"title":{"type":"string","description":"Task title"},"priority":{"type":"integer","description":"Priority 1-5"},"assignees":{"type":"array","items":{"type":"string"},"description":"List of assignees"},"metadata":{"type":"object","description":"Extra metadata","properties":{"sprint":{"type":"string"},"estimate_hours":{"type":"number"}}}},"required":["title","priority","assignees"]}}}]'
+  t0=$(now_ms)
+  complex_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Create a task: Fix login bug, priority 2, assign to alice and bob, sprint S42, estimate 4.5 hours\"}],\"tools\":$COMPLEX_TOOL_13,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
+  dur=$(( $(now_ms) - t0 ))
+  complex_ok=$(echo "$complex_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('FAIL: no tool_calls')
+    else:
+        args = json.loads(tc[0]['function']['arguments'])
+        issues = []
+        title = args.get('title')
+        priority = args.get('priority')
+        assignees = args.get('assignees')
+        if not isinstance(title, str) or not title:
+            issues.append(f'title={type(title).__name__}({repr(title)})')
+        if priority is not None and isinstance(priority, str):
+            issues.append(f'priority=str({priority})')
+        if assignees is None:
+            issues.append('assignees missing')
+        elif isinstance(assignees, str):
+            issues.append('assignees=str (not array)')
+        elif not isinstance(assignees, list):
+            issues.append(f'assignees={type(assignees).__name__}')
+        if issues:
+            print(f'FAIL: {issues}')
+        else:
+            print('PASS')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$complex_ok" = "PASS" ]; then
+    run_test "Grammar" "Complex schema: string + int + array + object" "correct types" "PASS" "$dur"
+  else
+    run_test "Grammar" "Complex schema: string + int + array + object" "correct types" "$complex_ok" "$dur"
+  fi
+
+fi
+
+fi  # end: min_tier smoke (server-dependent sections)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Generate HTML Report
@@ -2432,8 +2863,21 @@ cat > "$REPORT_FILE" <<'HTMLHEAD'
   .group-badge.Error { color: #ff7b72; border-color: #da3633; }
   .group-badge.Kwargs { color: #a5d6ff; border-color: #58a6ff; }
   .group-badge.Perf { color: #3fb950; border-color: #238636; }
+  .group-badge.Structured { color: #d2a8ff; border-color: #8957e5; }
+  .group-badge.AdaptiveXML { color: #f0883e; border-color: #bd561d; }
+  .group-badge.Grammar { color: #d2a8ff; border-color: #8957e5; }
+  .group-badge.XMLParsing { color: #f0883e; border-color: #bd561d; }
+  .group-badge.NullableSchema { color: #79c0ff; border-color: #388bfd; }
+  .group-badge.UnitTest { color: #a5d6ff; border-color: #58a6ff; }
+  .tier-row td { background: #161b22; padding: 0.6rem 1rem; font-weight: 700; font-size: 0.9rem; border-bottom: 2px solid #30363d; border-top: 2px solid #30363d; }
+  .tier-badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600; }
+  .tier-badge.unit { background: #1a1a2e; color: #a5d6ff; border: 1px solid #58a6ff; }
+  .tier-badge.smoke { background: #0d2818; color: #3fb950; border: 1px solid #238636; }
+  .tier-badge.standard { background: #0d1a30; color: #58a6ff; border: 1px solid #1f6feb; }
+  .tier-badge.full { background: #2d1f00; color: #d29922; border: 1px solid #9e6a03; }
   .detail { font-family: 'SF Mono', 'Menlo', monospace; font-size: 0.8rem; color: #8b949e; white-space: pre-wrap; word-break: break-word; max-height: 100px; overflow-y: auto; background: #0d1117; padding: 0.5rem; border-radius: 6px; border: 1px solid #21262d; margin-top: 0.25rem; }
   .duration { color: #8b949e; font-family: 'SF Mono', monospace; font-size: 0.85rem; }
+  .test-idx { color: #8b949e; font-family: 'SF Mono', monospace; font-size: 0.85rem; }
   .footer { text-align: center; margin-top: 2rem; color: #484f58; font-size: 0.8rem; }
 </style>
 </head>
@@ -2444,7 +2888,7 @@ cat >> "$REPORT_FILE" <<EOF
 <div class="header">
   <h1>AFM Assertion Test Report</h1>
   <div class="meta">
-    Model: <strong>$MODEL</strong> &middot; Tier: <strong>$TIER</strong><br>
+    Model: <strong>$MODEL</strong> &middot; Tier: <strong>$TIER</strong> &middot; Grammar: <strong>$GRAMMAR_CONSTRAINTS</strong><br>
     Server: <code>$BASE_URL</code><br>
     Date: $DATE_STR
   </div>
@@ -2459,15 +2903,17 @@ cat >> "$REPORT_FILE" <<EOF
 <div class="progress-bar"><div class="progress-fill" style="width:${PCT}%;background:${BAR_COLOR};"></div></div>
 <table>
 <thead>
-<tr><th>#</th><th>Test</th><th>Group</th><th>Status</th><th>Duration</th><th>Details</th></tr>
+<tr><th>#</th><th>Test</th><th>Group</th><th>Coverage</th><th>Status</th><th>Duration</th><th>Details</th></tr>
 </thead>
 <tbody>
 EOF
 
-idx=0
+# Emit all rows in execution order with coverage tier badges
 for entry in "${RESULTS[@]}"; do
-  idx=$((idx + 1))
-  IFS='|' read -r status group name expected actual duration <<< "$entry"
+  IFS='|' read -r status group name expected actual duration tier test_idx <<< "$entry"
+  tier="${tier:-smoke}"
+  test_idx="${test_idx:-0}"
+
   if [ "$status" = "PASS" ]; then
     badge='<span class="badge pass">PASS</span>'
     detail_text="$expected"
@@ -2486,11 +2932,22 @@ for entry in "${RESULTS[@]}"; do
     dur_s=$(python3 -c "print(f'{$duration/1000:.1f}s')" 2>/dev/null || echo "${duration}ms")
   fi
 
+  # Coverage badges: show which tiers include this test
+  # smoke tests run in smoke+standard+full, standard in standard+full, full in full only
+  tier_badges=""
+  case "$tier" in
+    unit)     tier_badges='<span class="tier-badge unit">unit</span> <span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span>' ;;
+    smoke)    tier_badges='<span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span>' ;;
+    standard) tier_badges='<span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span>' ;;
+    full)     tier_badges='<span class="tier-badge full">full</span>' ;;
+  esac
+
   cat >> "$REPORT_FILE" <<EOF
 <tr>
-  <td><strong>$idx</strong></td>
+  <td><span class="test-idx">${test_idx}</span></td>
   <td>$name_esc</td>
   <td><span class="group-badge $group">$group</span></td>
+  <td>${tier_badges}</td>
   <td>$badge</td>
   <td><span class="duration">$dur_s</span></td>
   <td><div class="detail">$detail_text</div></td>

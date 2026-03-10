@@ -10,7 +10,7 @@
 #
 # Options:
 #   --models MODEL1,MODEL2,...   Comma-separated model IDs to test
-#   --tier smoke|standard|full   Test tier (default: standard)
+#   --tier unit|smoke|standard|full   Test tier (default: standard)
 #   --port PORT                  Base port (default: 9998)
 #   --bin PATH                   Path to afm binary (default: .build/release/afm)
 #   --parser PARSER              Force all tests to use this --tool-call-parser
@@ -34,6 +34,7 @@ BIN=".build/release/afm"
 FORCED_PARSER=""
 ALSO_FORCED_PARSER=""
 KEEP_SERVER=false
+GRAMMAR_CONSTRAINTS=false
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -44,6 +45,7 @@ while [[ $# -gt 0 ]]; do
     --parser) FORCED_PARSER="$2"; shift 2 ;;
     --also-forced-parser) ALSO_FORCED_PARSER="$2"; shift 2 ;;
     --keep-server) KEEP_SERVER=true; shift ;;
+    --grammar-constraints) GRAMMAR_CONSTRAINTS=true; shift ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
@@ -128,7 +130,11 @@ run_one_config() {
 
   # Run assertions — capture output
   local run_output
-  run_output=$("$SCRIPT_DIR/test-assertions.sh" --tier "$TIER" --model "$model" --port "$PORT" --bin "$BIN" 2>&1) || true
+  local grammar_flag=""
+  if [ "$GRAMMAR_CONSTRAINTS" = true ]; then
+    grammar_flag="--grammar-constraints"
+  fi
+  run_output=$("$SCRIPT_DIR/test-assertions.sh" --tier "$TIER" --model "$model" --port "$PORT" --bin "$BIN" $grammar_flag 2>&1) || true
   echo "$run_output"
 
   # Extract the report file path
@@ -159,19 +165,25 @@ run_one_config() {
   RUN_RESULTS+=("$model|$parser_mode|$report_file|${pass_count:-0}|${fail_count:-0}|${skip_count:-0}|${total_count:-0}")
 }
 
+# Build grammar flag for server start
+GRAMMAR_SERVER_FLAG=""
+if [ "$GRAMMAR_CONSTRAINTS" = true ]; then
+  GRAMMAR_SERVER_FLAG="--enable-grammar-constraints"
+fi
+
 # Run all configurations
 for model in "${MODEL_LIST[@]}"; do
   model=$(echo "$model" | xargs)  # trim whitespace
 
   if [ -n "$FORCED_PARSER" ]; then
-    run_one_config "$model" "$FORCED_PARSER" "--tool-call-parser $FORCED_PARSER"
+    run_one_config "$model" "$FORCED_PARSER" "--tool-call-parser $FORCED_PARSER $GRAMMAR_SERVER_FLAG"
   else
     # Auto-detect
-    run_one_config "$model" "auto" ""
+    run_one_config "$model" "auto" "$GRAMMAR_SERVER_FLAG"
 
     # Also forced parser if requested
     if [ -n "$ALSO_FORCED_PARSER" ]; then
-      run_one_config "$model" "$ALSO_FORCED_PARSER" "--tool-call-parser $ALSO_FORCED_PARSER"
+      run_one_config "$model" "$ALSO_FORCED_PARSER" "--tool-call-parser $ALSO_FORCED_PARSER $GRAMMAR_SERVER_FLAG"
     fi
   fi
 done
@@ -242,7 +254,7 @@ for result in "${RUN_RESULTS[@]}"; do
       $r_total total
     </div>
     <table class=\"results-table\">
-      <thead><tr><th>Group</th><th>Test</th><th>Expected</th><th>Result</th><th>Time</th></tr></thead>
+      <thead><tr><th>#</th><th>Test</th><th>Group</th><th>Coverage</th><th>Status</th><th>Duration</th><th>Details</th></tr></thead>
       $results_body
     </table>
   </div>"
@@ -294,6 +306,18 @@ cat > "$COMBINED_REPORT" <<HTMLEOF
   .results-table td.SKIP { color: #d29922; }
   .group-badge { display: inline-block; padding: 1px 6px; border-radius: 3px;
                  border: 1px solid; font-size: 0.8em; font-weight: 600; }
+  .tier-row td { background: #1c2129; padding: 6px 12px; font-weight: 700; font-size: 0.9em;
+                 border-bottom: 2px solid #30363d; border-top: 2px solid #30363d; }
+  .tier-badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.7em; font-weight: 600; }
+  .tier-badge.unit { background: #1a1a2e; color: #a5d6ff; border: 1px solid #58a6ff; }
+  .tier-badge.smoke { background: #0d2818; color: #3fb950; border: 1px solid #238636; }
+  .tier-badge.standard { background: #0d1a30; color: #58a6ff; border: 1px solid #1f6feb; }
+  .tier-badge.full { background: #2d1f00; color: #d29922; border: 1px solid #9e6a03; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 12px; font-size: 0.75em; font-weight: 600; }
+  .badge.pass { background: #0d2818; color: #3fb950; border: 1px solid #238636; }
+  .badge.fail { background: #2d1215; color: #f85149; border: 1px solid #da3633; }
+  .badge.skip { background: #2d2400; color: #d29922; border: 1px solid #9e6a03; }
+  .test-idx { color: #8b949e; font-family: 'SF Mono', monospace; font-size: 0.85em; }
 </style>
 </head>
 <body>

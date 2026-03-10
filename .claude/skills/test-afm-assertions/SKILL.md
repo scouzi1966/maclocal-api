@@ -17,8 +17,8 @@ Use this skill when the user asks to:
    ```bash
    MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache ./Scripts/list-models.sh
    ```
-2. **Tier?** — smoke (~2 min/model), standard (~5 min/model), or full (~15 min/model)?
-   Default: standard
+2. **Tier?** — unit (offline, ~5s), smoke (~2 min/model), standard (~5 min/model), or full (~15 min/model)?
+   Default: standard. Use `unit` for offline-only Swift tests (no server needed).
 3. **Forced parser?** — Should we also test with `--tool-call-parser qwen3_xml`?
    Suggest yes if testing Qwen3/Qwen3.5 models.
 4. **Server already running?** — If yes, use single-model mode (`test-assertions.sh`).
@@ -72,6 +72,7 @@ Use this skill when the user asks to:
 
 | Section | Group | Tier | What it tests |
 |---------|-------|------|---------------|
+| U | XMLParsing, NullableSchema | unit | **Swift unit tests** (102 tests: XML parsing, type coercion, EBNF grammar, nullable schemas) — no server required |
 | 0 | Preflight | smoke | Server reachable, binary exists |
 | 1 | Server | smoke | /v1/models, basic completion |
 | 2 | Stop | smoke+ | Stop sequences (10 variants including streaming) |
@@ -83,7 +84,24 @@ Use this skill when the user asks to:
 | 8 | Error | standard | HTTP errors, CORS, json_object, max_tokens, developer role |
 | 10 | Kwargs | standard | `chat_template_kwargs` enable_thinking control |
 | 11 | XMLTools | standard | **XML tool call deep validation** (10 tests) |
+| 12 | AdaptiveXML | standard | afm_adaptive_xml parser (14 tests: JSON-in-XML fallback, coercion, entity decoding, EBNF) |
+| 13 | Grammar | standard | **Grammar constraint validation** (8 tests, requires `--grammar-constraints`) |
 | 9 | Perf | full | TTFT, tok/s, long context (2K, 4K tokens) |
+
+### Section 13: Grammar Constraint Validation
+Only runs when `--grammar-constraints` is passed (server must have `--enable-grammar-constraints`).
+Tests adapted from `Scripts/tests/test-tool-call-parsers.py` patterns (originally written when xgrammar was always active):
+
+| Test | What it validates |
+|------|-------------------|
+| Calculator tool call (non-streaming) | Different tool than weather — validates tool selection under grammar |
+| Calculator tool call (streaming) | Same via SSE streaming path |
+| Two tools: grammar allows correct selection | Weather selected from weather+calc |
+| Two tools: grammar selects calculate | Calc selected from weather+calc |
+| Grammar enforces 3 required params | send_email with to/subject/body — grammar prevents missing params |
+| Grammar constrains array param | Tags param must be array (grammar enforces json_array at generation time) |
+| Grammar array param via streaming | Same via SSE streaming path |
+| Complex schema: mixed types | string + int + array + object in single tool call |
 
 ### Section 11: XML Tool Call Deep Validation (Key Tests)
 These are the most important tests for Qwen3/Qwen3.5 models:
@@ -136,14 +154,27 @@ When running with `--also-forced-parser qwen3_xml`:
 ## Quick Reference
 
 ```bash
+# Offline unit tests only (no server needed, ~5 seconds)
+./Scripts/test-assertions.sh --tier unit --model unused
+
 # Fast smoke test on one model (server must be running)
 ./Scripts/test-assertions.sh --tier smoke --model MODEL --port 9998
+
+# Standard test with grammar constraints (server must have --enable-grammar-constraints)
+./Scripts/test-assertions.sh --tier standard --model MODEL --port 9998 --grammar-constraints
 
 # Standard test across 3 Qwen models with forced parser comparison
 ./Scripts/test-assertions-multi.sh \
   --models "mlx-community/Qwen3.5-35B-A3B-4bit,mlx-community/Qwen3.5-9B-MLX-4bit,mlx-community/Qwen3-Coder-Next-4bit" \
   --tier standard \
   --also-forced-parser qwen3_xml
+
+# Full validation with grammar constraints
+./Scripts/test-assertions-multi.sh \
+  --models "mlx-community/Qwen3.5-35B-A3B-4bit" \
+  --tier full \
+  --also-forced-parser qwen3_xml \
+  --grammar-constraints
 
 # Full validation of a single model
 ./Scripts/test-assertions-multi.sh \
