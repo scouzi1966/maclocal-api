@@ -316,26 +316,72 @@ The user will make code changes (or ask you to). After changes are made:
 
 This loop repeats until the user selects "Publish" or "Cancel". Each iteration is a full clean rebuild — never do an incremental build for a release.
 
-#### Version selection
+#### Version and changelog selection
 
-Before publishing, determine the suggested version by reading `Sources/MacLocalAPI/BuildInfo.swift` and extracting the version (strip leading `v`). Present it to the user:
+Before publishing, ask the user **two questions** via AskUserQuestion:
 
-**Question:** "Release version? The base version from BuildInfo.swift is `X.Y.Z`. The full nightly version will be `X.Y.Z-next.<sha>.<date>`."
+**Question 1 — Version:** Determine the suggested version by reading `Sources/MacLocalAPI/BuildInfo.swift` and extracting the version (strip leading `v`). Present it to the user:
+
+"Release version? The base version from BuildInfo.swift is `X.Y.Z`. The full nightly version will be `X.Y.Z-next.<sha>.<date>`."
 
 **Options:**
 1. "X.Y.Z (from BuildInfo.swift)" — Use the version from BuildInfo.swift (recommended)
 2. "Custom version" — Enter a different base version
 
-Pass the confirmed version to the publish script via `--version`.
+**Question 2 — Changelog since:** Show both the last nightly tag AND the last stable release tag so the user can choose the right baseline:
+
+```bash
+# Find the last nightly tag
+LAST_NIGHTLY=$(git tag -l 'nightly-*' --sort=-creatordate | head -1)
+if [ -n "$LAST_NIGHTLY" ]; then
+  NIGHTLY_DATE=$(git log -1 --format='%ci' "$LAST_NIGHTLY" 2>/dev/null | cut -d' ' -f1)
+  NIGHTLY_COUNT=$(git rev-list "${LAST_NIGHTLY}..HEAD" --count 2>/dev/null)
+  echo "Last nightly: $LAST_NIGHTLY ($NIGHTLY_DATE) — $NIGHTLY_COUNT commits since"
+fi
+
+# Find the last stable release tag (v*.*.* without -next or nightly)
+LAST_STABLE=$(git tag -l 'v*' --sort=-version:refname | grep -v 'nightly\|next' | head -1)
+if [ -n "$LAST_STABLE" ]; then
+  STABLE_DATE=$(git log -1 --format='%ci' "$LAST_STABLE" 2>/dev/null | cut -d' ' -f1)
+  STABLE_COUNT=$(git rev-list "${LAST_STABLE}..HEAD" --count 2>/dev/null)
+  echo "Last stable:  $LAST_STABLE ($STABLE_DATE) — $STABLE_COUNT commits since"
+fi
+
+# Show commit log from the more recent of the two
+echo "--- Commits since last nightly ---"
+git log --oneline "${LAST_NIGHTLY}..HEAD" 2>/dev/null
+```
+
+Present both reference points and ask:
+
+"Generate changelog from which point?"
+
+**Options:**
+1. "Since last nightly `<tag>` (`N` commits)" — Default for routine nightlies (incremental changelog)
+2. "Since last stable release `<tag>` (`N` commits)" — Use for the first nightly after a stable release, or when you want the full delta since the last official version
+3. "Custom commit SHA" — Enter a specific commit SHA
+
+**Guidance for which to pick:**
+- **Routine nightly** (there have been nightlies since the last stable release): use "since last nightly" — the changelog shows only what's new since the previous nightly
+- **First nightly after a stable release** (no nightlies since last `v*` tag): use "since last stable release" — the changelog shows everything new in this development cycle
+- **No previous tags at all**: use "Custom commit SHA" or omit `--since` entirely (the script will include all commits)
+
+If the user selects "since last stable release", pass `--since <stable-tag-sha>` to the publish script.
+If the user provides a custom SHA, pass `--since <sha>`.
+If the user selects "since last nightly", no `--since` flag is needed (the script defaults to this).
 
 **Do NOT proceed to Step 4 unless the user selects "Publish".**
 
 ### Step 4: Publish Release
 
-Run the publish script with `--skip-build` (already built in Step 2) and the confirmed version:
+Run the publish script with `--skip-build` (already built in Step 2), the confirmed version, and optional `--since`:
 
 ```bash
+# Without custom since (uses last nightly tag):
 ./Scripts/publish-next.sh --skip-build --version <confirmed-version>
+
+# With custom since:
+./Scripts/publish-next.sh --skip-build --version <confirmed-version> --since <commit-sha>
 ```
 
 This script handles everything:
