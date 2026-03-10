@@ -66,9 +66,34 @@ Only the repository owner (scouzi1966) can run it. You are authenticated as: <us
 
 **Do NOT proceed unless: (1) all build checks pass, (2) GitHub user has push access to BOTH repos, (3) tap repo is available.**
 
-### Step 2: Build from Scratch
+### Step 2: Build from Scratch (True Clean Build)
 
-Run the full build — this works even from a fresh clone:
+A nightly release **must** be built from a completely clean state. `swift package clean` is NOT sufficient — it leaves behind cached modules, package resolution state, and precompiled headers that can mask stale code:
+
+| Cached artifact | Location | What `swift package clean` does |
+|-----------------|----------|-------------------------------|
+| Compiled .o/.swiftmodule | `.build/arm64-apple-macosx/release/` | Removes |
+| Module cache (PCM/PCH) | `.build/arm64-apple-macosx/release/ModuleCache/` | **Keeps** (~400MB) |
+| Cloned SPM dependencies | `.build/repositories/` | **Keeps** (~300MB) |
+| Package resolution lock | `.build/workspace-state.json` | **Keeps** |
+| Xcode DerivedData | `~/Library/Developer/Xcode/DerivedData/*maclocal*` | **Keeps** (if exists) |
+
+**Before running the build script**, nuke all cached state:
+
+```bash
+# 1. Remove entire SPM build directory (modules, cache, resolution state — everything)
+rm -rf .build
+
+# 2. Remove Xcode DerivedData for this project (if anyone opened it in Xcode)
+rm -rf ~/Library/Developer/Xcode/DerivedData/*maclocal* \
+       ~/Library/Developer/Xcode/DerivedData/*MacLocal* \
+       ~/Library/Developer/Xcode/DerivedData/*afm* 2>/dev/null || true
+
+# 3. Verify clean state
+test -d .build && echo "FAIL: .build still exists" || echo "OK: .build removed"
+```
+
+Then run the full build:
 
 ```bash
 ./Scripts/build-from-scratch.sh
@@ -76,14 +101,166 @@ Run the full build — this works even from a fresh clone:
 
 **IMPORTANT:** Never add `--skip-submodules`, `--skip-patches`, or `--skip-webui`. This is a release build — everything must be from scratch.
 
-If the user passed `--skip-build`, skip this step and verify the release binary exists:
+**Why this matters:** Stale ModuleCache can cause the compiler to use old .swiftmodule files from a previous build, meaning your patches compile but the binary links against the cached (unpatched) version. Stale `workspace-state.json` can resolve a different version of MLX Swift than what the pin specifies. Both failures are silent — the build succeeds, the binary runs, but behavior is wrong.
+
+If the user passed `--skip-build`, skip the clean and build steps, but **still run all Step 2b verification checks** against the existing binary:
 ```bash
 test -x .build/arm64-apple-macosx/release/afm || test -x .build/release/afm
 ```
 
-### Step 3: Present Binary for User Testing
+### Step 2b: Post-Build Verification ("What Could Go Wrong")
 
-After build completes, get the binary path and version:
+The build script reports success, but **do not trust its output alone**. Independently verify every critical artifact. The build script could succeed (exit 0) while:
+- Patches silently failed to apply (vendor reverted by `git submodule update`)
+- xgrammar compiled but wasn't linked (missing from Package.swift targets)
+- MLX Swift resolved a wrong version (pin not applied to Package.swift)
+- Metallib bundle missing (Metal shaders won't load at runtime → crash)
+- WebUI assets missing (llama.cpp web interface won't serve)
+- BuildInfo.swift not restored (leaves dirty working tree)
+
+Run **all** of these checks. Present results as a table. **If ANY check fails, STOP and investigate before proceeding.**
+
+#### Check 1: Patches byte-identical to vendor targets
+
+The patch script says "Applied" but `git submodule update` can silently revert files. Verify every patch file is byte-for-byte identical to its vendor target using the actual arrays from `Scripts/apply-mlx-patches.sh`:
+
+```python
+python3 -c "
+import os
+# These arrays MUST match Scripts/apply-mlx-patches.sh — if they drift, the check is wrong.
+# Read them from the script itself to stay in sync.
+patches = [
+  ('Qwen3VL.swift','Libraries/MLXVLM/Models/Qwen3VL.swift'),
+  ('Qwen3Next.swift','Libraries/MLXLLM/Models/Qwen3Next.swift'),
+  # ... all 20 entries from PATCH_FILES/TARGET_PATHS arrays ...
+]
+ok = fail = 0
+for pf, tp in patches:
+    src, tgt = f'Scripts/patches/{pf}', f'vendor/mlx-swift-lm/{tp}'
+    if not os.path.exists(tgt):
+        print(f'MISSING:   {pf} -> {tp}'); fail += 1
+    else:
+        with open(src,'rb') as a, open(tgt,'rb') as b:
+            if a.read() == b.read():
+                print(f'MATCH:     {pf}'); ok += 1
+            else:
+                print(f'MISMATCH:  {pf}'); fail += 1
+print(f'\n{ok}/{ok+fail} patches verified')
+"
+```
+
+**Why this matters:** If even one patch is stale, the compiled binary has upstream code instead of our optimized/fixed version. This has happened when `git submodule update --init --recursive` runs AFTER `apply-mlx-patches.sh` — it silently reverts patches.
+
+#### Check 2: MLX Swift pinned AND resolved to exact version
+
+```bash
+# Check the pin in source
+grep 'mlx-swift.*exact' vendor/mlx-swift-lm/Package.swift
+# Must show: exact: "0.30.3"
+# 0.30.4+ has SDPA NaN regression — if this shows any other version, STOP.
+
+# Check what SPM actually resolved (the pin could say 0.30.3 but resolution used a cached different version)
+python3 -c "
+import json
+d = json.load(open('Package.resolved'))
+for p in d.get('pins', []):
+    if 'mlx' in p.get('identity','').lower():
+        print(f'{p[\"identity\"]}: {p[\"state\"].get(\"version\",\"?\")}')
+"
+# Must show: mlx-swift: 0.30.3
+# If version differs from pin, the resolution is stale — this is exactly what rm -rf .build prevents.
+```
+
+**Why this matters:** The pin in `Package.swift` is a request, but `Package.resolved` is what was actually fetched and compiled against. A stale `workspace-state.json` or `Package.resolved` from a previous build can cause SPM to use a cached resolution even after the pin changes. Nuking `.build/` in Step 2 prevents this, but verify anyway.
+
+#### Check 3: xgrammar submodule present and at expected version
+
+```bash
+git submodule status vendor/xgrammar
+# Must show a commit hash, NOT a '-' prefix (which means uninitialized)
+cd vendor/xgrammar && git describe --tags --always && cd -
+# Must show v0.1.32 or the expected pinned tag
+```
+
+**Why this matters:** xgrammar is a C++ library compiled from source. If the submodule is missing or at the wrong version, the EBNF grammar constraint feature either doesn't exist or has different behavior.
+
+#### Check 4: xgrammar symbols linked into the binary
+
+```bash
+# Verify xgrammar C++ was compiled and linked (not just present as source)
+strings .build/arm64-apple-macosx/release/afm | grep -c 'xgrammar/cpp/'
+# Must be > 0 (typically 10+)
+
+# Verify our Swift XGrammarService wrapper is in the binary
+strings .build/arm64-apple-macosx/release/afm | grep 'XGrammarService'
+# Must show: XGrammarService, _TtC11MacLocalAPI15XGrammarService, etc.
+
+# Verify xgrammar C++ symbols are actually linked
+nm -a .build/arm64-apple-macosx/release/afm 2>/dev/null | grep -c 'xgrammar'
+# Must be > 0 (typically 30+)
+```
+
+**Why this matters:** xgrammar could be in the source tree but excluded from the Swift Package Manager target graph. The binary would build fine but grammar-constrained decoding would silently fail at runtime.
+
+#### Check 5: Metallib bundle present
+
+```bash
+METALLIB=".build/arm64-apple-macosx/release/MacLocalAPI_MacLocalAPI.bundle/default.metallib"
+test -f "$METALLIB" && echo "OK: metallib $(du -h "$METALLIB" | cut -f1)" || echo "FAIL: metallib missing"
+# Must exist and be > 1MB (typically ~3.7MB)
+```
+
+**Why this matters:** Without the metallib, MLX GPU kernels can't load. The server starts but crashes on first inference. The build script checks this, but verify independently.
+
+#### Check 6: WebUI assets present
+
+```bash
+test -f "Resources/webui/index.html.gz" && echo "OK: webui assets" || echo "FAIL: webui missing"
+```
+
+**Why this matters:** The llama.cpp web UI is served at `/` — without it, browser access shows nothing.
+
+#### Check 7: BuildInfo.swift is clean (not left with injected SHA)
+
+```bash
+grep 'static let version' Sources/MacLocalAPI/BuildInfo.swift
+# Must show the base version like: static let version: String? = "v0.9.7"
+# Must NOT show a commit SHA like: static let version: String? = "v0.9.7-3d71b40"
+git diff Sources/MacLocalAPI/BuildInfo.swift
+# Must show no diff (file restored to committed state)
+```
+
+**Why this matters:** The build script injects the git SHA into BuildInfo.swift during compilation then restores it. If restore fails, the working tree is dirty and the next `git commit` could accidentally commit the injected version.
+
+#### Check 8: Binary is stripped and reasonable size
+
+```bash
+ls -lh .build/arm64-apple-macosx/release/afm
+# Size should be 30-50MB for a stripped release binary
+# If > 100MB, it's likely unstripped (debug symbols included)
+nm -gU .build/arm64-apple-macosx/release/afm 2>/dev/null | wc -l
+# Stripped binary has minimal external symbols (< 500 typically)
+# Unstripped has thousands
+```
+
+#### Present verification results
+
+| # | Check | What could go wrong | Result |
+|---|-------|---------------------|--------|
+| 1 | Patches byte-identical (N/N) | submodule update reverted patches | PASS/FAIL |
+| 2 | MLX Swift pin + resolved 0.30.3 | stale resolution → SDPA NaN crashes | PASS/FAIL |
+| 3 | xgrammar at expected tag | missing submodule → no grammar constraints | PASS/FAIL |
+| 4 | xgrammar linked in binary | compiled but not linked → silent runtime failure | PASS/FAIL |
+| 5 | Metallib bundle present | missing → crash on first inference | PASS/FAIL |
+| 6 | WebUI assets present | missing → no browser UI | PASS/FAIL |
+| 7 | BuildInfo.swift clean | dirty working tree → accidental commit | PASS/FAIL |
+| 8 | Binary stripped, reasonable size | unstripped → bloated download | PASS/FAIL |
+
+**If ANY check fails, STOP. Do not proceed to user testing or publishing.**
+
+### Step 3: Present Binary and Enter Test/Fix/Rebuild Loop
+
+After **all verification checks pass**, get the binary path and version:
 
 ```bash
 BIN=".build/arm64-apple-macosx/release/afm"
@@ -95,18 +272,55 @@ $BIN --version
 Report to the user:
 - Binary path (absolute)
 - Version string
+- Verification results table (from Step 2b)
 
-Then **use AskUserQuestion** to pause and ask **two questions**:
+Then **use AskUserQuestion** to pause and let the user decide what to do next:
 
-**Question 1:** "The binary is ready for testing. Please test it and confirm when ready to publish."
+**Question:** "The build is verified. What would you like to do?"
 
 **Options:**
-1. "Publish" — Continue with GitHub release and tap update
-2. "Cancel" — Abort without publishing
+1. "Publish as-is" — Skip testing, go straight to GitHub release and tap update
+2. "Run assertion tests" — Run the test suite, then decide (invokes `/test-afm-assertions` skill)
+3. "I'll test manually" — Pause here while the user tests the binary themselves
+4. "Cancel" — Abort without publishing
 
-**Question 2:** Determine the suggested version by reading `Sources/MacLocalAPI/BuildInfo.swift` and extracting the version (strip leading `v`). Present it to the user:
+#### If user selects "Run assertion tests"
 
-"Release version? The base version from BuildInfo.swift is `X.Y.Z`. The full nightly version will be `X.Y.Z-next.<sha>.<date>`."
+Invoke the `/test-afm-assertions` skill to run tests. After tests complete, present results and ask:
+
+**Question:** "Tests complete. What next?"
+
+**Options:**
+1. "Publish" — Results are acceptable, proceed to release
+2. "Fix and rebuild" — There are issues to fix before releasing
+3. "Cancel" — Abort
+
+#### If user selects "I'll test manually"
+
+Wait for the user to come back. When they do, ask:
+
+**Question:** "Ready to proceed?"
+
+**Options:**
+1. "Publish" — Testing passed, proceed to release
+2. "Fix and rebuild" — There are issues to fix before releasing
+3. "Cancel" — Abort
+
+#### If user selects "Fix and rebuild" (from any path above)
+
+The user will make code changes (or ask you to). After changes are made:
+
+1. **Re-run Step 2** (full clean build: `rm -rf .build` + `./Scripts/build-from-scratch.sh`)
+2. **Re-run Step 2b** (all 8 verification checks)
+3. **Return to Step 3** (present binary and ask again)
+
+This loop repeats until the user selects "Publish" or "Cancel". Each iteration is a full clean rebuild — never do an incremental build for a release.
+
+#### Version selection
+
+Before publishing, determine the suggested version by reading `Sources/MacLocalAPI/BuildInfo.swift` and extracting the version (strip leading `v`). Present it to the user:
+
+**Question:** "Release version? The base version from BuildInfo.swift is `X.Y.Z`. The full nightly version will be `X.Y.Z-next.<sha>.<date>`."
 
 **Options:**
 1. "X.Y.Z (from BuildInfo.swift)" — Use the version from BuildInfo.swift (recommended)
@@ -162,6 +376,8 @@ Report to the user:
 ### Error Handling
 
 - **Build failure:** Show error output, suggest running `/build-afm` first to diagnose
+- **Verification failure (Step 2b):** Do not proceed. Investigate the specific check that failed. If patches are stale, re-run `./Scripts/apply-mlx-patches.sh`. If resolution is wrong, `rm -rf .build` and rebuild.
+- **Test failures (Step 3):** Present the failures and let the user decide: fix and rebuild, publish anyway, or cancel. Do NOT automatically fix test failures — that's the user's decision.
 - **gh release create failure:** Check `gh auth status`, check if tag already exists (`gh release view <tag>`)
 - **Tap push failure:** Check if `../homebrew-afm` is on the right branch and has no uncommitted changes
-- **User cancels at Step 3:** Clean exit, no publish. The built binary remains available for manual use.
+- **User cancels at any point:** Clean exit, no publish. The built binary remains available for manual use.
