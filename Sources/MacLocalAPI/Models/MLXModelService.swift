@@ -106,6 +106,7 @@ final class MLXModelService: @unchecked Sendable {
     var kvBits: Int?
     var kvEvictionPolicy: String = "none"  // "none" or "streaming"
     var enablePrefixCaching: Bool = false
+    var enableGrammarConstraints: Bool = false
     var trace: Bool = false { didSet { traceLogging = trace } }
     var defaultChatTemplateKwargs: [String: Any]?
     /// Detected think start/end tags from the tokenizer vocabulary (e.g., "<think>"/"</think>").
@@ -357,30 +358,18 @@ final class MLXModelService: @unchecked Sendable {
         var cachedTokenCount = 0
         let generated: String = try await container.perform { context in
             // Grammar constraint setup (needs tokenizer from context)
-            // xgrammar EBNF tool call constraint is ON by default for afm_adaptive_xml.
-            // To disable, build with: swift build -Xswiftc -DDISABLE_XGRAMMAR_TOOL_CONSTRAINT
             let grammarProcessor: GrammarLogitProcessor?
-            #if DISABLE_XGRAMMAR_TOOL_CONSTRAINT
             if responseFormat?.type == "json_schema" {
                 grammarProcessor = self.setupGrammarConstraint(
                     modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
                 )
-            } else {
-                grammarProcessor = nil
-            }
-            #else
-            if responseFormat?.type == "json_schema" {
-                grammarProcessor = self.setupGrammarConstraint(
-                    modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
-                )
-            } else if self.toolCallParser == "afm_adaptive_xml" {
+            } else if self.enableGrammarConstraints && self.toolCallParser == "afm_adaptive_xml" {
                 grammarProcessor = self.setupToolCallGrammarConstraint(
                     modelID: modelID, tokenizer: context.tokenizer, tools: tools
                 )
             } else {
                 grammarProcessor = nil
             }
-            #endif
             defer {
                 (grammarProcessor?.matcherHandle as? GrammarMatcherHandle)?.release()
             }
@@ -668,27 +657,17 @@ final class MLXModelService: @unchecked Sendable {
                     try await container.perform { context in
                         // Grammar constraint setup — see non-streaming path for details.
                         let grammarProcessor: GrammarLogitProcessor?
-                        #if DISABLE_XGRAMMAR_TOOL_CONSTRAINT
                         if responseFormat?.type == "json_schema" {
                             grammarProcessor = self.setupGrammarConstraint(
                                 modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
                             )
-                        } else {
-                            grammarProcessor = nil
-                        }
-                        #else
-                        if responseFormat?.type == "json_schema" {
-                            grammarProcessor = self.setupGrammarConstraint(
-                                modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
-                            )
-                        } else if self.toolCallParser == "afm_adaptive_xml" {
+                        } else if self.enableGrammarConstraints && self.toolCallParser == "afm_adaptive_xml" {
                             grammarProcessor = self.setupToolCallGrammarConstraint(
                                 modelID: modelID, tokenizer: context.tokenizer, tools: tools
                             )
                         } else {
                             grammarProcessor = nil
                         }
-                        #endif
                         defer {
                             (grammarProcessor?.matcherHandle as? GrammarMatcherHandle)?.release()
                         }
@@ -1413,7 +1392,7 @@ final class MLXModelService: @unchecked Sendable {
             guard let keyRange = Range(pm.range(at: 1), in: body),
                   let valRange = Range(pm.range(at: 2), in: body) else { continue }
             let key = String(body[keyRange])
-            let val = decodeXMLEntities(String(body[valRange]).trimmingCharacters(in: .whitespacesAndNewlines))
+            let val = decodeJSONEscapes(decodeXMLEntities(String(body[valRange]).trimmingCharacters(in: .whitespacesAndNewlines)))
             if !val.isEmpty, arguments[key] == nil {
                 if let data = val.data(using: .utf8),
                    let parsed = try? JSONSerialization.jsonObject(with: data),
@@ -1439,7 +1418,7 @@ final class MLXModelService: @unchecked Sendable {
                 if let funcEnd = val.range(of: "</function>") {
                     val = String(val[..<funcEnd.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
                 }
-                let decoded = decodeXMLEntities(val)
+                let decoded = decodeJSONEscapes(decodeXMLEntities(val))
                 if !decoded.isEmpty {
                     if let data = decoded.data(using: .utf8),
                        let parsed = try? JSONSerialization.jsonObject(with: data),
@@ -1477,6 +1456,27 @@ final class MLXModelService: @unchecked Sendable {
             .replacingOccurrences(of: "&amp;", with: "&")
             .replacingOccurrences(of: "&quot;", with: "\"")
             .replacingOccurrences(of: "&apos;", with: "'")
+    }
+
+    /// Undo JSON-style escape sequences in XML parameter values.
+    /// Some models (e.g. Qwen3-Coder) emit edit oldString/newString with literal `\n`, `\"`, `\t`
+    /// instead of real newlines and quotes — the model pre-escapes content as if generating JSON.
+    /// Detect this: if the value has NO real newlines but contains literal `\n`, unescape.
+    static func decodeJSONEscapes(_ s: String) -> String {
+        // Only activate when the value looks like it was JSON-escaped:
+        // no real newlines but has literal \n sequences
+        guard !s.contains("\n"), s.contains("\\n") || s.contains("\\\"") else { return s }
+        if traceLogging {
+            print("\(vvCyan)[\(ts())] [VV] decodeJSONEscapes: unescaping \\n/\\\" in \(s.count)-char value (no real newlines detected)\(vvReset)")
+            fflush(stdout)
+        }
+        return s
+            .replacingOccurrences(of: "\\\\", with: "\u{0000}")  // protect real backslashes first
+            .replacingOccurrences(of: "\\\"", with: "\"")
+            .replacingOccurrences(of: "\\n", with: "\n")
+            .replacingOccurrences(of: "\\t", with: "\t")
+            .replacingOccurrences(of: "\\r", with: "\r")
+            .replacingOccurrences(of: "\u{00000}", with: "\\")   // restore real backslashes
     }
 
     /// Parse {"name":"func","arguments":{...}} JSON tool call
@@ -1897,7 +1897,8 @@ final class MLXModelService: @unchecked Sendable {
         extra_params ::= param*
         param ::= "<parameter=" param_name ">\\n" param_value "\\n</parameter>\\n"
         param_name ::= [a-zA-Z_] [a-zA-Z0-9_]*
-        param_value ::= [^<]+ | "<" [^/] [^<]*
+        pv_char ::= [^\\n] | "\\n" [^<] | "\\n<" [^/]
+        param_value ::= pv_char+
         \(typedRules.joined(separator: "\n        "))
         """
 
@@ -1953,13 +1954,16 @@ final class MLXModelService: @unchecked Sendable {
         return result.sorted(by: { $0.0 < $1.0 }) // deterministic order
     }
 
-    /// Extract the names of required parameters from a tool's JSON Schema, sorted alphabetically.
-    private static func requiredParamNames(for tool: RequestTool) -> [String] {
+    /// Extract the names of required parameters from a tool's JSON Schema.
+    /// Preserves the order from the client's "required" array — this matters because
+    /// the grammar forces params in this order, and the natural schema order
+    /// (e.g. filePath → oldString → newString) helps the model generate correct values.
+    static func requiredParamNames(for tool: RequestTool) -> [String] {
         guard let params = tool.function.parameters,
               let dict = params.value.toAny() as? [String: Any],
               let required = dict["required"] as? [String],
               !required.isEmpty else { return [] }
-        return required.sorted()
+        return required
     }
 
     /// Returns true when the model has a VLM config layout that can't be loaded

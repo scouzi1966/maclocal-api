@@ -525,7 +525,7 @@ struct MLXChatCompletionsController: RouteCollection {
                                               let valRange = Range(match.range(at: 2), in: currentToolText) else { continue }
                                         let rawKey = String(currentToolText[keyRange])
                                         if incrementalEmittedKeys.contains(rawKey) { continue }
-                                        let value = MLXModelService.decodeXMLEntities(String(currentToolText[valRange]).trimmingCharacters(in: .whitespacesAndNewlines))
+                                        let value = MLXModelService.decodeJSONEscapes(MLXModelService.decodeXMLEntities(String(currentToolText[valRange]).trimmingCharacters(in: .whitespacesAndNewlines)))
                                         if value.isEmpty { continue }
                                         incrementalEmittedKeys.insert(rawKey)
                                         var emitKey = paramNameMapping[rawKey] ?? rawKey
@@ -793,7 +793,7 @@ struct MLXChatCompletionsController: RouteCollection {
                                         let rawKey = String(currentToolText[keyRange])
                                         // Skip duplicate parameters (dedup)
                                         if incrementalEmittedKeys.contains(rawKey) { continue }
-                                        let value = MLXModelService.decodeXMLEntities(String(currentToolText[valRange]).trimmingCharacters(in: .whitespacesAndNewlines))
+                                        let value = MLXModelService.decodeJSONEscapes(MLXModelService.decodeXMLEntities(String(currentToolText[valRange]).trimmingCharacters(in: .whitespacesAndNewlines)))
                                         // Skip empty values — Qwen3-Coder sometimes emits
                                         // an empty duplicate first, then the real value.
                                         // Match extractToolCallsFallback's "first non-empty" logic.
@@ -961,6 +961,7 @@ struct MLXChatCompletionsController: RouteCollection {
                                 var value = String(currentToolText[valRange])
                                 if value.hasPrefix("\n") { value = String(value.dropFirst()) }
                                 if value.hasSuffix("\n") { value = String(value.dropLast()) }
+                                value = MLXModelService.decodeJSONEscapes(MLXModelService.decodeXMLEntities(value))
                                 if !value.isEmpty {
                                     incrementalEmittedKeys.insert(rawKey)
                                     var emitKey = paramNameMapping[rawKey] ?? rawKey

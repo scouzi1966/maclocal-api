@@ -344,6 +344,9 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Enable radix tree prefix caching for KV cache reuse across requests")
     var enablePrefixCaching: Bool = false
 
+    @Flag(name: .long, help: .hidden)
+    var enableGrammarConstraints: Bool = false
+
     @Flag(name: .long, help: "Disable thinking/reasoning (sets enable_thinking=false in chat template)")
     var noThink: Bool = false
 
@@ -375,6 +378,7 @@ struct MlxCommand: ParsableCommand {
         if let prefillStepSize { service.prefillStepSize = prefillStepSize }
         service.kvEvictionPolicy = kvEviction ?? "none"
         service.enablePrefixCaching = enablePrefixCaching
+        service.enableGrammarConstraints = enableGrammarConstraints
         service.trace = vv
 
         // Parse --default-chat-template-kwargs and --no-think into defaultChatTemplateKwargs
