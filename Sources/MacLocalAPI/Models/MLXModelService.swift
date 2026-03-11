@@ -438,24 +438,55 @@ final class MLXModelService: @unchecked Sendable {
 
                 if effectivePrefix > 0, let states = layerStates {
                     // Restore KV cache from radix tree state
+                    if debugLogging {
+                        print("[\(ts())] [PrefixCache] RESTORE-BEGIN: prefixLen=\(prefixLen), effectivePrefix=\(effectivePrefix), inputTokens=\(inputTokens.count)")
+                        for i in [0, 1, 3, 7] where i < states.count {
+                            let shapes = states[i].map { "\($0.shape)" }.joined(separator: ", ")
+                            print("[\(ts())] [PrefixCache] STORED layer[\(i)]: \(states[i].count) arrays, shapes=[\(shapes)]")
+                        }
+                    }
                     generationCache = context.model.newCache(parameters: params)
-                    for i in 0..<generationCache.count {
-                        if i < states.count {
-                            generationCache[i].state = states[i]
+                    for i in 0..<generationCache.count where i < states.count {
+                        generationCache[i].state = states[i]
+                    }
+                    if debugLogging {
+                        let diagLayers = [0, 1, 3, 7]
+                        for i in diagLayers where i < generationCache.count {
+                            let layer = generationCache[i]
+                            let cacheType = type(of: layer)
+                            let stateShapes = layer.state.map { "\($0.shape)" }.joined(separator: ", ")
+                            print("[\(ts())] [PrefixCache] POST-ASSIGN layer[\(i)] (\(cacheType)): offset=\(layer.offset), shapes=[\(stateShapes)]")
                         }
                     }
                     // Trim to effective prefix length
                     for i in 0..<generationCache.count {
                         let excess = generationCache[i].offset - effectivePrefix
+                        if debugLogging && (i == 0 || i == 3 || i == 7) {
+                            print("[\(ts())] [PrefixCache] TRIM layer[\(i)]: offset=\(generationCache[i].offset), effectivePrefix=\(effectivePrefix), excess=\(excess)")
+                        }
                         if excess > 0 { generationCache[i].trim(excess) }
+                    }
+                    // Physically truncate trimmed cache arrays. trim() only decrements
+                    // offset — self.keys/values still hold full pre-trim arrays. Round-trip
+                    // through state getter (slices to offset) and setter (replaces arrays
+                    // and derives offset from shape) to eliminate stale data. (#47)
+                    for i in 0..<generationCache.count {
+                        if generationCache[i].isTrimmable && generationCache[i].offset > 0 {
+                            generationCache[i].state = generationCache[i].state
+                        }
                     }
                     let suffixTokens = Array(inputTokens[effectivePrefix...])
                     generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
                     cachedTokenCount = effectivePrefix
                     if debugLogging {
                         print("[\(ts())] [KVCache] Radix hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
-                        let offsets = generationCache.prefix(3).map { "\($0.offset)" }.joined(separator: ",")
-                        print("[\(ts())] [PrefixCache] Restore: effectivePrefix=\(effectivePrefix)/\(inputTokens.count), \(generationCache.count) layers, suffix=\(suffixTokens.count), offsets=[\(offsets),...]")
+                        let diagLayers = [0, 3, 7]
+                        for i in diagLayers where i < generationCache.count {
+                            let layer = generationCache[i]
+                            let cacheType = type(of: layer)
+                            let stateShapes = layer.state.map { "\($0.shape)" }.joined(separator: ", ")
+                            print("[\(ts())] [PrefixCache] FINAL layer[\(i)] (\(cacheType)): offset=\(layer.offset), shapes=[\(stateShapes)]")
+                        }
                     }
                 } else {
                     generationCache = context.model.newCache(parameters: params)
@@ -477,6 +508,18 @@ final class MLXModelService: @unchecked Sendable {
             var visibleContentStart: String.Index? = nil  // Index where content after </think> begins
             let genStart = Date()
             var firstTokenTime: Date?
+            // INSTRUMENT: Dump cache state right before generation starts
+            if debugLogging || self.trace {
+                print("[\(ts())] [PREFLIGHT] About to generate. Cache layers: \(generationCache.count), input shape: \(generateInput.text.tokens.shape)")
+                for i in 0..<min(generationCache.count, 40) {
+                    let layer = generationCache[i]
+                    if layer.offset > 0 || (i < 8 && (i % 4 == 3 || i < 2)) {
+                        let shapes = layer.state.map { "\($0.shape)" }.joined(separator: ", ")
+                        print("[\(ts())] [PREFLIGHT] cache[\(i)] (\(type(of: layer))): offset=\(layer.offset), shapes=[\(shapes)]")
+                    }
+                }
+                fflush(stdout)
+            }
             do {
                 for await piece in try MLXLMCommon.generate(input: generateInput, cache: generationCache, parameters: params, context: context) {
                     if debugLogging {
@@ -545,14 +588,39 @@ final class MLXModelService: @unchecked Sendable {
             // Save prompt cache state into radix tree
             if useCache, let radix = self.radixCache, !inputTokens.isEmpty {
                 let promptLen = inputTokens.count
+                if debugLogging {
+                    // Log KVCacheSimple layers (full attn at interval 4: indices 3,7,11,...) and MambaCache layers (0,1)
+                    let diagLayers = [0, 1, 3, 7]  // 0,1=Mamba, 3,7=KVCacheSimple
+                    for i in diagLayers where i < generationCache.count {
+                        let layer = generationCache[i]
+                        let cacheType = type(of: layer)
+                        let stateShapes = layer.state.map { "\($0.shape)" }.joined(separator: ", ")
+                        print("[\(ts())] [PrefixCache] PRE-TRIM layer[\(i)] (\(cacheType)): offset=\(layer.offset), isTrimmable=\(layer.isTrimmable), shapes=[\(stateShapes)]")
+                    }
+                    print("[\(ts())] [PrefixCache] PRE-TRIM: promptLen=\(promptLen)")
+                }
                 for layer in generationCache {
                     let excess = layer.offset - promptLen
                     if excess > 0 { layer.trim(excess) }
+                }
+                if debugLogging {
+                    let diagLayers = [0, 1, 3, 7]
+                    for i in diagLayers where i < generationCache.count {
+                        let layer = generationCache[i]
+                        let cacheType = type(of: layer)
+                        let stateShapes = layer.state.map { "\($0.shape)" }.joined(separator: ", ")
+                        print("[\(ts())] [PrefixCache] POST-TRIM layer[\(i)] (\(cacheType)): offset=\(layer.offset), shapes=[\(stateShapes)]")
+                    }
                 }
                 let layerStates = generationCache.map { $0.state }
                 radix.insert(tokens: inputTokens, layerStates: layerStates)
                 if debugLogging {
                     print("[\(ts())] [PrefixCache] Insert: \(inputTokens.count) tokens, \(generationCache.count) layers")
+                    // Log stored state for KVCacheSimple layers
+                    for i in [3, 7] where i < layerStates.count {
+                        let shapes = layerStates[i].map { "\($0.shape)" }.joined(separator: ", ")
+                        print("[\(ts())] [PrefixCache] Stored layer[\(i)] shapes: [\(shapes)]")
+                    }
                 }
             }
 
@@ -749,15 +817,19 @@ final class MLXModelService: @unchecked Sendable {
                             if effectivePrefix > 0, let states = layerStates {
                                 // Restore KV cache from radix tree state
                                 generationCache = context.model.newCache(parameters: params)
-                                for i in 0..<generationCache.count {
-                                    if i < states.count {
-                                        generationCache[i].state = states[i]
-                                    }
+                                for i in 0..<generationCache.count where i < states.count {
+                                    generationCache[i].state = states[i]
                                 }
                                 // Trim to effective prefix length
                                 for i in 0..<generationCache.count {
                                     let excess = generationCache[i].offset - effectivePrefix
                                     if excess > 0 { generationCache[i].trim(excess) }
+                                }
+                                // Physically truncate trimmed cache arrays (#47)
+                                for i in 0..<generationCache.count {
+                                    if generationCache[i].isTrimmable && generationCache[i].offset > 0 {
+                                        generationCache[i].state = generationCache[i].state
+                                    }
                                 }
                                 let suffixTokens = Array(inputTokens[effectivePrefix...])
                                 generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
@@ -797,6 +869,18 @@ final class MLXModelService: @unchecked Sendable {
                         var firstTokenTime: Date?
 
                         var pendingLogprobs: [TokenLogprobData]? = nil
+                        // INSTRUMENT: Dump cache state right before generation starts (streaming)
+                        if debugLogging || self.trace {
+                            print("[\(ts())] [PREFLIGHT-STREAM] About to generate. Cache layers: \(generationCache.count), input shape: \(generateInput.text.tokens.shape)")
+                            for i in 0..<min(generationCache.count, 40) {
+                                let layer = generationCache[i]
+                                if layer.offset > 0 || (i < 8 && (i % 4 == 3 || i < 2)) {
+                                    let shapes = layer.state.map { "\($0.shape)" }.joined(separator: ", ")
+                                    print("[\(ts())] [PREFLIGHT-STREAM] cache[\(i)] (\(type(of: layer))): offset=\(layer.offset), shapes=[\(shapes)]")
+                                }
+                            }
+                            fflush(stdout)
+                        }
                         do {
                             for await piece in try MLXLMCommon.generate(input: generateInput, cache: generationCache, parameters: params, context: context) {
                                 if Task.isCancelled {

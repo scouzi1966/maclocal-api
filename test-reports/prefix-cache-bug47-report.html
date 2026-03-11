@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bug #47: Prefix Cache broadcast_shapes Crash</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #c9d1d9; --text-dim: #8b949e; --text-bright: #f0f6fc;
+    --red: #f85149; --green: #3fb950; --yellow: #d29922; --blue: #58a6ff;
+    --orange: #d18616; --purple: #bc8cff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; padding: 2rem; max-width: 1100px; margin: 0 auto; }
+  h1 { color: var(--text-bright); font-size: 1.8rem; margin-bottom: 0.5rem; }
+  h2 { color: var(--blue); font-size: 1.3rem; margin: 2rem 0 0.8rem; border-bottom: 1px solid var(--border); padding-bottom: 0.4rem; }
+  h3 { color: var(--purple); font-size: 1.1rem; margin: 1.5rem 0 0.5rem; }
+  p, li { margin-bottom: 0.5rem; }
+  ul, ol { padding-left: 1.5rem; }
+  code { font-family: 'SF Mono', 'Fira Code', monospace; background: var(--surface); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em; color: var(--orange); }
+  pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; overflow-x: auto; margin: 0.8rem 0; font-size: 0.85rem; line-height: 1.5; }
+  pre code { background: none; padding: 0; color: var(--text); }
+  .banner { background: linear-gradient(135deg, #1a2332, #0d1f2d); border: 1px solid var(--border); border-radius: 10px; padding: 1.5rem; margin-bottom: 2rem; }
+  .banner .subtitle { color: var(--text-dim); font-size: 0.95rem; }
+  .banner .meta { display: flex; gap: 1.5rem; margin-top: 0.8rem; flex-wrap: wrap; }
+  .banner .meta span { font-size: 0.85rem; color: var(--text-dim); }
+  .banner .meta span strong { color: var(--text); }
+  .tag { display: inline-block; padding: 0.15em 0.6em; border-radius: 12px; font-size: 0.8rem; font-weight: 600; }
+  .tag-fixed { background: rgba(63,185,80,0.15); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; margin: 0.8rem 0; }
+  .card-red { border-left: 3px solid var(--red); }
+  .card-green { border-left: 3px solid var(--green); }
+  .card-yellow { border-left: 3px solid var(--yellow); }
+  .card-blue { border-left: 3px solid var(--blue); }
+
+  table { width: 100%; border-collapse: collapse; margin: 0.8rem 0; font-size: 0.9rem; }
+  th { background: var(--surface); color: var(--blue); text-align: left; padding: 0.6rem 0.8rem; border-bottom: 2px solid var(--border); }
+  td { padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: rgba(88,166,255,0.04); }
+
+  .diagram { background: #0b1520; border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; margin: 1rem 0; font-family: 'SF Mono', monospace; font-size: 0.82rem; line-height: 1.7; overflow-x: auto; white-space: pre; color: var(--text-dim); }
+  .diagram .hl-red { color: var(--red); font-weight: bold; }
+  .diagram .hl-green { color: var(--green); font-weight: bold; }
+  .diagram .hl-blue { color: var(--blue); }
+  .diagram .hl-yellow { color: var(--yellow); }
+  .diagram .hl-dim { color: #484f58; }
+
+  .fix-attempt { display: flex; gap: 0.8rem; align-items: flex-start; margin: 0.6rem 0; }
+  .fix-num { min-width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem; flex-shrink: 0; }
+  .fix-fail .fix-num { background: rgba(248,81,73,0.15); color: var(--red); }
+  .fix-pass .fix-num { background: rgba(63,185,80,0.15); color: var(--green); }
+  .fix-body { flex: 1; }
+  .fix-body strong { color: var(--text-bright); }
+  .fix-body .result { font-size: 0.85rem; color: var(--text-dim); }
+
+  .chain { display: flex; flex-direction: column; gap: 0; margin: 1rem 0; }
+  .chain-item { display: flex; align-items: stretch; gap: 0.8rem; }
+  .chain-line { display: flex; flex-direction: column; align-items: center; width: 24px; flex-shrink: 0; }
+  .chain-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; margin-top: 0.5rem; }
+  .chain-connector { width: 2px; flex: 1; background: var(--border); }
+  .chain-content { flex: 1; padding: 0.5rem 0 1rem; }
+  .chain-content .label { font-size: 0.8rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+  .chain-content .desc { color: var(--text); }
+  .chain-content .note { font-size: 0.85rem; color: var(--text-dim); font-style: italic; }
+  .dot-green { background: var(--green); }
+  .dot-yellow { background: var(--yellow); }
+  .dot-red { background: var(--red); }
+  .dot-blue { background: var(--blue); }
+  .dot-dim { background: #484f58; }
+
+  .results-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin: 1rem 0; }
+  .result-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; text-align: center; }
+  .result-card .big { font-size: 2rem; font-weight: 700; }
+  .result-card .label { font-size: 0.8rem; color: var(--text-dim); margin-top: 0.3rem; }
+</style>
+</head>
+<body>
+
+<div class="banner">
+  <div style="display: flex; align-items: center; gap: 0.8rem; margin-bottom: 0.3rem;">
+    <h1>Bug #47: Prefix Cache <code>broadcast_shapes</code> Crash</h1>
+    <span class="tag tag-fixed">FIXED</span>
+  </div>
+  <div class="subtitle">Fatal crash on hybrid Mamba+Attention models when prefix caching restores and trims KV cache state</div>
+  <div class="meta">
+    <span><strong>Model:</strong> Qwen3.5-35B-A3B-4bit</span>
+    <span><strong>Architecture:</strong> Hybrid Mamba + Attention (40 layers)</span>
+    <span><strong>Date:</strong> 2026-03-11</span>
+    <span><strong>Issue:</strong> <a href="https://github.com/scouzi1966/maclocal-api/issues/47" style="color: var(--blue);">#47</a></span>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2>The Crash</h2>
+
+<div class="card card-red">
+<pre><code>Fatal error: [broadcast_shapes] Shapes (1,2,335,256) and (1,2,292,256) cannot be broadcast.</code></pre>
+<p style="margin-top: 0.6rem; color: var(--text-dim);">Two MLXArrays with incompatible sequence dimensions (335 vs 292) combined in the computation graph. The 292 is a stale pre-trim array that should have been replaced.</p>
+</div>
+
+<table>
+  <thead>
+    <tr><th>Scenario</th><th>Requests Before Crash</th><th>Time</th><th>Crash Shapes</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Stress test (7 users)</td><td>59</td><td>~10 min</td><td>(1,2,695,256) vs (1,2,524,256)</td></tr>
+    <tr><td>Reproducer run 1</td><td>107</td><td>~2 min</td><td>(1,2,43,256) vs (1,2,35,256)</td></tr>
+    <tr><td>Reproducer run 2</td><td>12</td><td>~15 sec</td><td>(1,2,332,256) vs (1,2,325,256)</td></tr>
+    <tr><td>Reproducer run 3</td><td>7</td><td>~9 sec</td><td>(1,2,335,256) vs (1,2,292,256)</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2>Root Cause</h2>
+
+<h3>The KV Cache Trim Bug</h3>
+
+<p><code>KVCacheSimple.trim()</code> only decrements <code>offset</code> &mdash; it does <strong>NOT</strong> physically slice <code>self.keys</code> or <code>self.values</code>:</p>
+
+<pre><code><span style="color: var(--text-dim);">// KVCache.swift lines 429-433</span>
+public override func trim(_ n: Int) -&gt; Int {
+    let trimmed = min(offset, n)
+    offset -= trimmed       <span style="color: var(--red);">// Only this changes. self.keys untouched.</span>
+    return trimmed
+}</code></pre>
+
+<p>After restoring a cached state with 292 tokens and trimming to <code>effectivePrefix=97</code>:</p>
+
+<div class="diagram"><span class="hl-blue">self.keys shape:</span>  [1, 2, <span class="hl-red">292</span>, 256]   <span class="hl-dim">&larr; full pre-trim array, unchanged</span>
+<span class="hl-blue">self.offset:</span>       <span class="hl-green">97</span>                 <span class="hl-dim">&larr; decremented by trim()</span>
+
+<span class="hl-yellow">Array layout:</span>
+<span class="hl-dim">position:</span>  0 .............. 96  97 ................. 291
+           <span class="hl-green">[  valid cached data  ]</span><span class="hl-red">[   stale data from prior gen   ]</span>
+           <span class="hl-dim">     &uarr; offset = 97        &uarr; still in self.keys, shape 292</span></div>
+
+<p>During the forward pass, <code>update()</code> writes new suffix tokens starting at position 97. Since <code>97 + suffix_len &le; 292</code> (capacity sufficient), no reallocation happens. The in-place subscript assignment creates a new lazy MLX graph node that <strong>depends on the original shape-292 array</strong>. When MLX's scheduler runs operations that reference this stale shape alongside the expected shape (97 + suffix), the shapes don't match &rarr; <code>broadcast_shapes</code> crash.</p>
+
+<h3>The Fix</h3>
+
+<div class="card card-green">
+<p>Round-trip through the state getter (slices to <code>offset</code>) and setter (replaces <code>self.keys</code>/<code>self.values</code> with the sliced result):</p>
+<pre><code><span style="color: var(--text-dim);">// After trim, physically truncate arrays</span>
+for i in 0..&lt;generationCache.count {
+    if generationCache[i].isTrimmable &amp;&amp; generationCache[i].offset &gt; 0 {
+        generationCache[i].state = generationCache[i].state
+    }
+}</code></pre>
+<p style="margin-top: 0.6rem;">This replaces <code>self.keys</code> (shape <code>[1,2,292,256]</code>) with <code>self.keys[..., 0..&lt;97, ...]</code> (shape <code>[1,2,97,256]</code>). The stale pre-trim array is fully dereferenced from the computation graph.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2>Why It Didn't Crash Every Time</h2>
+
+<p>The crash required a specific chain of conditions to <strong>all</strong> be true simultaneously. Any condition failing meant the request succeeded normally:</p>
+
+<div class="chain">
+  <div class="chain-item">
+    <div class="chain-line"><div class="chain-dot dot-blue"></div><div class="chain-connector"></div></div>
+    <div class="chain-content">
+      <div class="label">Condition 1 &mdash; Cache Hit</div>
+      <div class="desc">The request must match a prefix stored in the radix tree. First requests, requests with unique prefixes, and multimodal inputs always miss.</div>
+      <div class="note">With 4 system prompts x 30 questions, the reproducer achieved high hit rates quickly.</div>
+    </div>
+  </div>
+  <div class="chain-item">
+    <div class="chain-line"><div class="chain-dot dot-yellow"></div><div class="chain-connector"></div></div>
+    <div class="chain-content">
+      <div class="label">Condition 2 &mdash; Trim Needed</div>
+      <div class="desc">The stored state must be longer than <code>effectivePrefix</code>. The radix cache stores state <em>after</em> full generation (prompt + output tokens), so <code>stored_len = prompt + generated</code> (e.g., 97 + 195 = 292). This was almost always true.</div>
+    </div>
+  </div>
+  <div class="chain-item">
+    <div class="chain-line"><div class="chain-dot dot-red"></div><div class="chain-connector"></div></div>
+    <div class="chain-content">
+      <div class="label">Condition 3 &mdash; No Reallocation (the key variable)</div>
+      <div class="desc"><code>KVCacheSimple.update()</code> uses a 2x growth strategy. When <code>effectivePrefix + suffix_len &gt; stored_len</code>, it allocates a fresh array and copies only valid data &mdash; the stale pre-trim array is dereferenced and the bug doesn't manifest.</div>
+      <div class="note">Since stored_len includes generated tokens (100-500+) and suffix_len is typically short (20-80 tokens), reallocation rarely happened &mdash; the stale array almost always persisted.</div>
+    </div>
+  </div>
+  <div class="chain-item">
+    <div class="chain-line"><div class="chain-dot dot-dim"></div></div>
+    <div class="chain-content">
+      <div class="label">Condition 4 &mdash; MLX Lazy Graph Evaluation Order</div>
+      <div class="desc">MLX defers all computation. The stale shape-N array and the correct shape-(P+S) slice are both lazy graph nodes. The crash only manifests when MLX's scheduler runs operations in an order that exposes the shape mismatch between the two.</div>
+      <div class="note">This is the non-deterministic factor &mdash; even with all other conditions met, the crash depended on graph scheduling.</div>
+    </div>
+  </div>
+</div>
+
+<div class="card card-yellow">
+  <h3 style="margin-top: 0; color: var(--yellow);">Why the reproducer crashed fast</h3>
+  <ul>
+    <li><strong>Short questions</strong> (small suffix) &rarr; condition 3 almost always met (suffix fits within oversized stored array, no realloc)</li>
+    <li><strong>4 system prompts x 30 questions</strong> &rarr; high cache hit rate (condition 1 frequently met)</li>
+    <li><strong><code>max_tokens=64</code></strong> &rarr; fast cycling, more requests per minute, more chances to trigger</li>
+    <li><strong>Mixed patterns</strong> (tools, streaming, multi-turn) &rarr; diverse radix entries with different stored lengths</li>
+  </ul>
+  <h3 style="color: var(--yellow);">Why normal use crashed slower</h3>
+  <ul>
+    <li>Longer conversations &rarr; more unique prefixes &rarr; fewer cache hits</li>
+    <li>Longer suffixes &rarr; more likely to exceed stored_len &rarr; reallocation cleans up stale arrays</li>
+    <li>Less request diversity &rarr; similar stored lengths &rarr; smaller or zero shape mismatches</li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<h2>Fix Attempts</h2>
+
+<div class="fix-attempt fix-fail">
+  <div class="fix-num">1</div>
+  <div class="fix-body">
+    <strong><code>isTrimmable</code> guard &mdash; skip MambaCache restore</strong>
+    <div class="result">Crashed at 28 requests. Wrong theory: MambaCache state is fixed-size conv state and doesn't cause shape mismatches. The bug was in KVCacheSimple's lazy trim, not MambaCache. Also wasteful &mdash; skipping MambaCache restore throws away caching benefit for 30/40 layers.</div>
+  </div>
+</div>
+<div class="fix-attempt fix-fail">
+  <div class="fix-num">2</div>
+  <div class="fix-body">
+    <strong><code>arr.eval()</code> after trim &mdash; materialize lazy slices</strong>
+    <div class="result">Crashed at 7 requests. Calling <code>arr.eval()</code> on the state getter's lazy slices materializes those slices, but doesn't replace the underlying <code>self.keys</code>/<code>self.values</code> that <code>update()</code> uses directly. The stale full-size arrays persist in the graph.</div>
+  </div>
+</div>
+<div class="fix-attempt fix-pass">
+  <div class="fix-num">3</div>
+  <div class="fix-body">
+    <strong><code>layer.state = layer.state</code> &mdash; round-trip getter &rarr; setter</strong>
+    <div class="result">700 requests, 0 crashes. Getter slices <code>self.keys</code> to <code>[..., 0..&lt;offset, ...]</code>. Setter assigns the sliced copy back as <code>self.keys</code> and derives offset from its shape. Stale pre-trim array fully dereferenced from computation graph.</div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2>Verification</h2>
+
+<div class="results-grid">
+  <div class="result-card">
+    <div class="big" style="color: var(--green);">700</div>
+    <div class="label">Requests (0 crashes)</div>
+  </div>
+  <div class="result-card">
+    <div class="big" style="color: var(--green);">0</div>
+    <div class="label">Errors</div>
+  </div>
+  <div class="result-card">
+    <div class="big" style="color: var(--blue);">1.72</div>
+    <div class="label">Requests/sec</div>
+  </div>
+  <div class="result-card">
+    <div class="big" style="color: var(--purple);">312</div>
+    <div class="label">Max cached tokens</div>
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr><th>Test Run</th><th>Requests</th><th>Errors</th><th>Duration</th><th>RPS</th><th>Config</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Fix 3 &mdash; run 1</td><td>200</td><td style="color: var(--green);">0</td><td>116s</td><td>1.72</td><td>isTrimmable guard + state round-trip</td></tr>
+    <tr><td>Fix 3 &mdash; run 2</td><td>500</td><td style="color: var(--green);">0</td><td>291s</td><td>1.72</td><td>isTrimmable guard + state round-trip</td></tr>
+    <tr><td>Fix 3 &mdash; run 3 (guard removed)</td><td>500</td><td style="color: var(--green);">0</td><td>299s</td><td>1.67</td><td>state round-trip only (final fix)</td></tr>
+  </tbody>
+</table>
+
+<p>Run 3 confirmed the <code>isTrimmable</code> guard (fix 1) was unnecessary &mdash; the state round-trip alone is sufficient. Removing the guard restores MambaCache prefix caching for 30/40 layers.</p>
+
+<!-- ============================================================ -->
+<h2>Architecture Context</h2>
+
+<div class="diagram"><span class="hl-blue">Qwen3.5-35B-A3B: 40 layers, fullAttentionInterval=4</span>
+
+Layer:  0   1   2  <span class="hl-green"> 3</span>   4   5   6  <span class="hl-green"> 7</span>   8   9  10  <span class="hl-green">11</span>  ...  36  37  38  <span class="hl-green">39</span>
+Type:  <span class="hl-yellow">Mam Mam Mam</span> <span class="hl-green">KV</span>  <span class="hl-yellow">Mam Mam Mam</span> <span class="hl-green">KV</span>  <span class="hl-yellow">Mam Mam Mam</span> <span class="hl-green">KV</span>       <span class="hl-yellow">Mam Mam Mam</span> <span class="hl-green">KV</span>
+
+<span class="hl-yellow">Mam = MambaCache</span>       (30 layers) Fixed-size conv state. isTrimmable=false.
+<span class="hl-green">KV  = KVCacheSimple</span>    (10 layers) Sequence-indexed K/V. isTrimmable=true. <span class="hl-red">&larr; BUG HERE</span></div>
+
+<h3>Cache Save/Restore Flow</h3>
+
+<div class="diagram"><span class="hl-blue">SAVE (after generation completes):</span>
+  layerStates = generationCache.map { $0.state }
+  radixCache.insert(inputTokens, layerStates)
+  <span class="hl-dim">// KVCacheSimple.state getter returns keys[..., 0..&lt;offset, ...]</span>
+  <span class="hl-dim">// Stored state shape = [1, heads, prompt+generated, dim]</span>
+
+<span class="hl-blue">RESTORE (on cache hit):</span>
+  (prefixLen, states) = radix.findPrefix(inputTokens)
+  effectivePrefix = min(prefixLen, inputTokens.count - 16)
+
+  generationCache[i].state = states[i]
+  <span class="hl-dim">// KVCacheSimple.state setter: self.keys = states[i][0]</span>
+  <span class="hl-dim">// Now: self.keys shape = [1, heads, stored_len, dim], offset = stored_len</span>
+
+  trim(stored_len - effectivePrefix)
+  <span class="hl-dim">// offset = effectivePrefix (correct)</span>
+  <span class="hl-dim">// self.keys shape = [1, heads, <span class="hl-red">stored_len</span>, dim] (STALE &mdash; not sliced!)</span>
+
+  <span class="hl-green">generationCache[i].state = generationCache[i].state   // THE FIX</span>
+  <span class="hl-dim">// getter: returns keys[..., 0..&lt;offset, ...] = [1, heads, effectivePrefix, dim]</span>
+  <span class="hl-dim">// setter: self.keys = sliced array, offset = effectivePrefix</span>
+  <span class="hl-dim">// Now: self.keys shape = [1, heads, effectivePrefix, dim] (CLEAN)</span></div>
+
+<!-- ============================================================ -->
+<h2>Performance Impact</h2>
+
+<div class="card card-blue">
+<p><strong>None measurable.</strong> The state round-trip only runs on cache restore (not every request). It replaces one set of arrays with sliced copies &mdash; a lightweight operation (&lt;1ms) compared to the model forward pass (500-700ms). No graph recompilation is triggered because the operation uses the same getter/setter code path that MLX already optimizes for.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2>Files Changed</h2>
+
+<table>
+  <thead>
+    <tr><th>File</th><th>Change</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>Sources/MacLocalAPI/Models/MLXModelService.swift</code></td>
+      <td>Add <code>layer.state = layer.state</code> after trim in both streaming (~line 841) and non-streaming (~line 482) restore paths</td>
+    </tr>
+  </tbody>
+</table>
+
+<p style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 0.85rem;">
+  Generated 2026-03-11 | maclocal-api | Reproducer: <code>Scripts/repro-prefix-crash.py</code> | Stress test: <code>Scripts/stress-test-7users.py</code>
+</p>
+
+</body>
+</html>
