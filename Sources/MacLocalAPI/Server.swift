@@ -57,8 +57,9 @@ class Server {
     private let mlxPresencePenalty: Double?
     private let mlxSeed: Int?
     private let mlxMaxLogprobs: Int
+    private let contextWindow: Int?
 
-    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil) async throws {
+    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -86,6 +87,7 @@ class Server {
         self.mlxPresencePenalty = mlxPresencePenalty
         self.mlxSeed = mlxSeed
         self.mlxMaxLogprobs = mlxMaxLogprobs ?? 20
+        self.contextWindow = contextWindow
 
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
@@ -145,7 +147,8 @@ class Server {
                             object: "model",
                             created: Int(Date().timeIntervalSince1970),
                             owned_by: "mlx",
-                            loaded: true
+                            loaded: true,
+                            max_context_length: self.contextWindow
                         )
                     ],
                     models: [
@@ -999,13 +1002,14 @@ struct ModelInfo: Content {
     let created: Int
     let owned_by: String
     let status: ModelStatus
-
-    init(id: String, object: String, created: Int, owned_by: String, loaded: Bool = true) {
+    let max_context_length: Int?
+    init(id: String, object: String, created: Int, owned_by: String, loaded: Bool = true, max_context_length: Int? = nil) {
         self.id = id
         self.object = object
         self.created = created
         self.owned_by = owned_by
         self.status = ModelStatus(value: loaded ? "loaded" : "unloaded")
+        self.max_context_length = max_context_length
     }
 }
 
@@ -1069,14 +1073,22 @@ struct CompactLogHandler: LogHandler {
         set { metadata[key] = newValue }
     }
 
+    private static let timestampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
     func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?,
              source: String, file: String, function: String, line: UInt) {
+        let ts = Self.timestampFormatter.string(from: Date())
         let levelStr = level.rawValue.uppercased()
         let metaStr = Self.formatMetadata(self.metadata, metadata)
         if metaStr.isEmpty {
-            print("[\(levelStr)] \(message)")
+            print("[\(ts)] [\(levelStr)] \(message)")
         } else {
-            print("[\(levelStr)] \(message) \(metaStr)")
+            print("[\(ts)] [\(levelStr)] \(message) \(metaStr)")
         }
     }
 

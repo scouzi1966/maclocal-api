@@ -87,6 +87,8 @@ private let vvReset = "\u{1B}[0m"
 /// Module-level trace flag, set by MLXModelService.trace when the service is configured.
 /// Used by static parsing/conversion methods that can't access instance properties.
 private var traceLogging = false
+/// Module-level grammar constraint flag — enables cross-parameter dedup in the XML parser.
+private var grammarConstraintsActive = false
 
 final class MLXModelService: @unchecked Sendable {
     private let resolver: MLXCacheResolver
@@ -106,7 +108,7 @@ final class MLXModelService: @unchecked Sendable {
     var kvBits: Int?
     var kvEvictionPolicy: String = "none"  // "none" or "streaming"
     var enablePrefixCaching: Bool = false
-    var enableGrammarConstraints: Bool = false
+    var enableGrammarConstraints: Bool = false { didSet { grammarConstraintsActive = enableGrammarConstraints } }
     var trace: Bool = false { didSet { traceLogging = trace } }
     var defaultChatTemplateKwargs: [String: Any]?
     /// Detected think start/end tags from the tokenizer vocabulary (e.g., "<think>"/"</think>").
@@ -437,6 +439,7 @@ final class MLXModelService: @unchecked Sendable {
                 let effectivePrefix = min(prefixLen, max(0, inputTokens.count - minSuffix))
 
                 if effectivePrefix > 0, let states = layerStates {
+                    let tRestore0 = Date.timeIntervalSinceReferenceDate
                     // Restore KV cache from radix tree state
                     if debugLogging {
                         print("[\(ts())] [PrefixCache] RESTORE-BEGIN: prefixLen=\(prefixLen), effectivePrefix=\(effectivePrefix), inputTokens=\(inputTokens.count)")
@@ -449,6 +452,7 @@ final class MLXModelService: @unchecked Sendable {
                     for i in 0..<generationCache.count where i < states.count {
                         generationCache[i].state = states[i]
                     }
+                    let tRestore1 = Date.timeIntervalSinceReferenceDate
                     if debugLogging {
                         let diagLayers = [0, 1, 3, 7]
                         for i in diagLayers where i < generationCache.count {
@@ -466,6 +470,7 @@ final class MLXModelService: @unchecked Sendable {
                         }
                         if excess > 0 { generationCache[i].trim(excess) }
                     }
+                    let tTrim = Date.timeIntervalSinceReferenceDate
                     // Physically truncate trimmed cache arrays. trim() only decrements
                     // offset — self.keys/values still hold full pre-trim arrays. Round-trip
                     // through state getter (slices to offset) and setter (replaces arrays
@@ -475,18 +480,13 @@ final class MLXModelService: @unchecked Sendable {
                             generationCache[i].state = generationCache[i].state
                         }
                     }
+                    let tRoundtrip = Date.timeIntervalSinceReferenceDate
                     let suffixTokens = Array(inputTokens[effectivePrefix...])
                     generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
                     cachedTokenCount = effectivePrefix
                     if debugLogging {
                         print("[\(ts())] [KVCache] Radix hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
-                        let diagLayers = [0, 3, 7]
-                        for i in diagLayers where i < generationCache.count {
-                            let layer = generationCache[i]
-                            let cacheType = type(of: layer)
-                            let stateShapes = layer.state.map { "\($0.shape)" }.joined(separator: ", ")
-                            print("[\(ts())] [PrefixCache] FINAL layer[\(i)] (\(cacheType)): offset=\(layer.offset), shapes=[\(stateShapes)]")
-                        }
+                        print("[\(ts())] [PrefixCache] Timing: restore=\(String(format: "%.3f", tRestore1 - tRestore0))s trim=\(String(format: "%.3f", tTrim - tRestore1))s roundtrip=\(String(format: "%.3f", tRoundtrip - tTrim))s total=\(String(format: "%.3f", tRoundtrip - tRestore0))s")
                     }
                 } else {
                     generationCache = context.model.newCache(parameters: params)
@@ -815,29 +815,32 @@ final class MLXModelService: @unchecked Sendable {
                             let effectivePrefix = min(prefixLen, max(0, inputTokens.count - minSuffix))
 
                             if effectivePrefix > 0, let states = layerStates {
+                                let tRestore0 = Date.timeIntervalSinceReferenceDate
                                 // Restore KV cache from radix tree state
                                 generationCache = context.model.newCache(parameters: params)
                                 for i in 0..<generationCache.count where i < states.count {
                                     generationCache[i].state = states[i]
                                 }
+                                let tRestore1 = Date.timeIntervalSinceReferenceDate
                                 // Trim to effective prefix length
                                 for i in 0..<generationCache.count {
                                     let excess = generationCache[i].offset - effectivePrefix
                                     if excess > 0 { generationCache[i].trim(excess) }
                                 }
+                                let tTrim = Date.timeIntervalSinceReferenceDate
                                 // Physically truncate trimmed cache arrays (#47)
                                 for i in 0..<generationCache.count {
                                     if generationCache[i].isTrimmable && generationCache[i].offset > 0 {
                                         generationCache[i].state = generationCache[i].state
                                     }
                                 }
+                                let tRoundtrip = Date.timeIntervalSinceReferenceDate
                                 let suffixTokens = Array(inputTokens[effectivePrefix...])
                                 generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
                                 streamCachedTokens = effectivePrefix
                                 if debugLogging {
                                     print("[\(ts())] [KVCache] Radix hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
-                                    let offsets = generationCache.prefix(3).map { "\($0.offset)" }.joined(separator: ",")
-                                    print("[\(ts())] [PrefixCache] Restore: effectivePrefix=\(effectivePrefix)/\(inputTokens.count), \(generationCache.count) layers, suffix=\(suffixTokens.count), offsets=[\(offsets),...]")
+                                    print("[\(ts())] [PrefixCache] Timing: restore=\(String(format: "%.3f", tRestore1 - tRestore0))s trim=\(String(format: "%.3f", tTrim - tRestore1))s roundtrip=\(String(format: "%.3f", tRoundtrip - tTrim))s total=\(String(format: "%.3f", tRoundtrip - tRestore0))s")
                                 }
                             } else {
                                 generationCache = context.model.newCache(parameters: params)
@@ -1527,13 +1530,7 @@ final class MLXModelService: @unchecked Sendable {
             let key = String(body[keyRange])
             let val = decodeJSONEscapes(decodeXMLEntities(String(body[valRange]).trimmingCharacters(in: .whitespacesAndNewlines)))
             if !val.isEmpty, arguments[key] == nil {
-                if let data = val.data(using: .utf8),
-                   let parsed = try? JSONSerialization.jsonObject(with: data),
-                   (parsed is [Any] || parsed is [String: Any]) {
-                    arguments[key] = parsed
-                } else {
-                    arguments[key] = val
-                }
+                arguments[key] = val
             }
         }
 
@@ -1553,15 +1550,42 @@ final class MLXModelService: @unchecked Sendable {
                 }
                 let decoded = decodeJSONEscapes(decodeXMLEntities(val))
                 if !decoded.isEmpty {
-                    if let data = decoded.data(using: .utf8),
-                       let parsed = try? JSONSerialization.jsonObject(with: data),
-                       (parsed is [Any] || parsed is [String: Any]) {
-                        arguments[key] = parsed
-                    } else {
-                        arguments[key] = decoded
-                    }
+                    arguments[key] = decoded
                     if debugLogging {
                         print("[\(ts())] [ToolCallParser] Salvaged unclosed parameter '\(key)' (\(decoded.count) chars)")
+                    }
+                }
+            }
+        }
+
+        // Cross-parameter deduplication: strip JSON fragments leaked into parameter
+        // values when the same key+value exists as a separate <parameter> tag.
+        // Only when grammar constraints are active (XML structure is reliable).
+        if grammarConstraintsActive && arguments.count > 1 {
+            let otherKeys = arguments.keys
+            for key in otherKeys {
+                guard var val = arguments[key] as? String else { continue }
+                var cleaned = false
+                // Check if this value contains JSON fragments referencing other parsed params
+                for otherKey in otherKeys where otherKey != key {
+                    guard let otherVal = arguments[otherKey] as? String else { continue }
+                    // Look for patterns like: ", "otherKey": "otherVal"\n} or ","otherKey":"otherVal"}}
+                    // at the end of the value (with flexible whitespace/punctuation)
+                    let escaped = NSRegularExpression.escapedPattern(for: otherKey)
+                    let escapedVal = NSRegularExpression.escapedPattern(for: otherVal)
+                    let trailPattern = #"\n?"?\s*,?\s*"?"# + escaped + #""?\s*:\s*"?"# + escapedVal + #""?\s*\n?\}*\s*$"#
+                    if let trailRegex = try? NSRegularExpression(pattern: trailPattern, options: []),
+                       let match = trailRegex.firstMatch(in: val, range: NSRange(val.startIndex..., in: val)) {
+                        let cleanEnd = val.index(val.startIndex, offsetBy: match.range.location)
+                        val = String(val[..<cleanEnd]).trimmingCharacters(in: .whitespacesAndNewlines)
+                        cleaned = true
+                    }
+                }
+                if cleaned {
+                    arguments[key] = val
+                    if debugLogging {
+                        let preview = val.count > 100 ? "\(val.prefix(50))...\(val.suffix(50))" : val
+                        print("[\(ts())] [ToolCallParser] Cross-param dedup cleaned '\(key)' → \(val.count) chars: \(preview)")
                     }
                 }
             }
@@ -1987,15 +2011,13 @@ final class MLXModelService: @unchecked Sendable {
             // Build the extras section (optional params after required)
             let optionalParams = allParams.filter { !requiredSet.contains($0.name) }
 
-            if structuredNames.isEmpty && optionalParams.isEmpty && requiredNames.isEmpty {
+            if allParams.isEmpty && requiredNames.isEmpty {
                 // No schema info at all — fall back to at least 1 generic param
                 toolRules.append("\(ruleName) ::= \"<function=\(name)>\\n\" param extra_params \"</function>\\n\"")
-            } else if structuredNames.isEmpty {
-                // No structured params — named required + generic extras for optional/unknown
-                let requiredPart = requiredRuleRefs.isEmpty ? "" : requiredRuleRefs.joined(separator: " ") + " "
-                toolRules.append("\(ruleName) ::= \"<function=\(name)>\\n\" \(requiredPart)extra_params \"</function>\\n\"")
             } else {
-                // Has structured params — named required + typed union for extras
+                // Named required params + typed union for optional params.
+                // Only schema-defined parameter names are allowed — prevents
+                // the model from hallucinating extra parameters like "description".
                 var optAlts: [String] = []
                 for (pName, _) in optionalParams {
                     let oRule = "\(safeName)_op_\(pName)"

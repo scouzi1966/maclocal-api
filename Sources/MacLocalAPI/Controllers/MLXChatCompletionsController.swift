@@ -570,6 +570,10 @@ struct MLXChatCompletionsController: RouteCollection {
                                         )
                                         let paramData = try encoder.encode(paramChunk)
                                         if let jsonString = String(data: paramData, encoding: .utf8) {
+                                            if self.trace {
+                                                print("\(Self.cyan)[\(Self.timestamp())] [SSE] endtag arg fragment: \(fragment)\(Self.reset)")
+                                                fflush(stdout)
+                                            }
                                             try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                                         }
                                     }
@@ -592,6 +596,10 @@ struct MLXChatCompletionsController: RouteCollection {
                                 )
                                 let closeData = try encoder.encode(closeChunk)
                                 if let jsonString = String(data: closeData, encoding: .utf8) {
+                                    if self.trace {
+                                        print("\(Self.cyan)[\(Self.timestamp())] [SSE] endtag arg close: \(closeArgs)\(Self.reset)")
+                                        fflush(stdout)
+                                    }
                                     try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                                 }
                                 // Build the full tool call for collectedToolCalls record
@@ -849,6 +857,10 @@ struct MLXChatCompletionsController: RouteCollection {
                                         )
                                         let paramData = try encoder.encode(paramChunk)
                                         if let jsonString = String(data: paramData, encoding: .utf8) {
+                                            if self.trace {
+                                                print("\(Self.cyan)[\(Self.timestamp())] [SSE] midstream arg fragment: \(fragment)\(Self.reset)")
+                                                fflush(stdout)
+                                            }
                                             try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                                         }
                                     }
@@ -989,6 +1001,10 @@ struct MLXChatCompletionsController: RouteCollection {
                                     )
                                     let paramData = try encoder.encode(paramChunk)
                                     if let jsonString = String(data: paramData, encoding: .utf8) {
+                                        if self.trace {
+                                            print("\(Self.cyan)[\(Self.timestamp())] [SSE] salvage arg fragment: \(fragment)\(Self.reset)")
+                                            fflush(stdout)
+                                        }
                                         try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                                     }
                                     if self.veryVerbose {
@@ -1015,6 +1031,10 @@ struct MLXChatCompletionsController: RouteCollection {
                         )
                         let closeData = try encoder.encode(closeChunk)
                         if let jsonString = String(data: closeData, encoding: .utf8) {
+                            if self.trace {
+                                print("\(Self.cyan)[\(Self.timestamp())] [SSE] salvage arg close: \(incCloseArgs)\(Self.reset)")
+                                fflush(stdout)
+                            }
                             try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                         }
                         // Update the placeholder with final parsed data
@@ -1134,7 +1154,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 let sCached = realCachedTokens ?? 0
                 let sTotalPrompt = promptTokens + sCached
                 let sCacheInfo = sCached > 0 ? " | cache: HIT \(sCached)/\(sTotalPrompt) (\(Int(Double(sCached)/Double(sTotalPrompt)*100))%)" : " | cache: MISS"
-                print("\(Self.orange)[\(Self.timestamp())] [STATS] pp: \(sTotalPrompt) tok, \(String(format: "%.2f", sPromptTime))s (\(String(format: "%.1f", sPromptTokPerSec)) tok/s) | tg: \(completionTokens) tok, \(String(format: "%.2f", sGenTime))s (\(String(format: "%.1f", sGenTokPerSec)) tok/s)\(sCacheInfo) stream=true\(Self.reset)")
+                print("\(Self.orange)[\(Self.timestamp())] [STATS] pp: \(promptTokens) tok, \(String(format: "%.2f", sPromptTime))s (\(String(format: "%.1f", sPromptTokPerSec)) tok/s) | tg: \(completionTokens) tok, \(String(format: "%.2f", sGenTime))s (\(String(format: "%.1f", sGenTokPerSec)) tok/s)\(sCacheInfo) stream=true\(Self.reset)")
                 if hasToolCalls && !collectedToolCalls.isEmpty {
                     let tcSummary = collectedToolCalls.map { "\($0.function.name)(\(Self.argKeysPreview($0.function.arguments)))" }.joined(separator: ", ")
                     print("\(Self.gold)[\(Self.timestamp())] [TOOL_CALLS] \(collectedToolCalls.count) call(s): \(tcSummary)\(Self.reset)")

@@ -447,6 +447,23 @@ struct MlxCommand: ParsableCommand {
         }
 
         print("MLX model: \(selectedModel)")
+
+        // Read context window from model config
+        var contextWindow: Int? = nil
+        if let modelDir = resolver.localModelDirectory(repoId: selectedModel) {
+            let configURL = modelDir.appendingPathComponent("config.json")
+            if let data = try? Data(contentsOf: configURL),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                // Check top-level first, then text_config (VLM models nest it)
+                if let maxPos = json["max_position_embeddings"] as? Int {
+                    contextWindow = maxPos
+                } else if let textConfig = json["text_config"] as? [String: Any],
+                          let maxPos = textConfig["max_position_embeddings"] as? Int {
+                    contextWindow = maxPos
+                }
+            }
+        }
+
         try ensureMLXMetalLibraryAvailable(verbose: verbose)
 
         // Resolve and validate --media paths early (before model load)
@@ -530,7 +547,8 @@ struct MlxCommand: ParsableCommand {
                     mlxMinP: minP,
                     mlxPresencePenalty: presencePenalty,
                     mlxSeed: seed,
-                    mlxMaxLogprobs: maxLogprobs
+                    mlxMaxLogprobs: maxLogprobs,
+                    contextWindow: contextWindow
                 )
                 globalServer = server
                 if !explicitPort && chosenPort != 9999 {
