@@ -389,6 +389,16 @@ final class MLXModelService: @unchecked Sendable {
                 } else {
                     print("[\(ts())] [DEBUG] Full tokenized prompt (\(allTokens.count) tokens):\n\(decoded)\n[/DEBUG]")
                 }
+                // Hash the full token array to detect non-deterministic tokenization
+                let tokenHash = allTokens.withUnsafeBufferPointer { buf -> UInt64 in
+                    var h: UInt64 = 0xcbf29ce484222325  // FNV-1a
+                    for t in buf {
+                        h ^= UInt64(bitPattern: Int64(t))
+                        h &*= 0x100000001b3
+                    }
+                    return h
+                }
+                print("[\(ts())] [PrefixCache] Token hash: \(String(tokenHash, radix: 16)) (\(allTokens.count) tokens)")
             }
 
             // If the chat template appended a think start tag, prepend it so extractors can detect it
@@ -411,6 +421,13 @@ final class MLXModelService: @unchecked Sendable {
             // Prompt caching: determine cache hit/miss
             let useCache = !self.isMultimodalInput(input)
             let inputTokens = useCache ? self.extractTokenArray(input) : []
+            if debugLogging {
+                let cacheState = self.radixCache != nil ? "active(\(self.radixCache!.count) entries)" : "nil"
+                print("[\(ts())] [PrefixCache] Path: non-streaming | useCache=\(useCache) | radixCache=\(cacheState)")
+                if useCache && inputTokens.count > 0 {
+                    print("[\(ts())] [PrefixCache] Input: \(inputTokens.count) tokens, first20=\(Array(inputTokens.prefix(20)))")
+                }
+            }
             var generationCache: [KVCache]
             var generateInput: LMInput
 
@@ -437,6 +454,8 @@ final class MLXModelService: @unchecked Sendable {
                     cachedTokenCount = effectivePrefix
                     if debugLogging {
                         print("[\(ts())] [KVCache] Radix hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
+                        let offsets = generationCache.prefix(3).map { "\($0.offset)" }.joined(separator: ",")
+                        print("[\(ts())] [PrefixCache] Restore: effectivePrefix=\(effectivePrefix)/\(inputTokens.count), \(generationCache.count) layers, suffix=\(suffixTokens.count), offsets=[\(offsets),...]")
                     }
                 } else {
                     generationCache = context.model.newCache(parameters: params)
@@ -502,6 +521,9 @@ final class MLXModelService: @unchecked Sendable {
             } catch {
                 // On generation error, invalidate prompt cache inside the
                 // serialized block so no stale state leaks to the next request.
+                if debugLogging {
+                    print("[\(ts())] [PrefixCache] Invalidate: generation error")
+                }
                 self.radixCache?.invalidateAll()
                 throw error
             }
@@ -529,6 +551,9 @@ final class MLXModelService: @unchecked Sendable {
                 }
                 let layerStates = generationCache.map { $0.state }
                 radix.insert(tokens: inputTokens, layerStates: layerStates)
+                if debugLogging {
+                    print("[\(ts())] [PrefixCache] Insert: \(inputTokens.count) tokens, \(generationCache.count) layers")
+                }
             }
 
             if wantLogprobs && !collectedLogprobs.isEmpty {
@@ -705,6 +730,13 @@ final class MLXModelService: @unchecked Sendable {
                         // Prompt caching: determine cache hit/miss
                         let useCache = !self.isMultimodalInput(input)
                         let inputTokens = useCache ? self.extractTokenArray(input) : []
+                        if debugLogging {
+                            let cacheState = self.radixCache != nil ? "active(\(self.radixCache!.count) entries)" : "nil"
+                            print("[\(ts())] [PrefixCache] Path: streaming | useCache=\(useCache) | radixCache=\(cacheState)")
+                            if useCache && inputTokens.count > 0 {
+                                print("[\(ts())] [PrefixCache] Input: \(inputTokens.count) tokens, first20=\(Array(inputTokens.prefix(20)))")
+                            }
+                        }
                         var generationCache: [KVCache]
                         var generateInput: LMInput
                         var streamCachedTokens = 0
@@ -732,6 +764,8 @@ final class MLXModelService: @unchecked Sendable {
                                 streamCachedTokens = effectivePrefix
                                 if debugLogging {
                                     print("[\(ts())] [KVCache] Radix hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
+                                    let offsets = generationCache.prefix(3).map { "\($0.offset)" }.joined(separator: ",")
+                                    print("[\(ts())] [PrefixCache] Restore: effectivePrefix=\(effectivePrefix)/\(inputTokens.count), \(generationCache.count) layers, suffix=\(suffixTokens.count), offsets=[\(offsets),...]")
                                 }
                             } else {
                                 generationCache = context.model.newCache(parameters: params)
@@ -830,6 +864,9 @@ final class MLXModelService: @unchecked Sendable {
                         } catch {
                             // On generation error, invalidate prompt cache inside the
                             // serialized block so no stale state leaks to the next request.
+                            if debugLogging {
+                                print("[\(ts())] [PrefixCache] Invalidate: generation error (streaming)")
+                            }
                             self.radixCache?.invalidateAll()
                             throw error
                         }
@@ -845,6 +882,9 @@ final class MLXModelService: @unchecked Sendable {
                         }
                         // Invalidate prompt cache on cancellation to prevent stale state
                         if Task.isCancelled {
+                            if debugLogging {
+                                print("[\(ts())] [PrefixCache] Invalidate: task cancelled")
+                            }
                             self.radixCache?.invalidateAll()
                         }
                         if debugLogging {
@@ -862,11 +902,17 @@ final class MLXModelService: @unchecked Sendable {
                             }
                             let layerStates = generationCache.map { $0.state }
                             radix.insert(tokens: inputTokens, layerStates: layerStates)
+                            if debugLogging {
+                                print("[\(ts())] [PrefixCache] Insert: \(inputTokens.count) tokens, \(generationCache.count) layers")
+                            }
                         }
                     }
                     self.cleanupTempFiles(mediaTempFiles)
                     continuation.finish()
                 } catch {
+                    if debugLogging {
+                        print("[\(ts())] [PrefixCache] Invalidate: stream error")
+                    }
                     self.radixCache?.invalidateAll()
                     self.cleanupTempFiles(mediaTempFiles)
                     continuation.finish(throwing: error)
@@ -912,6 +958,9 @@ final class MLXModelService: @unchecked Sendable {
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
 
+        if debugLogging {
+            print("[\(ts())] [PrefixCache] Invalidate: cleanup")
+        }
         self.radixCache?.invalidateAll()
         autoreleasepool {
             withStateLock {
@@ -1178,7 +1227,7 @@ final class MLXModelService: @unchecked Sendable {
                    let schemaType = propSchema["type"] as? String {
                     let fullPath = path.isEmpty ? key : "\(path).\(key)"
                     switch schemaType {
-                    case "string":  // Don't fill strings — let client report "missing"
+                    case "string":  // Don't fill strings
                         print("[\(ts())] [ToolCallParser] Missing required string param '\(fullPath)' for \(toolName) — not filling")
                     case "boolean": dict[key] = false; filled = true
                         print("[\(ts())] [ToolCallParser] Filled missing required param '\(fullPath)' (\(schemaType)) with default for \(toolName)")
@@ -2325,11 +2374,39 @@ final class MLXModelService: @unchecked Sendable {
     /// vLLM's tool_chat_template_qwen3coder.jinja — teaches the model the exact XML tool call format.
     /// Source: https://github.com/vllm-project/vllm/blob/main/examples/tool_chat_template_qwen3coder.jinja
     static let qwen3XMLTemplate = """
+    {%- macro sorted_json(obj) -%}
+        {%- if obj is mapping -%}
+            {%- set ns = namespace(first=true) -%}
+            {{- "{" -}}
+            {%- for k, v in obj|dictsort -%}
+                {%- if not ns.first -%},{%- endif -%}
+                {%- set ns.first = false -%}
+                {{- '"' ~ k ~ '":' -}}
+                {{- sorted_json(v) -}}
+            {%- endfor -%}
+            {{- "}" -}}
+        {%- elif obj is sequence and obj is not string -%}
+            {{- "[" -}}
+            {%- for item in obj -%}
+                {%- if not loop.first -%},{%- endif -%}
+                {{- sorted_json(item) -}}
+            {%- endfor -%}
+            {{- "]" -}}
+        {%- elif obj is string -%}
+            {{- '"' ~ obj ~ '"' -}}
+        {%- elif obj is boolean -%}
+            {{- "true" if obj else "false" -}}
+        {%- elif obj is none -%}
+            {{- "null" -}}
+        {%- else -%}
+            {{- obj -}}
+        {%- endif -%}
+    {%- endmacro -%}
     {% macro render_extra_keys(json_dict, handled_keys) %}
         {%- if json_dict is mapping %}
-            {%- for json_key in json_dict if json_key not in handled_keys %}
+            {%- for json_key, _ in json_dict|dictsort if json_key not in handled_keys %}
                 {%- if json_dict[json_key] is mapping or (json_dict[json_key] is sequence and json_dict[json_key] is not string) %}
-                    {{- '\\n<' ~ json_key ~ '>' ~ (json_dict[json_key] | tojson | safe) ~ '</' ~ json_key ~ '>' }}
+                    {{- '\\n<' ~ json_key ~ '>' }}{{ sorted_json(json_dict[json_key]) }}{{- '</' ~ json_key ~ '>' }}
                 {%- else %}
                     {{-'\\n<' ~ json_key ~ '>' ~ (json_dict[json_key] | string) ~ '</' ~ json_key ~ '>' }}
                 {%- endif %}
@@ -2368,7 +2445,7 @@ final class MLXModelService: @unchecked Sendable {
             {%- endif %}
             {{- '\\n<parameters>' }}
             {%- if tool.parameters is defined and tool.parameters is mapping and tool.parameters.properties is defined and tool.parameters.properties is mapping %}
-                {%- for param_name, param_fields in tool.parameters.properties|items %}
+                {%- for param_name, param_fields in tool.parameters.properties|dictsort %}
                     {{- '\\n<parameter>' }}
                     {{- '\\n<name>' ~ param_name ~ '</name>' }}
                     {%- if param_fields.type is defined %}
@@ -2411,7 +2488,7 @@ final class MLXModelService: @unchecked Sendable {
                 {%- endif %}
                 {{- '\\n<tool_call>\\n<function=' + tool_call.name + '>\\n' }}
                 {%- if tool_call.arguments is defined %}
-                    {%- for args_name, args_value in tool_call.arguments|items %}
+                    {%- for args_name, args_value in tool_call.arguments|dictsort %}
                         {{- '<parameter=' + args_name + '>\\n' }}
                         {%- set args_value = args_value | tojson | safe if args_value is mapping or (args_value is sequence and args_value is not string) else args_value | string %}
                         {{- args_value }}
@@ -2488,7 +2565,7 @@ final class MLXModelService: @unchecked Sendable {
             {{- '{"type": "function", "function": ' }}
             {{- '{"name": "' + tool.name + '", ' }}
             {{- '"description": "' + tool.name + '(' }}
-            {%- for param_name, param_fields in tool.parameters.properties|items %}
+            {%- for param_name, param_fields in tool.parameters.properties|dictsort %}
                 {{- param_name + ": " + json_to_python_type(param_fields) }}
                 {%- if not loop.last %}
                     {{- ", " }}
@@ -2499,7 +2576,7 @@ final class MLXModelService: @unchecked Sendable {
                 {{- " -> " + json_to_python_type(tool.return) }}
             {%- endif %}
             {{- " - " + tool.description + "\\n\\n" }}
-            {%- for param_name, param_fields in tool.parameters.properties|items %}
+            {%- for param_name, param_fields in tool.parameters.properties|dictsort %}
                 {%- if loop.first %}
                     {{- "    Args:\\n" }}
                 {%- endif %}

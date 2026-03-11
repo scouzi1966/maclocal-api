@@ -649,8 +649,8 @@ public class RotatingKVCache: BaseKVCache, CustomDebugStringConvertible {
             }
             self.keys = newValue[0]
             self.values = newValue[1]
-            // Note: RotatingKVCache doesn't set offset from keys like KVCache does
-            // The offset is managed through meta_state
+            // Restore offset from key shape so radix cache restore works correctly
+            self.offset = self.keys!.dim(2)
         }
     }
 
@@ -962,6 +962,11 @@ public class QuantizedKVCache: BaseKVCache, QuantizedKVCacheProtocol {
                 fatalError(
                     "QuantizedKVCache state must have exactly 6 or 4 arrays (3/2 for keys, 3/2 for values)"
                 )
+            }
+            // Restore offset from quantized key shape (dim 2 = sequence length)
+            // Without this, radix cache restore leaves offset=0 → reshape crash
+            if let k = keys {
+                self.offset = k.0.dim(2)
             }
         }
     }

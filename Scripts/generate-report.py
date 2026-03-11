@@ -276,10 +276,12 @@ for i, r in enumerate(ok_sorted):
       <div class="ai-detail-body">{"".join(smart_items)}</div>
     </details>"""
 
+    resp_test_num = r.get("_jsonl_idx", i) + 1
     model_responses += f"""
 <div class="response-section" id="resp-{i}">
   <h3 class="response-header" onclick="toggleResponse({i})">
     <span class="toggle-icon" id="icon-{i}">&#9654;</span>
+    <span class="test-num" style="min-width:2rem;text-align:center">#{resp_test_num}</span>
     <span class="mono">{html.escape(r["model"])}</span>
     <span class="response-meta">{r["completion_tokens"]} tokens &middot; {r["tokens_per_sec"]:.1f} tok/s</span>
   </h3>
@@ -328,7 +330,9 @@ if fail:
             for sa in smart_analyses:
                 s = sa["scores"].get(jsonl_idx)
                 score_tds += ai_score_cell(s)
+        fail_test_num = r.get("_jsonl_idx", 0) + 1
         fail_rows += f"""<tr>
+  <td class="test-num">{fail_test_num}</td>
   <td class="mono">{html.escape(r["model"].strip())}{label_html}</td>
   <td class="error-text" title="{html.escape(error_clean)}">{html.escape(error_clean)}</td>
   {score_tds}
@@ -365,8 +369,10 @@ for i, r in enumerate(ok_sorted):
             s = sa["scores"].get(jsonl_idx)
             score_tds += ai_score_cell(s)
 
+    test_num = r.get("_jsonl_idx", i) + 1
     perf_rows += f"""<tr onclick="scrollToResponse({i})" style="cursor:pointer" title="Click to view full response">
   <td class="rank">{i+1}</td>
+  <td class="test-num">{test_num}</td>
   <td class="mono">{html.escape(r["model"])}{label_html}{afm_html}</td>
   <td class="status-ok">OK</td>
   {score_tds}
@@ -491,6 +497,7 @@ MathJax = {{
   .error-text {{ color: #f85149; font-size: 0.85rem; max-width: 500px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
   .meta {{ color: #8b949e; font-size: 0.9rem; margin-bottom: 1.5rem; }}
   .rank {{ color: #8b949e; font-size: 0.85rem; width: 30px; text-align: center; }}
+  .test-num {{ color: #58a6ff; font-size: 0.85rem; width: 35px; text-align: center; font-weight: 600; font-family: 'SF Mono', Menlo, monospace; }}
   .ai-score {{ text-align: center; font-size: 1rem; width: 35px; }}
 
   /* Config badges */
@@ -567,7 +574,8 @@ MathJax = {{
 <p style="color:#8b949e;font-size:0.85rem;margin-bottom:0.5rem">Click a row to jump to its full response below.</p>
 <table>
 <tr>
-  <th>#</th>
+  <th title="Rank by tok/s">#</th>
+  <th title="Original test number">Test</th>
   <th>Model / Config</th>
   <th>Status</th>
   {ai_score_header}
@@ -581,7 +589,7 @@ MathJax = {{
 {perf_rows}
 </table>
 
-{"<h2>Failed Runs</h2>" + chr(10) + "<table>" + chr(10) + "<tr><th>Model</th><th>Error</th>" + (ai_score_header) + "<th>Config</th><th>Load (s)</th></tr>" + chr(10) + fail_rows + "</table>" if fail else ""}
+{"<h2>Failed Runs</h2>" + chr(10) + "<table>" + chr(10) + "<tr><th>Test</th><th>Model</th><th>Error</th>" + (ai_score_header) + "<th>Config</th><th>Load (s)</th></tr>" + chr(10) + fail_rows + "</table>" if fail else ""}
 
 {smart_section}
 

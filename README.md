@@ -514,6 +514,7 @@ If you encounter any issues or have questions:
 - [x] Vision OCR subcommand
 - [x] Function/tool calling (OpenAI-compatible, multiple formats)
 - [ ] Performance optimizations
+- [ ] [BFCL](https://github.com/ShishirPatil/gorilla/tree/main/berkeley-function-call-leaderboard) integration for automated tool calling validation
 - [ ] Docker containerization (when supported)
 
 ---

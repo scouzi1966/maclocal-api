@@ -51,10 +51,18 @@ swift build -c release
 ### 2. Start Server (if not running)
 ```bash
 MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache \
-  .build/release/afm mlx -m MODEL --port 9998 &
+  .build/release/afm mlx -m MODEL --port 9998 \
+  --tool-call-parser afm_adaptive_xml \
+  --enable-prefix-caching \
+  --enable-grammar-constraints &
 # Wait for server to be ready
 until curl -sf http://127.0.0.1:9998/v1/models >/dev/null 2>&1; do sleep 1; done
 ```
+
+**Recommended flags for testing:**
+- `--tool-call-parser afm_adaptive_xml` — best tool call parser with JSON-in-XML fallback
+- `--enable-prefix-caching` — 67-79% prompt token savings on repeated requests
+- `--enable-grammar-constraints` — EBNF constrained decoding forces valid XML tool calls, improving success from 60% to 100% on realistic workloads
 
 ### 3. Run Automated Assertions
 ```bash

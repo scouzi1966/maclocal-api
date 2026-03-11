@@ -280,13 +280,34 @@ Then **use AskUserQuestion** to pause and let the user decide what to do next:
 
 **Options:**
 1. "Publish as-is" — Skip testing, go straight to GitHub release and tap update
-2. "Run assertion tests" — Run the test suite, then decide (invokes `/test-afm-assertions` skill)
+2. "Run tests" — Run automated tests, then decide (see test scope question below)
 3. "I'll test manually" — Pause here while the user tests the binary themselves
 4. "Cancel" — Abort without publishing
 
-#### If user selects "Run assertion tests"
+#### If user selects "Run tests"
 
-Invoke the `/test-afm-assertions` skill to run tests. After tests complete, present results and ask:
+First, list available models in the cache and let the user pick:
+
+```bash
+MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache ./Scripts/list-models.sh
+```
+
+**Question:** "Which model to test with?"
+
+Present the available models as options (show model name and size). The user picks one.
+
+Then ask the test scope:
+
+**Question:** "Which tests to run?"
+
+**Options:**
+1. "Assertions only (all tiers including unit)" — Run `/test-afm-assertions` with full tier (deterministic pass/fail tests, ~15 min/model)
+2. "Comprehensive only" — Run `/test-macafm` smart analysis (AI-scored quality evaluation)
+3. "Both" — Run assertions first, then comprehensive (most thorough, ~30 min/model)
+
+Invoke the appropriate skill(s) with the selected model. Do NOT re-ask the model question — pass it through to the test skill(s).
+
+After tests complete, present results and ask:
 
 **Question:** "Tests complete. What next?"
 

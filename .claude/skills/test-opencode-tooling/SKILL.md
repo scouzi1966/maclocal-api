@@ -21,7 +21,7 @@ Automated loop that runs OpenCode tasks against afm, captures tool call errors f
    ```bash
    MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache ./Scripts/list-models.sh
    ```
-3. **afm start parameters** — Any extra flags beyond defaults? (e.g., `--tool-call-format`, `--enable-prefix-caching`, `--no-think`)
+3. **afm start parameters** — Any extra flags beyond defaults? (e.g., `--tool-call-parser afm_adaptive_xml`, `--enable-prefix-caching`, `--enable-grammar-constraints`, `--no-think`). **Recommended:** `--tool-call-parser afm_adaptive_xml --enable-grammar-constraints` — this combination gives the highest tool call success rate (100% on 35B-A3B vs 60% without grammar constraints on realistic workloads).
 4. **Iterations** — How many times to run the same prompt per model? Default: 1. More runs help distinguish flaky model errors from deterministic afm bugs.
 5. **Working directory** — Temp dir for OpenCode to work in. Default: create a fresh `/tmp/opencode-test-TIMESTAMP` per run.
 
@@ -38,9 +38,11 @@ Other gotchas:
 - OpenCode config is loaded from both `~/.config/opencode/opencode.json` (global) AND `$WORKDIR/opencode.json` (local) — local overrides global
 - The workdir should be a **git repo** (`git init`) for OpenCode to function properly
 
-## OpenCode Log Location
+## OpenCode Log & Error Data
 
-OpenCode writes logs to `~/.local/share/opencode/log/` in timestamp-named files (e.g., `2026-03-09T172212.log`).
+### Log Files (limited — no tool call errors)
+
+OpenCode writes logs to `~/.local/share/opencode/log/` in UTC-timestamped files (e.g., `2026-03-09T172212.log`). **These logs do NOT contain tool call errors or tool input/output.** They only log permission checks, bus events, and registry start/complete.
 
 ```bash
 # Find the latest OpenCode log
@@ -50,11 +52,101 @@ ls -t ~/.local/share/opencode/log/*.log | head -1
 tail -f "$(ls -t ~/.local/share/opencode/log/*.log | head -1)"
 ```
 
+**Gotcha:** Log filenames use UTC timestamps but `ls -lt` shows local time. A file named `2026-03-10T001322.log` was created at 8:13 PM EDT. Use `lsof -p <PID> | grep log` to find the current session's log file if it doesn't appear in directory listings yet (OpenCode buffers writes).
+
 When monitoring both afm and OpenCode simultaneously:
 - **afm log**: `/tmp/afm-opencode-test.log` (or wherever you tee'd it)
 - **OpenCode log**: `~/.local/share/opencode/log/<latest>.log`
 
-**ALWAYS** start OpenCode with `--log-level "DEBUG" --print-logs` — both `opencode serve` and `opencode run` commands must include these flags. Without them, tool call errors are invisible.
+**ALWAYS** start OpenCode with `--log-level "DEBUG" --print-logs` — both `opencode serve` and `opencode run` commands must include these flags.
+
+### SQLite Database (structured tool call data with errors)
+
+Tool call inputs, outputs, and errors are stored in OpenCode's SQLite database — **not** in the log files. This is the only place to get the full JSON of failed tool calls.
+
+**Database path:** `~/.local/share/opencode/opencode.db`
+
+**Schema:** Tool calls are in the `part` table as JSON in the `data` column, keyed by `session_id`.
+
+```bash
+# List recent sessions
+sqlite3 ~/.local/share/opencode/opencode.db \
+  "SELECT id, title, datetime(time_created/1000, 'unixepoch', 'localtime') FROM session ORDER BY time_created DESC LIMIT 5;"
+
+# Get ALL tool call errors for a session
+sqlite3 ~/.local/share/opencode/opencode.db \
+  "SELECT data FROM part WHERE session_id = '<SESSION_ID>' AND data LIKE '%\"status\":\"error\"%';"
+
+# Get errors for the most recent session
+sqlite3 ~/.local/share/opencode/opencode.db \
+  "SELECT data FROM part WHERE session_id = (SELECT id FROM session ORDER BY time_created DESC LIMIT 1) AND data LIKE '%\"status\":\"error\"%';"
+
+# Get all edit tool errors across all sessions
+sqlite3 ~/.local/share/opencode/opencode.db \
+  "SELECT data FROM part WHERE data LIKE '%\"tool\":\"edit\"%' AND data LIKE '%\"status\":\"error\"%' ORDER BY time_created DESC LIMIT 10;"
+```
+
+**Error JSON format:**
+```json
+{
+  "type": "tool",
+  "callID": "call_8B05B790A94F4A0EBF2850C0",
+  "tool": "edit",
+  "state": {
+    "status": "error",
+    "input": {
+      "filePath": "/path/to/file.py",
+      "oldString": "text the model expected to find",
+      "newString": "replacement text"
+    },
+    "error": "Error: Could not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.",
+    "time": {
+      "start": 1773102597849,
+      "end": 1773102597850
+    }
+  }
+}
+```
+
+**Successful tool call JSON format:**
+```json
+{
+  "type": "tool",
+  "callID": "call_34CB225B0D184310BD64A839",
+  "tool": "edit",
+  "state": {
+    "status": "completed",
+    "input": {
+      "filePath": "/path/to/file.py",
+      "oldString": "...",
+      "newString": "..."
+    },
+    "output": "Edit applied successfully.",
+    "title": "path/to/file.py",
+    "metadata": {
+      "diagnostics": {},
+      "diff": "Index: /path/to/file.py\n===...",
+      "filediff": { "file": "...", "before": "...", "after": "..." }
+    }
+  }
+}
+```
+
+**Useful queries for test analysis:**
+```bash
+# Count tool calls by status for a session
+sqlite3 ~/.local/share/opencode/opencode.db \
+  "SELECT json_extract(data, '$.tool') as tool,
+          json_extract(data, '$.state.status') as status,
+          COUNT(*) as cnt
+   FROM part
+   WHERE session_id = '<SESSION_ID>' AND json_extract(data, '$.type') = 'tool'
+   GROUP BY tool, status;"
+
+# Get all tool call inputs/outputs (pipe to jq for pretty-printing)
+sqlite3 ~/.local/share/opencode/opencode.db \
+  "SELECT data FROM part WHERE session_id = '<SESSION_ID>' AND json_extract(data, '$.type') = 'tool';" | python3 -mjson.tool
+```
 
 ## Execution Workflow
 

@@ -62,7 +62,13 @@ final class RadixTreeCache: @unchecked Sendable {
 
         while matched < tokens.count {
             let nextToken = tokens[matched]
-            guard let child = node.children[nextToken] else { break }
+            guard let child = node.children[nextToken] else {
+                if debugLogging {
+                    let childKeys = node.children.keys.sorted()
+                    print("[PrefixCache] Radix traversal: matched \(matched) tokens, no child for token \(nextToken) at pos \(matched) (children: \(childKeys))")
+                }
+                break
+            }
 
             // Match edge tokens
             let edge = child.edgeTokens
@@ -83,6 +89,9 @@ final class RadixTreeCache: @unchecked Sendable {
 
             if edgePos < edge.count {
                 // Partial edge match — stop traversal but keep any cached state found above
+                if debugLogging {
+                    print("[PrefixCache] Radix traversal: matched \(matched) tokens, diverged at pos \(matched): input=\(tokens[matched]) vs cached=\(edge[edgePos])")
+                }
                 break
             }
 
@@ -93,13 +102,18 @@ final class RadixTreeCache: @unchecked Sendable {
         if let cached = lastCachedNode {
             cached.cacheEntry?.touch()
             if debugLogging {
-                print("[PrefixCache] Radix hit: \(lastCachedLen)/\(tokens.count) tokens matched")
+                let entryTokenCount = cached.cacheEntry?.tokens.count ?? 0
+                print("[PrefixCache] Radix hit: \(lastCachedLen)/\(tokens.count) tokens matched (entry has \(entryTokenCount) tokens)")
             }
             return (lastCachedLen, cached.cacheEntry?.layerStates)
         }
 
         if debugLogging {
-            print("[PrefixCache] Radix miss for \(tokens.count) tokens")
+            if matched > 0 {
+                print("[PrefixCache] Radix miss: traversed \(matched) tokens but no cached node (/\(tokens.count) input tokens)")
+            } else {
+                print("[PrefixCache] Radix miss for \(tokens.count) tokens (no prefix match)")
+            }
         }
         return (0, nil)
     }
@@ -127,7 +141,7 @@ final class RadixTreeCache: @unchecked Sendable {
                 node.children[nextToken] = newNode
                 entryCount += 1
                 if debugLogging {
-                    print("[PrefixCache] Radix insert: \(tokens.count) tokens (entries: \(entryCount))")
+                    print("[PrefixCache] Radix insert: \(tokens.count) tokens, \(layerStates.count) layers (entries: \(entryCount))")
                 }
                 return
             }
@@ -160,7 +174,7 @@ final class RadixTreeCache: @unchecked Sendable {
                     entryCount += 1
                 }
                 if debugLogging {
-                    print("[PrefixCache] Radix insert (split): \(tokens.count) tokens (entries: \(entryCount))")
+                    print("[PrefixCache] Radix insert (split): \(tokens.count) tokens, \(layerStates.count) layers (entries: \(entryCount))")
                 }
                 return
             }
@@ -173,7 +187,7 @@ final class RadixTreeCache: @unchecked Sendable {
         if node.cacheEntry == nil { entryCount += 1 }
         node.cacheEntry = KVCacheEntry(tokens: tokens, layerStates: layerStates)
         if debugLogging {
-            print("[PrefixCache] Radix insert (update): \(tokens.count) tokens (entries: \(entryCount))")
+            print("[PrefixCache] Radix insert (update): \(tokens.count) tokens, \(layerStates.count) layers (entries: \(entryCount))")
         }
     }
 

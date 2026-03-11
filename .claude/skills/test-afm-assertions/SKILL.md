@@ -21,7 +21,9 @@ Use this skill when the user asks to:
    Default: standard. Use `unit` for offline-only Swift tests (no server needed).
 3. **Forced parser?** — Should we also test with `--tool-call-parser qwen3_xml`?
    Suggest yes if testing Qwen3/Qwen3.5 models.
-4. **Server already running?** — If yes, use single-model mode (`test-assertions.sh`).
+4. **Grammar constraints?** — Should we test with `--enable-grammar-constraints`?
+   **Recommended yes** — EBNF grammar-constrained decoding forces valid XML tool call structure at generation time, preventing JSON-inside-XML format switching and missing required parameters. Requires `--tool-call-parser afm_adaptive_xml`. Matrix testing shows grammar constraints improve tool call success from 60% to 100% on realistic workloads (35B-A3B model).
+5. **Server already running?** — If yes, use single-model mode (`test-assertions.sh`).
    If no (or multiple models), use multi-model mode (`test-assertions-multi.sh`).
 
 ## Common Model Configurations

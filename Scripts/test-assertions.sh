@@ -929,6 +929,117 @@ except Exception as e:
     run_test "Tools" "Nullable param: anyOf [string, null] does not crash" "no crash" "$nullable_ok" "$dur"
   fi
 
+  # Test: multi-turn tool call round-trip (user → tool_call → tool_result → follow-up)
+  t0=$(now_ms)
+  # Step 1: get initial tool call
+  mt_resp1=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Paris?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":300,\"stream\":false,\"temperature\":0}")
+  # Extract tool call details for round-trip
+  mt_roundtrip=$(echo "$mt_resp1" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if not tc:
+        print('SKIP')
+    else:
+        call_id = tc[0].get('id', 'call_test1')
+        fn_name = tc[0]['function']['name']
+        fn_args = tc[0]['function']['arguments']
+        print(f'{call_id}|{fn_name}|{fn_args}')
+except Exception as e:
+    print(f'ERROR:{e}')
+" 2>/dev/null || echo "ERROR:parse")
+  if [[ "$mt_roundtrip" == SKIP* ]] || [[ "$mt_roundtrip" == ERROR* ]]; then
+    dur=$(( $(now_ms) - t0 ))
+    run_test "Tools" "Multi-turn: tool round-trip (model did not call tool)" "skip" "SKIP" "$dur"
+  else
+    IFS='|' read -r mt_call_id mt_fn_name mt_fn_args <<< "$mt_roundtrip"
+    # Step 2: send tool result back and get follow-up
+    mt_resp2=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Paris?\"},{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"$mt_call_id\",\"type\":\"function\",\"function\":{\"name\":\"$mt_fn_name\",\"arguments\":$mt_fn_args}}]},{\"role\":\"tool\",\"tool_call_id\":\"$mt_call_id\",\"name\":\"$mt_fn_name\",\"content\":\"{\\\"temperature\\\":22,\\\"condition\\\":\\\"sunny\\\",\\\"humidity\\\":45}\"}],\"tools\":$TOOL_DEF,\"max_tokens\":300,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    mt_valid=$(echo "$mt_resp2" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if 'error' in d:
+        print(f'FAIL: server error: {d[\"error\"].get(\"message\",\"\")}')
+    else:
+        msg = d['choices'][0]['message']
+        c = msg.get('content') or msg.get('reasoning_content') or ''
+        if len(c.strip()) > 0:
+            print('PASS')
+        else:
+            print('FAIL: empty follow-up content')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$mt_valid" = "PASS" ]; then
+      run_test "Tools" "Multi-turn: tool result produces valid follow-up" "text response" "PASS" "$dur"
+    else
+      run_test "Tools" "Multi-turn: tool result produces valid follow-up" "text response" "$mt_valid" "$dur"
+    fi
+  fi
+
+  # Test: multi-turn with nullable param through full round-trip
+  NULLABLE_TOOL_FULL='[{"type":"function","function":{"name":"search_places","description":"Search for places nearby","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Search query"},"category":{"anyOf":[{"type":"string"},{"type":"null"}],"description":"Optional category filter"},"radius_km":{"anyOf":[{"type":"number"},{"type":"null"}],"description":"Optional radius in km"}},"required":["query"]}}}]'
+  t0=$(now_ms)
+  # Step 1: initial tool call with nullable params
+  mn_resp1=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Find restaurants near me\"}],\"tools\":$NULLABLE_TOOL_FULL,\"max_tokens\":300,\"stream\":false,\"temperature\":0}")
+  mn_step1=$(echo "$mn_resp1" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if 'error' in d:
+        print(f'ERROR:{d[\"error\"].get(\"message\",\"\")}')
+    else:
+        tc = d['choices'][0]['message'].get('tool_calls', [])
+        if tc:
+            call_id = tc[0].get('id', 'call_n1')
+            fn_name = tc[0]['function']['name']
+            fn_args = tc[0]['function']['arguments']
+            # Verify args parse as valid JSON
+            json.loads(fn_args)
+            print(f'{call_id}|{fn_name}|{fn_args}')
+        else:
+            content = d['choices'][0]['message'].get('content', '')
+            print('NOTOOLS' if content else 'EMPTY')
+except Exception as e:
+    print(f'ERROR:{e}')
+" 2>/dev/null || echo "ERROR:parse")
+  if [[ "$mn_step1" == ERROR* ]]; then
+    dur=$(( $(now_ms) - t0 ))
+    run_test "Tools" "Multi-turn nullable: Jinja crash on anyOf [type, null]" "no crash" "FAIL: $mn_step1" "$dur"
+  elif [[ "$mn_step1" == NOTOOLS* ]] || [[ "$mn_step1" == EMPTY* ]]; then
+    dur=$(( $(now_ms) - t0 ))
+    run_test "Tools" "Multi-turn nullable: round-trip (model did not call tool)" "skip" "SKIP" "$dur"
+  else
+    IFS='|' read -r mn_call_id mn_fn_name mn_fn_args <<< "$mn_step1"
+    # Step 2: send tool result, ask follow-up
+    mn_resp2=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Find restaurants near me\"},{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"$mn_call_id\",\"type\":\"function\",\"function\":{\"name\":\"$mn_fn_name\",\"arguments\":$mn_fn_args}}]},{\"role\":\"tool\",\"tool_call_id\":\"$mn_call_id\",\"name\":\"$mn_fn_name\",\"content\":\"{\\\"results\\\":[{\\\"name\\\":\\\"Le Petit Bistro\\\",\\\"rating\\\":4.5},{\\\"name\\\":\\\"Sushi Palace\\\",\\\"rating\\\":4.2}]}\"},{\"role\":\"user\",\"content\":\"Which one has better reviews?\"}],\"tools\":$NULLABLE_TOOL_FULL,\"max_tokens\":300,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    mn_valid=$(echo "$mn_resp2" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if 'error' in d:
+        print(f'FAIL: server error: {d[\"error\"].get(\"message\",\"\")}')
+    else:
+        msg = d['choices'][0]['message']
+        c = msg.get('content') or msg.get('reasoning_content') or ''
+        if len(c.strip()) > 0:
+            print('PASS')
+        else:
+            print('FAIL: empty follow-up')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$mn_valid" = "PASS" ]; then
+      run_test "Tools" "Multi-turn nullable: full round-trip (anyOf params)" "valid follow-up" "PASS" "$dur"
+    else
+      run_test "Tools" "Multi-turn nullable: full round-trip (anyOf params)" "valid follow-up" "$mn_valid" "$dur"
+    fi
+  fi
+
   # Test: no tools provided = normal response
   t0=$(now_ms)
   resp=$(api_call '{"messages":[{"role":"user","content":"What is 2+2?"}],"max_tokens":20,"stream":false,"temperature":0}')
@@ -1413,6 +1524,479 @@ except Exception as e:
     run_test "Cache" "Prefix cache reuse across requests" "valid response on cache hit" "PASS" "$dur"
   else
     run_test "Cache" "Prefix cache reuse across requests" "valid response on cache hit" "$cache_ok" "$dur"
+  fi
+
+  # ── Issue #32 regression: sequential guided-json → nullable tool call ──────
+  # This is the exact sequence that crashed with QuantizedKVCache (--kv-bits 4):
+  # 1st request fills cache, 2nd request with nullable schema triggers
+  # cache restore with offset=0 → reshape crash.
+
+  # Request 1: guided-json (fills prefix cache with system prompt)
+  t0=$(now_ms)
+  pcr1=$(api_call '{"messages":[{"role":"system","content":"You are a helpful assistant that responds in JSON format."},{"role":"user","content":"Give me info about Saturn as JSON with keys: name, type, rings (boolean)"}],"max_tokens":200,"temperature":0,"response_format":{"type":"json_object"}}')
+  pcr1_ok=$(echo "$pcr1" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if 'error' in d:
+        print(f'FAIL: {d[\"error\"].get(\"message\",\"\")}')
+    else:
+        c = d['choices'][0]['message'].get('content','')
+        rc = d['choices'][0]['message'].get('reasoning_content','')
+        if c or rc:
+            print('PASS')
+        else:
+            print('FAIL: empty')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  # Request 2: nullable tool call (issue #32 — anyOf [string, null] + prefix cache restore)
+  NULLABLE_SCHEMA_TOOL='[{"type":"function","function":{"name":"update_record","description":"Update a database record","parameters":{"type":"object","properties":{"id":{"type":"integer","description":"Record ID"},"name":{"type":"string","description":"Name"},"notes":{"anyOf":[{"type":"string"},{"type":"null"}],"description":"Optional notes"},"priority":{"anyOf":[{"type":"integer"},{"type":"null"}],"description":"Optional priority"}},"required":["id","name"]}}}]'
+  pcr2=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant that responds in JSON format.\"},{\"role\":\"user\",\"content\":\"Update record 42, set name to Saturn, notes to 'ringed planet', priority null\"}],\"tools\":$NULLABLE_SCHEMA_TOOL,\"max_tokens\":300,\"temperature\":0}")
+  dur=$(( $(now_ms) - t0 ))
+  pcr2_ok=$(echo "$pcr2" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if 'error' in d:
+        print(f'FAIL: server error: {d[\"error\"].get(\"message\",\"\")}')
+    else:
+        msg = d['choices'][0]['message']
+        tc = msg.get('tool_calls', [])
+        c = msg.get('content') or msg.get('reasoning_content') or ''
+        if tc:
+            args = json.loads(tc[0]['function']['arguments'])
+            print('PASS')
+        elif c.strip():
+            print('PASS')  # no crash — model chose text instead of tool
+        else:
+            print('FAIL: no tool calls and no content')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  combined="$pcr1_ok+$pcr2_ok"
+  if [ "$combined" = "PASS+PASS" ]; then
+    run_test "Cache" "Issue #32: sequential guided-json → nullable tool (no crash)" "both succeed" "PASS" "$dur"
+  else
+    run_test "Cache" "Issue #32: sequential guided-json → nullable tool (no crash)" "both succeed" "FAIL: req1=$pcr1_ok req2=$pcr2_ok" "$dur"
+  fi
+
+  # ── Sequential: 3 tool calls with nullable schemas (cache reuse stress) ────
+  t0=$(now_ms)
+  seq_pass=0
+  seq_fail_msg=""
+  for i in 1 2 3; do
+    seq_resp=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"Update record $i, set name to Planet$i\"}],\"tools\":$NULLABLE_SCHEMA_TOOL,\"max_tokens\":300,\"temperature\":0}")
+    seq_check=$(echo "$seq_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if 'error' in d:
+        print(f'FAIL:{d[\"error\"].get(\"message\",\"\")}')
+    else:
+        msg = d['choices'][0]['message']
+        tc = msg.get('tool_calls', [])
+        c = msg.get('content') or msg.get('reasoning_content') or ''
+        if tc or c.strip():
+            print('OK')
+        else:
+            print('FAIL:empty')
+except Exception as e:
+    print(f'FAIL:{e}')
+" 2>/dev/null || echo "FAIL:parse")
+    if [ "$seq_check" = "OK" ]; then
+      seq_pass=$((seq_pass + 1))
+    else
+      seq_fail_msg="req$i=$seq_check"
+    fi
+  done
+  dur=$(( $(now_ms) - t0 ))
+  if [ "$seq_pass" -eq 3 ]; then
+    run_test "Cache" "Sequential: 3 nullable tool calls (cache reuse)" "3/3 succeed" "PASS" "$dur"
+  else
+    run_test "Cache" "Sequential: 3 nullable tool calls (cache reuse)" "3/3 succeed" "FAIL: $seq_pass/3 $seq_fail_msg" "$dur"
+  fi
+
+  # ── Multi-turn tool conversation with shared prefix (5 messages) ───────────
+  # user → assistant(tool_call) → tool_result → user follow-up → assistant
+  # Tests prefix cache with growing conversation history
+  t0=$(now_ms)
+  # Step 1: initial tool call
+  mt_cache_resp1=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"You are a weather assistant. Always use the get_weather tool when asked about weather.\"},{\"role\":\"user\",\"content\":\"What is the weather in Tokyo?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":300,\"temperature\":0}")
+  mt_cache_tc=$(echo "$mt_cache_resp1" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if tc:
+        print(f'{tc[0].get(\"id\",\"call_c1\")}|{tc[0][\"function\"][\"name\"]}|{tc[0][\"function\"][\"arguments\"]}')
+    else:
+        print('SKIP')
+except:
+    print('SKIP')
+" 2>/dev/null || echo "SKIP")
+  if [ "$mt_cache_tc" = "SKIP" ]; then
+    dur=$(( $(now_ms) - t0 ))
+    run_test "Cache" "Multi-turn tool conversation with prefix (model skipped tool)" "skip" "SKIP" "$dur"
+  else
+    IFS='|' read -r mtc_id mtc_fn mtc_args <<< "$mt_cache_tc"
+    # Step 2: send tool result + follow-up question (same system prompt prefix)
+    mt_cache_resp2=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"You are a weather assistant. Always use the get_weather tool when asked about weather.\"},{\"role\":\"user\",\"content\":\"What is the weather in Tokyo?\"},{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"$mtc_id\",\"type\":\"function\",\"function\":{\"name\":\"$mtc_fn\",\"arguments\":$mtc_args}}]},{\"role\":\"tool\",\"tool_call_id\":\"$mtc_id\",\"name\":\"$mtc_fn\",\"content\":\"{\\\"temperature\\\":18,\\\"condition\\\":\\\"cloudy\\\",\\\"wind_speed\\\":12}\"},{\"role\":\"user\",\"content\":\"How about London?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":300,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    mt_cache_valid=$(echo "$mt_cache_resp2" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if 'error' in d:
+        print(f'FAIL: server error: {d[\"error\"].get(\"message\",\"\")}')
+    else:
+        msg = d['choices'][0]['message']
+        tc = msg.get('tool_calls', [])
+        c = msg.get('content') or msg.get('reasoning_content') or ''
+        # Either a new tool call for London or a text response — both valid
+        if tc or c.strip():
+            print('PASS')
+        else:
+            print('FAIL: empty response on multi-turn follow-up')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$mt_cache_valid" = "PASS" ]; then
+      run_test "Cache" "Multi-turn: 5-msg tool conversation with prefix cache" "valid response" "PASS" "$dur"
+    else
+      run_test "Cache" "Multi-turn: 5-msg tool conversation with prefix cache" "valid response" "$mt_cache_valid" "$dur"
+    fi
+  fi
+
+  # ── Long system prompt + sequential requests (large prefix reuse) ──────────
+  # ~400 word system prompt creates a substantial prefix to cache/restore
+  t0=$(now_ms)
+  LONG_SYSTEM="You are an expert planetary scientist and astronomer with decades of experience studying our solar system. Your knowledge covers orbital mechanics, atmospheric composition, geological features, magnetic fields, ring systems, and satellite systems of all planets. When answering questions, provide detailed scientific information including numerical data where relevant such as orbital periods, distances, masses, and temperatures. Always structure your responses clearly with the most important facts first. You have published over 200 peer-reviewed papers on topics ranging from Jupiter's Great Red Spot dynamics to the methane cycle on Titan. Your expertise also covers exoplanetary systems, stellar evolution, and cosmological phenomena. You prefer to give concise but information-dense answers. When discussing measurements, use SI units primarily but include imperial equivalents when helpful for general audiences. You also have expertise in space mission design and have consulted for NASA, ESA, and JAXA on multiple missions including Cassini-Huygens, Juno, and the Mars rovers."
+  # Request 1: seed the prefix cache
+  lpc1=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"$LONG_SYSTEM\"},{\"role\":\"user\",\"content\":\"How many moons does Jupiter have?\"}],\"max_tokens\":100,\"temperature\":0}")
+  lpc1_ok=$(echo "$lpc1" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if 'error' in d:
+        print(f'FAIL:{d[\"error\"].get(\"message\",\"\")}')
+    else:
+        msg = d['choices'][0]['message']
+        c = msg.get('content') or msg.get('reasoning_content') or ''
+        print('OK' if c.strip() else 'FAIL:empty')
+except Exception as e:
+    print(f'FAIL:{e}')
+" 2>/dev/null || echo "FAIL:parse")
+  # Request 2: same long system prompt, different question (prefix cache hit)
+  lpc2=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"$LONG_SYSTEM\"},{\"role\":\"user\",\"content\":\"What is the surface temperature of Venus?\"}],\"max_tokens\":100,\"temperature\":0}")
+  lpc2_ok=$(echo "$lpc2" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if 'error' in d:
+        print(f'FAIL:{d[\"error\"].get(\"message\",\"\")}')
+    else:
+        msg = d['choices'][0]['message']
+        c = msg.get('content') or msg.get('reasoning_content') or ''
+        print('OK' if c.strip() else 'FAIL:empty')
+except Exception as e:
+    print(f'FAIL:{e}')
+" 2>/dev/null || echo "FAIL:parse")
+  # Request 3: same prefix, add tool call (mixed mode after cache)
+  lpc3=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"$LONG_SYSTEM\"},{\"role\":\"user\",\"content\":\"What is the weather on Mars today?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":300,\"temperature\":0}")
+  lpc3_ok=$(echo "$lpc3" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if 'error' in d:
+        print(f'FAIL:{d[\"error\"].get(\"message\",\"\")}')
+    else:
+        msg = d['choices'][0]['message']
+        tc = msg.get('tool_calls', [])
+        c = msg.get('content') or msg.get('reasoning_content') or ''
+        print('OK' if (tc or c.strip()) else 'FAIL:empty')
+except Exception as e:
+    print(f'FAIL:{e}')
+" 2>/dev/null || echo "FAIL:parse")
+  dur=$(( $(now_ms) - t0 ))
+  lpc_combined="$lpc1_ok+$lpc2_ok+$lpc3_ok"
+  if [ "$lpc_combined" = "OK+OK+OK" ]; then
+    run_test "Cache" "Long system prompt: 3 sequential requests (prefix reuse)" "3/3 succeed" "PASS" "$dur"
+  else
+    run_test "Cache" "Long system prompt: 3 sequential requests (prefix reuse)" "3/3 succeed" "FAIL: $lpc_combined" "$dur"
+  fi
+
+  # ── 5-request sequential stress test (mixed types) ────────────────────────
+  # Alternates: text → tool → guided-json → streaming → nullable tool
+  # Each must succeed — no crash from stale cache state
+  t0=$(now_ms)
+  stress_pass=0
+  stress_detail=""
+  STRESS_SYS="You are a concise assistant."
+  # Req 1: plain text
+  sr1=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"$STRESS_SYS\"},{\"role\":\"user\",\"content\":\"Name one planet.\"}],\"max_tokens\":20,\"temperature\":0}")
+  sr1_ok=$(echo "$sr1" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    msg = d['choices'][0]['message']
+    c = msg.get('content') or msg.get('reasoning_content') or ''
+    print('OK' if c.strip() else 'FAIL')
+except: print('FAIL')
+" 2>/dev/null || echo "FAIL")
+  [ "$sr1_ok" = "OK" ] && stress_pass=$((stress_pass + 1)) || stress_detail="${stress_detail}req1=text_fail "
+  # Req 2: tool call
+  sr2=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"$STRESS_SYS\"},{\"role\":\"user\",\"content\":\"Weather in Rome?\"}],\"tools\":$TOOL_DEF,\"max_tokens\":300,\"temperature\":0}")
+  sr2_ok=$(echo "$sr2" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    msg = d['choices'][0]['message']
+    tc = msg.get('tool_calls', [])
+    c = msg.get('content') or msg.get('reasoning_content') or ''
+    print('OK' if (tc or c.strip()) else 'FAIL')
+except: print('FAIL')
+" 2>/dev/null || echo "FAIL")
+  [ "$sr2_ok" = "OK" ] && stress_pass=$((stress_pass + 1)) || stress_detail="${stress_detail}req2=tool_fail "
+  # Req 3: guided-json
+  sr3=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"$STRESS_SYS\"},{\"role\":\"user\",\"content\":\"Give me Mars info as JSON with keys: name, type\"}],\"max_tokens\":100,\"temperature\":0,\"response_format\":{\"type\":\"json_object\"}}")
+  sr3_ok=$(echo "$sr3" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    msg = d['choices'][0]['message']
+    c = msg.get('content') or msg.get('reasoning_content') or ''
+    print('OK' if c.strip() else 'FAIL')
+except: print('FAIL')
+" 2>/dev/null || echo "FAIL")
+  [ "$sr3_ok" = "OK" ] && stress_pass=$((stress_pass + 1)) || stress_detail="${stress_detail}req3=json_fail "
+  # Req 4: streaming
+  sr4=$(api_stream "{\"messages\":[{\"role\":\"system\",\"content\":\"$STRESS_SYS\"},{\"role\":\"user\",\"content\":\"Name one star.\"}],\"max_tokens\":20,\"temperature\":0,\"stream\":true}")
+  sr4_ok=$(echo "$sr4" | python3 -c "
+import sys, json
+tokens = []
+for line in sys.stdin:
+    line = line.strip()
+    if not line.startswith('data: ') or line == 'data: [DONE]': continue
+    try:
+        d = json.loads(line[6:])
+        delta = d.get('choices',[{}])[0].get('delta',{})
+        c = delta.get('content','') or delta.get('reasoning_content','')
+        if c: tokens.append(c)
+    except: pass
+print('OK' if tokens else 'FAIL')
+" 2>/dev/null || echo "FAIL")
+  [ "$sr4_ok" = "OK" ] && stress_pass=$((stress_pass + 1)) || stress_detail="${stress_detail}req4=stream_fail "
+  # Req 5: nullable tool call
+  sr5=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"$STRESS_SYS\"},{\"role\":\"user\",\"content\":\"Update record 99, set name to Earth\"}],\"tools\":$NULLABLE_SCHEMA_TOOL,\"max_tokens\":300,\"temperature\":0}")
+  sr5_ok=$(echo "$sr5" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if 'error' in d:
+        print('FAIL')
+    else:
+        msg = d['choices'][0]['message']
+        tc = msg.get('tool_calls', [])
+        c = msg.get('content') or msg.get('reasoning_content') or ''
+        print('OK' if (tc or c.strip()) else 'FAIL')
+except: print('FAIL')
+" 2>/dev/null || echo "FAIL")
+  [ "$sr5_ok" = "OK" ] && stress_pass=$((stress_pass + 1)) || stress_detail="${stress_detail}req5=nullable_fail "
+  dur=$(( $(now_ms) - t0 ))
+  if [ "$stress_pass" -eq 5 ]; then
+    run_test "Cache" "Sequential stress: 5 mixed requests (text/tool/json/stream/nullable)" "5/5 succeed" "PASS" "$dur"
+  else
+    run_test "Cache" "Sequential stress: 5 mixed requests (text/tool/json/stream/nullable)" "5/5 succeed" "FAIL: $stress_pass/5 $stress_detail" "$dur"
+  fi
+
+  # ── Multi-turn 5-turn growing conversation ─────────────────────────────────
+  # Simulates a real chat: each turn appends to conversation history
+  # Tests that prefix cache handles progressively growing context
+  t0=$(now_ms)
+  CONVO_SYS="You are a helpful assistant. Keep answers to one sentence."
+  turns_ok=0
+  turns_detail=""
+  # Turn 1
+  turn1=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"$CONVO_SYS\"},{\"role\":\"user\",\"content\":\"What is the largest planet?\"}],\"max_tokens\":50,\"temperature\":0}")
+  t1_content=$(echo "$turn1" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    c = d['choices'][0]['message'].get('content','') or d['choices'][0]['message'].get('reasoning_content','') or ''
+    print(c.strip()[:200] if c.strip() else '__EMPTY__')
+except: print('__ERROR__')
+" 2>/dev/null || echo "__ERROR__")
+  [[ "$t1_content" != "__EMPTY__" && "$t1_content" != "__ERROR__" ]] && turns_ok=$((turns_ok + 1)) || turns_detail="${turns_detail}t1 "
+  # Turn 2 — growing context
+  t1_escaped=$(echo "$t1_content" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip()))" 2>/dev/null)
+  turn2=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"$CONVO_SYS\"},{\"role\":\"user\",\"content\":\"What is the largest planet?\"},{\"role\":\"assistant\",\"content\":$t1_escaped},{\"role\":\"user\",\"content\":\"How many moons does it have?\"}],\"max_tokens\":50,\"temperature\":0}")
+  t2_content=$(echo "$turn2" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    c = d['choices'][0]['message'].get('content','') or d['choices'][0]['message'].get('reasoning_content','') or ''
+    print(c.strip()[:200] if c.strip() else '__EMPTY__')
+except: print('__ERROR__')
+" 2>/dev/null || echo "__ERROR__")
+  [[ "$t2_content" != "__EMPTY__" && "$t2_content" != "__ERROR__" ]] && turns_ok=$((turns_ok + 1)) || turns_detail="${turns_detail}t2 "
+  # Turn 3
+  t2_escaped=$(echo "$t2_content" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip()))" 2>/dev/null)
+  turn3=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"$CONVO_SYS\"},{\"role\":\"user\",\"content\":\"What is the largest planet?\"},{\"role\":\"assistant\",\"content\":$t1_escaped},{\"role\":\"user\",\"content\":\"How many moons does it have?\"},{\"role\":\"assistant\",\"content\":$t2_escaped},{\"role\":\"user\",\"content\":\"Name the four largest moons.\"}],\"max_tokens\":80,\"temperature\":0}")
+  t3_content=$(echo "$turn3" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    c = d['choices'][0]['message'].get('content','') or d['choices'][0]['message'].get('reasoning_content','') or ''
+    print(c.strip()[:200] if c.strip() else '__EMPTY__')
+except: print('__ERROR__')
+" 2>/dev/null || echo "__ERROR__")
+  [[ "$t3_content" != "__EMPTY__" && "$t3_content" != "__ERROR__" ]] && turns_ok=$((turns_ok + 1)) || turns_detail="${turns_detail}t3 "
+  # Turn 4
+  t3_escaped=$(echo "$t3_content" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip()))" 2>/dev/null)
+  turn4=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"$CONVO_SYS\"},{\"role\":\"user\",\"content\":\"What is the largest planet?\"},{\"role\":\"assistant\",\"content\":$t1_escaped},{\"role\":\"user\",\"content\":\"How many moons does it have?\"},{\"role\":\"assistant\",\"content\":$t2_escaped},{\"role\":\"user\",\"content\":\"Name the four largest moons.\"},{\"role\":\"assistant\",\"content\":$t3_escaped},{\"role\":\"user\",\"content\":\"Which of those moons might have liquid water?\"}],\"max_tokens\":80,\"temperature\":0}")
+  t4_content=$(echo "$turn4" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    c = d['choices'][0]['message'].get('content','') or d['choices'][0]['message'].get('reasoning_content','') or ''
+    print(c.strip()[:200] if c.strip() else '__EMPTY__')
+except: print('__ERROR__')
+" 2>/dev/null || echo "__ERROR__")
+  [[ "$t4_content" != "__EMPTY__" && "$t4_content" != "__ERROR__" ]] && turns_ok=$((turns_ok + 1)) || turns_detail="${turns_detail}t4 "
+  # Turn 5
+  t4_escaped=$(echo "$t4_content" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip()))" 2>/dev/null)
+  turn5=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"$CONVO_SYS\"},{\"role\":\"user\",\"content\":\"What is the largest planet?\"},{\"role\":\"assistant\",\"content\":$t1_escaped},{\"role\":\"user\",\"content\":\"How many moons does it have?\"},{\"role\":\"assistant\",\"content\":$t2_escaped},{\"role\":\"user\",\"content\":\"Name the four largest moons.\"},{\"role\":\"assistant\",\"content\":$t3_escaped},{\"role\":\"user\",\"content\":\"Which of those moons might have liquid water?\"},{\"role\":\"assistant\",\"content\":$t4_escaped},{\"role\":\"user\",\"content\":\"Summarize everything we discussed.\"}],\"max_tokens\":150,\"temperature\":0}")
+  t5_ok=$(echo "$turn5" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if 'error' in d:
+        print('FAIL')
+    else:
+        c = d['choices'][0]['message'].get('content','') or d['choices'][0]['message'].get('reasoning_content','') or ''
+        print('OK' if c.strip() else 'FAIL')
+except: print('FAIL')
+" 2>/dev/null || echo "FAIL")
+  [ "$t5_ok" = "OK" ] && turns_ok=$((turns_ok + 1)) || turns_detail="${turns_detail}t5 "
+  dur=$(( $(now_ms) - t0 ))
+  if [ "$turns_ok" -eq 5 ]; then
+    run_test "Cache" "Multi-turn: 5-turn growing conversation (prefix reuse)" "5/5 turns" "PASS" "$dur"
+  else
+    run_test "Cache" "Multi-turn: 5-turn growing conversation (prefix reuse)" "5/5 turns" "FAIL: $turns_ok/5 failed=$turns_detail" "$dur"
+  fi
+
+  # ── Streaming multi-turn with prefix cache ─────────────────────────────────
+  # Sequential streaming requests with shared system prompt
+  t0=$(now_ms)
+  STREAM_SYS="You are a geography expert. Give brief answers."
+  # Streaming req 1
+  str1=$(api_stream "{\"messages\":[{\"role\":\"system\",\"content\":\"$STREAM_SYS\"},{\"role\":\"user\",\"content\":\"Capital of France?\"}],\"max_tokens\":30,\"temperature\":0,\"stream\":true}")
+  str1_ok=$(echo "$str1" | python3 -c "
+import sys, json
+tokens = []
+for line in sys.stdin:
+    line = line.strip()
+    if not line.startswith('data: ') or line == 'data: [DONE]': continue
+    try:
+        d = json.loads(line[6:])
+        c = d.get('choices',[{}])[0].get('delta',{}).get('content','') or ''
+        rc = d.get('choices',[{}])[0].get('delta',{}).get('reasoning_content','') or ''
+        if c or rc: tokens.append(c or rc)
+    except: pass
+print('OK' if tokens else 'FAIL')
+" 2>/dev/null || echo "FAIL")
+  # Streaming req 2 (same prefix)
+  str2=$(api_stream "{\"messages\":[{\"role\":\"system\",\"content\":\"$STREAM_SYS\"},{\"role\":\"user\",\"content\":\"Capital of Japan?\"}],\"max_tokens\":30,\"temperature\":0,\"stream\":true}")
+  str2_ok=$(echo "$str2" | python3 -c "
+import sys, json
+tokens = []
+for line in sys.stdin:
+    line = line.strip()
+    if not line.startswith('data: ') or line == 'data: [DONE]': continue
+    try:
+        d = json.loads(line[6:])
+        c = d.get('choices',[{}])[0].get('delta',{}).get('content','') or ''
+        rc = d.get('choices',[{}])[0].get('delta',{}).get('reasoning_content','') or ''
+        if c or rc: tokens.append(c or rc)
+    except: pass
+print('OK' if tokens else 'FAIL')
+" 2>/dev/null || echo "FAIL")
+  # Non-streaming req 3 (same prefix, mode switch after streaming)
+  str3=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"$STREAM_SYS\"},{\"role\":\"user\",\"content\":\"Capital of Brazil?\"}],\"max_tokens\":30,\"temperature\":0}")
+  str3_ok=$(echo "$str3" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    c = d['choices'][0]['message'].get('content','') or d['choices'][0]['message'].get('reasoning_content','') or ''
+    print('OK' if c.strip() else 'FAIL')
+except: print('FAIL')
+" 2>/dev/null || echo "FAIL")
+  dur=$(( $(now_ms) - t0 ))
+  stream_combined="$str1_ok+$str2_ok+$str3_ok"
+  if [ "$stream_combined" = "OK+OK+OK" ]; then
+    run_test "Cache" "Streaming + non-streaming sequential (shared prefix)" "3/3 succeed" "PASS" "$dur"
+  else
+    run_test "Cache" "Streaming + non-streaming sequential (shared prefix)" "3/3 succeed" "FAIL: $stream_combined" "$dur"
+  fi
+
+  # ── Long multi-turn with tools and nullable schemas (comprehensive) ────────
+  # 7-message conversation: sys + user + assistant(tool_call) + tool_result + user + assistant + user
+  # Uses nullable schema tool throughout — exercises issue #32 + prefix cache together
+  t0=$(now_ms)
+  COMPLEX_TOOL='[{"type":"function","function":{"name":"lookup_item","description":"Look up an item in the inventory","parameters":{"type":"object","properties":{"item_id":{"type":"string","description":"Item identifier"},"include_history":{"anyOf":[{"type":"boolean"},{"type":"null"}],"description":"Include change history"},"format":{"anyOf":[{"type":"string"},{"type":"null"}],"description":"Output format"}},"required":["item_id"]}}}]'
+  COMPLEX_SYS="You are an inventory management assistant. Use the lookup_item tool to find items. Always call the tool when the user asks about an item."
+  # Step 1: initial lookup
+  cx1=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"$COMPLEX_SYS\"},{\"role\":\"user\",\"content\":\"Look up item SKU-12345\"}],\"tools\":$COMPLEX_TOOL,\"max_tokens\":300,\"temperature\":0}")
+  cx1_tc=$(echo "$cx1" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if 'error' in d:
+        print(f'ERROR:{d[\"error\"].get(\"message\",\"\")}')
+    else:
+        tc = d['choices'][0]['message'].get('tool_calls', [])
+        if tc:
+            print(f'{tc[0].get(\"id\",\"call_cx1\")}|{tc[0][\"function\"][\"name\"]}|{tc[0][\"function\"][\"arguments\"]}')
+        else:
+            c = d['choices'][0]['message'].get('content','')
+            print('TEXT' if c.strip() else 'EMPTY')
+except Exception as e:
+    print(f'ERROR:{e}')
+" 2>/dev/null || echo "ERROR:parse")
+  if [[ "$cx1_tc" == ERROR* ]]; then
+    dur=$(( $(now_ms) - t0 ))
+    run_test "Cache" "Issue #32 comprehensive: nullable tool + multi-turn + prefix" "no crash" "FAIL: $cx1_tc" "$dur"
+  elif [[ "$cx1_tc" == TEXT* ]] || [[ "$cx1_tc" == EMPTY* ]]; then
+    dur=$(( $(now_ms) - t0 ))
+    run_test "Cache" "Issue #32 comprehensive: nullable tool + multi-turn + prefix (model skipped tool)" "skip" "SKIP" "$dur"
+  else
+    IFS='|' read -r cx_id cx_fn cx_args <<< "$cx1_tc"
+    # Step 2: tool result + follow-up + second lookup
+    cx2=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"$COMPLEX_SYS\"},{\"role\":\"user\",\"content\":\"Look up item SKU-12345\"},{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"$cx_id\",\"type\":\"function\",\"function\":{\"name\":\"$cx_fn\",\"arguments\":$cx_args}}]},{\"role\":\"tool\",\"tool_call_id\":\"$cx_id\",\"name\":\"$cx_fn\",\"content\":\"{\\\"item_id\\\":\\\"SKU-12345\\\",\\\"name\\\":\\\"Widget Pro\\\",\\\"stock\\\":42,\\\"last_updated\\\":\\\"2026-03-10\\\"}\"},{\"role\":\"user\",\"content\":\"Now look up SKU-67890 with history included\"}],\"tools\":$COMPLEX_TOOL,\"max_tokens\":300,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    cx2_ok=$(echo "$cx2" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if 'error' in d:
+        print(f'FAIL: {d[\"error\"].get(\"message\",\"\")}')
+    else:
+        msg = d['choices'][0]['message']
+        tc = msg.get('tool_calls', [])
+        c = msg.get('content') or msg.get('reasoning_content') or ''
+        if tc or c.strip():
+            print('PASS')
+        else:
+            print('FAIL: empty on 7-msg conversation')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+    if [ "$cx2_ok" = "PASS" ]; then
+      run_test "Cache" "Issue #32 comprehensive: nullable tool + multi-turn + prefix" "valid response" "PASS" "$dur"
+    else
+      run_test "Cache" "Issue #32 comprehensive: nullable tool + multi-turn + prefix" "valid response" "$cx2_ok" "$dur"
+    fi
   fi
 fi
 

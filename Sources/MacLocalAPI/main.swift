@@ -163,12 +163,13 @@ struct MlxCommand: ParsableCommand {
           --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
           --tool-call-parser: Override tool call format (afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml)
           --fix-tool-args: Post-process tool call arg names to match original tool schema
+          --enable-grammar-constraints: EBNF grammar-constrained decoding for tool calls (requires --tool-call-parser afm_adaptive_xml). Forces valid XML structure at generation time — prevents JSON-inside-XML and missing required parameters. Improves tool call success from ~60% to 100% on realistic workloads.
           --no-think: Disable thinking/reasoning (sets enable_thinking=false)
           --default-chat-template-kwargs: JSON object merged into chat template context
           --openclaw-config: Print OpenClaw provider config JSON and exit
           --help-json: Print machine-readable JSON capability card for AI agents and exit
         sampling_parameters: [temperature, top_p, top_k, min_p, presence_penalty, repetition_penalty, seed, max_tokens, logprobs, top_logprobs]
-        features: [streaming-sse, tool-calling, think-reasoning-extraction, stop-sequences, json-mode, json-schema, prompt-caching, vlm-image-input, kv-cache-quantization, openclaw-integration]
+        features: [streaming-sse, tool-calling, think-reasoning-extraction, stop-sequences, json-mode, json-schema, prompt-caching, vlm-image-input, kv-cache-quantization, grammar-constrained-decoding, openclaw-integration]
         api_compatibility: OpenAI Chat Completions API (https://platform.openai.com/docs/api-reference/chat/create)
         extra_request_fields:
           top_k: int (not in OpenAI spec)
@@ -186,7 +187,7 @@ struct MlxCommand: ParsableCommand {
         tool_calling:
           auto_detection: Tool call format is auto-detected from model_type in config.json. Most models work without --tool-call-parser.
           parser_overrides:
-            afm_adaptive_xml: Adaptive XML parser with JSON-in-XML fallback, type coercion, and optional xgrammar EBNF constrained decoding. Best for Qwen3+ models.
+            afm_adaptive_xml: Adaptive XML parser with JSON-in-XML fallback, type coercion, and EBNF grammar-constrained decoding (with --enable-grammar-constraints). Best for Qwen3+ models. Recommended combo: --tool-call-parser afm_adaptive_xml --enable-grammar-constraints
             hermes: JSON format with Hermes chat template (Llama, Qwen, most models)
             llama3_json: JSON format with Llama-3 chat template
             mistral: JSON format with Mistral chat template
@@ -344,7 +345,7 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Enable radix tree prefix caching for KV cache reuse across requests")
     var enablePrefixCaching: Bool = false
 
-    @Flag(name: .long, help: .hidden)
+    @Flag(name: .long, help: "Enable EBNF grammar-constrained decoding for tool calls (requires --tool-call-parser afm_adaptive_xml). Forces valid XML tool call structure at generation time, preventing JSON-inside-XML and missing parameters.")
     var enableGrammarConstraints: Bool = false
 
     @Flag(name: .long, help: "Disable thinking/reasoning (sets enable_thinking=false in chat template)")
@@ -1123,22 +1124,21 @@ struct RootCommand: ParsableCommand {
             return try runSinglePrompt(stdinContent, adapter: adapter)
         }
 
-        // If no subcommand specified and no single prompt, run server
-        var serveCommand = ServeCommand()
-        serveCommand.port = port
-        serveCommand.hostname = hostname
-        serveCommand.verbose = verbose
-        serveCommand.veryVerbose = veryVerbose
-        serveCommand.noStreaming = noStreaming
-        serveCommand.instructions = instructions
-        serveCommand.adapter = adapter
-        serveCommand.temperature = temperature
-        serveCommand.randomness = randomness
-        serveCommand.permissiveGuardrails = permissiveGuardrails
-        serveCommand.stop = stop
-        serveCommand.webui = webui
-        serveCommand.gateway = gateway
-        serveCommand.prewarm = prewarm
+        // If no subcommand specified and no single prompt, run server.
+        // Build argument array and parse — direct struct init doesn't work
+        // with ArgumentParser property wrappers (they need parse() to initialize).
+        var args: [String] = ["--port", "\(port)", "--hostname", hostname, "--instructions", instructions, "--prewarm", prewarm]
+        if verbose { args.append("--verbose") }
+        if veryVerbose { args.append("--very-verbose") }
+        if noStreaming { args.append("--no-streaming") }
+        if permissiveGuardrails { args.append("--permissive-guardrails") }
+        if webui { args.append("--webui") }
+        if gateway { args.append("--gateway") }
+        if let adapter { args += ["--adapter", adapter] }
+        if let temperature { args += ["--temperature", "\(temperature)"] }
+        if let randomness { args += ["--randomness", randomness] }
+        if let stop { args += ["--stop", stop] }
+        var serveCommand = try ServeCommand.parse(args)
         try serveCommand.run()
     }
 }

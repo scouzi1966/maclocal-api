@@ -437,8 +437,17 @@ private struct LLMUserInputProcessor: UserInputProcessor {
     func prepare(input: UserInput) throws -> LMInput {
         let messages = messageGenerator.generate(from: input)
         do {
+            // Check for chat template override in additionalContext
+            let chatTemplateArg: ChatTemplateArgument?
+            if let override = input.additionalContext?["chatTemplateOverride"] as? String {
+                chatTemplateArg = .literal(override)
+            } else {
+                chatTemplateArg = nil
+            }
             let promptTokens = try tokenizer.applyChatTemplate(
-                messages: messages, tools: input.tools, additionalContext: input.additionalContext)
+                messages: messages, chatTemplate: chatTemplateArg, addGenerationPrompt: true,
+                truncation: false, maxLength: nil,
+                tools: input.tools, additionalContext: input.additionalContext)
 
             return LMInput(tokens: MLXArray(promptTokens))
         } catch TokenizerError.missingChatTemplate {
