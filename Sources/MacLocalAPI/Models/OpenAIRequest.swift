@@ -227,6 +227,24 @@ struct MessageToolCall: Content {
 struct MessageToolCallFunction: Content {
     let name: String
     let arguments: String   // JSON string
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        // Accept arguments as either a JSON string or a JSON object/array
+        if let str = try? container.decode(String.self, forKey: .arguments) {
+            arguments = str
+        } else if let obj = try? container.decode(AnyCodableValue.self, forKey: .arguments) {
+            let data = try JSONSerialization.data(withJSONObject: obj.toAny(), options: [.sortedKeys])
+            arguments = String(data: data, encoding: .utf8) ?? "{}"
+        } else {
+            arguments = "{}"
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, arguments
+    }
 }
 
 // MARK: - AnyCodable

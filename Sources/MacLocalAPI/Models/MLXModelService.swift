@@ -1552,7 +1552,14 @@ final class MLXModelService: @unchecked Sendable {
             let key = String(body[keyRange])
             let val = decodeJSONEscapes(decodeXMLEntities(String(body[valRange]).trimmingCharacters(in: .whitespacesAndNewlines)))
             if !val.isEmpty, arguments[key] == nil {
-                arguments[key] = val
+                // Preserve JSON arrays/objects as structured data
+                if let data = val.data(using: .utf8),
+                   let parsed = try? JSONSerialization.jsonObject(with: data),
+                   (parsed is [Any] || parsed is [String: Any]) {
+                    arguments[key] = parsed
+                } else {
+                    arguments[key] = val
+                }
             }
         }
 
@@ -1572,7 +1579,13 @@ final class MLXModelService: @unchecked Sendable {
                 }
                 let decoded = decodeJSONEscapes(decodeXMLEntities(val))
                 if !decoded.isEmpty {
-                    arguments[key] = decoded
+                    if let data = decoded.data(using: .utf8),
+                       let parsed = try? JSONSerialization.jsonObject(with: data),
+                       (parsed is [Any] || parsed is [String: Any]) {
+                        arguments[key] = parsed
+                    } else {
+                        arguments[key] = decoded
+                    }
                     if debugLogging {
                         print("[\(ts())] [ToolCallParser] Salvaged unclosed parameter '\(key)' (\(decoded.count) chars)")
                     }
