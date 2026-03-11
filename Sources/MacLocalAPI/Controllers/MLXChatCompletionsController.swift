@@ -515,94 +515,9 @@ struct MLXChatCompletionsController: RouteCollection {
                             }
 
                             if incrementalEmittedFirst {
-                                // Run one final parameter scan on the complete tool body
-                                // to catch parameters that completed in the same token as </tool_call>.
-                                let paramPattern = #"<parameter=([^>]+)>([\s\S]*?)</parameter>"#
-                                if let paramRegex = try? NSRegularExpression(pattern: paramPattern, options: [.dotMatchesLineSeparators]) {
-                                    let nsText = currentToolText as NSString
-                                    let matches = paramRegex.matches(in: currentToolText, range: NSRange(location: 0, length: nsText.length))
-                                    for match in matches {
-                                        guard match.numberOfRanges >= 3,
-                                              let keyRange = Range(match.range(at: 1), in: currentToolText),
-                                              let valRange = Range(match.range(at: 2), in: currentToolText) else { continue }
-                                        let rawKey = String(currentToolText[keyRange])
-                                        if incrementalEmittedKeys.contains(rawKey) { continue }
-                                        let value = MLXModelService.decodeJSONEscapes(MLXModelService.decodeXMLEntities(String(currentToolText[valRange]).trimmingCharacters(in: .whitespacesAndNewlines)))
-                                        if value.isEmpty { continue }
-                                        incrementalEmittedKeys.insert(rawKey)
-                                        var emitKey = paramNameMapping[rawKey] ?? rawKey
-                                        if emitKey == rawKey {
-                                            let funcName = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
-                                            emitKey = self.remapSingleKey(rawKey, toolName: funcName, tools: chatRequest.tools)
-                                        }
-                                        // Coerce value to schema type before JSON encoding
-                                        // (XML text is always strings; numbers/booleans need coercion)
-                                        let jsonValue: String
-                                        let incFuncName = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
-                                        if let schemaType = Self.schemaTypeForParam(emitKey, toolName: incFuncName, tools: chatRequest.tools),
-                                           let coerced = MLXModelService.coerceStringValue(value, schemaType: schemaType) {
-                                            if let intVal = coerced as? Int {
-                                                jsonValue = "\(intVal)"
-                                            } else if let dblVal = coerced as? Double {
-                                                jsonValue = "\(dblVal)"
-                                            } else if let boolVal = coerced as? Bool {
-                                                jsonValue = boolVal ? "true" : "false"
-                                            } else {
-                                                jsonValue = Self.jsonEncodeValue(value)
-                                            }
-                                        } else {
-                                            jsonValue = Self.jsonEncodeValue(value)
-                                        }
-                                        let fragment: String
-                                        if incrementalParamCount == 0 {
-                                            fragment = "{\"\(Self.jsonEscapeKey(emitKey))\":\(jsonValue)"
-                                        } else {
-                                            fragment = ",\"\(Self.jsonEscapeKey(emitKey))\":\(jsonValue)"
-                                        }
-                                        incrementalParamCount += 1
-                                        let paramDelta = StreamDeltaToolCall(
-                                            index: incrementalToolIndex,
-                                            id: nil, type: nil,
-                                            function: StreamDeltaFunction(name: nil, arguments: fragment)
-                                        )
-                                        let paramChunk = ChatCompletionStreamResponse(
-                                            id: streamId, model: res.modelID, toolCalls: [paramDelta]
-                                        )
-                                        let paramData = try encoder.encode(paramChunk)
-                                        if let jsonString = String(data: paramData, encoding: .utf8) {
-                                            if self.trace {
-                                                print("\(Self.cyan)[\(Self.timestamp())] [SSE] endtag arg fragment: \(fragment)\(Self.reset)")
-                                                fflush(stdout)
-                                            }
-                                            try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
-                                        }
-                                    }
-                                }
-
-                                // Emit closing for the arguments JSON object.
-                                // If no parameters were emitted, send "{}" as a complete object;
-                                // otherwise just close with "}".
-                                let closeArgs = incrementalParamCount == 0 ? "{}" : "}"
-                                let closeDelta = StreamDeltaToolCall(
-                                    index: incrementalToolIndex,
-                                    id: nil,
-                                    type: nil,
-                                    function: StreamDeltaFunction(name: nil, arguments: closeArgs)
-                                )
-                                let closeChunk = ChatCompletionStreamResponse(
-                                    id: streamId,
-                                    model: res.modelID,
-                                    toolCalls: [closeDelta]
-                                )
-                                let closeData = try encoder.encode(closeChunk)
-                                if let jsonString = String(data: closeData, encoding: .utf8) {
-                                    if self.trace {
-                                        print("\(Self.cyan)[\(Self.timestamp())] [SSE] endtag arg close: \(closeArgs)\(Self.reset)")
-                                        fflush(stdout)
-                                    }
-                                    try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
-                                }
-                                // Build the full tool call for collectedToolCalls record
+                                // Run fallback parser on complete tool body — this does
+                                // cross-param dedup, key remapping, and type coercion.
+                                // Emit the CLEAN args via SSE (deferred from midstream).
                                 let wrapped = "\(toolCallStartTag!)\(currentToolText)\(toolCallEndTag!)"
                                 let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
                                 for tc in parsed {
@@ -614,6 +529,26 @@ struct MLXChatCompletionsController: RouteCollection {
                                     } else {
                                         collectedToolCalls.append(rtc)
                                     }
+
+                                    // Emit clean args as single SSE chunk
+                                    let argsJson = rtc.function.arguments
+                                    let argsDelta = StreamDeltaToolCall(
+                                        index: incrementalToolIndex,
+                                        id: nil, type: nil,
+                                        function: StreamDeltaFunction(name: nil, arguments: argsJson)
+                                    )
+                                    let argsChunk = ChatCompletionStreamResponse(
+                                        id: streamId, model: res.modelID, toolCalls: [argsDelta]
+                                    )
+                                    let argsData = try encoder.encode(argsChunk)
+                                    if let jsonString = String(data: argsData, encoding: .utf8) {
+                                        if self.trace {
+                                            print("\(Self.cyan)[\(Self.timestamp())] [SSE] endtag deferred args: \(argsJson.prefix(200))\(Self.reset)")
+                                            fflush(stdout)
+                                        }
+                                        try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                                    }
+
                                     if self.veryVerbose {
                                         print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (incremental): \(rtc.function.name)\n  id=\(rtc.id)\n  args=\(rtc.function.arguments)\(Self.reset)")
                                         fflush(stdout)
@@ -789,9 +724,10 @@ struct MLXChatCompletionsController: RouteCollection {
                                 }
                             }
 
-                            // 2. Detect complete <parameter=KEY>VALUE</parameter> pairs — emit argument fragments
+                            // 2. Detect complete <parameter=KEY>VALUE</parameter> pairs — track but DON'T emit yet.
+                            // SSE emission is deferred until </tool_call> so cross-param dedup can clean
+                            // leaked JSON fragments before anything goes over the wire.
                             if incrementalEmittedFirst {
-                                // Scan for all complete parameter tags not yet emitted
                                 let paramPattern = #"<parameter=([^>]+)>([\s\S]*?)</parameter>"#
                                 if let paramRegex = try? NSRegularExpression(pattern: paramPattern, options: [.dotMatchesLineSeparators]) {
                                     let nsText = currentToolText as NSString
@@ -799,70 +735,9 @@ struct MLXChatCompletionsController: RouteCollection {
                                     for match in matches {
                                         guard match.numberOfRanges >= 3,
                                               let keyRange = Range(match.range(at: 1), in: currentToolText),
-                                              let valRange = Range(match.range(at: 2), in: currentToolText) else { continue }
+                                              let _ = Range(match.range(at: 2), in: currentToolText) else { continue }
                                         let rawKey = String(currentToolText[keyRange])
-                                        // Skip duplicate parameters (dedup)
-                                        if incrementalEmittedKeys.contains(rawKey) { continue }
-                                        let value = MLXModelService.decodeJSONEscapes(MLXModelService.decodeXMLEntities(String(currentToolText[valRange]).trimmingCharacters(in: .whitespacesAndNewlines)))
-                                        // Skip empty values — Qwen3-Coder sometimes emits
-                                        // an empty duplicate first, then the real value.
-                                        // Match extractToolCallsFallback's "first non-empty" logic.
-                                        if value.isEmpty { continue }
                                         incrementalEmittedKeys.insert(rawKey)
-
-                                        // Map model-emitted key back to original schema name.
-                                        // Basic: snake_case→camelCase (Qwen3-Coder converts filePath → file_path).
-                                        // With --fix-tool-args: also case-insensitive, camel→snake, and suffix match.
-                                        var emitKey = paramNameMapping[rawKey] ?? rawKey
-                                        if emitKey == rawKey {
-                                            let funcName = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
-                                            emitKey = self.remapSingleKey(rawKey, toolName: funcName, tools: chatRequest.tools)
-                                        }
-
-                                        // Coerce value to schema type before JSON encoding
-                                        let jsonValue: String
-                                        let tokFuncName = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
-                                        if let schemaType = Self.schemaTypeForParam(emitKey, toolName: tokFuncName, tools: chatRequest.tools),
-                                           let coerced = MLXModelService.coerceStringValue(value, schemaType: schemaType) {
-                                            if let intVal = coerced as? Int {
-                                                jsonValue = "\(intVal)"
-                                            } else if let dblVal = coerced as? Double {
-                                                jsonValue = "\(dblVal)"
-                                            } else if let boolVal = coerced as? Bool {
-                                                jsonValue = boolVal ? "true" : "false"
-                                            } else {
-                                                jsonValue = Self.jsonEncodeValue(value)
-                                            }
-                                        } else {
-                                            jsonValue = Self.jsonEncodeValue(value)
-                                        }
-                                        let fragment: String
-                                        if incrementalParamCount == 0 {
-                                            fragment = "{\"\(Self.jsonEscapeKey(emitKey))\":\(jsonValue)"
-                                        } else {
-                                            fragment = ",\"\(Self.jsonEscapeKey(emitKey))\":\(jsonValue)"
-                                        }
-                                        incrementalParamCount += 1
-
-                                        let paramDelta = StreamDeltaToolCall(
-                                            index: incrementalToolIndex,
-                                            id: nil,
-                                            type: nil,
-                                            function: StreamDeltaFunction(name: nil, arguments: fragment)
-                                        )
-                                        let paramChunk = ChatCompletionStreamResponse(
-                                            id: streamId,
-                                            model: res.modelID,
-                                            toolCalls: [paramDelta]
-                                        )
-                                        let paramData = try encoder.encode(paramChunk)
-                                        if let jsonString = String(data: paramData, encoding: .utf8) {
-                                            if self.trace {
-                                                print("\(Self.cyan)[\(Self.timestamp())] [SSE] midstream arg fragment: \(fragment)\(Self.reset)")
-                                                fflush(stdout)
-                                            }
-                                            try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
-                                        }
                                     }
                                 }
                             }

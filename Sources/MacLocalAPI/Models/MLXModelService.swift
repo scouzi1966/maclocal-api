@@ -1485,20 +1485,42 @@ final class MLXModelService: @unchecked Sendable {
     /// NSXMLParser silently drops parameters when values contain bare < or & (common in code),
     /// so we go straight to regex which handles arbitrary content correctly.
     private static func parseXMLFunction(_ content: String) -> ToolCall? {
-        // Extract function name via regex (the <function=NAME> tag is non-standard XML)
+        var funcName: String?
+        var normalized = content
+
+        // Standard: <function=NAME>
         let funcNameRegex = try! NSRegularExpression(
             pattern: #"<function=([^>]+)>"#, options: []
         )
-        guard let nameMatch = funcNameRegex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
-              let nameRange = Range(nameMatch.range(at: 1), in: content) else {
-            return nil
+        if let nameMatch = funcNameRegex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
+           let nameRange = Range(nameMatch.range(at: 1), in: content) {
+            funcName = String(content[nameRange])
         }
-        let funcName = String(content[nameRange])
+
+        // Hybrid JSON/XML: {"name": "NAME"> or {"name="NAME">
+        // Qwen3.5-27B generates this format without grammar constraints.
+        // Rewrite to standard <function=NAME> so parseXMLFunctionRegex handles it.
+        if funcName == nil {
+            let hybridRegex = try! NSRegularExpression(
+                pattern: #"\{["\s]*name["\s]*[:=]\s*"?([a-zA-Z_][a-zA-Z0-9_]*)"?\s*>"#, options: []
+            )
+            if let match = hybridRegex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
+               let nameRange = Range(match.range(at: 1), in: content),
+               let fullRange = Range(match.range, in: content) {
+                funcName = String(content[nameRange])
+                normalized = content.replacingCharacters(in: fullRange, with: "<function=\(funcName!)>")
+                if debugLogging {
+                    print("[\(ts())] [ToolCallParser] hybrid JSON/XML opener rewritten for \(funcName!)")
+                }
+            }
+        }
+
+        guard let funcName else { return nil }
 
         if debugLogging {
             print("[\(ts())] [ToolCallParser] parseXMLFunction: \(funcName) (\(content.count) chars)")
         }
-        return parseXMLFunctionRegex(content, funcName: funcName)
+        return parseXMLFunctionRegex(normalized, funcName: funcName)
     }
 
     /// Regex-based XML function parser with entity decoding.
@@ -1842,7 +1864,6 @@ final class MLXModelService: @unchecked Sendable {
 
             var firstToken = true
             var grammarTokenCount = 0
-            var grammarTerminatedOnce = false
             proc.onTokenSampled = { [weak matcher] tokenID in
                 guard let matcher else {
                     proc.tokenMask = nil
@@ -1876,18 +1897,14 @@ final class MLXModelService: @unchecked Sendable {
                     return
                 }
 
-                // If grammar previously terminated (reached accepting state), keep
-                // trying to advance it. The EBNF `root ::= free_text (tool_call free_text)*`
-                // reaches an accepting state after the initial free_text, but we need the
-                // grammar to stay alive to constrain subsequent tool_call sequences.
+                // If grammar reached accepting state, reset it so the Kleene star
+                // `root ::= free_text (tool_call free_text)*` can match more tool calls.
+                // Without reset, subsequent tool calls are unconstrained.
                 if matcher.isTerminated() {
-                    if !grammarTerminatedOnce && dbg {
-                        print("[\(ts())] [XGrammar] Grammar reached accepting state at token \(grammarTokenCount) — continuing without constraint until reset")
-                        grammarTerminatedOnce = true
+                    matcher.reset()
+                    if dbg {
+                        print("[\(ts())] [XGrammar] Grammar terminated at token \(grammarTokenCount) — reset to constrain next tool call")
                     }
-                    // Don't advance terminated matcher — just passthrough
-                    proc.tokenMask = nil
-                    return
                 }
 
                 // Outside reasoning: advance grammar normally

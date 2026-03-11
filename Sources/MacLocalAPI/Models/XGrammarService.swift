@@ -272,6 +272,12 @@ final class GrammarMatcherHandle: @unchecked Sendable {
         return grammar_matcher_is_terminated(p)
     }
 
+    /// Reset the matcher to its initial state, ready to match from the beginning.
+    func reset() {
+        guard let p = pointer else { return }
+        grammar_matcher_reset(p)
+    }
+
     /// Release the matcher. Safe to call multiple times.
     func release() {
         if let p = pointer {
