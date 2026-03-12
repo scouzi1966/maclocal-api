@@ -1,140 +1,155 @@
-If you find this useful, please ⭐ the repo!
+If you find this useful, please ⭐ the repo! &nbsp; Also check out [Vesta AI Explorer](https://kruks.ai/) — my full-featured native macOS AI app.
 
-## Visit my other full-featured MacOS native Vesta AI Explorer 
-## https://kruks.ai/
-
-## Latest app release --> https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.3
-
-> [!TIP]
-> ## What's new in v0.9.3 --> afm -w -g enables WebUI + API gateway mode. Auto-discovers and proxies to Ollama, LM Studio, Jan, and other local LLM backends. Reasoning model support (Qwen, DeepSeek, gpt-oss).
+> [!NOTE]
 >
-> Truly a killer feature. -g is a new Gateway mode which will aggregate and proxy all your locally running model servers from Ollama, llama-server, LM Studio, Jan , others and expose a single API for all on default port 9999! Combined with -w (afm -wg), you'll instantly gain access to all your models served on your machine in a single Web interface with very little setup friction.
-> Please comment for feature requests, bugs anything! I hope you're enjoying this app. Star if you are.
+> 5 Mar, 2026. Apologies. There were a few glitches for the brew and pip packages deployed. It should be fixed by now. Please report any issues.
 > 
-> ## afm -w -g is all you need!
+> **Attention M-series Mac AI enthusiasts!** You don't need to be a Swift developer to explore. Vibe coding really allows anyone to participate in this project. A lot of the hype is real! It does work.
+>
+> [Fork this repo](https://github.com/scouzi1966/maclocal-api/fork) first, then clone your fork to submit PRs:
+>
+> ```bash
+> git clone https://github.com/<your-username>/maclocal-api.git   
+> cd maclocal-api
+> claude
+> /build-afm
+> ```
+>
+> To just experiment locally
+> 
+> ```bash
+> git clone https://github.com/scouzi1966/maclocal-api.git   
+> cd maclocal-api
+> claude
+> /build-afm
+> ```
+>
+> /build-afm is an AI skill that builds for the first time so that you can start coding
+>
+> Start vibe coding! I will add support for skills with more coding agents in the future.
+
+# afm — Run Any LLM on Your Mac, 100% Local
+
+Extensive testing of Qwen3.5-35B-A3B with afm. Uses an experimental technique with Claude and Codex as judges for evaluation scoring. Click the link below to view test results.
+
+### [afm-next Nightly Test Report — Qwen3.5-35B-A3B Focus](https://kruks.ai/macafm/)
+
+Run open-source MLX models **or** Apple's on-device Foundation Model through an OpenAI-compatible API. Built entirely in Swift for maximum Metal GPU performance. No Python runtime, no cloud, no API keys.
+
+## Install
+
+|  | Stable (v0.9.6) | Nightly (afm-next) |
+|---|---|---|
+| **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
+| **pip** | `pip install macafm` | `pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next` |
+| **Release notes** | [v0.9.6](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.6) | [v0.9.7-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260312-a49c207) |
 
 > [!TIP]
-> ### TLDR Chose ONE of 2 methods to install
->
-> ### TLDR install with Homebrew
+> **Switching between stable and nightly:**
 > ```bash
-> brew tap scouzi1966/afm
-> brew install afm
->
-> brew upgrade afm (From an earlier install with brew)
->
-> single command
-> brew install scouzi1966/afm/afm
-> ```
->
-> > ### OR NEW METHOD WITH PIP! 
-> ```bash
-> pip install macafm
-> ```
-> To start a webchat:
->
-> afm -w
-
-> [!TIP]
->
-> ### TLDR install with pip
-> ```bash
-> pip install macafm
->
-> pip install --upgrade macafm (from an earlier install with pip)
+> brew unlink afm && brew install scouzi1966/afm/afm-next   # switch to nightly
+> brew unlink afm-next && brew link afm                      # switch back to stable
+> ASSUMES you did a brew install scouzi1966/afm/afm previously
 > ```
 
-# MacLocalAPI is the repo for the afm command on macOS 26 Tahoe. The afm command (cli) allows one to access the on-device Apple LLM Foundation model from the command line in a single prompt or in API mode. It allows integration with other OS command line tools using standard Unix pipes.
+## What's new in afm-next
 
-# Additionally, it contains a built-in server that serves the on-device Foundation Model with the OpenAI standard SDK through an API. You can use the model with another front end such as Open WebUI. By default, launching the simple 'afm' command starts a server on port 9999 immediately! Simple, fast.
+> [!IMPORTANT]
+> The nightly build is the future stable release. It includes everything in v0.9.6 plus:
+> - `--help-json` AI capability cards for tool-using agents (YAML-based model/feature discovery)
+> - Fix XML tool call parameters serialized as strings instead of arrays/objects (#36, #37)
+> - Fix `qwen3_5` dense model auto-detection — tool calling was broken for Qwen3.5-9B and similar dense models
+> - Fix `qwen3_5_moe` tool call format detection for Qwen3.5-35B-A3B
+> - Interactive model picker viewport scrolling fix
+> - Multi-model assertion test runner (`test-assertions-multi.sh`)
+> - XML tool call deep validation tests (Section 11: 10 tests covering Qwen3/Qwen3.5 XML format)
+> - Increased model load timeout (6 min → 15 min) for large models
 
-## ⭐ Star History
+## Quick Start
 
-[![Star History Chart](https://api.star-history.com/svg?repos=scouzi1966/maclocal-api&type=Date)](https://star-history.com/#scouzi1966/maclocal-api&Date)
+```bash
+# Run any MLX model with WebUI
+afm mlx -m mlx-community/Qwen3.5-35B-A3B-4bit -w
 
-# As easy to integrate with Open-webui as Ollama
+# Or any smaller model
+afm mlx -m mlx-community/gemma-3-4b-it-8bit -w
+
+# Chat from the terminal (auto-downloads from Hugging Face)
+afm mlx -m Qwen3-0.6B-4bit -s "Explain quantum computing"
+
+# Interactive model picker (lists your downloaded models)
+MACAFM_MLX_MODEL_CACHE=/path/to/models afm mlx -w
+
+# Apple's on-device Foundation Model with WebUI
+afm -w
+```
+
+## Use with OpenCode
+
+[OpenCode](https://opencode.ai/) is a terminal-based AI coding assistant. Connect it to afm for a fully local coding experience — no cloud, no API keys. No Internet required (other than initially download the model of course!)
+
+**1. Configure OpenCode** (`~/.config/opencode/opencode.json`):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "macafm (local)",
+      "options": {
+        "baseURL": "http://localhost:9999/v1"
+      },
+      "models": {
+        "mlx-community/Qwen3-Coder-Next-4bit": {
+          "name": "mlx-community/Qwen3-Coder-Next-4bit"
+        }
+      }
+    }
+  }
+}
+```
+
+**2. Start afm with a coding model:**
+```bash
+afm mlx -m mlx-community/Qwen3-Coder-Next-4bit -t 1.0 --top-p 0.95 --max-tokens 8192
+```
+
+**3. Launch OpenCode** and type `/connect`. Scroll down to the very bottom of the provider list — `macafm (local)` will likely be the last entry. Select it, and when prompted for an API key, enter any value (e.g. `x`) — tokenized access is not yet implemented in afm so the key is ignored. All inference runs locally on your Mac's GPU.
+
+---
+
+## 28+ MLX Models Tested
+
+![MLX Models](test-reports/MLX-Models.png)
+
+28 models tested and verified including Qwen3, Gemma 3/3n, GLM-4/5, DeepSeek V3, LFM2, SmolLM3, Llama 3.2, MiniMax M2.5, Nemotron, and more. See [test reports](test-reports/).
+
+---
 
 [![Swift](https://img.shields.io/badge/Swift-6.2+-orange.svg)](https://swift.org)
 [![macOS](https://img.shields.io/badge/macOS-26+-blue.svg)](https://developer.apple.com/macos/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Note: afm command supports trained adapters using Apple's Toolkit: https://developer.apple.com/apple-intelligence/foundation-models-adapter/
+## ⭐ Star History
 
-I have also created a wrapper tool to make the fine-tuning AFM easier on both Macs M series and Linux with CUDA using Apple's provided LoRA toolkit.
+[![Star History Chart](https://api.star-history.com/svg?repos=scouzi1966/maclocal-api&type=Date)](https://star-history.com/#scouzi1966/maclocal-api&Date)
 
-Get it here: https://github.com/scouzi1966/AFMTrainer
+## Related Projects
 
-You can also explore a pure and private MacOS chat experience (non-cli) here: https://github.com/scouzi1966/vesta-mac-dist
-
-# The TLDR quick installation of the afm command on MacOS 26 Tahoe:
-
-Chose ONE of 2 methods to install (Homebrew or pip):
-
-### Method 1: Homebrew
-```bash
-# Add the tap (first time only)
-brew tap scouzi1966/afm
-
-# Install or upgrade AFM
-brew install afm
-# OR upgrade existing:
-brew upgrade afm
-
-# Verify installation
-afm --version  # Should show latest release
-
-# Brew workaround If you are having issues upgrading, Try the following:
-brew uninstall afm
-brew untap scouzi1966/afm
-# Then try again
-```
-
-### Method 2: pip
-```bash
-pip install macafm
-
-# Verify installation
-afm --version
-```
-
-**HOW TO USE afm:**
-```bash
-
-# Start the API server only (Apple Foundation Model on port 9999)
-afm
-
-# Start the API server with WebUI chat interface
-afm -w
-
-# Start with WebUI and API gateway (auto-discovers Ollama, LM Studio, Jan, etc.)
-afm -w -g
-
-# Start on a custom port with a trained LoRA adapter
-afm -a ./my_adapter.fmadapter -p 9998
-
-# Use in single prompt mode
-afm -i "you are a pirate, you only answer in pirate jargon" -s "Write a story about Einstein"
-
-# Use in single prompt mode with adapter
-afm -s "Write a story about Einstein" -a ./my_adapter.fmadapter
-
-# Use in pipe mode
-ls -ltr | afm -i "list the files only of ls output"
-```
-
-A very simple to use macOS server application that exposes Apple's Foundation Models through OpenAI-compatible API endpoints. Run Apple Intelligence locally with full OpenAI API compatibility. For use with Python, JS or even open-webui (https://github.com/open-webui/open-webui).
-
-With the same command, it also supports single mode to interact the model without starting the server. In this mode, you can pipe with any other command line based utilities. 
-
-As a bonus, both modes allows the use of using a LoRA adapter, trained with Apple's toolkit. This allows to quickly test them without having to integrate them in your app or involve xCode.
-
-The magic command is afm
+- [Vesta AI Explorer](https://kruks.ai/) — full-featured native macOS AI chat app
+- [AFMTrainer](https://github.com/scouzi1966/AFMTrainer) — LoRA fine-tuning wrapper for Apple's toolkit (Mac M-series & Linux CUDA)
+- [Apple Foundation Model Adapters](https://developer.apple.com/apple-intelligence/foundation-models-adapter/) — Apple's adapter training toolkit
 
 ## 🌟 Features
 
 - **🔗 OpenAI API Compatible** - Works with existing OpenAI client libraries and applications
+- **🧠 MLX Local Models** - Run any Hugging Face MLX model locally (Qwen, Gemma, Llama, DeepSeek, GLM, and 28+ tested models)
+- **🌐 API Gateway** - Auto-discovers and proxies Ollama, LM Studio, Jan, and other local backends into a single API
 - **⚡ LoRA adapter support** - Supports fine-tuning with LoRA adapters using Apple's tuning Toolkit
 - **📱 Apple Foundation Models** - Uses Apple's on-device 3B parameter language model
+- **👁️ Vision OCR** - Extract text from images and PDFs using Apple Vision (`afm vision`)
+- **🖥️ Built-in WebUI** - Chat interface with model selection (`afm -w`)
 - **🔒 Privacy-First** - All processing happens locally on your device
 - **⚡ Fast & Lightweight** - No network calls, no API keys required
 - **🛠️ Easy Integration** - Drop-in replacement for OpenAI API endpoints
@@ -176,19 +191,18 @@ afm --version
 #### Option 3: Build from Source
 
 ```bash
-# Clone the repository (includes llama.cpp WebUI as a submodule)
-git clone --recursive https://github.com/scouzi1966/maclocal-api.git
+# Clone the repository with submodules
+git clone --recurse-submodules https://github.com/scouzi1966/maclocal-api.git
 cd maclocal-api
 
-# Build the WebUI (requires Node.js)
-cd vendor/llama.cpp/tools/server/webui
-npm install && npm run build
-cd ../../../../..
-mkdir -p Resources/webui
-cp vendor/llama.cpp/tools/server/public/index.html.gz Resources/webui/
+# Build everything from scratch (patches + webui + release build)
+./Scripts/build-from-scratch.sh
 
-# Build the project
-swift build -c release
+# Or skip webui if you don't have Node.js
+./Scripts/build-from-scratch.sh --skip-webui
+
+# Or use make (patches + release build, no webui)
+make
 
 # Run
 ./.build/release/afm --version
@@ -212,6 +226,32 @@ afm -p 8080 -v
 # Show help
 afm -h
 ```
+
+### MLX Local Models
+
+Run open-source models locally on Apple Silicon using MLX:
+
+```bash
+# Run a model with single prompt
+afm mlx -m mlx-community/Qwen2.5-0.5B-Instruct-4bit -s "Explain gravity"
+
+# Start MLX model with WebUI
+afm mlx -m mlx-community/gemma-3-4b-it-8bit -w
+
+# Interactive model picker (lists downloaded models)
+afm mlx -w
+
+# MLX model as API server
+afm mlx -m mlx-community/Llama-3.2-1B-Instruct-4bit -p 8080
+
+# Pipe mode
+cat essay.txt | afm mlx -m mlx-community/Qwen3-0.6B-4bit -i "Summarize this"
+
+# MLX help
+afm mlx --help
+```
+
+Models are downloaded from Hugging Face on first use and cached locally. Any model from the [mlx-community](https://huggingface.co/mlx-community) collection is supported.
 
 ## 📡 API Endpoints
 
@@ -358,6 +398,8 @@ Use -w to enable the WebUI, -g to enable API gateway mode (auto-discovers and
 proxies to Ollama, LM Studio, Jan, and other local LLM backends).
 
 USAGE: afm <options>
+       afm mlx [<options>]      Run local MLX models from Hugging Face
+       afm vision <image>       OCR text extraction from images/PDFs
 
 OPTIONS:
   -s, --single-prompt <single-prompt>
@@ -431,15 +473,14 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 
 ```bash
 # Clone the repo with submodules
-git clone --recursive https://github.com/scouzi1966/maclocal-api.git
+git clone --recurse-submodules https://github.com/scouzi1966/maclocal-api.git
 cd maclocal-api
 
-# Build WebUI (first time only, requires Node.js)
-cd vendor/llama.cpp/tools/server/webui && npm install && npm run build && cd ../../../../..
-mkdir -p Resources/webui && cp vendor/llama.cpp/tools/server/public/index.html.gz Resources/webui/
+# Full build from scratch (submodules + patches + webui + release)
+./Scripts/build-from-scratch.sh
 
-# Build for development
-swift build
+# Or for debug builds during development
+./Scripts/build-from-scratch.sh --debug --skip-webui
 
 # Run with verbose logging
 ./.build/debug/afm -w -g -v
@@ -467,11 +508,14 @@ If you encounter any issues or have questions:
 ## 🗺️ Roadmap
 
 - [x] Streaming response support
-- [ ] Function/tool calling implementation
+- [x] MLX local model support (28+ models tested)
 - [x] Multiple model support (API gateway mode)
-- [ ] Performance optimizations
-- [ ] Docker containerization (when supported)
 - [x] Web UI for testing (llama.cpp WebUI integration)
+- [x] Vision OCR subcommand
+- [x] Function/tool calling (OpenAI-compatible, multiple formats)
+- [ ] Performance optimizations
+- [ ] [BFCL](https://github.com/ShishirPatil/gorilla/tree/main/berkeley-function-call-leaderboard) integration for automated tool calling validation
+- [ ] Docker containerization (when supported)
 
 ---
 

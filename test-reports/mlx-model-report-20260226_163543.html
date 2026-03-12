@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLX Model Test Report — 2026-02-26 16:35</title>
+<!-- MathJax for LaTeX rendering -->
+<script>
+MathJax = {
+  tex: {
+    inlineMath: [['$', '$'], ['\\(', '\\)']],
+    displayMath: [['$$', '$$'], ['\\[', '\\]']],
+    processEscapes: true
+  },
+  svg: { fontCache: 'global' },
+  startup: { typeset: false }
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" async></script>
+<!-- marked.js for Markdown rendering -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; padding: 2rem; }
+  h1 { color: #58a6ff; margin-bottom: 0.5rem; }
+  h2 { color: #58a6ff; margin: 2rem 0 1rem; border-bottom: 1px solid #21262d; padding-bottom: 0.5rem; }
+  .summary { display: flex; gap: 1.5rem; margin: 1.5rem 0; flex-wrap: wrap; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1.2rem 1.5rem; min-width: 160px; }
+  .card .label { font-size: 0.85rem; color: #8b949e; margin-bottom: 0.3rem; }
+  .card .value { font-size: 1.8rem; font-weight: 700; }
+  .card .value.green { color: #3fb950; }
+  .card .value.red { color: #f85149; }
+  .card .value.blue { color: #58a6ff; }
+  .card .value.yellow { color: #d29922; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  th { background: #161b22; color: #58a6ff; text-align: left; padding: 0.7rem 1rem; font-weight: 600; border-bottom: 2px solid #30363d; position: sticky; top: 0; z-index: 10; }
+  td { padding: 0.6rem 1rem; border-bottom: 1px solid #21262d; }
+  tr:hover { background: #161b22; }
+  .status-ok { color: #3fb950; font-weight: 600; }
+  .status-fail { color: #f85149; font-weight: 600; }
+  .bar { background: #21262d; border-radius: 4px; height: 20px; position: relative; overflow: hidden; min-width: 60px; }
+  .bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+  .bar-label { position: absolute; right: 6px; top: 1px; font-size: 0.75rem; color: #c9d1d9; font-weight: 600; }
+  .mono { font-family: 'SF Mono', Menlo, monospace; font-size: 0.85rem; }
+  .preview { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem; color: #8b949e; }
+  .error-text { color: #f85149; font-size: 0.85rem; max-width: 500px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { color: #8b949e; font-size: 0.9rem; margin-bottom: 1.5rem; }
+  .rank { color: #8b949e; font-size: 0.85rem; width: 30px; text-align: center; }
+  .ai-score { text-align: center; font-size: 1rem; width: 35px; }
+
+  /* Config badges */
+  .config-panel { margin-bottom: 1rem; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .config-badge { display: inline-block; font-size: 0.75rem; padding: 0.2rem 0.6rem; border: 1px solid #30363d; border-radius: 12px; color: #c9d1d9; font-family: 'SF Mono', Menlo, monospace; white-space: nowrap; }
+  .config-badge strong { color: #e6edf3; }
+
+  /* Prompt box */
+  .prompt-box { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 0.8rem 1rem; margin-bottom: 1rem; font-size: 0.85rem; color: #c9d1d9; line-height: 1.5; }
+  .prompt-label { display: inline-block; background: #58a6ff; color: #0d1117; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 3px; margin-right: 0.5rem; vertical-align: middle; letter-spacing: 0.05em; }
+
+  /* Variant / AFM tags */
+  .variant-tag { display: inline-block; font-size: 0.7rem; padding: 0.1rem 0.4rem; background: #a371f7; color: #0d1117; border-radius: 3px; margin-left: 0.4rem; font-weight: 600; font-family: -apple-system, sans-serif; }
+  .afm-tag { display: inline-block; font-size: 0.7rem; padding: 0.1rem 0.4rem; background: #21262d; border: 1px solid #f0883e; color: #f0883e; border-radius: 3px; font-family: 'SF Mono', Menlo, monospace; }
+  .temp-tag { display: inline-block; font-size: 0.7rem; padding: 0.1rem 0.4rem; background: #21262d; border: 1px solid #d29922; color: #d29922; border-radius: 3px; font-family: 'SF Mono', Menlo, monospace; }
+
+  /* Response sections */
+  .response-section { margin: 0.5rem 0; border: 1px solid #21262d; border-radius: 8px; overflow: hidden; }
+  .response-header { display: flex; align-items: center; gap: 0.8rem; padding: 0.8rem 1.2rem; background: #161b22; cursor: pointer; user-select: none; color: #c9d1d9; font-size: 0.95rem; font-weight: 500; }
+  .response-header:hover { background: #1c2129; }
+  .toggle-icon { font-size: 0.7rem; color: #8b949e; transition: transform 0.2s; display: inline-block; width: 1rem; }
+  .toggle-icon.open { transform: rotate(90deg); }
+  .response-meta { margin-left: auto; color: #8b949e; font-size: 0.8rem; font-family: -apple-system, sans-serif; }
+  .response-body { padding: 1.5rem; background: #0d1117; border-top: 1px solid #21262d; }
+
+  /* Rendered markdown content */
+  .rendered-content { line-height: 1.7; font-size: 0.95rem; }
+  .rendered-content h1, .rendered-content h2, .rendered-content h3 { color: #58a6ff; margin: 1.2rem 0 0.6rem; }
+  .rendered-content h1 { font-size: 1.4rem; border-bottom: 1px solid #21262d; padding-bottom: 0.3rem; }
+  .rendered-content h2 { font-size: 1.2rem; }
+  .rendered-content h3 { font-size: 1.05rem; }
+  .rendered-content p { margin: 0.6rem 0; }
+  .rendered-content ul, .rendered-content ol { margin: 0.6rem 0 0.6rem 1.5rem; }
+  .rendered-content li { margin: 0.3rem 0; }
+  .rendered-content code { background: #161b22; padding: 0.15rem 0.4rem; border-radius: 4px; font-family: 'SF Mono', Menlo, monospace; font-size: 0.85em; color: #e6edf3; }
+  .rendered-content pre { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 1rem; overflow-x: auto; margin: 0.8rem 0; }
+  .rendered-content pre code { background: none; padding: 0; }
+  .rendered-content blockquote { border-left: 3px solid #30363d; padding-left: 1rem; color: #8b949e; margin: 0.6rem 0; }
+  .rendered-content strong { color: #e6edf3; }
+  .rendered-content hr { border: none; border-top: 1px solid #21262d; margin: 1rem 0; }
+  .rendered-content table { border: 1px solid #30363d; }
+  .rendered-content th, .rendered-content td { border: 1px solid #30363d; padding: 0.4rem 0.8rem; }
+
+  /* MathJax overrides for dark theme */
+  mjx-container { color: #c9d1d9 !important; }
+  mjx-container svg { fill: #c9d1d9; }
+
+  .expand-all { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.85rem; margin-bottom: 1rem; }
+  .expand-all:hover { background: #30363d; }
+</style>
+</head>
+<body>
+<h1>MLX Model Test Report</h1>
+<p class="meta">Generated 2026-02-26 16:35 &middot; AFM MLX Backend &middot; <strong>v0.9.5</strong></p>
+<p class="meta" style="margin-top:0.3rem"><code style="background:#161b22;padding:0.3rem 0.6rem;border-radius:4px;font-size:0.8rem">mlx-model-test.sh --model mlx-community/Qwen3.5-35B-A3B-4bit --prompts Scripts/test-vlm-media.txt</code></p>
+
+<div class="summary">
+  <div class="card"><div class="label">Test Runs</div><div class="value blue">10</div></div>
+  <div class="card"><div class="label">Passed</div><div class="value green">10</div></div>
+  <div class="card"><div class="label">Failed</div><div class="value red">0</div></div>
+  <div class="card"><div class="label">Best tok/s</div><div class="value yellow">109.5</div></div>
+  <div class="card"><div class="label">Fastest</div><div class="value" style="font-size:1rem;color:#d29922">mlx-community/Qwen3.5-35B-A3B-4bit @ llm-creative</div></div>
+</div>
+
+<h2>Performance Ranking (by tokens/sec)</h2>
+<p style="color:#8b949e;font-size:0.85rem;margin-bottom:0.5rem">Click a row to jump to its full response below.</p>
+<table>
+<tr>
+  <th>#</th>
+  <th>Model / Config</th>
+  <th>Status</th>
+  
+  <th>Temp</th>
+  <th>Load (s)</th>
+  <th>Tokens</th>
+  <th>Gen (s)</th>
+  <th style="min-width:200px">Tokens/sec</th>
+  <th>Prompt</th>
+</tr>
+<tr onclick="scrollToResponse(0)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">1</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ llm-creative <span class="variant-tag">llm-creative</span></td>
+  <td class="status-ok">OK</td>
+  
+  <td>0.7</td>
+  <td>1.0</td>
+  <td>512</td>
+  <td>4.68</td>
+  <td><div class="bar"><div class="bar-fill" style="width:100%;background:#3fb950"></div><div class="bar-label">109.5</div></div></td>
+  <td class="preview" title="Write a haiku about the ocean.">Write a haiku about the ocean.</td>
+</tr>
+<tr onclick="scrollToResponse(1)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">2</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ llm-factual <span class="variant-tag">llm-factual</span></td>
+  <td class="status-ok">OK</td>
+  
+  <td>0.7</td>
+  <td>1.0</td>
+  <td>306</td>
+  <td>2.99</td>
+  <td><div class="bar"><div class="bar-fill" style="width:94%;background:#3fb950"></div><div class="bar-label">102.4</div></div></td>
+  <td class="preview" title="What is the capital of Japan? Answer in one sentence.">What is the capital of Japan? Answer in one sentence.</td>
+</tr>
+<tr onclick="scrollToResponse(2)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">3</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-ocr <span class="variant-tag">image-ocr</span><br><span class="afm-tag">--vlm</span></td>
+  <td class="status-ok">OK</td>
+  
+  <td>0.7</td>
+  <td>1.0</td>
+  <td>1634</td>
+  <td>18.73</td>
+  <td><div class="bar"><div class="bar-fill" style="width:80%;background:#3fb950"></div><div class="bar-label">87.2</div></div></td>
+  <td class="preview" title="Read all the text in this image. Output it exactly as written.">Read all the text in this image. Output it exactly as writte...</td>
+</tr>
+<tr onclick="scrollToResponse(3)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">4</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-system-prompt <span class="variant-tag">image-system-prompt</span><br><span class="afm-tag">--vlm</span></td>
+  <td class="status-ok">OK</td>
+  
+  <td>0.7</td>
+  <td>1.0</td>
+  <td>1268</td>
+  <td>15.06</td>
+  <td><div class="bar"><div class="bar-fill" style="width:77%;background:#3fb950"></div><div class="bar-label">84.2</div></div></td>
+  <td class="preview" title="Describe the animal in this image. What breed might it be?">Describe the animal in this image. What breed might it be?</td>
+</tr>
+<tr onclick="scrollToResponse(4)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">5</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-describe <span class="variant-tag">image-describe</span><br><span class="afm-tag">--vlm</span></td>
+  <td class="status-ok">OK</td>
+  
+  <td>0.7</td>
+  <td>1.0</td>
+  <td>980</td>
+  <td>11.95</td>
+  <td><div class="bar"><div class="bar-fill" style="width:75%;background:#3fb950"></div><div class="bar-label">82.0</div></div></td>
+  <td class="preview" title="Describe this image in detail.">Describe this image in detail.</td>
+</tr>
+<tr onclick="scrollToResponse(5)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">6</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-guided-json <span class="variant-tag">image-guided-json</span><br><span class="afm-tag">--vlm</span></td>
+  <td class="status-ok">OK</td>
+  
+  <td>0.7</td>
+  <td>1.0</td>
+  <td>867</td>
+  <td>10.74</td>
+  <td><div class="bar"><div class="bar-fill" style="width:74%;background:#3fb950"></div><div class="bar-label">80.7</div></div></td>
+  <td class="preview" title="Analyze this image and return a JSON object with the following fields: &quot;subject&quot; (what is the main subject), &quot;colors&quot; (array of dominant colors), &quot;setting&quot; (indoor/outdoor), &quot;mood&quot; (one word).">Analyze this image and return a JSON object with the followi...</td>
+</tr>
+<tr onclick="scrollToResponse(6)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">7</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-stop <span class="variant-tag">image-stop</span><br><span class="afm-tag">--vlm</span></td>
+  <td class="status-ok">OK</td>
+  
+  <td>0.7</td>
+  <td>1.0</td>
+  <td>816</td>
+  <td>10.11</td>
+  <td><div class="bar"><div class="bar-fill" style="width:74%;background:#3fb950"></div><div class="bar-label">80.7</div></div></td>
+  <td class="preview" title="Describe this image in detail">Describe this image in detail</td>
+</tr>
+<tr onclick="scrollToResponse(7)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">8</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-greedy <span class="variant-tag">image-greedy</span><br><span class="afm-tag">--vlm</span></td>
+  <td class="status-ok">OK</td>
+  
+  <td>0.0</td>
+  <td>1.0</td>
+  <td>486</td>
+  <td>6.58</td>
+  <td><div class="bar"><div class="bar-fill" style="width:68%;background:#3fb950"></div><div class="bar-label">73.9</div></div></td>
+  <td class="preview" title="What is in this image? Reply in one sentence.">What is in this image? Reply in one sentence.</td>
+</tr>
+<tr onclick="scrollToResponse(8)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">9</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-question <span class="variant-tag">image-question</span><br><span class="afm-tag">--vlm</span></td>
+  <td class="status-ok">OK</td>
+  
+  <td>0.7</td>
+  <td>1.0</td>
+  <td>200</td>
+  <td>3.48</td>
+  <td><div class="bar"><div class="bar-fill" style="width:52%;background:#d29922"></div><div class="bar-label">57.5</div></div></td>
+  <td class="preview" title="What animal is in this image? Answer in one word.">What animal is in this image? Answer in one word.</td>
+</tr>
+<tr onclick="scrollToResponse(9)" style="cursor:pointer" title="Click to view full response">
+  <td class="rank">10</td>
+  <td class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ video-describe <span class="variant-tag">video-describe</span><br><span class="afm-tag">--vlm</span></td>
+  <td class="status-ok">OK</td>
+  
+  <td>0.7</td>
+  <td>1.0</td>
+  <td>782</td>
+  <td>15.61</td>
+  <td><div class="bar"><div class="bar-fill" style="width:46%;background:#d29922"></div><div class="bar-label">50.1</div></div></td>
+  <td class="preview" title="Describe what happens in this video.">Describe what happens in this video.</td>
+</tr>
+
+</table>
+
+
+
+
+
+<h2>Full Responses</h2>
+<button class="expand-all" onclick="toggleAll()">Expand / Collapse All</button>
+
+<script>var responseData = {};</script>
+
+<div class="response-section" id="resp-0">
+  <h3 class="response-header" onclick="toggleResponse(0)">
+    <span class="toggle-icon" id="icon-0">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ llm-creative</span>
+    <span class="response-meta">512 tokens &middot; 109.5 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-0" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.7</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>512</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>llm-creative</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>4.68s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>29</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>512</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>109.5</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Write a haiku about the ocean.</div>
+    <div class="rendered-content" id="content-0"></div>
+  </div>
+</div>
+<script>responseData[0] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Topic: The ocean.\n    *   Form: Haiku (Japanese poetic form).\n    *   Structure: 3 lines, 5-7-5 syllables.\n\n2.  **Brainstorming Imagery/Themes:**\n    *   Waves, blue, depth, salt, sand, tides, horizon, fish, foam, moon, sun, silence, roar.\n    *   Possible concepts: Calm vs. storm, depth, movement, connection to shore.\n\n3.  **Drafting - Attempt 1:**\n    Blue water so deep (5)\n    Waves crash on the sandy shore (7)\n    Salt spray in the air (5)\n    *Critique:* A bit generic, \"air\" breaks the flow slightly.\n\n4.  **Drafting - Attempt 2:**\n    Soft waves roll to shore (5)\n    Blue water stretches far away (7) - \"far a-way\" is 3 syllables. \"Blue wa-ter stretch-es far a-way\" is 9. Too long.\n    *Correction:* Blue wa-ter stretches far (6). Need 7.\n    *Revision:* Blue wa-ter stretches far be-yond (7).\n    *Line 3:* Sea birds cry a-loud (5).\n    *Full:*\n    Soft waves roll to shore (5)\n    Blue water stretches far beyond (7)\n    Sea birds cry aloud (5)\n    *Critique:* Okay, but maybe a bit clich\u00e9.\n\n5.  **Drafting - Attempt 3 (Focusing on sound/feeling):**\n    Gentle waves roll in (5) - (Gen-tle waves roll in)\n    Salt and foam upon the sand (7) - (Salt and foam up-on the sand)\n    Tides pull at the shore (5) - (Tides pull at the shore)\n    *Syllable Count:*\n    Gen-tle waves roll in (5)\n    Salt and foam up-on the sand (7)\n    Tides pull at the shore (5)\n    *Critique:* Good, fits the constraints.\n\n6.  **Drafting - Attempt 4 (More poetic):**\n    Deep blue endless (5) - (Deep blue end-less) -> 4. Need 5.\n\n</details>\n\nThinking Process:  1.  **Analyze the Request:**     *   Topic: The ocean.     *   Form: Haiku (Japanese poetic form).     *   Structure: 3 lines, 5-7-5 syllables.  2.  **Brainstorming Imagery/Themes:**     *   Waves, blue, depth, salt, sand, tides, horizon, fish, foam, moon, sun, silence, roar.     ";</script>
+
+<div class="response-section" id="resp-1">
+  <h3 class="response-header" onclick="toggleResponse(1)">
+    <span class="toggle-icon" id="icon-1">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ llm-factual</span>
+    <span class="response-meta">306 tokens &middot; 102.4 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-1" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.7</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>512</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>llm-factual</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>2.99s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>33</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>306</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>102.4</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> What is the capital of Japan? Answer in one sentence.</div>
+    <div class="rendered-content" id="content-1"></div>
+  </div>
+</div>
+<script>responseData[1] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Question: \"What is the capital of Japan?\"\n    *   Constraint: \"Answer in one sentence.\"\n\n2.  **Identify the Fact:**\n    *   The capital of Japan is Tokyo.\n\n3.  **Draft the Answer:**\n    *   Draft 1: The capital of Japan is Tokyo.\n    *   Draft 2: Tokyo is the capital city of Japan.\n    *   Draft 3: The capital city of Japan is located in Tokyo. (A bit wordy)\n\n4.  **Check Constraints:**\n    *   Is it one sentence? Yes.\n    *   Is it accurate? Yes.\n\n5.  **Final Selection:** \"The capital of Japan is Tokyo.\" (Simple, direct, meets constraints).\n\n6.  **Final Output Generation.**\n    *   \"The capital of Japan is Tokyo.\" or just \"Tokyo is the capital of Japan.\"\n\n    Let's go with the most direct statement.\n\n    \"The capital of Japan is Tokyo.\"\n\n    Wait, I need to make sure I don't add extra fluff.\n    \"The capital of Japan is Tokyo.\" is one sentence.\n\n    Let's verify.\n    Subject: The capital of Japan\n    Verb: is\n    Object: Tokyo\n    Punctuation: .\n\n    Perfect.cw\n\n</details>\n\nThe capital of Japan is Tokyo.";</script>
+
+<div class="response-section" id="resp-2">
+  <h3 class="response-header" onclick="toggleResponse(2)">
+    <span class="toggle-icon" id="icon-2">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-ocr</span>
+    <span class="response-meta">1634 tokens &middot; 87.2 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-2" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.7</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>image-ocr</strong></span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--vlm</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>18.73s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>741</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>1634</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>87.2</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Read all the text in this image. Output it exactly as written.</div>
+    <div class="rendered-content" id="content-2"></div>
+  </div>
+</div>
+<script>responseData[2] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThe user wants me to extract the text from the provided image.\n\n**1. Analyze the image content:**\n- The image is a screenshot of a chat interface, likely Google's Gemini AI, displaying an explanation about \"Qwen3's Gated DeltaNet\".\n- The background is black, and the text is white/light gray.\n- There is a header \"Qwen3's Gated DeltaNet Explained\".\n- There are several paragraphs of text explaining the concept.\n- There are bullet points detailing \"The Delta Rule\" and \"The Gates\".\n- At the bottom, there are UI elements like \"Ask Gemini 3\", \"Tools\", \"Pro\", and a disclaimer.\n\n**2. Transcribe the text section by section:**\n\n*   **Header:** \"Qwen3's Gated DeltaNet Explained\"\n*   **First Paragraph:** \"novel linear attention architecture introduced in Alibaba's Qwen3-Next and Qwen3.5 models. It is designed to replace standard softmax attention in the majority of the model's layers to drastically improve inference speed and memory efficiency for extremely long contexts.\" (Note: There is a small symbol next to \"contexts\" which looks like a link icon or similar, I will ignore the symbol itself but transcribe the text). Wait, looking closely at the first paragraph, there's a small symbol after \"contexts\". It looks like a small square or bullet. Let's look at the next paragraph. Ah, there are small square symbols after \"N(N)\" and \"Gated DeltaNet scales linearly -O(N)\" and \"memory state.\" and \"parameters:\". These seem to be formatting artifacts or specific icons. I will transcribe the text as cleanly as possible, including the symbols if they look like text characters, but usually, just the text is best. Wait, looking very closely at the first paragraph, there is a small square symbol after \"contexts\". In the second paragraph, there is a symbol after \"neural networks.\" In the bullet points, there are symbols after \"fixed-size hidden memory state.\" and \"parameters:\". And another symbol after \"Decay Gate\". I will transcribe the text primarily, and maybe include the symbols if they seem part of the text flow, but standard transcription usually omits UI icons unless requested. The prompt says \"Output it exactly as written\". This implies I should try to capture the text content.\n\n*   **Sub-header:** \"How It Works: The \"Delta\" and the \"Gates\"\"\n*   **Second Paragraph:** \"Standard multi-head attention scales quadratically\u2014O(N^2)\u2014meaning computation and memory demands explode as the context length grows. Gated DeltaNet scales linearly\u2014O(N)\u2014by drawing inspiration from state-space models (like Mamba2) and recurrent neural networks.\" (Again, small symbols at the end).\n\n*   **Third Paragraph:** \"The mechanism relies on two core concepts:\"\n\n*   **Bullet Point 1:** \"The Delta Rule: Instead of recalculating attention scores across all past tokens, the model computes the difference (the delta, or $\\Delta$) between the new input and the predicted state. It uses this difference to continuously update a fixed-size hidden memory state.\" (There is a symbol at the end).\n\n*   **Bullet Point 2:** \"The Gates: The flow of information into this memory state is tightly controlled by learnable parameters:\"\n\n    *   **Sub-bullet 1:** \"Decay Gate ($\\alpha$): Determines how quickly old memory should be forgotten or reset.\" (There is a symbol below it).\n    *   **Sub-bullet 2:** \"Update Gate ($\\beta$): Controls how strongly the current token modifies the existing memory state.\"\n\n*   **Footer UI:** \"Ask Gemini 3\", \"+\", \"Tools\", \"Pro v\", \"Microphone icon\".\n*   **Bottom Disclaimer:** \"Gemini is AI and can make mistakes.\"\n\n**3. Refine the transcription:**\n- I need to be careful with mathematical notation like $O(N^2)$ and $O(N)$.\n- I need to capture the nested bullet points correctly.\n- I will read through the image from top to bottom.\n\n**Drafting the text:**\nQwen3's Gated DeltaNet Explained\n\nnovel linear attention architecture introduced in Alibaba's Qwen3-Next and Qwen3.5 models. It is designed to replace standard softmax attention in the majority of the model's layers to drastically improve inference speed and memory efficiency for extremely long contexts.\n\nHow It Works: The \"Delta\" and the \"Gates\"\n\nStandard multi-head attention scales quadratically\u2014O(N^2)\u2014meaning computation and memory demands explode as the context length grows. Gated DeltaNet scales linearly\u2014O(N)\u2014by drawing inspiration from state-space models (like Mamba2) and recurrent neural networks.\n\nThe mechanism relies on two core concepts:\n\n- The Delta Rule: Instead of recalculating attention scores across all past tokens, the model computes the difference (the delta, or $\\Delta$) between the new input and the predicted state. It uses this difference to continuously update a fixed-size hidden memory state.\n\n- The Gates: The flow of information into this memory state is tightly controlled by learnable parameters:\n\n- Decay Gate ($\\alpha$): Determines how quickly old memory should be forgotten or reset.\n\n- Update Gate ($\\beta$): Controls how strongly the current token modifies the existing memory state.\n\nAsk Gemini 3\n\n+ Tools Pro v\n\nGemini is AI and can make mistakes.\n\n**4. Final Review:**\n- Check against the image.\n- \"Qwen3's Gated DeltaNet Explained\" - Correct.\n- \"novel linear attention...\" - Correct.\n- \"How It Works...\" - Correct.\n- \"Standard multi-head...\" - Correct.\n- \"The mechanism relies...\" - Correct.\n- Bullet 1: \"The Delta Rule...\" - Correct. Note the symbol $\\Delta$ (Delta).\n- Bullet 2: \"The Gates...\" - Correct.\n- Sub-bullet 1: \"Decay Gate ($\\alpha$)...\" - Correct.\n- Sub-bullet 2: \"Update Gate ($\\beta$)...\" - Correct.\n- Footer text: \"Ask Gemini 3\", \"Tools\", \"Pro v\", \"Gemini is AI and can make mistakes.\" - Correct.\n\nI will format the output to match the visual structure as much as possible using markdown.\n\n</details>\n\nQwen3's Gated DeltaNet Explained\n\nnovel linear attention architecture introduced in Alibaba's Qwen3-Next and Qwen3.5 models. It is designed to replace standard softmax attention in the majority of the model's layers to drastically improve inference speed and memory efficiency for extremely long contexts.\n\nHow It Works: The \"Delta\" and the \"Gates\"\n\nStandard multi-head attention scales quadratically\u2014O(N^2)\u2014meaning computation and memory demands explode as the context length grows. Gated DeltaNet scales linearly\u2014O(N)\u2014by drawing inspiration from state-space models (like Mamba2) and recurrent neural networks.\n\nThe mechanism relies on two core concepts:\n\n\u2022 The Delta Rule: Instead of recalculating attention scores across all past tokens, the model computes the difference (the delta, or \u0394) between the new input and the predicted state. It uses this difference to continuously update a fixed-size hidden memory state.\n\n\u2022 The Gates: The flow of information into this memory state is tightly controlled by learnable parameters:\n\n\u2022 Decay Gate (\u03b1): Determines how quickly old memory should be forgotten or reset.\n\n\u2022 Update Gate (\u03b2): Controls how strongly the current token modifies the existing memory state.\n\nAsk Gemini 3\n\n+ Tools Pro v\n\nGemini is AI and can make mistakes.";</script>
+
+<div class="response-section" id="resp-3">
+  <h3 class="response-header" onclick="toggleResponse(3)">
+    <span class="toggle-icon" id="icon-3">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-system-prompt</span>
+    <span class="response-meta">1268 tokens &middot; 84.2 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-3" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.7</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>image-system-prompt</strong></span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--vlm</strong></span> <span class="config-badge" style="border-color:#3fb950">system: <strong>You are a veterinarian. Describe animals using proper breed terminology.</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>15.06s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>1066</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>1268</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>84.2</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Describe the animal in this image. What breed might it be?</div>
+    <div class="rendered-content" id="content-3"></div>
+  </div>
+</div>
+<script>responseData[3] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThe user wants me to identify the animal in the image and describe it using specific veterinary/breed terminology.\n\n1.  **Identify the animal:** It's a canine, specifically a puppy.\n2.  **Analyze physical characteristics:**\n    *   **Size/Build:** Small, compact, sturdy build.\n    *   **Head:** Wedge-shaped head, medium-sized triangular ears that are erect and set high.\n    *   **Eyes:** Almond-shaped, set slightly obliquely. They appear dark, possibly blue (hard to tell for sure, but typical for this breed), though the lighting makes them look dark.\n    *   **Coat:** Double coat visible. The outer coat looks thick and somewhat fluffy. The color is bi-colored: black (or very dark grey) and white. There is a white blaze on the muzzle and white on the chest/legs.\n    *   **Tail:** Plumed tail, carried over the back (though curled slightly less than a full \"spade\" shape, it's raised).\n    *   **Gait/Movement:** Walking towards the camera, purposeful stride.\n\n3.  **Determine the Breed:**\n    *   The features strongly point to a **Siberian Husky**.\n    *   Key indicators: Erect ears, distinctive facial mask (black around eyes, white muzzle), bi-color coat, plumed tail, medium size (relative to the beach context). It could also be an Alaskan Malamute, but the ears look a bit closer together and the head shape is slightly more refined, suggesting Husky. However, at the puppy stage, they can be hard to distinguish. I will mention both possibilities but lean towards Husky.\n\n4.  **Draft the description using breed terminology:**\n    *   *Head:* Wedge-shaped head with a broad skull.\n    *   *Ears:* Triangular, erect ears set high on the head.\n    *   *Eyes:* Deep-set, almond-shaped. (Note: Huskies often have blue eyes, but this one looks dark/amber, which is acceptable in standard Huskies, though blue is preferred by many standards).\n    *   *Coat:* Double coat (dense undercoat, longer outer coat). The color pattern is \"Black and White\" or \"Agouti\" (though it looks more like solid black and white markings).\n    *   *Tail:* Plumed tail, carried curved over the back (though currently just raised).\n    *   *Legs:* Straight legs, well-feathered feet (paws look large, good for snow).\n\n5.  **Refine the language:**\n    *   Instead of \"black and white,\" use \"bi-color\" or \"black and white markings.\"\n    *   Instead of \"ears looking up,\" use \"pricked ears\" or \"erect ears.\"\n    *   Instead of \"fur,\" use \"coat\" or \"plumage\" (no, plumage is birds). Use \"coat.\"\n\n6.  **Structure the response:**\n    *   Start with a direct identification.\n    *   Break down the physical traits using the correct terms.\n    *   Conclude with the breed probability.\n\n7.  **Final Polish (Self-Correction during drafting):**\n    *   *Correction:* Wait, looking closely at the paws, they are quite large relative to the body. This is typical for \"working breed\" puppies.\n    *   *Correction:* The tail is curled. This is a \"plumed tail.\"\n    *   *Terminology check:* \"Pricked ears,\" \"bi-color,\" \"double coat,\" \"muzzle,\" \"foreface.\"\n\n8.  **Final Output Generation:** (Drafting the response based on the above points).\n    *   \"Based on the visual evidence, this is a canine subject...\"\n    *   \"The animal exhibits the classic characteristics of a **Siberian Husky** puppy.\"\n    *   Detail the head: \"Wedge-shaped head,\" \"triangular, erect ears.\"\n    *   Detail the coat: \"Bi-color coat,\" \"double coat.\"\n    *   Mention the tail: \"Plumed tail.\"\n\nLet's write it out clearly.\n\n</details>\n\nBased on the visual evidence, this is a young canine, specifically a puppy. The animal exhibits the distinct physical conformation of a working spitz-type breed.\n\nHere is a breakdown of the breed characteristics visible in the image:\n\n*   **Head & Face:** The subject displays a wedge-shaped head with a straight muzzle. The ears are triangular and **pricked** (standing erect), set high and relatively close together. There is a distinct facial mask, characterized by dark pigmentation around the eyes and a prominent white blaze extending up the forehead and down the muzzle.\n*   **Eyes:** While the lighting is warm, the eyes appear deep-set and almond-shaped. In this breed, eyes can be blue, brown, or heterochromia (one of each), though this individual appears to have dark eyes.\n*   **Coat:** The subject has a **double coat**, consisting of a soft, dense undercoat and a longer, smoother outer coat. The coloration is **black and white**, featuring a black saddle-like pattern on the back and white markings on the chest, legs, and \"socks\" on the feet.\n*   **Tail:** The tail is **plumed** and is being carried aloft. In mature adults of this breed, this tail is often carried in a sickle shape when active.\n*   **Build:** Despite being a puppy, the subject has a sturdy, compact build with straight legs, indicative of a sled dog lineage.\n\n**Breed Diagnosis:**\nThis animal is most likely a **Siberian Husky** (or possibly an **Alaskan Malamute**, though the ears appear slightly closer together and the head slightly more refined, which leans toward Husky). It is currently in the puppy stage of development.";</script>
+
+<div class="response-section" id="resp-4">
+  <h3 class="response-header" onclick="toggleResponse(4)">
+    <span class="toggle-icon" id="icon-4">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-describe</span>
+    <span class="response-meta">980 tokens &middot; 82.0 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-4" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.7</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>image-describe</strong></span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--vlm</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>11.95s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>1053</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>980</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>82.0</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Describe this image in detail.</div>
+    <div class="rendered-content" id="content-4"></div>
+  </div>
+</div>
+<script>responseData[4] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThe user wants a detailed description of the provided image.\n\n**1. Subject Analysis:**\n*   **Animal:** A puppy, looks like a Siberian Husky or Alaskan Malamute.\n*   **Appearance:** Black and white fur. Dark eyes (though hard to see clearly, they look dark/intense). Pointy ears. Tail is slightly raised and curved.\n*   **Action:** Walking towards the camera. Front left paw is extended forward.\n*   **Position:** Center-left foreground.\n\n**2. Setting/Environment Analysis:**\n*   **Location:** A sandy beach.\n*   **Water:** Ocean waves are crashing on the left side. White foam is visible.\n*   **Sky/Time of Day:** Sunset or sunrise. The light is golden/orange on the left, transitioning to blue in the upper right. This suggests \"golden hour.\"\n*   **Background:** Distant landmass or trees on the far right horizon.\n\n**3. Lighting and Composition:**\n*   **Lighting:** Backlit/side-lit. The sun is low, creating long shadows stretching to the right. The puppy is illuminated from the left side.\n*   **Color Palette:** Warm tones (orange, brown, gold) in the foreground sand and sky, contrasting with the cooler blue of the upper sky and the dog's dark fur.\n*   **Texture:** The sand looks somewhat wet and smooth near the water, drier and grainier closer to the camera.\n\n**4. Drafting the Description (Iterative refinement):**\n*   *Draft 1:* A husky puppy is walking on a beach. It's sunset. The waves are behind it. The sand is wet. The puppy is looking at the camera.\n*   *Draft 2 (Adding detail):* A black and white husky puppy walks on a beach. The sun is setting, making the sand look orange. The puppy is walking towards the viewer. There are footprints in the sand. The ocean is on the left.\n*   *Draft 3 (Polishing and expanding):* Start with the main subject. Describe the puppy's features (pointy ears, fluffy tail). Describe the movement. Then move to the background\u2014the ocean, the horizon, the sky colors. Mention the lighting effects (shadows, golden glow).\n\n**5. Final Polish (structuring for readability):**\n*   **Subject:** Focus on the puppy first. \"A black and white husky puppy...\"\n*   **Action:** \"...striding confidently towards the viewer.\"\n*   **Setting:** \"Golden hour lighting.\" \"Wet sand reflecting the light.\"\n*   **Details:** Mention the footprints, the specific lighting on the puppy's fur.\n\n**6. Final Output Generation:** (This matches the provided good response).\n*   Start with the main subject.\n*   Describe the lighting/atmosphere.\n*   Describe the background elements.\n*   Conclude with the overall mood.\n\n</details>\n\nThis image captures a serene and picturesque moment featuring a young husky puppy on a beach during the \"golden hour\" of sunset.\n\n**The Subject:**\nThe central focus is a fluffy puppy, likely a Siberian Husky or Alaskan Malamute mix. It has classic markings with a mix of black and white fur, pointed ears perked up, and a tail curved slightly upward. The puppy is mid-stride, with its front left paw extended toward the camera, giving a sense of movement. It is looking directly ahead, seemingly focused on something just out of frame or the photographer. The low angle of the shot emphasizes the puppy's small size and makes it appear prominent against the vast background.\n\n**The Setting:**\n*   **The Beach:** The foreground is dominated by dark, wet sand which reflects the warm colors of the sunset. There are scattered footprints and small debris scattered across the sand, adding texture.\n*   **The Ocean:** To the left, white-capped waves are rolling onto the shore. The water catches the sunlight, creating a shimmering, bright line where the sea meets the land.\n*   **The Sky:** The sky transitions from a bright, warm yellow-orange near the horizon on the left to a soft, clear blue at the top right. There are faint clouds near the horizon on the right side.\n\n**Lighting and Mood:**\nThe lighting is dramatic and warm. The sun is low on the horizon to the left, casting a long, dark shadow of the puppy stretching out to the right side of the frame. This backlighting creates a rim-light effect on the puppy's fur, highlighting the edges of its ears and back. The overall mood is peaceful, playful, and warm.";</script>
+
+<div class="response-section" id="resp-5">
+  <h3 class="response-header" onclick="toggleResponse(5)">
+    <span class="toggle-icon" id="icon-5">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-guided-json</span>
+    <span class="response-meta">867 tokens &middot; 80.7 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-5" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.7</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>image-guided-json</strong></span> <span class="config-badge" style="border-color:#d29922">resp_fmt: <strong>json_object</strong></span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--vlm</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#3fb950">json: <strong>valid</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>10.74s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>1114</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>867</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>80.7</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Analyze this image and return a JSON object with the following fields: &quot;subject&quot; (what is the main subject), &quot;colors&quot; (array of dominant colors), &quot;setting&quot; (indoor/outdoor), &quot;mood&quot; (one word).</div>
+    <div class="rendered-content" id="content-5"></div>
+  </div>
+</div>
+<script>responseData[5] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Input: An image of a puppy on a beach.\n    *   Output Format: Valid JSON only.\n    *   Required Fields: \"subject\", \"colors\", \"setting\", \"mood\".\n    *   Constraint: No text outside the JSON object.\n\n2.  **Analyze the Image:**\n    *   **Subject:** A puppy, specifically looks like a Siberian Husky or Alaskan Malamute puppy. It's walking towards the camera.\n    *   **Colors:** The dominant colors are warm tones due to the sunset/sunrise. Golden/orange sand, dark brown/black shadows, white/light grey fur on the dog, blue sky (fading to blue), white foam from waves.\n        *   Dominant: Orange/Gold, Brown, Black, White, Blue (sky).\n    *   **Setting:** Outdoor, specifically a beach at sunset or sunrise.\n    *   **Mood:** Peaceful, playful, serene, calm, nostalgic.\n\n3.  **Draft the JSON Content:**\n    *   `subject`: \"Husky puppy\" or \"Dog puppy\"\n    *   `colors`: [\"orange\", \"gold\", \"brown\", \"black\", \"white\", \"blue\"]\n    *   `setting`: \"outdoor\"\n    *   `mood`: \"serene\" or \"peaceful\" or \"playful\"\n\n4.  **Refine the JSON:**\n    *   `subject`: \"Husky puppy\"\n    *   `colors`: [\"orange\", \"brown\", \"black\", \"white\", \"blue\"]\n    *   `setting`: \"outdoor\"\n    *   `mood`: \"serene\"\n\n5.  **Final Validation:**\n    *   Check JSON syntax (braces, quotes, commas).\n    *   Ensure no markdown code blocks (```json) or explanatory text.\n\n6.  **Construct Final Output:**\n    ```json\n    {\n      \"subject\": \"Husky puppy\",\n      \"colors\": [\"orange\", \"gold\", \"brown\", \"black\", \"white\", \"blue\"],\n      \"setting\": \"outdoor\",\n      \"mood\": \"serene\"\n    }\n    ```\n\n    *Correction:* I need to make sure I don't output markdown formatting like triple backticks if the prompt asks for \"valid JSON only\". Usually, raw JSON is safer. I will output raw JSON text.\n\n    Wait, looking at the instruction \"Respond with valid JSON only. Do not include any text outside the JSON object.\" I should output the raw JSON string.\n\n    Let's refine the colors to be more descriptive based on the image.\n    - Golden/Orange (sand/sunset)\n    - Dark Brown/Black (wet sand/shadows)\n    - White (dog paws/foam)\n    - Blue (sky)\n\n    Let's finalize the JSON structure.\n\n    ```json\n    {\n      \"subject\": \"Husky puppy\",\n      \"colors\": [\"orange\", \"gold\", \"brown\", \"black\", \"white\", \"blue\"],\n      \"setting\": \"outdoor\",\n      \"mood\": \"serene\"\n    }\n    ```\n\n    Wait, I need to ensure no markdown blocks are used. Just the JSON string.\n\n    Final check:\n    - subject: \"Husky puppy\"\n    - colors: [\"orange\", \"gold\", \"brown\", \"black\", \"white\"] (blue is minor but present)\n    - setting: \"outdoor\"\n    - mood: \"serene\"\n\n    Okay, generating the raw JSON.\n\n</details>\n\n{\n  \"subject\": \"Husky puppy\",\n  \"colors\": [\n    \"orange\",\n    \"gold\",\n    \"brown\",\n    \"black\",\n    \"white\",\n    \"blue\"\n  ],\n  \"setting\": \"outdoor\",\n  \"mood\": \"serene\"\n}";</script>
+
+<div class="response-section" id="resp-6">
+  <h3 class="response-header" onclick="toggleResponse(6)">
+    <span class="toggle-icon" id="icon-6">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-stop</span>
+    <span class="response-meta">816 tokens &middot; 80.7 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-6" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.7</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>image-stop</strong></span> <span class="config-badge" style="border-color:#d29922">stop: <strong>.</strong></span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--vlm</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>10.11s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>8</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>816</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>80.7</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Describe this image in detail</div>
+    <div class="rendered-content" id="content-6"></div>
+  </div>
+</div>
+<script>responseData[6] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThe user wants a detailed description of the provided image.\n\n1.  **Identify the main subject:** It's a puppy, specifically looking like a Siberian Husky or an Alaskan Malamute puppy. It's black and white.\n2.  **Identify the action:** The puppy is walking or trotting towards the camera. Its left front paw is extended forward.\n3.  **Identify the setting:** It's a beach. There's sand, ocean waves, and the horizon.\n4.  **Analyze the lighting/time of day:** The sun is low on the horizon, creating a \"golden hour\" effect. The light is warm and orange/yellow on the left, fading to blue in the sky. Shadows are long and stretch to the right.\n5.  **Analyze the composition:** The puppy is central but slightly to the left. The beach stretches out to the right. The horizon line is in the upper third.\n6.  **Details of the puppy:**\n    *   Fur: Fluffy, black and white markings.\n    *   Eyes: Dark, possibly blue (hard to tell exactly, but typical for huskies), focused forward.\n    *   Ears: Perked up.\n    *   Tail: Curled slightly upwards.\n    *   Paws: White paws.\n7.  **Details of the background:**\n    *   Ocean: Gentle waves rolling in on the left. White foam.\n    *   Sky: Clear, gradient from yellow/orange to blue.\n    *   Distant background: There are trees or bushes on the far right shore.\n8.  **Analyze the foreground:** Wet sand reflects the light. There are footprints in the sand. The sand is dark brown/golden.\n9.  **Synthesize the description:** Start with the main subject, then the setting, then the lighting/atmosphere.\n\n*Drafting the description:*\n-   **Subject:** A young husky puppy is the focal point. It has black and white fur. It's walking towards the viewer.\n-   **Setting:** A sandy beach. The tide is out or low.\n-   **Lighting:** Sunset or sunrise. Golden light hitting the left side of the scene. Long shadows cast by the puppy to the right.\n-   **Atmosphere:** Peaceful, warm, playful.\n\n*Refining the description:*\n-   \"A fluffy black and white puppy, likely a Siberian Husky, is trotting towards the camera on a sandy beach.\"\n-   **Lighting:** The scene is bathed in the warm, golden light of a setting sun (or rising sun). The light source is coming from the left.\n-   **The Beach:** The sand is wet and dark in the foreground, reflecting the golden light. There are footprints scattered around.\n-   **Background:** The ocean is on the left with small white-capped waves. The sky is a soft gradient. In the distance, there's a coastline with some vegetation.\n-   **Specific details:** The puppy's tail is curved up. Its expression is focused. The shadow is long and distinct.\n\n*Final Polish:* Organize into logical paragraphs. Start with the puppy, move to the environment, then the lighting.\n\n*Self-Correction during drafting:* Make sure to mention the texture of the sand and the specific direction of the light. Note the contrast between the dark sand and the bright water.\n\n*Final check against image:* Does the description match? Yes. The puppy is clearly the hero. The lighting is crucial. The footprints add texture. The distant land adds depth.\n\nLet's write it out.\n\n</details>\n\nThis image captures a heartwarming scene of a young puppy, likely a Siberian Husky, walking along a beach during the \"golden hour\" of sunset";</script>
+
+<div class="response-section" id="resp-7">
+  <h3 class="response-header" onclick="toggleResponse(7)">
+    <span class="toggle-icon" id="icon-7">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-greedy</span>
+    <span class="response-meta">486 tokens &middot; 73.9 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-7" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.0</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>image-greedy</strong></span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--vlm</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>6.58s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>1058</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>486</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>73.9</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> What is in this image? Reply in one sentence.</div>
+    <div class="rendered-content" id="content-7"></div>
+  </div>
+</div>
+<script>responseData[7] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Input: An image of a dog on a beach.\n    *   Task: Describe what is in the image.\n    *   Constraint: Reply in one sentence.\n\n2.  **Analyze the Image:**\n    *   **Subject:** A puppy, looks like a Siberian Husky or Alaskan Malamute (black and white fur, pointed ears, fluffy tail).\n    *   **Action:** Walking or trotting towards the camera.\n    *   **Setting:** A sandy beach.\n    *   **Lighting/Time:** Sunset or sunrise (golden hour), warm lighting, long shadows.\n    *   **Background:** Ocean waves, horizon, distant land/trees.\n    *   **Mood:** Peaceful, playful, warm.\n\n3.  **Drafting Descriptions:**\n    *   *Draft 1:* A black and white husky puppy is walking on the sand at sunset.\n    *   *Draft 2:* A fluffy husky puppy walks along the wet sand of a beach during golden hour.\n    *   *Draft 3:* This image shows a young husky dog walking towards the viewer on a beach with the ocean in the background during sunset.\n    *   *Draft 4:* A cute husky puppy trots across the golden sand of a beach with the ocean waves and sky in the background.\n\n4.  **Selecting the Best Option:**\n    *   Draft 2 is concise and captures the key elements (puppy, beach, lighting).\n    *   Draft 3 is a bit wordy but accurate.\n    *   Let's refine for clarity and flow. \"A black and white husky puppy walks along a sandy beach during a golden sunset.\"\n\n5.  **Final Polish (checking constraints):**\n    *   Must be one sentence.\n    *   \"A black and white husky puppy walks towards the camera on a sandy beach during a golden sunset.\"\n\n6.  **Final Output Generation:** (Matches the selected draft).\n    \"A black and white husky puppy walks towards the camera on a sandy beach during a golden sunset.\"\n\n</details>\n\nA black and white husky puppy walks towards the camera on a sandy beach during a golden sunset.";</script>
+
+<div class="response-section" id="resp-8">
+  <h3 class="response-header" onclick="toggleResponse(8)">
+    <span class="toggle-icon" id="icon-8">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ image-question</span>
+    <span class="response-meta">200 tokens &middot; 57.5 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-8" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.7</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>image-question</strong></span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--vlm</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>3.48s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>1059</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>200</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>57.5</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> What animal is in this image? Answer in one word.</div>
+    <div class="rendered-content" id="content-8"></div>
+  </div>
+</div>
+<script>responseData[8] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThe user wants to identify the animal in the image.\n1.  **Analyze the image:** I see a small, four-legged animal walking on a beach.\n2.  **Identify key features:**\n    *   It has fur.\n    *   It has pointy ears.\n    *   It has a snout and a tail.\n    *   The coloring is black and white/grey.\n    *   It looks like a puppy, specifically resembling a Husky or Malamute puppy.\n3.  **Formulate the answer:** The animal is a dog. The user requested a one-word answer. \"Dog\" is the most accurate and simple one-word answer. \"Puppy\" is also acceptable but \"dog\" is the general animal name. \"Husky\" is a breed, not the animal itself. \"Animal\" is too broad. \"Dog\" is the best fit.\n\nFinal Answer: Dog\n\n</details>\n\nDog";</script>
+
+<div class="response-section" id="resp-9">
+  <h3 class="response-header" onclick="toggleResponse(9)">
+    <span class="toggle-icon" id="icon-9">&#9654;</span>
+    <span class="mono">mlx-community/Qwen3.5-35B-A3B-4bit @ video-describe</span>
+    <span class="response-meta">782 tokens &middot; 50.1 tok/s</span>
+  </h3>
+  <div class="response-body" id="body-9" style="display:none">
+    <div class="config-panel"><span class="config-badge" style="border-color:#d29922">temp: <strong>0.7</strong></span> <span class="config-badge" style="border-color:#58a6ff">max_tokens: <strong>4096</strong></span> <span class="config-badge" style="border-color:#a371f7">variant: <strong>video-describe</strong></span> <span class="config-badge" style="border-color:#f0883e">afm: <strong>--vlm</strong></span> <span class="config-badge" style="border-color:#3fb950">finish: <strong>stop</strong></span> <span class="config-badge" style="border-color:#8b949e">load: <strong>1.0s</strong></span> <span class="config-badge" style="border-color:#8b949e">gen: <strong>15.61s</strong></span> <span class="config-badge" style="border-color:#8b949e">prompt_tok: <strong>2910</strong></span> <span class="config-badge" style="border-color:#8b949e">comp_tok: <strong>782</strong></span> <span class="config-badge" style="border-color:#d29922">tok/s: <strong>50.1</strong></span></div>
+    <div class="prompt-box"><span class="prompt-label">PROMPT</span> Describe what happens in this video.</div>
+    <div class="rendered-content" id="content-9"></div>
+  </div>
+</div>
+<script>responseData[9] = "<details><summary><strong>\ud83e\udde0 Reasoning</strong></summary>\n\nThe user wants me to describe the video.\n\n1.  **Identify the main subject:** The video features a medium-sized dog, appearing to be a Shiba Inu or similar spitz breed. It has white and tan fur.\n2.  **Identify the setting:** The dog is running on a sandy beach. The sand is covered in many footprints. In the background, there is a snowy bank and some trees, suggesting a winter or early spring setting.\n3.  **Describe the action:** The dog is running towards the camera. It looks happy and energetic, with its mouth open.\n4.  **Observe details:**\n    *   **Foreground:** Sand with lots of footprints/shadows creating a pattern.\n    *   **Midground:** The dog running.\n    *   **Background:** Snow, water (maybe a river or lake edge), and trees. The background is slightly out of focus.\n5.  **Synthesize the description:** Combine these elements into a coherent narrative.\n    *   Start with the main action: A Shiba Inu dog running towards the camera.\n    *   Describe the environment: A sandy beach with footprints, snowy background.\n    *   Add details about the dog's appearance: Perked ears, tongue out, looking directly at the viewer.\n    *   Note the camera movement: The camera seems to be following or tracking the dog as it approaches.\n\n**Drafting the response:**\nThe video shows a Shiba Inu dog running towards the camera on a sandy beach. The dog is the central focus, moving from the middle distance closer to the lens. It has white fur with tan markings on its ears and face. Its mouth is open, suggesting it is panting or excited. The sand is textured with many footprints and shadows, creating a patterned look. In the background, there is a line of snow and trees, indicating a cold day despite the sunny lighting on the sand. The dog maintains a steady pace, looking directly ahead as it approaches.\n\n**Refining the description:**\n\"A video captures a Shiba Inu dog running towards the camera on a sandy beach. The dog, which has white and tan fur, is running with its mouth open, appearing happy and energetic. The beach is covered in sand that is patterned with numerous footprints and shadows. In the background, out of focus, there is a snowy bank near the water's edge and a line of trees. The lighting suggests a sunny day, casting long shadows from the footprints on the sand.\"\n\nLet's make it a bit more concise and flow better.\n\"In this video, a Shiba Inu dog is seen running towards the camera across a sandy beach. The dog is white and tan, with pointed ears and a happy expression. The beach is textured with countless footprints and shadows cast across the ground. Behind the dog, there is a strip of snow and a body of water, with trees visible further back. The scene contrasts the warm sand in the foreground with the snow in the distance.\"\n\nThis looks good. I will present a clear and descriptive summary.\n\n</details>\n\nThe video shows a Shiba Inu dog running directly towards the camera on a sandy beach. The dog, which has white and tan fur, appears energetic and happy, with its mouth open and tongue visible. It is moving steadily closer to the viewer.\n\nThe beach itself is covered in sand that is heavily textured with footprints and shadows, creating a rippled pattern across the ground. In the background, slightly out of focus, there is a bank of snow and a body of water, with several trees lining the far shore. The contrast between the warm, sunlit sand and the snowy background suggests it might be late winter or early spring.";</script>
+
+
+<script>
+// Toggle individual response
+function toggleResponse(idx) {
+  var body = document.getElementById('body-' + idx);
+  var icon = document.getElementById('icon-' + idx);
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    icon.classList.add('open');
+    renderContent(idx);
+  } else {
+    body.style.display = 'none';
+    icon.classList.remove('open');
+  }
+}
+
+// Scroll from perf table to response
+function scrollToResponse(idx) {
+  var el = document.getElementById('resp-' + idx);
+  var body = document.getElementById('body-' + idx);
+  var icon = document.getElementById('icon-' + idx);
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    icon.classList.add('open');
+    renderContent(idx);
+  }
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Expand/collapse all
+var allExpanded = false;
+function toggleAll() {
+  allExpanded = !allExpanded;
+  for (var key in responseData) {
+    var body = document.getElementById('body-' + key);
+    var icon = document.getElementById('icon-' + key);
+    if (allExpanded) {
+      body.style.display = 'block';
+      icon.classList.add('open');
+      renderContent(parseInt(key));
+    } else {
+      body.style.display = 'none';
+      icon.classList.remove('open');
+    }
+  }
+}
+
+// Render markdown + LaTeX for a response
+var rendered = {};
+function renderContent(idx) {
+  if (rendered[idx]) return;
+  rendered[idx] = true;
+  var raw = responseData[idx] || '';
+
+  // Strip <think>...</think> blocks (some models emit reasoning)
+  raw = raw.replace(/<think>[\s\S]*?<\/think>/g, '');
+  // Strip channel markers like <|channel|>analysis<|message|>
+  raw = raw.replace(/<\|channel\|>[^<]*<\|message\|>/g, '');
+
+  var el = document.getElementById('content-' + idx);
+
+  // Use marked to parse markdown
+  if (typeof marked !== 'undefined') {
+    el.innerHTML = marked.parse(raw);
+  } else {
+    el.innerHTML = '<pre>' + raw.replace(/</g, '&lt;') + '</pre>';
+  }
+
+  // Typeset MathJax
+  if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+    MathJax.typesetPromise([el]).catch(function(err) { console.warn('MathJax error:', err); });
+  }
+}
+</script>
+
+</body>
+</html>

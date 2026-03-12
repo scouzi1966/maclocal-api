@@ -58,6 +58,8 @@ afm_full_test_log_*.txt
 afm_test_log_*.txt
 
 # Test files
+Scripts/regression-report-*.html
+Scripts/mlx-model-report-*.html
 test-curl-commands.md
 test-table.png
 test.pdf
@@ -71,6 +73,10 @@ build-from-scratch/
 
 # Vendor patch stamp
 vendor/mlx-swift-lm/.patches-applied
+
+# PyPI package staging (binaries staged temporarily during uv build)
+macafm/bin/
+macafm/share/
 
 # WebUI build artifacts
 Resources/webui/

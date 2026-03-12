@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AFM Sampling Parameters Test Report</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif; background: #0d1117; color: #e6edf3; padding: 2rem; }
+  .header { text-align: center; margin-bottom: 2rem; padding: 2rem; background: linear-gradient(135deg, #1a1f2e 0%, #0d1117 100%); border: 1px solid #30363d; border-radius: 12px; }
+  .header h1 { font-size: 1.8rem; margin-bottom: 0.5rem; background: linear-gradient(90deg, #58a6ff, #bc8cff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .header .meta { color: #8b949e; font-size: 0.9rem; line-height: 1.6; }
+  .summary { display: flex; gap: 1rem; justify-content: center; margin: 1.5rem 0; flex-wrap: wrap; }
+  .stat { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 1rem 1.5rem; text-align: center; min-width: 120px; }
+  .stat .value { font-size: 2rem; font-weight: 700; }
+  .stat .label { color: #8b949e; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.25rem; }
+  .stat.pass .value { color: #3fb950; }
+  .stat.fail .value { color: #f85149; }
+  .stat.time .value { color: #58a6ff; }
+  .stat.pct .value { color: #d2a8ff; }
+  .progress-bar { width: 100%; height: 8px; background: #21262d; border-radius: 4px; margin: 1rem auto; max-width: 400px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 4px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 1.5rem; }
+  th { background: #161b22; color: #8b949e; font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #30363d; }
+  td { padding: 0.75rem 1rem; border-bottom: 1px solid #21262d; vertical-align: top; }
+  tr:hover { background: #161b22; }
+  .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+  .badge.pass { background: #0d2818; color: #3fb950; border: 1px solid #238636; }
+  .badge.fail { background: #2d1215; color: #f85149; border: 1px solid #da3633; }
+  .group-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 500; background: #1a1f2e; color: #8b949e; border: 1px solid #30363d; }
+  .group-badge.Seed { color: #3fb950; border-color: #238636; background: #0d281833; }
+  .group-badge.Temperature { color: #f0883e; border-color: #d18616; background: #4b2e0433; }
+  .group-badge.Top-K { color: #58a6ff; border-color: #1f6feb; background: #0c2d6b33; }
+  .group-badge.Top-P { color: #d2a8ff; border-color: #8957e5; background: #3b1f7233; }
+  .group-badge.Min-P { color: #f778ba; border-color: #db61a2; background: #3d1a2e33; }
+  .group-badge.Presence { color: #ff7b72; border-color: #da3633; background: #2d121533; }
+  .group-badge.Repetition { color: #ffa657; border-color: #d18616; background: #4b2e0433; }
+  .group-badge.Combined { color: #79c0ff; border-color: #388bfd; background: #0c2d6b33; }
+  .group-badge.Edge { color: #8b949e; border-color: #484f58; background: #21262d33; }
+  .detail { font-family: 'SF Mono', 'Menlo', monospace; font-size: 0.8rem; color: #8b949e; white-space: pre-wrap; word-break: break-word; max-height: 100px; overflow-y: auto; background: #0d1117; padding: 0.5rem; border-radius: 6px; border: 1px solid #21262d; margin-top: 0.25rem; }
+  .duration { color: #8b949e; font-family: 'SF Mono', monospace; font-size: 0.85rem; }
+  .footer { text-align: center; margin-top: 2rem; color: #484f58; font-size: 0.8rem; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>AFM Sampling Parameters Test Report</h1>
+  <div class="meta">
+    Model: <strong>mlx-community/gemma-3-4b-it-8bit</strong><br>
+    Server: <code>http://127.0.0.1:9998</code><br>
+    Date: 2026-02-21 13:08:53
+  </div>
+</div>
+<div class="summary">
+  <div class="stat pass"><div class="value">21</div><div class="label">Passed</div></div>
+  <div class="stat fail"><div class="value">0</div><div class="label">Failed</div></div>
+  <div class="stat pct"><div class="value">100%</div><div class="label">Pass Rate</div></div>
+  <div class="stat time"><div class="value">14s</div><div class="label">Total Time</div></div>
+</div>
+<div class="progress-bar"><div class="progress-fill" style="width:100%;background:#3fb950;"></div></div>
+<table>
+<thead>
+<tr><th>#</th><th>Test</th><th>Group</th><th>Status</th><th>Duration</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+  <td><strong>1</strong></td>
+  <td>Same seed (42) produces identical output 3x</td>
+  <td><span class="group-badge Seed">Seed</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.8s</span></td>
+  <td><div class="detail">3 identical: Mango</div></td>
+</tr>
+<tr>
+  <td><strong>2</strong></td>
+  <td>Different seeds (10 seeds) produce variation</td>
+  <td><span class="group-badge Seed">Seed</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.3s</span></td>
+  <td><div class="detail">&gt;1 unique out of 10</div></td>
+</tr>
+<tr>
+  <td><strong>3</strong></td>
+  <td>No seed produces varied output</td>
+  <td><span class="group-badge Seed">Seed</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.2s</span></td>
+  <td><div class="detail">&gt;1 unique out of 5</div></td>
+</tr>
+<tr>
+  <td><strong>4</strong></td>
+  <td>temp=0 is deterministic (argmax)</td>
+  <td><span class="group-badge Temperature">Temperature</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.7s</span></td>
+  <td><div class="detail">3 identical: 4</div></td>
+</tr>
+<tr>
+  <td><strong>5</strong></td>
+  <td>temp=0.8 + seed=777 produces valid output</td>
+  <td><span class="group-badge Temperature">Temperature</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.5s</span></td>
+  <td><div class="detail">r1=8, r2=8</div></td>
+</tr>
+<tr>
+  <td><strong>6</strong></td>
+  <td>top_k=1 is deterministic (like argmax)</td>
+  <td><span class="group-badge Top-K">Top-K</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.7s</span></td>
+  <td><div class="detail">3 identical: 4</div></td>
+</tr>
+<tr>
+  <td><strong>7</strong></td>
+  <td>top_k=1 and top_k=1000 both produce output</td>
+  <td><span class="group-badge Top-K">Top-K</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.5s</span></td>
+  <td><div class="detail">k=1:Blue! 😊, k=1000:Blue! 💙</div></td>
+</tr>
+<tr>
+  <td><strong>8</strong></td>
+  <td>top_p=0.5 + seed=42 is deterministic</td>
+  <td><span class="group-badge Top-P">Top-P</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.5s</span></td>
+  <td><div class="detail">identical: Mars! 😊</div></td>
+</tr>
+<tr>
+  <td><strong>9</strong></td>
+  <td>top_p=0.1 and top_p=1.0 both produce output</td>
+  <td><span class="group-badge Top-P">Top-P</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.5s</span></td>
+  <td><div class="detail">p=0.1:Blue! 😊, p=1.0:Blue! 💙</div></td>
+</tr>
+<tr>
+  <td><strong>10</strong></td>
+  <td>min_p=0.05 + seed=42 produces valid output</td>
+  <td><span class="group-badge Min-P">Min-P</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.5s</span></td>
+  <td><div class="detail">r1=7, r2=7</div></td>
+</tr>
+<tr>
+  <td><strong>11</strong></td>
+  <td>min_p=0.99 and min_p=0.0 both produce output</td>
+  <td><span class="group-badge Min-P">Min-P</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.5s</span></td>
+  <td><div class="detail">m=0.99:Blue! 😊, m=0.0:Blue! 💙</div></td>
+</tr>
+<tr>
+  <td><strong>12</strong></td>
+  <td>presence_penalty=0 vs 2.0 produce different results</td>
+  <td><span class="group-badge Presence">Presence</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.6s</span></td>
+  <td><div class="detail">different</div></td>
+</tr>
+<tr>
+  <td><strong>13</strong></td>
+  <td>presence_penalty=1.5 + seed=42 produces valid output</td>
+  <td><span class="group-badge Presence">Presence</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.5s</span></td>
+  <td><div class="detail">r1=6, r2=6</div></td>
+</tr>
+<tr>
+  <td><strong>14</strong></td>
+  <td>rep_penalty=1.3 + seed=42 produces valid output</td>
+  <td><span class="group-badge Repetition">Repetition</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.5s</span></td>
+  <td><div class="detail">r1=7, r2=7</div></td>
+</tr>
+<tr>
+  <td><strong>15</strong></td>
+  <td>rep_penalty=1.0 and 1.5 both produce output</td>
+  <td><span class="group-badge Repetition">Repetition</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration"></span></td>
+  <td><div class="detail">rp=1.0:Pizza! 🍕, rp=1.5:Pizza 😄 </div></td>
+</tr>
+<tr>
+  <td><strong>16</strong></td>
+  <td>All params + seed=42 is deterministic</td>
+  <td><span class="group-badge Combined">Combined</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.5s</span></td>
+  <td><div class="detail">identical: London!</div></td>
+</tr>
+<tr>
+  <td><strong>17</strong></td>
+  <td>Streaming with all params works</td>
+  <td><span class="group-badge Combined">Combined</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">SSE data received</div></td>
+</tr>
+<tr>
+  <td><strong>18</strong></td>
+  <td>Log line contains all new params</td>
+  <td><span class="group-badge Combined">Combined</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.8s</span></td>
+  <td><div class="detail">top_k, min_p, presence_penalty, seed in log</div></td>
+</tr>
+<tr>
+  <td><strong>19</strong></td>
+  <td>top_k=0 (disabled) produces output</td>
+  <td><span class="group-badge Edge">Edge</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">Yes.</div></td>
+</tr>
+<tr>
+  <td><strong>20</strong></td>
+  <td>presence_penalty=0 (disabled) produces output</td>
+  <td><span class="group-badge Edge">Edge</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">Yes.</div></td>
+</tr>
+<tr>
+  <td><strong>21</strong></td>
+  <td>No sampling params (all defaults) works</td>
+  <td><span class="group-badge Edge">Edge</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">Hello there! How can</div></td>
+</tr>
+</tbody>
+</table>
+<div class="footer">
+  Generated by Scripts/test-sampling-params.sh &mdash; 2026-02-21 13:08:53
+</div>
+</body>
+</html>

@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AFM Regression Test Report — 2026-02-19 22:51</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; padding: 2rem; }
+  h1 { color: #58a6ff; margin-bottom: 0.5rem; }
+  h2 { color: #58a6ff; margin: 2rem 0 1rem; border-bottom: 1px solid #21262d; padding-bottom: 0.5rem; }
+  .meta { color: #8b949e; font-size: 0.9rem; margin-bottom: 1.5rem; }
+  .summary { display: flex; gap: 1.5rem; margin: 1.5rem 0; flex-wrap: wrap; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1.2rem 1.5rem; min-width: 140px; }
+  .card .label { font-size: 0.85rem; color: #8b949e; margin-bottom: 0.3rem; }
+  .card .value { font-size: 1.8rem; font-weight: 700; }
+  .card .value.green { color: #3fb950; }
+  .card .value.red { color: #f85149; }
+  .card .value.blue { color: #58a6ff; }
+  .card .value.yellow { color: #d29922; }
+  .overall { text-align: center; padding: 1.5rem; border-radius: 8px; margin: 1.5rem 0; font-size: 1.3rem; font-weight: 700; }
+  .overall.green { background: #0d2818; border: 2px solid #3fb950; color: #3fb950; }
+  .overall.red { background: #2d1117; border: 2px solid #f85149; color: #f85149; }
+
+  .section { margin: 0.8rem 0; border: 1px solid #21262d; border-radius: 8px; overflow: hidden; }
+  .section-header { display: flex; align-items: center; gap: 0.8rem; padding: 0.8rem 1.2rem; background: #161b22; cursor: pointer; user-select: none; color: #c9d1d9; font-size: 0.95rem; font-weight: 500; }
+  .section-header:hover { background: #1c2129; }
+  .toggle-icon { font-size: 0.7rem; color: #8b949e; transition: transform 0.2s; display: inline-block; width: 1rem; }
+  .toggle-icon.open { transform: rotate(90deg); }
+  .section-stats { margin-left: auto; color: #8b949e; font-size: 0.8rem; display: flex; gap: 0.5rem; align-items: center; }
+  .section-body { border-top: 1px solid #21262d; }
+
+  .badge { padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+  .badge-pass { background: #0d2818; color: #3fb950; }
+  .badge-fail { background: #2d1117; color: #f85149; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #0d1117; color: #58a6ff; text-align: left; padding: 0.5rem 1rem; font-weight: 600; font-size: 0.85rem; }
+  td { padding: 0.5rem 1rem; border-bottom: 1px solid #161b22; font-size: 0.9rem; }
+  tr:hover { background: #161b22; }
+  .status-ok { color: #3fb950; font-weight: 600; }
+  .status-fail { color: #f85149; font-weight: 600; }
+  .status-skip { color: #d29922; font-weight: 600; }
+  .mono { font-family: 'SF Mono', Menlo, monospace; font-size: 0.85rem; }
+  .detail { color: #8b949e; font-size: 0.8rem; max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .expand-all { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.85rem; margin-bottom: 1rem; }
+  .expand-all:hover { background: #30363d; }
+</style>
+</head>
+<body>
+<h1>AFM Regression Test Report</h1>
+<p class="meta">Generated 2026-02-19 22:51 &middot; v0.9.4 &middot; Apple M-series &middot; macOS 26</p>
+
+<div class="overall green">ALL TESTS PASSED</div>
+
+<div class="summary">
+  <div class="card"><div class="label">Total Tests</div><div class="value blue">61</div></div>
+  <div class="card"><div class="label">Passed</div><div class="value green">61</div></div>
+  <div class="card"><div class="label">Failed</div><div class="value red">0</div></div>
+  <div class="card"><div class="label">Skipped</div><div class="value yellow">0</div></div>
+  <div class="card"><div class="label">Sections</div><div class="value blue">12</div></div>
+</div>
+
+<h2>Test Results by Section</h2>
+<button class="expand-all" onclick="toggleAll()">Expand / Collapse All</button>
+
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    CLI Basics
+    <span class="section-stats">4/4 passed <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test</th><th>Time</th><th>Detail</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>--help shows usage</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>--version shows version</td>
+  <td class="mono">1s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>mlx --help shows usage</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>invalid option rejected</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    AFM Single Prompt
+    <span class="section-stats">12/12 passed <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test</th><th>Time</th><th>Detail</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>basic single prompt</td>
+  <td class="mono">1s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>single prompt with instructions</td>
+  <td class="mono">1s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>pipe mode</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>temperature 0.0</td>
+  <td class="mono">1s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>temperature 1.0</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>randomness greedy</td>
+  <td class="mono">1s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>randomness random</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>randomness top-p=0.9</td>
+  <td class="mono">1s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>randomness top-k=50</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>randomness top-p + seed</td>
+  <td class="mono">1s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>permissive guardrails -P</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>combined: -t -r -i -P</td>
+  <td class="mono">1s</td>
+  <td class="detail" title=""></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    AFM Validation
+    <span class="section-stats">8/8 passed <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test</th><th>Time</th><th>Detail</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>temperature &gt; 1.0 rejected</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>temperature &lt; 0.0 rejected</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>temperature non-numeric rejected</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>randomness invalid rejected</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>top-p &gt; 1.0 rejected</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>top-k=0 rejected</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>conflicting top-p + top-k rejected</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>unknown randomness param rejected</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    AFM Server
+    <span class="section-stats">8/8 passed <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test</th><th>Time</th><th>Detail</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>GET /health</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>GET /v1/models</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>POST chat completion</td>
+  <td class="mono">1s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>POST chat with temperature</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>POST chat streaming</td>
+  <td class="mono">1s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>POST multi-turn conversation</td>
+  <td class="mono">7s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>POST empty messages returns error</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>POST max_tokens respected</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    AFM Server Options
+    <span class="section-stats">2/2 passed <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test</th><th>Time</th><th>Detail</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>permissive guardrails server</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>server with -t 0.5 -r greedy</td>
+  <td class="mono">1s</td>
+  <td class="detail" title=""></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    MLX Single Prompt
+    <span class="section-stats">4/4 passed <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test</th><th>Time</th><th>Detail</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>mlx single prompt</td>
+  <td class="mono">1s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>mlx single prompt with instructions</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>mlx single prompt with temperature</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>mlx pipe mode</td>
+  <td class="mono">1s</td>
+  <td class="detail" title=""></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    MLX Server
+    <span class="section-stats">6/6 passed <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test</th><th>Time</th><th>Detail</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>GET /health</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>GET /v1/models</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>POST chat completion</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>POST chat with temperature</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>POST chat streaming</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>POST empty messages returns error</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    MLX Download
+    <span class="section-stats">2/2 passed <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test</th><th>Time</th><th>Detail</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>download mlx-community/Qwen2.5-0.5B-Instruct-4bit</td>
+  <td class="mono">1s</td>
+  <td class="detail" title="downloaded in 1s">downloaded in 1s</td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>serve downloaded model</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    MLX VLM
+    <span class="section-stats">1/1 passed <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test</th><th>Time</th><th>Detail</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>VLM text-only chat</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    MLX MoE
+    <span class="section-stats">1/1 passed <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test</th><th>Time</th><th>Detail</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>MoE chat completion</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    Port Handling
+    <span class="section-stats">1/1 passed <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test</th><th>Time</th><th>Detail</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>custom port 9873</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3 class="section-header" onclick="toggleSection(this)">
+    <span class="toggle-icon">&#9654;</span>
+    Schema Validation
+    <span class="section-stats">12/12 passed <span class="badge badge-pass">ALL PASS</span></span>
+  </h3>
+  <div class="section-body">
+    <table>
+      <tr><th>Status</th><th>Test</th><th>Time</th><th>Detail</th></tr>
+      <tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>AFM: chat response schema</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>AFM: chat with temperature schema</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>AFM: streaming SSE + chunk schema</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>AFM: error response schema</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>AFM: models endpoint schema</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>AFM: health endpoint schema</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>AFM: 200 on valid chat</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>AFM: 400 on empty messages</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>MLX: chat response schema</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>MLX: streaming SSE + chunk schema</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>MLX: error response schema</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+<tr>
+  <td class="status-ok">&#10003; PASS</td>
+  <td>MLX: models endpoint schema</td>
+  <td class="mono">0s</td>
+  <td class="detail" title=""></td>
+</tr>
+
+    </table>
+  </div>
+</div>
+
+
+<script>
+function toggleSection(header) {
+  var body = header.nextElementSibling;
+  var icon = header.querySelector('.toggle-icon');
+  if (body.style.display === 'none' || body.style.display === '') {
+    body.style.display = 'block';
+    icon.classList.add('open');
+  } else {
+    body.style.display = 'none';
+    icon.classList.remove('open');
+  }
+}
+
+var allExpanded = false;
+function toggleAll() {
+  allExpanded = !allExpanded;
+  document.querySelectorAll('.section-body').forEach(function(b) {
+    b.style.display = allExpanded ? 'block' : 'none';
+  });
+  document.querySelectorAll('.toggle-icon').forEach(function(i) {
+    if (allExpanded) i.classList.add('open');
+    else i.classList.remove('open');
+  });
+}
+
+// Auto-expand failed sections
+document.querySelectorAll('.badge-fail').forEach(function(badge) {
+  var section = badge.closest('.section');
+  if (section) {
+    var body = section.querySelector('.section-body');
+    var icon = section.querySelector('.toggle-icon');
+    if (body) body.style.display = 'block';
+    if (icon) icon.classList.add('open');
+  }
+});
+</script>
+
+</body>
+</html>

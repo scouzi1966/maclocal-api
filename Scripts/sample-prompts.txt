@@ -1,0 +1,60 @@
+# MLX Model Test — Sample Prompts File
+#
+# Lines starting with # are comments
+# Blank lines are ignored
+
+# ── Global defaults (before any section) ──
+# These apply to all models unless overridden
+max_tokens: 2000
+temperature: 0.7
+afm: --enable-prefix-caching
+
+# ── Prompts for ALL models ──
+# Every model gets these prompts (plus any model-specific ones)
+[all]
+What is 2+2? Explain your reasoning step by step.
+Write a haiku about machine learning.
+
+# ── Per-model overrides ──
+# Known params: max_tokens:, temperature:, system:, afm:, skip
+# Everything else = a prompt (runs IN ADDITION to [all] prompts)
+
+[mlx-community/Qwen3-Coder-Next-4bit]
+max_tokens: 3000
+temperature: 0.3
+afm: --top-k 40 --min-p 0.05
+system: You are a senior Python developer. Write clean, idiomatic code.
+Write a Python function that checks if a string is a palindrome. Include type hints.
+
+[mlx-community/gpt-oss-20b-MXFP4-Q4]
+system: Reasoning:low
+afm: --verbose
+
+[mlx-community/Kimi-K2.5-3bit]
+max_tokens: 500
+Why is the sky blue? Be brief.
+
+# Skip a model entirely
+[mlx-community/Qwen3.5-397B-A17B-4bit]
+skip
+
+# ── Variants: A/B test the same model with different settings ──
+# Each variant starts a fresh server instance
+# Use [org/model @ label] syntax — the label shows up in the report
+
+[mlx-community/SmolLM3-3B-4bit @ default]
+temperature: 0.7
+
+[mlx-community/SmolLM3-3B-4bit @ conservative]
+temperature: 0.3
+afm: --top-k 20 --min-p 0.1
+
+[mlx-community/SmolLM3-3B-4bit @ creative]
+temperature: 1.2
+afm: --top-p 0.95
+
+[mlx-community/SmolLM3-3B-4bit @ with-caching]
+temperature: 0.7
+afm: --enable-prefix-caching
+Write a short story about a robot discovering music.
+Now continue the story with a second chapter.

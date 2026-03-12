@@ -1,0 +1,3 @@
+{"group": "Preflight", "name": "Binary exists at .build/release/afm", "status": "PASS", "duration_ms": 21}
+{"group": "Preflight", "name": "Server reachable at http://127.0.0.1:9998", "status": "PASS", "duration_ms": 24}
+{"group": "AdaptiveXML", "name": "afm_adaptive_xml tests (model lacks tool calling)", "status": "SKIP", "duration_ms": 0}

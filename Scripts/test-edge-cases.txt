@@ -1,0 +1,254 @@
+# ══════════════════════════════════════════════════════════════════════
+# EDGE CASE TESTS FOR SMART ANALYSIS
+# ══════════════════════════════════════════════════════════════════════
+#
+# PURPOSE: Qualitative tests for AI-judge (Claude/Codex) smart analysis.
+# Covers coverage gaps that automated assertions can't: coherence of
+# reasoning extraction, quality of tool call arguments, output quality
+# near stop boundaries, long-context SDPA regression territory.
+#
+# USAGE:
+#   mlx-model-test.sh --prompts Scripts/test-edge-cases.txt --smart claude
+#   mlx-model-test.sh --prompts Scripts/test-edge-cases.txt --smart codex
+#
+# NOTE: Model-agnostic. Works with any model loaded by the server.
+# Think tests auto-skip if model doesn't support <think> tags.
+# ══════════════════════════════════════════════════════════════════════
+
+max_tokens: 2048
+temperature: 0.0
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 1: THINK/REASONING EXTRACTION
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests basic think extraction. Feature: reasoning_content field.
+# AI: Expected: reasoning_content contains step-by-step math work.
+# AI: Content field should contain just the final answer without <think> tags.
+# AI: If reasoning_content is empty but content has <think>, extraction failed.
+[@ think-basic]
+temperature: 0.0
+max_tokens: 512
+What is 17 * 23? Show your work.
+
+# AI: Tests think extraction with longer reasoning chain. Feature: reasoning_content.
+# AI: Expected: extended reasoning in reasoning_content covering multiple logical steps.
+# AI: Content should be a clean final answer. No <think>/<\/think> tags in content.
+# AI: Watch for truncated reasoning (buffer boundary issues).
+[@ think-long-chain]
+temperature: 0.0
+max_tokens: 1024
+A farmer has 3 fields. Field A produces 120 kg of wheat per hectare, Field B produces 95 kg per hectare, and Field C produces 150 kg per hectare. Field A is 5 hectares, Field B is 8 hectares, and Field C is 3 hectares. What is the total wheat production? Then calculate what percentage each field contributes to the total.
+
+# AI: Tests stop sequence + think interaction. Feature: stop only applies to visible content.
+# AI: Expected: reasoning_content may contain "step" (that's fine — stop doesn't apply there).
+# AI: Content should be truncated before the word "step" appears.
+# AI: If reasoning is truncated by the stop sequence, that's a BUG.
+[@ think-stop-interaction]
+temperature: 0.0
+max_tokens: 512
+stop: ["step"]
+Explain the first step of photosynthesis.
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 2: STOP SEQUENCE QUALITY
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests stop at sentence boundary. Feature: stop sequences.
+# AI: Expected: output stops before any period appears. Content should be a
+# AI: partial sentence or word. finish_reason should be "stop".
+# AI: Score LOW if output contains a period.
+[@ stop-sentence-boundary]
+temperature: 0.0
+max_tokens: 200
+stop: ["."]
+Tell me about the history of computing
+
+# AI: Tests multi-word stop phrase. Feature: stop sequences.
+# AI: Expected: output should not contain "in conclusion" anywhere.
+# AI: Content before that phrase should be coherent, not garbled.
+[@ stop-multi-word]
+temperature: 0.0
+max_tokens: 300
+stop: ["In conclusion"]
+Write a brief essay about climate change. Start with an introduction, then discuss causes, and conclude with a summary.
+
+# AI: Tests streaming vs non-streaming stop parity. Feature: streaming stop sequences.
+# AI: Expected: this non-streaming test truncates at "3." — output should list items 1 and 2 only.
+# AI: Paired with stop-stream-parity-s below to compare outputs.
+[@ stop-stream-parity-ns]
+temperature: 0.0
+max_tokens: 200
+stream: false
+stop: ["3."]
+List 5 benefits of exercise, numbered 1-5.
+
+# AI: Tests streaming stop parity (streaming version). Feature: streaming stop sequences.
+# AI: Expected: output should match stop-stream-parity-ns exactly — items 1 and 2 only.
+# AI: If streaming has more or less content than non-streaming, parity is broken.
+[@ stop-stream-parity-s]
+temperature: 0.0
+max_tokens: 200
+stream: true
+stop: ["3."]
+List 5 benefits of exercise, numbered 1-5.
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 3: TOOL CALL ARGUMENT QUALITY
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests single tool call with clear arguments. Feature: tool calling.
+# AI: Expected: tool_calls with name=get_weather, args containing location=Paris.
+# AI: finish_reason must be "tool_calls". Arguments must be valid JSON.
+[@ tool-single]
+temperature: 0.0
+max_tokens: 300
+tools: [{"type":"function","function":{"name":"get_weather","description":"Get current weather for a city","parameters":{"type":"object","properties":{"location":{"type":"string","description":"City name"},"unit":{"type":"string","enum":["celsius","fahrenheit"],"description":"Temperature unit"}},"required":["location"]}}}]
+What's the weather like in Paris right now?
+
+# AI: Tests multi-tool scenario. Feature: multiple tool calls in one response.
+# AI: Expected: ideally 2 tool_calls — one for get_weather(London) and one for get_time(UTC).
+# AI: Some models only emit one; that's acceptable but note it. Both args must be valid JSON.
+[@ tool-multi]
+temperature: 0.0
+max_tokens: 500
+tools: [{"type":"function","function":{"name":"get_weather","description":"Get weather","parameters":{"type":"object","properties":{"location":{"type":"string"}},"required":["location"]}}},{"type":"function","function":{"name":"get_time","description":"Get current time in timezone","parameters":{"type":"object","properties":{"timezone":{"type":"string"}},"required":["timezone"]}}}]
+What's the weather in London and what time is it in UTC?
+
+# AI: Tests tool call with complex arguments. Feature: tool argument parsing.
+# AI: Expected: tool_calls with name=search_flights, args containing from, to, date, passengers.
+# AI: Arguments should be correctly typed (passengers as number or string).
+[@ tool-complex-args]
+temperature: 0.0
+max_tokens: 400
+tools: [{"type":"function","function":{"name":"search_flights","description":"Search for flights","parameters":{"type":"object","properties":{"from":{"type":"string","description":"Departure city"},"to":{"type":"string","description":"Arrival city"},"date":{"type":"string","description":"Travel date YYYY-MM-DD"},"passengers":{"type":"integer","description":"Number of passengers"}},"required":["from","to","date"]}}}]
+Find me flights from New York to Tokyo on 2025-03-15 for 2 passengers.
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 4: LOGPROBS TOKEN QUALITY
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests logprobs values are valid. Feature: logprobs.
+# AI: Expected: every logprob value should be <= 0 (log probabilities).
+# AI: top_logprobs should have exactly 3 entries per token.
+# AI: Tokens should be real text tokens, not garbage.
+[@ logprobs-valid]
+temperature: 0.0
+max_tokens: 20
+logprobs: true
+top_logprobs: 3
+What is 2+2?
+
+# AI: Tests logprobs with top_logprobs=1 (minimum). Feature: top_logprobs count.
+# AI: Expected: each token should have exactly 1 top_logprobs entry.
+# AI: The single entry should match the actual generated token.
+[@ logprobs-min]
+temperature: 0.0
+max_tokens: 10
+logprobs: true
+top_logprobs: 1
+Say hello.
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 5: PROMPT CACHE QUALITY
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Warmup request for cache testing. Feature: prompt caching.
+# AI: Expected: normal response. This primes the prompt cache.
+# AI: Check timing — this should be the slower of the pair.
+[@ cache-warmup]
+temperature: 0.0
+max_tokens: 20
+Tell me a fact about the Eiffel Tower.
+
+# AI: Cache hit test — identical prompt to cache-warmup. Feature: prompt caching.
+# AI: Expected: response content should be identical (temp=0 deterministic).
+# AI: Timing should be noticeably faster than cache-warmup (prompt processing skipped).
+# AI: If timing is similar or slower, cache is not working.
+[@ cache-hit]
+temperature: 0.0
+max_tokens: 20
+Tell me a fact about the Eiffel Tower.
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 6: LONG CONTEXT / SDPA REGRESSION
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests medium-length context processing. Feature: context handling.
+# AI: Expected: coherent summary of the repeated content. No garbled output.
+# AI: This tests ~1K tokens of input — should be within safe SDPA range.
+[@ long-context-1k]
+temperature: 0.0
+max_tokens: 100
+Summarize the following text in one sentence: The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog.
+
+# AI: Tests longer context (~2K tokens). Feature: SDPA regression guard.
+# AI: Expected: coherent response. Watch for NaN, garbled text, or repetition loops.
+# AI: MLX 0.30.4+ had SDPA regression that caused garbage after ~1200 tokens.
+# AI: If output contains nonsense characters or NaN, flag as SDPA regression.
+[@ long-context-2k]
+temperature: 0.0
+max_tokens: 100
+Answer the question at the end based on this context: Machine learning is a subset of artificial intelligence that focuses on building systems that learn from data. Deep learning is a subset of machine learning that uses neural networks with many layers. Neural networks are inspired by the biological neural networks in the human brain. They consist of interconnected nodes organized in layers. The input layer receives data, hidden layers process it, and the output layer produces results. Training involves adjusting weights through backpropagation. Common architectures include CNNs for images, RNNs for sequences, and Transformers for language. Transfer learning allows models trained on one task to be adapted for another. Regularization techniques like dropout prevent overfitting. Batch normalization helps stabilize training. Attention mechanisms allow models to focus on relevant parts of input. Self-attention, used in Transformers, computes relationships between all positions in a sequence. Multi-head attention runs multiple attention operations in parallel. The Transformer architecture revolutionized NLP with models like BERT and GPT. These models are pre-trained on large corpora and fine-tuned for specific tasks. Scaling laws suggest larger models with more data perform better. However, inference cost scales with model size. Mixture of Experts (MoE) architectures activate only a subset of parameters per token, reducing compute while maintaining capacity. Quantization reduces model precision to lower memory usage. Common formats include 4-bit and 8-bit quantization. Question: What is the advantage of MoE architectures?
+
+# AI: Tests very long context (~4K tokens). Feature: SDPA regression guard at longer range.
+# AI: Expected: coherent response to the question. Any NaN or garbage = critical failure.
+# AI: This pushes into the range where MLX 0.30.4+ SDPA regression manifests.
+[@ long-context-4k]
+temperature: 0.0
+max_tokens: 100
+Based on the following passage, answer: What makes Apple Silicon good for ML? Apple Silicon is a series of ARM-based systems on a chip designed by Apple Inc. The M-series chips feature a unified memory architecture where CPU, GPU, and Neural Engine share the same memory pool. This eliminates the need to copy data between CPU and GPU memory, reducing latency and increasing bandwidth efficiency. The M1 chip introduced in 2020 featured 8 CPU cores, 8 GPU cores, and 16 Neural Engine cores. The M2 improved on this with higher memory bandwidth. The M3 introduced dynamic caching for the GPU, hardware-accelerated ray tracing, and mesh shading. The M3 Ultra combines two M3 Max dies with UltraFusion interconnect, providing up to 192GB of unified memory and 800GB/s memory bandwidth. For machine learning workloads, the unified memory architecture means large language models can fit entirely in memory without the GPU VRAM limitations of discrete GPUs. The MLX framework from Apple is designed specifically for Apple Silicon. It uses lazy evaluation and a unified memory model where arrays live in shared memory and operations can run on CPU or GPU without data copies. MLX supports common neural network operations including matrix multiplications, convolutions, and attention mechanisms. The quantized matrix-vector multiplication kernels are optimized for the specific GPU architecture of each M-series chip. Metal Performance Shaders provide low-level GPU acceleration. The Neural Engine can accelerate specific operations but is primarily used for Core ML models. For transformer inference, the bottleneck is typically memory bandwidth. The M3 Ultra with 800GB/s bandwidth can theoretically achieve over 200 tokens per second for a 4-bit quantized 35B parameter model. In practice, kernel dispatch overhead and other factors reduce this. Prompt processing (prefill) is compute-bound and benefits from the GPU cores, while token generation (decode) is memory-bandwidth-bound. Mixture of Experts models are particularly well-suited to Apple Silicon because only the active expert parameters need to be read from memory each token, reducing the effective model size. A 35B MoE model with 3B active parameters behaves like a 3B model for bandwidth calculations but maintains the quality of a much larger model. KV cache quantization further reduces memory pressure during long-context generation. 4-bit KV cache uses 4x less memory than full precision while maintaining acceptable quality. The combination of large unified memory, high bandwidth, and efficient quantization support makes Apple Silicon competitive with much more expensive discrete GPU setups for local LLM inference.
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 7: JSON OBJECT MODE REGRESSION
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests basic json_object response format. Feature: response_format.
+# AI: Expected: response content is valid JSON with a "name" key.
+# AI: If content is not parseable JSON, the prompt injection approach failed.
+[@ json-basic]
+temperature: 0.0
+max_tokens: 100
+response_format: {"type": "json_object"}
+Give me a JSON object with keys "name" and "age" for a person named Alice who is 30.
+
+# AI: Tests json_object with system message (Qwen regression guard). Feature: response_format.
+# AI: Expected: valid JSON response. Some chat templates (Qwen3.5) crash with
+# AI: multiple system messages — the JSON instruction must be appended to existing system msg.
+# AI: If this returns an error or garbled output, it's the duplicate system message regression.
+[@ json-system-msg]
+temperature: 0.0
+max_tokens: 100
+system: You are a helpful assistant that always responds in JSON format.
+response_format: {"type": "json_object"}
+List 3 colors as a JSON array under the key "colors".
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 8: STREAMING PARITY
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Non-streaming baseline for parity test. Feature: streaming parity.
+# AI: Expected: coherent response about the capital of France.
+# AI: Save this output to compare with stream-parity-s.
+[@ stream-parity-ns]
+temperature: 0.0
+max_tokens: 50
+stream: false
+What is the capital of France? Answer in one sentence.
+
+# AI: Streaming version for parity test. Feature: streaming parity.
+# AI: Expected: assembled output should be identical to stream-parity-ns.
+# AI: If content differs, streaming assembly or think extraction has a bug.
+[@ stream-parity-s]
+temperature: 0.0
+max_tokens: 50
+stream: true
+What is the capital of France? Answer in one sentence.

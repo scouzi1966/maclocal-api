@@ -145,8 +145,30 @@ fi
 log_step "Resolving Swift packages"
 swift package resolve
 
+log_step "Injecting build commit into BuildInfo.swift"
+BUILD_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILDINFO="$ROOT_DIR/Sources/MacLocalAPI/BuildInfo.swift"
+if [ -f "$BUILDINFO" ]; then
+  sed -i '' "s/static let commit: String? = nil/static let commit: String? = \"${BUILD_COMMIT}\"/" "$BUILDINFO"
+  log_info "Commit: $BUILD_COMMIT"
+fi
+
 log_step "Building afm ($BUILD_CONFIG)"
-swift build -c "$BUILD_CONFIG"
+# Disable MemberImportVisibility — async-kit (transitive from Vapor) is missing
+# explicit imports for DequeModule/OrderedCollections, which Swift 6 enforces.
+if [ "$BUILD_CONFIG" = "release" ]; then
+  swift build -c release \
+    --product afm \
+    -Xswiftc -O \
+    -Xswiftc -whole-module-optimization \
+    -Xswiftc -cross-module-optimization \
+    -Xswiftc -disable-upcoming-feature \
+    -Xswiftc MemberImportVisibility
+else
+  swift build -c "$BUILD_CONFIG" \
+    -Xswiftc -disable-upcoming-feature \
+    -Xswiftc MemberImportVisibility
+fi
 
 BIN_PATH_1="$ROOT_DIR/.build/arm64-apple-macosx/$BUILD_CONFIG/afm"
 BIN_PATH_2="$ROOT_DIR/.build/$BUILD_CONFIG/afm"
@@ -157,6 +179,27 @@ elif [ -x "$BIN_PATH_2" ]; then
   FINAL_BIN="$BIN_PATH_2"
 else
   log_error "Build finished but afm binary was not found"
+  exit 1
+fi
+
+if [ "$BUILD_CONFIG" = "release" ]; then
+  strip "$FINAL_BIN"
+  log_info "Stripped debug symbols"
+fi
+
+# Restore BuildInfo.swift to committed state (keep working tree clean)
+if [ -f "$BUILDINFO" ]; then
+  git checkout -- "$BUILDINFO" 2>/dev/null || true
+fi
+
+FINAL_DIR="$(dirname "$FINAL_BIN")"
+
+# Verify the MLX metallib resource bundle is present
+METALLIB_BUNDLE="$FINAL_DIR/MacLocalAPI_MacLocalAPI.bundle/default.metallib"
+if [ -f "$METALLIB_BUNDLE" ]; then
+  log_info "MLX metallib bundle OK ($(du -h "$METALLIB_BUNDLE" | cut -f1 | xargs))"
+else
+  log_error "Missing MLX metallib bundle: $METALLIB_BUNDLE"
   exit 1
 fi
 

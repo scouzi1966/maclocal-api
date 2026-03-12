@@ -1,0 +1,341 @@
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Preflight", "name": "Binary exists at .build/release/afm", "status": "PASS", "duration_ms": 15}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Preflight", "name": "Server reachable at http://127.0.0.1:9998", "status": "PASS", "duration_ms": 20}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Lifecycle", "name": "/v1/models contains model ID", "status": "PASS", "duration_ms": 38}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Lifecycle", "name": "Basic completion returns content", "status": "PASS", "duration_ms": 1708}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Stop string '5' absent from output", "status": "PASS", "duration_ms": 347}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Stop", "name": "finish_reason is 'stop' with stop sequence", "status": "PASS", "duration_ms": 11}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Multi-word stop 'and' truncates correctly", "status": "PASS", "duration_ms": 276}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Stop on newline produces single line", "status": "FAIL", "duration_ms": 301}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Multiple stop sequences [7, 12]", "status": "PASS", "duration_ms": 555}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Empty stop array is no-op", "status": "PASS", "duration_ms": 236}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Streaming: stop string '5' absent", "status": "FAIL", "duration_ms": 234}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Stop sequence '3.' truncates list", "status": "PASS", "duration_ms": 291}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Stop 'stopped' doesn't fire on 'stopping'", "status": "PASS", "duration_ms": 98}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Stop 'llo' fires mid-word in 'hello'", "status": "PASS", "duration_ms": 99}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Logprobs", "name": "ChoiceLogprobs JSON schema valid", "status": "PASS", "duration_ms": 157}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Logprobs", "name": "top_logprobs count <= requested (5)", "status": "PASS", "duration_ms": 155}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Logprobs", "name": "logprobs=false returns null", "status": "PASS", "duration_ms": 134}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Logprobs", "name": "top_logprobs=99 returns 400", "status": "PASS", "duration_ms": 23}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Logprobs", "name": "Streaming logprobs present and valid", "status": "PASS", "duration_ms": 150}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Logprobs", "name": "top_logprobs=0 returns empty arrays", "status": "PASS", "duration_ms": 141}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Think", "name": "Think extraction (model lacks <think> support)", "status": "SKIP", "duration_ms": 0}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Tools", "name": "Basic tool call: finish_reason=tool_calls, valid args", "status": "PASS", "duration_ms": 738}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Tools", "name": "tool_choice=none suppresses tool calls", "status": "FAIL", "duration_ms": 737}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Tools", "name": "Tool arguments are valid JSON dict", "status": "PASS", "duration_ms": 750}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Tools", "name": "Streaming: tool calls with finish_reason", "status": "PASS", "duration_ms": 737}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Tools", "name": "Multi-tool: at least 1 tool call with 2 tools", "status": "PASS", "duration_ms": 905}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Tools", "name": "Array param: todos is JSON array (not string)", "status": "PASS", "duration_ms": 712}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Tools", "name": "Nullable param: anyOf [string, null] does not crash", "status": "PASS", "duration_ms": 567}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Tools", "name": "No tools: normal text response", "status": "PASS", "duration_ms": 186}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Cache", "name": "First request: cached_tokens=0", "status": "PASS", "duration_ms": 381}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Cache", "name": "Second identical request: cached_tokens>0", "status": "FAIL", "duration_ms": 379}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Cache", "name": "Different prompt: cached_tokens=0", "status": "PASS", "duration_ms": 386}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Cache", "name": "Streaming: cached_tokens>0 in usage chunk", "status": "FAIL", "duration_ms": 526}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Concurrent", "name": "Two simultaneous requests: both 200", "status": "PASS", "duration_ms": 171}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Concurrent", "name": "Three simultaneous requests: all 200", "status": "PASS", "duration_ms": 239}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Error", "name": "Empty messages \u2192 400", "status": "PASS", "duration_ms": 22}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Error", "name": "Malformed JSON \u2192 400", "status": "PASS", "duration_ms": 21}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Error", "name": "Missing messages field \u2192 400", "status": "PASS", "duration_ms": 21}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Error", "name": "response_format json_object returns valid JSON", "status": "PASS", "duration_ms": 197}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Error", "name": "max_tokens=5 is respected", "status": "PASS", "duration_ms": 162}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Error", "name": "OPTIONS /v1/chat/completions \u2192 200 (CORS)", "status": "PASS", "duration_ms": 24}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Error", "name": "developer role accepted (mapped to system)", "status": "PASS", "duration_ms": 2392}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "Kwargs", "name": "chat_template_kwargs (model lacks thinking)", "status": "SKIP", "duration_ms": 0}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "Function name correctly extracted", "status": "PASS", "duration_ms": 752}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "Parameter values are correct string types", "status": "PASS", "duration_ms": 737}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "Mixed-type params (string+bool+int) parse correctly", "status": "PASS", "duration_ms": 888}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "Nested object param survives XML parsing", "status": "PASS", "duration_ms": 912}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "tool_choice=required forces tool call", "status": "PASS", "duration_ms": 734}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "tool_choice={function: get_time} calls correct function", "status": "PASS", "duration_ms": 598}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "Tool call IDs are unique", "status": "PASS", "duration_ms": 919}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "Streaming: XML tool call assembles valid JSON args", "status": "PASS", "duration_ms": 748}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "Streaming: array param is JSON array (not string)", "status": "PASS", "duration_ms": 743}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "Tool call matches OpenAI schema (id, type, function.name, function.arguments)", "status": "PASS", "duration_ms": 749}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Preflight", "name": "Binary exists at .build/release/afm", "status": "PASS", "duration_ms": 16}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Preflight", "name": "Server reachable at http://127.0.0.1:9998", "status": "PASS", "duration_ms": 20}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Lifecycle", "name": "/v1/models contains model ID", "status": "PASS", "duration_ms": 34}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Lifecycle", "name": "Basic completion returns content", "status": "PASS", "duration_ms": 1006}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Stop string '5' absent from output", "status": "PASS", "duration_ms": 253}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "finish_reason is 'stop' with stop sequence", "status": "PASS", "duration_ms": 12}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Multi-word stop 'and' truncates correctly", "status": "PASS", "duration_ms": 276}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Stop on newline produces single line", "status": "FAIL", "duration_ms": 301}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Multiple stop sequences [7, 12]", "status": "PASS", "duration_ms": 559}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Empty stop array is no-op", "status": "PASS", "duration_ms": 236}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Streaming: stop string '5' absent", "status": "FAIL", "duration_ms": 226}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Stop sequence '3.' truncates list", "status": "PASS", "duration_ms": 285}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Stop 'stopped' doesn't fire on 'stopping'", "status": "PASS", "duration_ms": 98}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Stop 'llo' fires mid-word in 'hello'", "status": "PASS", "duration_ms": 99}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Logprobs", "name": "ChoiceLogprobs JSON schema valid", "status": "PASS", "duration_ms": 154}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Logprobs", "name": "top_logprobs count <= requested (5)", "status": "PASS", "duration_ms": 155}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Logprobs", "name": "logprobs=false returns null", "status": "PASS", "duration_ms": 134}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Logprobs", "name": "top_logprobs=99 returns 400", "status": "PASS", "duration_ms": 21}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Logprobs", "name": "Streaming logprobs present and valid", "status": "PASS", "duration_ms": 146}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Logprobs", "name": "top_logprobs=0 returns empty arrays", "status": "PASS", "duration_ms": 147}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Think", "name": "Think extraction (model lacks <think> support)", "status": "SKIP", "duration_ms": 0}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "Basic tool call: finish_reason=tool_calls, valid args", "status": "PASS", "duration_ms": 740}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "tool_choice=none suppresses tool calls", "status": "FAIL", "duration_ms": 730}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "Tool arguments are valid JSON dict", "status": "PASS", "duration_ms": 754}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "Streaming: tool calls with finish_reason", "status": "PASS", "duration_ms": 733}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "Multi-tool: at least 1 tool call with 2 tools", "status": "PASS", "duration_ms": 916}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "Array param: todos is JSON array (not string)", "status": "PASS", "duration_ms": 736}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "Nullable param: anyOf [string, null] does not crash", "status": "PASS", "duration_ms": 576}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "No tools: normal text response", "status": "PASS", "duration_ms": 189}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Cache", "name": "First request: cached_tokens=0", "status": "PASS", "duration_ms": 384}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Cache", "name": "Second identical request: cached_tokens>0", "status": "FAIL", "duration_ms": 386}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Cache", "name": "Different prompt: cached_tokens=0", "status": "PASS", "duration_ms": 368}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Cache", "name": "Streaming: cached_tokens>0 in usage chunk", "status": "FAIL", "duration_ms": 481}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Concurrent", "name": "Two simultaneous requests: both 200", "status": "PASS", "duration_ms": 169}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Concurrent", "name": "Three simultaneous requests: all 200", "status": "PASS", "duration_ms": 238}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "Empty messages \u2192 400", "status": "PASS", "duration_ms": 20}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "Malformed JSON \u2192 400", "status": "PASS", "duration_ms": 21}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "Missing messages field \u2192 400", "status": "PASS", "duration_ms": 24}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "response_format json_object returns valid JSON", "status": "PASS", "duration_ms": 192}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "max_tokens=5 is respected", "status": "PASS", "duration_ms": 156}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "OPTIONS /v1/chat/completions \u2192 200 (CORS)", "status": "PASS", "duration_ms": 24}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "developer role accepted (mapped to system)", "status": "PASS", "duration_ms": 2391}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "Kwargs", "name": "chat_template_kwargs (model lacks thinking)", "status": "SKIP", "duration_ms": 0}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Function name correctly extracted", "status": "PASS", "duration_ms": 755}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Parameter values are correct string types", "status": "PASS", "duration_ms": 756}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Mixed-type params (string+bool+int) parse correctly", "status": "PASS", "duration_ms": 902}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Nested object param survives XML parsing", "status": "PASS", "duration_ms": 917}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "tool_choice=required forces tool call", "status": "PASS", "duration_ms": 741}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "tool_choice={function: get_time} calls correct function", "status": "PASS", "duration_ms": 595}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Tool call IDs are unique", "status": "PASS", "duration_ms": 903}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Streaming: XML tool call assembles valid JSON args", "status": "PASS", "duration_ms": 752}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Streaming: array param is JSON array (not string)", "status": "PASS", "duration_ms": 742}}
+{"_run":{"model":"mlx-community/Qwen3-Coder-Next-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Tool call matches OpenAI schema (id, type, function.name, function.arguments)", "status": "PASS", "duration_ms": 743}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Preflight", "name": "Binary exists at .build/release/afm", "status": "PASS", "duration_ms": 16}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Preflight", "name": "Server reachable at http://127.0.0.1:9998", "status": "PASS", "duration_ms": 21}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Lifecycle", "name": "/v1/models contains model ID", "status": "PASS", "duration_ms": 39}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Lifecycle", "name": "Basic completion returns content", "status": "PASS", "duration_ms": 3677}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Stop string '5' absent from output", "status": "PASS", "duration_ms": 1859}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Stop", "name": "finish_reason is 'stop' with stop sequence", "status": "PASS", "duration_ms": 12}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Multi-word stop 'and' truncates correctly", "status": "PASS", "duration_ms": 1830}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Stop on newline produces single line", "status": "FAIL", "duration_ms": 2868}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Multiple stop sequences [7, 12]", "status": "PASS", "duration_ms": 1828}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Empty stop array is no-op", "status": "PASS", "duration_ms": 4443}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Streaming: stop string '5' absent", "status": "PASS", "duration_ms": 1849}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Stop sequence '3.' truncates list", "status": "PASS", "duration_ms": 954}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Stop 'stopped' doesn't fire on 'stopping'", "status": "PASS", "duration_ms": 2190}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Stop 'llo' fires mid-word in 'hello'", "status": "PASS", "duration_ms": 1472}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Logprobs", "name": "ChoiceLogprobs JSON schema valid", "status": "PASS", "duration_ms": 133}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Logprobs", "name": "top_logprobs count <= requested (5)", "status": "PASS", "duration_ms": 132}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Logprobs", "name": "logprobs=false returns null", "status": "PASS", "duration_ms": 111}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Logprobs", "name": "top_logprobs=99 returns 400", "status": "PASS", "duration_ms": 22}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Logprobs", "name": "Streaming logprobs present and valid", "status": "PASS", "duration_ms": 125}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Logprobs", "name": "top_logprobs=0 returns empty arrays", "status": "PASS", "duration_ms": 117}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Think", "name": "reasoning_content present in response", "status": "PASS", "duration_ms": 14}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Think", "name": "No <think> tags in content field", "status": "PASS", "duration_ms": 26}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Think", "name": "Streaming: reasoning_content in deltas", "status": "PASS", "duration_ms": 937}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Think", "name": "Stop sequence doesn't break think extraction", "status": "PASS", "duration_ms": 1811}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Think", "name": "reasoning_content has meaningful length (>5 chars)", "status": "PASS", "duration_ms": 27}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Tools", "name": "Basic tool call: finish_reason=tool_calls, valid args", "status": "FAIL", "duration_ms": 1068}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Tools", "name": "tool_choice=none suppresses tool calls", "status": "PASS", "duration_ms": 1068}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Tools", "name": "Tool arguments are valid JSON dict", "status": "FAIL", "duration_ms": 1435}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Tools", "name": "Streaming: tool calls with finish_reason", "status": "FAIL", "duration_ms": 1075}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Tools", "name": "Multi-tool: at least 1 tool call with 2 tools", "status": "FAIL", "duration_ms": 1500}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Tools", "name": "Array param: todos is JSON array (not string)", "status": "FAIL", "duration_ms": 1016}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Tools", "name": "Nullable param: anyOf [string, null] does not crash", "status": "FAIL", "duration_ms": 1044}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Tools", "name": "No tools: normal text response", "status": "PASS", "duration_ms": 240}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Cache", "name": "First request: cached_tokens=0", "status": "PASS", "duration_ms": 266}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Cache", "name": "Second identical request: cached_tokens>0", "status": "FAIL", "duration_ms": 264}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Cache", "name": "Different prompt: cached_tokens=0", "status": "PASS", "duration_ms": 261}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Cache", "name": "Streaming: cached_tokens>0 in usage chunk", "status": "FAIL", "duration_ms": 339}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Concurrent", "name": "Two simultaneous requests: both 200", "status": "PASS", "duration_ms": 202}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Concurrent", "name": "Three simultaneous requests: all 200", "status": "PASS", "duration_ms": 291}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Error", "name": "Empty messages \u2192 400", "status": "PASS", "duration_ms": 20}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Error", "name": "Malformed JSON \u2192 400", "status": "PASS", "duration_ms": 21}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Error", "name": "Missing messages field \u2192 400", "status": "PASS", "duration_ms": 21}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Error", "name": "response_format json_object returns valid JSON", "status": "PASS", "duration_ms": 195}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Error", "name": "max_tokens=5 is respected", "status": "PASS", "duration_ms": 134}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Error", "name": "OPTIONS /v1/chat/completions \u2192 200 (CORS)", "status": "PASS", "duration_ms": 20}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Error", "name": "developer role accepted (mapped to system)", "status": "PASS", "duration_ms": 4447}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Kwargs", "name": "enable_thinking=false disables thinking", "status": "PASS", "duration_ms": 104}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Kwargs", "name": "Streaming: enable_thinking=false disables thinking", "status": "PASS", "duration_ms": 104}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Kwargs", "name": "Default (no kwargs) retains thinking", "status": "FAIL", "duration_ms": 1813}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Kwargs", "name": "enable_thinking=false (2K tokens) returns content", "status": "PASS", "duration_ms": 103}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "Kwargs", "name": "enable_thinking=true explicitly keeps thinking", "status": "FAIL", "duration_ms": 1811}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "XML tool call tests (model lacks tool calling)", "status": "SKIP", "duration_ms": 0}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Preflight", "name": "Binary exists at .build/release/afm", "status": "PASS", "duration_ms": 11}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Preflight", "name": "Server reachable at http://127.0.0.1:9998", "status": "PASS", "duration_ms": 19}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Lifecycle", "name": "/v1/models contains model ID", "status": "PASS", "duration_ms": 35}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Lifecycle", "name": "Basic completion returns content", "status": "PASS", "duration_ms": 3664}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Stop string '5' absent from output", "status": "PASS", "duration_ms": 1868}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "finish_reason is 'stop' with stop sequence", "status": "PASS", "duration_ms": 12}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Multi-word stop 'and' truncates correctly", "status": "PASS", "duration_ms": 1830}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Stop on newline produces single line", "status": "FAIL", "duration_ms": 2879}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Multiple stop sequences [7, 12]", "status": "PASS", "duration_ms": 1829}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Empty stop array is no-op", "status": "PASS", "duration_ms": 4446}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Streaming: stop string '5' absent", "status": "PASS", "duration_ms": 1855}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Stop sequence '3.' truncates list", "status": "PASS", "duration_ms": 958}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Stop 'stopped' doesn't fire on 'stopping'", "status": "PASS", "duration_ms": 2189}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Stop 'llo' fires mid-word in 'hello'", "status": "PASS", "duration_ms": 1471}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Logprobs", "name": "ChoiceLogprobs JSON schema valid", "status": "PASS", "duration_ms": 129}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Logprobs", "name": "top_logprobs count <= requested (5)", "status": "PASS", "duration_ms": 131}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Logprobs", "name": "logprobs=false returns null", "status": "PASS", "duration_ms": 108}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Logprobs", "name": "top_logprobs=99 returns 400", "status": "PASS", "duration_ms": 20}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Logprobs", "name": "Streaming logprobs present and valid", "status": "PASS", "duration_ms": 122}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Logprobs", "name": "top_logprobs=0 returns empty arrays", "status": "PASS", "duration_ms": 122}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Think", "name": "reasoning_content present in response", "status": "PASS", "duration_ms": 11}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Think", "name": "No <think> tags in content field", "status": "PASS", "duration_ms": 26}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Think", "name": "Streaming: reasoning_content in deltas", "status": "PASS", "duration_ms": 939}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Think", "name": "Stop sequence doesn't break think extraction", "status": "PASS", "duration_ms": 1813}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Think", "name": "reasoning_content has meaningful length (>5 chars)", "status": "PASS", "duration_ms": 26}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "Basic tool call: finish_reason=tool_calls, valid args", "status": "PASS", "duration_ms": 1082}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "tool_choice=none suppresses tool calls", "status": "FAIL", "duration_ms": 1078}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "Tool arguments are valid JSON dict", "status": "PASS", "duration_ms": 1250}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "Streaming: tool calls with finish_reason", "status": "PASS", "duration_ms": 1084}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "Multi-tool: at least 1 tool call with 2 tools", "status": "PASS", "duration_ms": 1650}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "Array param: todos is JSON array (not string)", "status": "PASS", "duration_ms": 1377}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "Nullable param: anyOf [string, null] does not crash", "status": "PASS", "duration_ms": 1041}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "No tools: normal text response", "status": "PASS", "duration_ms": 244}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Cache", "name": "First request: cached_tokens=0", "status": "PASS", "duration_ms": 264}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Cache", "name": "Second identical request: cached_tokens>0", "status": "FAIL", "duration_ms": 263}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Cache", "name": "Different prompt: cached_tokens=0", "status": "PASS", "duration_ms": 260}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Cache", "name": "Streaming: cached_tokens>0 in usage chunk", "status": "FAIL", "duration_ms": 338}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Concurrent", "name": "Two simultaneous requests: both 200", "status": "PASS", "duration_ms": 201}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Concurrent", "name": "Three simultaneous requests: all 200", "status": "PASS", "duration_ms": 286}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "Empty messages \u2192 400", "status": "PASS", "duration_ms": 20}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "Malformed JSON \u2192 400", "status": "PASS", "duration_ms": 21}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "Missing messages field \u2192 400", "status": "PASS", "duration_ms": 20}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "response_format json_object returns valid JSON", "status": "PASS", "duration_ms": 192}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "max_tokens=5 is respected", "status": "PASS", "duration_ms": 132}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "OPTIONS /v1/chat/completions \u2192 200 (CORS)", "status": "PASS", "duration_ms": 20}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "developer role accepted (mapped to system)", "status": "PASS", "duration_ms": 4452}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Kwargs", "name": "enable_thinking=false disables thinking", "status": "PASS", "duration_ms": 104}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Kwargs", "name": "Streaming: enable_thinking=false disables thinking", "status": "PASS", "duration_ms": 103}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Kwargs", "name": "Default (no kwargs) retains thinking", "status": "FAIL", "duration_ms": 1818}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Kwargs", "name": "enable_thinking=false (2K tokens) returns content", "status": "PASS", "duration_ms": 104}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "Kwargs", "name": "enable_thinking=true explicitly keeps thinking", "status": "FAIL", "duration_ms": 1813}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Function name correctly extracted", "status": "PASS", "duration_ms": 1086}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Parameter values are correct string types", "status": "PASS", "duration_ms": 978}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Mixed-type params (string+bool+int) parse correctly", "status": "PASS", "duration_ms": 1531}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Nested object param survives XML parsing", "status": "PASS", "duration_ms": 1802}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "tool_choice=required forces tool call", "status": "PASS", "duration_ms": 1447}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "tool_choice={function: get_time} calls correct function", "status": "PASS", "duration_ms": 1339}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Tool call IDs are unique", "status": "PASS", "duration_ms": 1918}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Streaming: XML tool call assembles valid JSON args", "status": "PASS", "duration_ms": 1018}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Streaming: array param is JSON array (not string)", "status": "PASS", "duration_ms": 1405}}
+{"_run":{"model":"mlx-community/Qwen3.5-9B-MLX-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Tool call matches OpenAI schema (id, type, function.name, function.arguments)", "status": "PASS", "duration_ms": 1094}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Preflight", "name": "Binary exists at .build/release/afm", "status": "PASS", "duration_ms": 12}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Preflight", "name": "Server reachable at http://127.0.0.1:9998", "status": "PASS", "duration_ms": 20}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Lifecycle", "name": "/v1/models contains model ID", "status": "PASS", "duration_ms": 35}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Lifecycle", "name": "Basic completion returns content", "status": "PASS", "duration_ms": 4561}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Stop string '5' absent from output", "status": "PASS", "duration_ms": 1707}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Stop", "name": "finish_reason is 'stop' with stop sequence", "status": "PASS", "duration_ms": 12}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Multi-word stop 'and' truncates correctly", "status": "PASS", "duration_ms": 1682}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Stop on newline produces single line", "status": "FAIL", "duration_ms": 1407}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Multiple stop sequences [7, 12]", "status": "PASS", "duration_ms": 1690}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Empty stop array is no-op", "status": "PASS", "duration_ms": 2116}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Streaming: stop string '5' absent", "status": "PASS", "duration_ms": 1707}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Stop sequence '3.' truncates list", "status": "PASS", "duration_ms": 885}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Stop 'stopped' doesn't fire on 'stopping'", "status": "PASS", "duration_ms": 1900}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Stop", "name": "Stop 'llo' fires mid-word in 'hello'", "status": "PASS", "duration_ms": 1743}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Logprobs", "name": "ChoiceLogprobs JSON schema valid", "status": "PASS", "duration_ms": 118}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Logprobs", "name": "top_logprobs count <= requested (5)", "status": "PASS", "duration_ms": 120}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Logprobs", "name": "logprobs=false returns null", "status": "PASS", "duration_ms": 97}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Logprobs", "name": "top_logprobs=99 returns 400", "status": "PASS", "duration_ms": 21}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Logprobs", "name": "Streaming logprobs present and valid", "status": "PASS", "duration_ms": 114}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Logprobs", "name": "top_logprobs=0 returns empty arrays", "status": "PASS", "duration_ms": 108}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Think", "name": "reasoning_content present in response", "status": "PASS", "duration_ms": 12}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Think", "name": "No <think> tags in content field", "status": "PASS", "duration_ms": 28}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Think", "name": "Streaming: reasoning_content in deltas", "status": "PASS", "duration_ms": 874}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Think", "name": "Stop sequence doesn't break think extraction", "status": "PASS", "duration_ms": 1681}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Think", "name": "reasoning_content has meaningful length (>5 chars)", "status": "PASS", "duration_ms": 27}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Tools", "name": "Basic tool call: finish_reason=tool_calls, valid args", "status": "PASS", "duration_ms": 1228}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Tools", "name": "tool_choice=none suppresses tool calls", "status": "PASS", "duration_ms": 999}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Tools", "name": "Tool arguments are valid JSON dict", "status": "PASS", "duration_ms": 988}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Tools", "name": "Streaming: tool calls with finish_reason", "status": "PASS", "duration_ms": 1365}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Tools", "name": "Multi-tool: at least 1 tool call with 2 tools", "status": "PASS", "duration_ms": 1511}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Tools", "name": "Array param: todos is JSON array (not string)", "status": "PASS", "duration_ms": 891}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Tools", "name": "Nullable param: anyOf [string, null] does not crash", "status": "PASS", "duration_ms": 1418}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Tools", "name": "No tools: normal text response", "status": "PASS", "duration_ms": 220}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Cache", "name": "First request: cached_tokens=0", "status": "PASS", "duration_ms": 242}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Cache", "name": "Second identical request: cached_tokens>0", "status": "FAIL", "duration_ms": 238}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Cache", "name": "Different prompt: cached_tokens=0", "status": "PASS", "duration_ms": 227}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Cache", "name": "Streaming: cached_tokens>0 in usage chunk", "status": "FAIL", "duration_ms": 302}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Concurrent", "name": "Two simultaneous requests: both 200", "status": "PASS", "duration_ms": 173}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Concurrent", "name": "Three simultaneous requests: all 200", "status": "PASS", "duration_ms": 248}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Error", "name": "Empty messages \u2192 400", "status": "PASS", "duration_ms": 21}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Error", "name": "Malformed JSON \u2192 400", "status": "PASS", "duration_ms": 22}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Error", "name": "Missing messages field \u2192 400", "status": "PASS", "duration_ms": 21}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Error", "name": "response_format json_object returns valid JSON", "status": "PASS", "duration_ms": 172}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Error", "name": "max_tokens=5 is respected", "status": "PASS", "duration_ms": 116}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Error", "name": "OPTIONS /v1/chat/completions \u2192 200 (CORS)", "status": "PASS", "duration_ms": 22}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Error", "name": "developer role accepted (mapped to system)", "status": "PASS", "duration_ms": 4118}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Kwargs", "name": "enable_thinking=false disables thinking", "status": "PASS", "duration_ms": 85}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Kwargs", "name": "Streaming: enable_thinking=false disables thinking", "status": "PASS", "duration_ms": 85}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Kwargs", "name": "Default (no kwargs) retains thinking", "status": "PASS", "duration_ms": 1400}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Kwargs", "name": "enable_thinking=false (2K tokens) returns content", "status": "PASS", "duration_ms": 85}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "Kwargs", "name": "enable_thinking=true explicitly keeps thinking", "status": "PASS", "duration_ms": 1402}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "Function name correctly extracted", "status": "PASS", "duration_ms": 1069}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "Parameter values are correct string types", "status": "PASS", "duration_ms": 875}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "Mixed-type params (string+bool+int) parse correctly", "status": "PASS", "duration_ms": 1255}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "Nested object param survives XML parsing", "status": "PASS", "duration_ms": 1537}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "tool_choice=required forces tool call", "status": "PASS", "duration_ms": 1209}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "tool_choice={function: get_time} calls correct function", "status": "PASS", "duration_ms": 999}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "Tool call IDs are unique", "status": "PASS", "duration_ms": 1399}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "Streaming: XML tool call assembles valid JSON args", "status": "PASS", "duration_ms": 972}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "Streaming: array param is JSON array (not string)", "status": "PASS", "duration_ms": 1021}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"auto"},"data":{"group": "XMLTools", "name": "Tool call matches OpenAI schema (id, type, function.name, function.arguments)", "status": "PASS", "duration_ms": 1170}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Preflight", "name": "Binary exists at .build/release/afm", "status": "PASS", "duration_ms": 14}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Preflight", "name": "Server reachable at http://127.0.0.1:9998", "status": "PASS", "duration_ms": 23}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Lifecycle", "name": "/v1/models contains model ID", "status": "PASS", "duration_ms": 40}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Lifecycle", "name": "Basic completion returns content", "status": "PASS", "duration_ms": 4940}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Stop string '5' absent from output", "status": "PASS", "duration_ms": 1734}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "finish_reason is 'stop' with stop sequence", "status": "PASS", "duration_ms": 14}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Multi-word stop 'and' truncates correctly", "status": "PASS", "duration_ms": 1758}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Stop on newline produces single line", "status": "FAIL", "duration_ms": 1421}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Multiple stop sequences [7, 12]", "status": "PASS", "duration_ms": 1686}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Empty stop array is no-op", "status": "PASS", "duration_ms": 2119}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Streaming: stop string '5' absent", "status": "PASS", "duration_ms": 1705}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Stop sequence '3.' truncates list", "status": "PASS", "duration_ms": 884}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Stop 'stopped' doesn't fire on 'stopping'", "status": "PASS", "duration_ms": 1905}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Stop", "name": "Stop 'llo' fires mid-word in 'hello'", "status": "PASS", "duration_ms": 1738}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Logprobs", "name": "ChoiceLogprobs JSON schema valid", "status": "PASS", "duration_ms": 118}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Logprobs", "name": "top_logprobs count <= requested (5)", "status": "PASS", "duration_ms": 119}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Logprobs", "name": "logprobs=false returns null", "status": "PASS", "duration_ms": 95}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Logprobs", "name": "top_logprobs=99 returns 400", "status": "PASS", "duration_ms": 21}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Logprobs", "name": "Streaming logprobs present and valid", "status": "PASS", "duration_ms": 113}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Logprobs", "name": "top_logprobs=0 returns empty arrays", "status": "PASS", "duration_ms": 105}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Think", "name": "reasoning_content present in response", "status": "PASS", "duration_ms": 12}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Think", "name": "No <think> tags in content field", "status": "PASS", "duration_ms": 27}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Think", "name": "Streaming: reasoning_content in deltas", "status": "PASS", "duration_ms": 872}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Think", "name": "Stop sequence doesn't break think extraction", "status": "PASS", "duration_ms": 1678}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Think", "name": "reasoning_content has meaningful length (>5 chars)", "status": "PASS", "duration_ms": 26}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "Basic tool call: finish_reason=tool_calls, valid args", "status": "PASS", "duration_ms": 1084}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "tool_choice=none suppresses tool calls", "status": "PASS", "duration_ms": 1007}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "Tool arguments are valid JSON dict", "status": "PASS", "duration_ms": 994}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "Streaming: tool calls with finish_reason", "status": "PASS", "duration_ms": 1071}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "Multi-tool: at least 1 tool call with 2 tools", "status": "PASS", "duration_ms": 1514}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "Array param: todos is JSON array (not string)", "status": "PASS", "duration_ms": 905}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "Nullable param: anyOf [string, null] does not crash", "status": "PASS", "duration_ms": 843}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Tools", "name": "No tools: normal text response", "status": "PASS", "duration_ms": 221}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Cache", "name": "First request: cached_tokens=0", "status": "PASS", "duration_ms": 241}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Cache", "name": "Second identical request: cached_tokens>0", "status": "FAIL", "duration_ms": 241}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Cache", "name": "Different prompt: cached_tokens=0", "status": "PASS", "duration_ms": 229}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Cache", "name": "Streaming: cached_tokens>0 in usage chunk", "status": "FAIL", "duration_ms": 304}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Concurrent", "name": "Two simultaneous requests: both 200", "status": "PASS", "duration_ms": 173}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Concurrent", "name": "Three simultaneous requests: all 200", "status": "PASS", "duration_ms": 248}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "Empty messages \u2192 400", "status": "PASS", "duration_ms": 20}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "Malformed JSON \u2192 400", "status": "PASS", "duration_ms": 22}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "Missing messages field \u2192 400", "status": "PASS", "duration_ms": 20}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "response_format json_object returns valid JSON", "status": "PASS", "duration_ms": 173}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "max_tokens=5 is respected", "status": "PASS", "duration_ms": 111}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "OPTIONS /v1/chat/completions \u2192 200 (CORS)", "status": "PASS", "duration_ms": 21}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Error", "name": "developer role accepted (mapped to system)", "status": "PASS", "duration_ms": 4137}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Kwargs", "name": "enable_thinking=false disables thinking", "status": "PASS", "duration_ms": 84}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Kwargs", "name": "Streaming: enable_thinking=false disables thinking", "status": "PASS", "duration_ms": 85}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Kwargs", "name": "Default (no kwargs) retains thinking", "status": "PASS", "duration_ms": 1405}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Kwargs", "name": "enable_thinking=false (2K tokens) returns content", "status": "PASS", "duration_ms": 85}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "Kwargs", "name": "enable_thinking=true explicitly keeps thinking", "status": "PASS", "duration_ms": 1400}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Function name correctly extracted", "status": "PASS", "duration_ms": 1065}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Parameter values are correct string types", "status": "PASS", "duration_ms": 872}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Mixed-type params (string+bool+int) parse correctly", "status": "PASS", "duration_ms": 1332}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Nested object param survives XML parsing", "status": "PASS", "duration_ms": 1301}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "tool_choice=required forces tool call", "status": "PASS", "duration_ms": 817}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "tool_choice={function: get_time} calls correct function", "status": "PASS", "duration_ms": 1215}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Tool call IDs are unique", "status": "PASS", "duration_ms": 1501}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Streaming: XML tool call assembles valid JSON args", "status": "PASS", "duration_ms": 972}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Streaming: array param is JSON array (not string)", "status": "PASS", "duration_ms": 989}}
+{"_run":{"model":"mlx-community/Qwen3.5-35B-A3B-4bit","parser":"qwen3_xml"},"data":{"group": "XMLTools", "name": "Tool call matches OpenAI schema (id, type, function.name, function.arguments)", "status": "PASS", "duration_ms": 1173}}

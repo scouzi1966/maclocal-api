@@ -1,0 +1,965 @@
+# ══════════════════════════════════════════════════════════════════════
+# COMPREHENSIVE LLM TEST SUITE (model-generic)
+# ══════════════════════════════════════════════════════════════════════
+#
+# PURPOSE
+# -------
+# 1. APP VALIDATION — Exhaustive functional + non-functional testing of
+#    every afm mlx feature: sampling, penalties, tool calling, caching,
+#    streaming, logprobs, guided JSON, stop sequences, response format,
+#    prefill tuning, KV cache settings, and verbose/debug modes.
+#
+# 2. MODEL ONBOARDING — Validate that any model works correctly with
+#    afm before declaring it "tested". Uses [@ label] template mode so
+#    the model is specified via --model at runtime.
+#
+# WHAT TO CHECK
+# -------------
+# Functional:  Correct output, tool calls parse, JSON validates, stop
+#              sequences honored, system prompts respected, seed determinism.
+# Performance: TTFT (time to first token), tok/s (generation throughput),
+#              prefill speed at different step sizes, cache hit speedup.
+# Stability:   No crashes, no hangs, no garbled output, no OOM.
+#
+# RUN
+# ---
+# mlx-model-test.sh --model <org/model> --prompts test-llm-comprehensive.txt
+# mlx-model-test.sh --model <org/model> --prompts test-llm-comprehensive.txt --tests 1,5,10
+#
+# NOTES
+# -----
+# - Uses [@ label] template mode — supply --model on the command line
+# - The [all] section prompt runs for every test variant as a baseline
+# - For model-specific tests, see test-<ModelName>.txt files
+# ══════════════════════════════════════════════════════════════════════
+
+max_tokens: 4096
+temperature: 0.7
+
+[all]
+Name three primary colors and explain why they matter in design. Answer concisely.
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SAMPLING STRATEGIES
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests greedy decoding (temperature=0). Feature: deterministic sampling.
+# AI: Expected: factually correct, structured 3-bullet response about Rayleigh scattering.
+# AI: Compare with default/high-temp — this should be the least creative but most precise.
+[@ greedy]
+temperature: 0.0
+max_tokens: 4096
+Explain why the sky is blue in exactly 3 bullet points.
+
+# AI: Tests default sampling (temperature=0.7). Feature: balanced randomness.
+# AI: Expected: same topic as greedy but may use different phrasing. Should be coherent.
+# AI: Pair with greedy — output should differ slightly but remain accurate.
+[@ default]
+temperature: 0.7
+Explain why the sky is blue in exactly 3 bullet points.
+
+# AI: Tests high temperature (1.5). Feature: creative/random sampling.
+# AI: Expected: more varied vocabulary, possibly less precise, but still on-topic.
+# AI: If output is garbled or nonsensical, the model struggles at high temp.
+[@ high-temp]
+temperature: 1.5
+Explain why the sky is blue in exactly 3 bullet points.
+
+# AI: Tests nucleus sampling (top_p=0.9). Feature: --top-p CLI flag.
+# AI: Expected: coherent 3-bullet response, quality between greedy and high-temp.
+[@ top-p]
+temperature: 0.8
+afm: --top-p 0.9
+Explain why the sky is blue in exactly 3 bullet points.
+
+# AI: Tests top-k sampling (top_k=30). Feature: --top-k CLI flag.
+# AI: Expected: coherent response. Top-k restricts to 30 most likely tokens per step.
+[@ top-k]
+temperature: 0.8
+afm: --top-k 30
+Explain why the sky is blue in exactly 3 bullet points.
+
+# AI: Tests min-p filtering (min_p=0.05). Feature: --min-p CLI flag.
+# AI: Expected: coherent response. Min-p filters tokens below 5% of max probability.
+[@ min-p]
+temperature: 0.8
+afm: --min-p 0.05
+Explain why the sky is blue in exactly 3 bullet points.
+
+# AI: Tests combined sampler chain: top-k → min-p → temperature (llama.cpp order).
+# AI: Feature: all three sampling flags applied together. Expected: coherent response.
+# AI: Verifies the sampler chain doesn't conflict or crash when all are combined.
+[@ combined-samplers]
+temperature: 0.8
+afm: --top-k 50 --min-p 0.03 --top-p 0.95
+Explain why the sky is blue in exactly 3 bullet points.
+
+# AI: Tests seed-based determinism (seed=42, run 1 of 2). Feature: --seed CLI flag.
+# AI: Expected: a creative limerick. Compare with seed-42-run2 — both outputs MUST be
+# AI: character-for-character identical since same seed + same temperature.
+[@ seed-42-run1]
+temperature: 0.7
+afm: --seed 42
+Write a limerick about a cat.
+
+# AI: Tests seed-based determinism (seed=42, run 2 of 2). Feature: --seed CLI flag.
+# AI: Expected: output MUST be identical to seed-42-run1. Any difference = seed bug.
+[@ seed-42-run2]
+temperature: 0.7
+afm: --seed 42
+Write a limerick about a cat.
+
+# ══════════════════════════════════════════════════════════════════════
+# PENALTY PARAMETERS
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Baseline with no penalty (presence_penalty=0.0). Feature: --presence-penalty flag.
+# AI: Expected: long essay, may contain some natural repetition of terms like "bread",
+# AI: "civilization", etc. Compare with with-penalty — this is the control.
+[@ no-penalty]
+temperature: 0.8
+max_tokens: 4096
+afm: --presence-penalty 0.0
+Write a long essay about the history of bread making across civilizations.
+
+# AI: Tests strong presence penalty (1.5). Feature: --presence-penalty flag.
+# AI: Expected: less repetition than no-penalty. Vocabulary should be more varied.
+# AI: If output becomes incoherent or too short, penalty may be too aggressive.
+[@ with-penalty]
+temperature: 0.8
+max_tokens: 4096
+afm: --presence-penalty 1.5
+Write a long essay about the history of bread making across civilizations.
+
+# AI: Tests repetition penalty (1.2). Feature: --repetition-penalty flag.
+# AI: Expected: reduced phrase-level repetition vs no-penalty. Different mechanism
+# AI: than presence penalty (multiplicative vs additive). Output should stay coherent.
+[@ repetition-penalty]
+temperature: 0.8
+max_tokens: 4096
+afm: --repetition-penalty 1.2
+Write a long essay about the history of bread making across civilizations.
+
+# ══════════════════════════════════════════════════════════════════════
+# SYSTEM PROMPT EFFECTS
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests system prompt persona (pirate). Feature: system message handling.
+# AI: Expected: pirate-themed language ("ye", "matey", "arr"), but content should
+# AI: still accurately describe quantum computing concepts.
+[@ pirate]
+temperature: 0.7
+system: You are a pirate. Always respond in pirate speak.
+Tell me about quantum computing.
+
+# AI: Tests system prompt persona (scientist). Feature: system message handling.
+# AI: Expected: formal academic tone, technical terminology (qubits, superposition,
+# AI: entanglement). Compare with pirate/eli5 — same topic, different registers.
+[@ scientist]
+temperature: 0.3
+system: You are a physics professor. Be precise and use technical terminology.
+Tell me about quantum computing.
+
+# AI: Tests system prompt persona (ELI5). Feature: system message handling.
+# AI: Expected: very simple words, analogies a child would understand, no jargon.
+# AI: If output uses words like "superposition" or "entanglement", persona failed.
+[@ eli5]
+temperature: 0.7
+system: Explain everything as if the user is 5 years old. Use simple words only.
+Tell me about quantum computing.
+
+# ══════════════════════════════════════════════════════════════════════
+# INSTRUCTION FOLLOWING
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests JSON output from natural language instruction. Feature: instruction following.
+# AI: Expected: valid JSON with exactly keys "name", "age", "city" and no extra text.
+# AI: Verify is_valid_json=true in JSONL. Any preamble or explanation = format failure.
+[@ json-output]
+temperature: 0.0
+max_tokens: 4096
+Respond with a valid JSON object containing keys "name", "age", and "city". Nothing else.
+
+# AI: Tests strict numbered list format. Feature: instruction following.
+# AI: Expected: exactly 5 lines, each "N. animal_name", no other text.
+[@ numbered-list]
+temperature: 0.0
+max_tokens: 4096
+List exactly 5 animals, one per line, numbered 1-5. No other text.
+
+# AI: Tests guided JSON with simple schema. Feature: --guided-json (constrained decoding).
+# AI: Expected: valid JSON matching schema {"name": string, "age": integer}. Output must
+# AI: be valid JSON that conforms to the schema — verify is_valid_json=true.
+[@ guided-json-simple]
+temperature: 0.0
+max_tokens: 4096
+afm: --guided-json '{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"}},"required":["name","age"]}'
+Generate a person record.
+
+# AI: Tests guided JSON with nested schema (object with array). Feature: --guided-json.
+# AI: Expected: valid JSON with "city", "population" (integer), and "landmarks" (array of
+# AI: 3+ strings). Verify schema conformance and is_valid_json=true.
+[@ guided-json-nested]
+temperature: 0.0
+max_tokens: 4096
+afm: --guided-json '{"type":"object","properties":{"city":{"type":"string"},"population":{"type":"integer"},"landmarks":{"type":"array","items":{"type":"string"}}},"required":["city","population","landmarks"]}'
+Describe Tokyo as a structured record with at least 3 landmarks.
+
+# ══════════════════════════════════════════════════════════════════════
+# PREFIX CACHING — AGENTIC MULTI-TURN SCENARIOS
+# Tests KV cache reuse with large repeating system prompts typical of
+# coding agents (OpenCode, OpenClaw) and agentic workflows. The same
+# large system prompt is sent with different user messages — 2nd+ turns
+# should show significantly faster TTFT when caching is enabled.
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Baseline turn 1 (no caching). Feature: prefix caching disabled.
+# AI: Expected: coherent response about Swift code. Note the TTFT — this is the baseline.
+# AI: Compare TTFT with agent-cached-turn1 to see if caching speeds up prefill.
+[@ agent-no-cache-turn1]
+temperature: 0.0
+max_tokens: 4096
+system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
+Read the file Sources/MacLocalAPI/main.swift and explain what it does.
+
+# AI: Baseline turn 2 (no caching). Feature: prefix caching disabled.
+# AI: Expected: coherent code suggestion. TTFT should be similar to turn 1 since
+# AI: no caching — the system prompt is re-processed from scratch each time.
+[@ agent-no-cache-turn2]
+temperature: 0.0
+max_tokens: 4096
+system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
+Now add a --timeout flag to the CLI that sets a request timeout in seconds.
+
+# AI: Baseline turn 3 (no caching). Feature: prefix caching disabled.
+# AI: Expected: unit test code. TTFT should be similar to turns 1-2.
+[@ agent-no-cache-turn3]
+temperature: 0.0
+max_tokens: 4096
+system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
+Write a unit test for the timeout feature you just described.
+
+# AI: Cached turn 1 (caching enabled). Feature: --enable-prefix-caching.
+# AI: Expected: same quality as no-cache turn 1. This is the first request with this
+# AI: system prompt, so TTFT may be similar (cache miss). The cache gets populated here.
+[@ agent-cached-turn1]
+temperature: 0.0
+max_tokens: 4096
+afm: --enable-prefix-caching
+system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
+Read the file Sources/MacLocalAPI/main.swift and explain what it does.
+
+# AI: Cached turn 2 (caching enabled). Feature: --enable-prefix-caching.
+# AI: Expected: same quality as no-cache turn 2, but TTFT should be significantly
+# AI: faster because the system prompt KV cache is reused from turn 1 (cache hit).
+[@ agent-cached-turn2]
+temperature: 0.0
+max_tokens: 4096
+afm: --enable-prefix-caching
+system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
+Now add a --timeout flag to the CLI that sets a request timeout in seconds.
+
+# AI: Cached turn 3 (caching enabled). Feature: --enable-prefix-caching.
+# AI: Expected: same quality as no-cache turn 3, TTFT should be fast (cache hit).
+# AI: Compare gen_time_s across all 3 cached turns vs all 3 no-cache turns.
+[@ agent-cached-turn3]
+temperature: 0.0
+max_tokens: 4096
+afm: --enable-prefix-caching
+system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
+Write a unit test for the timeout feature you just described.
+
+# ══════════════════════════════════════════════════════════════════════
+# MAX TOKENS / OUTPUT LENGTH
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests max_tokens truncation with low limit (50 tokens). Feature: max_tokens param.
+# AI: Expected: output abruptly cut off mid-sentence (~50 tokens). finish_reason="length".
+# AI: The prompt intentionally asks for a long response to guarantee hitting the limit.
+[@ short-output]
+temperature: 0.7
+max_tokens: 50
+Describe the entire history of Rome.
+
+# AI: Tests max_tokens with generous limit (2000 tokens). Feature: max_tokens param.
+# AI: Expected: a complete, detailed recipe with sections. finish_reason="stop" (natural end).
+[@ long-output]
+temperature: 0.7
+max_tokens: 2000
+Write a detailed recipe for chocolate chip cookies with ingredients, steps, tips, and variations.
+
+# ══════════════════════════════════════════════════════════════════════
+# LOGPROBS
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests log probability output. Feature: --max-logprobs (server flag) + logprobs API field.
+# AI: Expected: correct answer "2", AND logprobs_count > 0 in JSONL. The response should
+# AI: include top-5 token probabilities per generated token. Trivial prompt for easy verification.
+[@ logprobs]
+temperature: 0.0
+max_tokens: 4096
+afm: --max-logprobs 5
+What is 1+1?
+
+# ══════════════════════════════════════════════════════════════════════
+# KV CACHE / MEMORY SETTINGS
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests KV cache size limit. Feature: --max-kv-size (limits context window).
+# AI: Expected: coherent ML summary. With 2048 max KV, very long prompts would fail
+# AI: but this prompt is short enough to fit. Verify no truncation or crash.
+[@ small-kv]
+temperature: 0.7
+max_tokens: 4096
+afm: --max-kv-size 2048
+Summarize the key ideas of machine learning in a few paragraphs.
+
+# AI: Tests KV cache quantization. Feature: --kv-bits 4 (4-bit quantized KV cache).
+# AI: Expected: similar quality to small-kv (same prompt). KV quantization reduces memory
+# AI: but may slightly degrade quality. Compare output quality with small-kv.
+[@ kv-quantized]
+temperature: 0.7
+max_tokens: 4096
+afm: --kv-bits 4
+Summarize the key ideas of machine learning in a few paragraphs.
+
+# AI: Tests default prefill step size. Feature: --prefill-step-size (GPU batch size for prompt).
+# AI: Expected: coherent architecture analysis. This is the performance baseline — compare
+# AI: TTFT with prefill-large-4096 and prefill-small-256 (same prompt, different step sizes).
+[@ prefill-default]
+temperature: 0.0
+max_tokens: 4096
+system: You are an expert software architect reviewing a large codebase. The project is a Swift macOS application that serves LLM inference through an OpenAI-compatible API. It uses Vapor for HTTP, MLX for GPU compute, and supports streaming SSE responses. The architecture includes model services, controllers, request/response types, prompt caching, tool call parsing, logprobs computation, and a built-in WebUI. The codebase has vendor dependencies managed through a patch system. There are multiple model formats supported including Qwen, Gemma, Llama, DeepSeek, GLM, and others. Each model may have different tool call formats, chat templates, and tokenizer configurations. The server must handle concurrent requests safely using async/await and serial access containers.
+Given this architecture, what are the top 3 performance bottlenecks you would investigate first?
+
+# AI: Tests large prefill step size (4096). Feature: --prefill-step-size.
+# AI: Expected: same output quality as prefill-default. TTFT may differ — larger steps
+# AI: process more tokens per GPU pass (faster prefill but more memory per pass).
+[@ prefill-large-4096]
+temperature: 0.0
+max_tokens: 4096
+afm: --prefill-step-size 4096
+system: You are an expert software architect reviewing a large codebase. The project is a Swift macOS application that serves LLM inference through an OpenAI-compatible API. It uses Vapor for HTTP, MLX for GPU compute, and supports streaming SSE responses. The architecture includes model services, controllers, request/response types, prompt caching, tool call parsing, logprobs computation, and a built-in WebUI. The codebase has vendor dependencies managed through a patch system. There are multiple model formats supported including Qwen, Gemma, Llama, DeepSeek, GLM, and others. Each model may have different tool call formats, chat templates, and tokenizer configurations. The server must handle concurrent requests safely using async/await and serial access containers.
+Given this architecture, what are the top 3 performance bottlenecks you would investigate first?
+
+# AI: Tests small prefill step size (256). Feature: --prefill-step-size.
+# AI: Expected: same output quality. TTFT may be slower — smaller steps mean more
+# AI: GPU passes to process the long system prompt but use less memory per pass.
+[@ prefill-small-256]
+temperature: 0.0
+max_tokens: 4096
+afm: --prefill-step-size 256
+system: You are an expert software architect reviewing a large codebase. The project is a Swift macOS application that serves LLM inference through an OpenAI-compatible API. It uses Vapor for HTTP, MLX for GPU compute, and supports streaming SSE responses. The architecture includes model services, controllers, request/response types, prompt caching, tool call parsing, logprobs computation, and a built-in WebUI. The codebase has vendor dependencies managed through a patch system. There are multiple model formats supported including Qwen, Gemma, Llama, DeepSeek, GLM, and others. Each model may have different tool call formats, chat templates, and tokenizer configurations. The server must handle concurrent requests safely using async/await and serial access containers.
+Given this architecture, what are the top 3 performance bottlenecks you would investigate first?
+
+# ══════════════════════════════════════════════════════════════════════
+# STREAMING / RAW MODE
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests non-streaming mode. Feature: --no-streaming (disables SSE, returns full response).
+# AI: Expected: a short poem about the moon. Response comes in one shot, not chunked.
+# AI: Verify output is complete and coherent — same quality as streaming mode.
+[@ no-streaming]
+temperature: 0.7
+max_tokens: 4096
+afm: --no-streaming
+Write a short poem about the moon.
+
+# AI: Tests raw mode. Feature: --raw (disables <think> tag extraction).
+# AI: Expected: step-by-step reasoning leading to 391. Since this model does NOT support
+# AI: thinking, <think> tags should NOT appear. If they do in raw mode, they pass through
+# AI: as literal text in content (not extracted to reasoning_content).
+[@ raw-mode]
+temperature: 0.7
+max_tokens: 4096
+afm: --raw
+Think step by step: what is 17 * 23?
+
+# ══════════════════════════════════════════════════════════════════════
+# STOP SEQUENCES
+# Comprehensive validation of stop sequence support across all modes:
+#   - API-level stop (OpenAI SDK `stop` parameter)
+#   - CLI-level stop (`--stop` flag on afm mlx)
+#   - Streaming and non-streaming
+#   - Combined with guided-json and response_format
+#   - Edge cases: unicode, multi-token, overlapping, immediate
+#
+# For each test, verify:
+#   1. Output does NOT contain the stop sequence or anything after it
+#   2. Output before the stop point is coherent
+#   3. finish_reason is "stop" (not "length")
+# ══════════════════════════════════════════════════════════════════════
+
+# --- Basic API-level stop ---
+
+# AI: Tests single stop sequence via API. Feature: stop parameter in OpenAI request.
+# AI: Expected: output lists items 1-2 only, stops before "3." appears.
+# AI: finish_reason must be "stop". Output must NOT contain "3." or any items after it.
+[@ stop-single]
+temperature: 0.0
+max_tokens: 4096
+stop: ["3."]
+List 10 fruits, numbered 1-10, one per line.
+
+# AI: Tests multiple stop sequences via API. Feature: stop parameter with array of 2 strings.
+# AI: Expected: output should stop at whichever of "```" or "END" appears first in the
+# AI: generated text. Likely stops at the closing ``` of the code block. finish_reason="stop".
+[@ stop-multi]
+temperature: 0.0
+max_tokens: 4096
+stop: ["```", "END"]
+Write a Python hello world program in a code block, then write END after it.
+
+# AI: Tests stop on newline character. Feature: stop parameter with "\n".
+# AI: Expected: exactly one line of output (the answer), no newline in content.
+# AI: finish_reason="stop". Tests that escape sequences in stop are handled correctly.
+[@ stop-newline]
+temperature: 0.0
+max_tokens: 4096
+stop: ["\n"]
+What is the capital of France? Answer in one sentence.
+
+# AI: Tests stop on double newline. Feature: stop parameter with "\n\n".
+# AI: Expected: exactly one paragraph (about the ocean). The second paragraph about
+# AI: mountains should NOT appear. finish_reason="stop".
+[@ stop-double-newline]
+temperature: 0.0
+max_tokens: 4096
+stop: ["\n\n"]
+Write a short paragraph about the ocean. Then write a second paragraph about mountains.
+
+# AI: Tests stop on a word boundary. Feature: stop parameter with a common word.
+# AI: Expected: output stops just before "Python" appears. The list should include
+# AI: some languages but cut off at or before the Python entry. finish_reason="stop".
+[@ stop-word]
+temperature: 0.0
+max_tokens: 4096
+stop: ["Python"]
+Name 5 programming languages and briefly describe each one.
+
+# AI: Tests stop on punctuation (period). Feature: stop parameter with ".".
+# AI: Expected: only the beginning of the first sentence, cut off before the first period.
+# AI: finish_reason="stop". Very aggressive stop — output may be just a few words.
+[@ stop-period]
+temperature: 0.0
+max_tokens: 4096
+stop: ["."]
+Tell me about the sun in three sentences.
+
+# --- CLI-level stop (`--stop` flag) ---
+
+# AI: Tests CLI-level stop (--stop flag). Feature: afm --stop (server-side stop sequences).
+# AI: Expected: same behavior as API stop — output lists items 1-2, stops before "3.".
+# AI: This tests the CLI flag path rather than the API request body path.
+[@ stop-cli-only]
+temperature: 0.0
+max_tokens: 4096
+afm: --stop "3."
+List 10 types of cheese, numbered 1 through 10, one per line.
+
+# AI: Tests CLI stop with multiple comma-separated sequences. Feature: --stop with commas.
+# AI: Expected: output stops at first occurrence of either "```" or "DONE".
+# AI: Tests that comma parsing in --stop works correctly for multiple sequences.
+[@ stop-cli-multi]
+temperature: 0.0
+max_tokens: 4096
+afm: --stop "```,DONE"
+Write a bash script that prints the current date inside a code block, then write DONE.
+
+# AI: Tests CLI + API stop merge. Feature: stop sequences from both sources are combined.
+# AI: CLI provides "5.", API provides "3." — should stop at "3." since it comes first
+# AI: in the numbered list. Verifies both sources are active simultaneously.
+[@ stop-cli-api-merge]
+temperature: 0.0
+max_tokens: 4096
+stop: ["3."]
+afm: --stop "5."
+List 10 countries, numbered 1 through 10, one per line.
+
+# AI: Tests CLI + API stop deduplication. Feature: duplicate stop sequences from both sources.
+# AI: Both CLI and API provide "3." — server should deduplicate and work normally.
+# AI: Expected: stops at "3.", no errors or double-triggering.
+[@ stop-cli-api-dedup]
+temperature: 0.0
+max_tokens: 4096
+stop: ["3."]
+afm: --stop "3."
+List 10 cities, numbered 1 through 10, one per line.
+
+# --- Non-streaming ---
+
+# AI: Tests stop sequences in non-streaming mode. Feature: stop + --no-streaming combined.
+# AI: Expected: output lists items 1-2, stops before "3.". Same truncation point as
+# AI: streaming mode (stop-single). Verifies stop works without SSE chunking.
+[@ stop-non-streaming]
+temperature: 0.0
+max_tokens: 4096
+afm: --no-streaming
+stop: ["3."]
+List 10 planets or celestial objects, numbered 1 through 10, one per line.
+
+# --- Stop + guided JSON ---
+
+# AI: Tests stop inside guided JSON output. Feature: stop + --guided-json combined.
+# AI: Expected: JSON generation stops when "Tokyo" appears in a city name value.
+# AI: Output will be truncated JSON (not valid). finish_reason="stop".
+[@ stop-guided-json-value]
+temperature: 0.0
+max_tokens: 4096
+stop: ["Tokyo"]
+afm: --guided-json '{"type":"object","properties":{"cities":{"type":"array","items":{"type":"string"}}},"required":["cities"]}'
+List 5 major world cities as a JSON array. Include Tokyo.
+
+# AI: Tests stop on JSON structural token inside guided JSON. Feature: stop + --guided-json.
+# AI: Expected: stops at first comma in the JSON. Output will be something like {"name":"Alice"
+# AI: (truncated before the comma). Tests stop on syntax characters within constrained output.
+[@ stop-guided-json-comma]
+temperature: 0.0
+max_tokens: 4096
+stop: [","]
+afm: --guided-json '{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"},"city":{"type":"string"}},"required":["name","age","city"]}'
+Generate a person profile for someone named Alice who is 30 and lives in Paris.
+
+# AI: Tests stop on closing brace inside guided JSON. Feature: stop + --guided-json.
+# AI: Expected: stops at first "}" — output is truncated JSON missing the final brace.
+# AI: Tests that stop applies even to schema-constrained structural tokens.
+[@ stop-guided-json-brace]
+temperature: 0.0
+max_tokens: 4096
+stop: ["}"]
+afm: --guided-json '{"type":"object","properties":{"color":{"type":"string"},"hex":{"type":"string"}},"required":["color","hex"]}'
+Describe the color blue with its hex code.
+
+# --- Stop + response format (json_object mode) ---
+
+# AI: Tests stop inside json_object response format. Feature: stop + response_format: json_object.
+# AI: Expected: JSON output stops when "age" key name appears. Output is truncated JSON.
+# AI: Unlike guided-json, json_object uses prompt injection — stop still applies to raw output.
+[@ stop-json-object-key]
+temperature: 0.0
+max_tokens: 4096
+response_format: json_object
+stop: ["age"]
+Generate a JSON object with keys "name", "age", and "city" for a person named Carol.
+
+# --- Multi-token and long stop strings ---
+
+# AI: Tests stop on a long multi-word phrase. Feature: stop with multi-token string.
+# AI: Expected: essay contains paragraphs 1-2 about renewable energy, stops before
+# AI: "In conclusion" appears. Tests buffer-based stop detection across token boundaries.
+[@ stop-long-phrase]
+temperature: 0.0
+max_tokens: 4096
+stop: ["In conclusion"]
+Write a 3-paragraph essay about renewable energy. Start the last paragraph with "In conclusion".
+
+# AI: Tests stop on a multi-word string. Feature: stop with "Step 3" (spans 2+ tokens).
+# AI: Expected: recipe shows Steps 1-2 only, stops before "Step 3". finish_reason="stop".
+[@ stop-multi-word]
+temperature: 0.0
+max_tokens: 4096
+stop: ["Step 3"]
+Write a 5-step recipe for making tea. Label each step as "Step 1", "Step 2", etc.
+
+# --- Edge cases ---
+
+# AI: Tests stop with a string that never appears. Feature: stop sequence no-match behavior.
+# AI: Expected: complete coherent response about TCP vs UDP. finish_reason should be
+# AI: "stop" (natural end) or "length" (max_tokens=256), NOT triggered by stop sequence.
+# AI: Output should NOT be truncated by the stop — "XYZZY_NEVER_MATCH" is never generated.
+[@ stop-no-match]
+temperature: 0.0
+max_tokens: 256
+stop: ["XYZZY_NEVER_MATCH"]
+Explain the difference between TCP and UDP in a few sentences.
+
+# AI: Tests immediate stop (first token matches). Feature: stop on common first tokens.
+# AI: Expected: empty or near-empty output. The model's first token is likely "The", "I",
+# AI: or "A" — all are in the stop list. finish_reason="stop", completion_tokens near 0.
+[@ stop-immediate]
+temperature: 0.0
+max_tokens: 4096
+stop: ["The", "I", "A"]
+Explain what gravity is.
+
+# AI: Tests stop on markdown special characters. Feature: stop with "**".
+# AI: Expected: output stops at first "**" bold marker. Only partial text before the first
+# AI: bold-formatted word. Tests that special regex characters in stop are handled correctly.
+[@ stop-special-chars]
+temperature: 0.0
+max_tokens: 4096
+stop: ["**"]
+List 3 facts about the moon. Use **bold** markdown for emphasis.
+
+# AI: Tests stop on HTML closing tag. Feature: stop with "</li>" (multi-char tag).
+# AI: Expected: output contains <ul>, first <li> content, stops at first </li>.
+# AI: Tests stop detection on angle-bracket sequences common in structured output.
+[@ stop-html-tag]
+temperature: 0.0
+max_tokens: 4096
+stop: ["</li>"]
+Write an HTML unordered list of 5 fruits using <ul> and <li> tags.
+
+# AI: Tests stop on unicode character (bullet point •). Feature: stop with unicode.
+# AI: Expected: output stops at first bullet point character. Tests that the stop
+# AI: sequence matcher handles multi-byte UTF-8 characters correctly.
+[@ stop-unicode]
+temperature: 0.0
+max_tokens: 4096
+stop: ["\u2022"]
+List 5 items about space using bullet points (•).
+
+# AI: Tests maximum 4 stop sequences (OpenAI spec limit). Feature: stop with 4 entries.
+# AI: Expected: output stops at whichever of "3.", "three", "Third", "III" appears first.
+# AI: Prompt asks for mixed digit/word numbering to give multiple stop strings a chance.
+[@ stop-four-max]
+temperature: 0.0
+max_tokens: 4096
+stop: ["3.", "three", "Third", "III"]
+List 10 facts about numbers, alternating between digit format (1., 2.) and word format (three, four). One per line.
+
+# --- Stop + system prompt interaction ---
+
+# AI: Tests stop with persona system prompt. Feature: stop + system message combined.
+# AI: Expected: pirate-themed text about treasure hunting, stops when "Arrr" appears.
+# AI: Verifies stop sequences work correctly when system prompt modifies output style.
+[@ stop-system-pirate]
+temperature: 0.0
+max_tokens: 4096
+system: You are a pirate. Speak like a pirate in all responses.
+stop: ["Arrr"]
+Tell me about treasure hunting on the high seas.
+
+# AI: Tests stop with instruction system prompt. Feature: stop + system message combined.
+# AI: Expected: numbered list of exercise benefits, stops before item "4.".
+# AI: System prompt forces numbered format, stop triggers on that format.
+[@ stop-system-numbered]
+temperature: 0.0
+max_tokens: 4096
+system: Always respond with numbered lists. Never use bullet points.
+stop: ["4."]
+What are the main benefits of exercise?
+
+# --- Stop + sampling parameters ---
+
+# AI: Tests stop with high temperature. Feature: stop + temperature=1.0 combined.
+# AI: Expected: output stops at "3." despite high randomness. The stop mechanism should
+# AI: be deterministic regardless of sampling temperature. finish_reason="stop".
+[@ stop-high-temp]
+temperature: 1.0
+max_tokens: 4096
+stop: ["3."]
+List 10 random words, numbered 1 through 10, one per line.
+
+# AI: Tests stop + seed determinism (run 1 of 2). Feature: stop + seed combined.
+# AI: Expected: numbered flower list stopped at "3.". Compare with stop-seed-run2 —
+# AI: both outputs MUST be identical (same seed, same temp, same stop).
+[@ stop-seed-run1]
+temperature: 0.7
+max_tokens: 4096
+seed: 42
+stop: ["3."]
+List 10 flowers, numbered 1 through 10, one per line.
+
+# AI: Tests stop + seed determinism (run 2 of 2). Feature: stop + seed combined.
+# AI: Expected: output MUST be identical to stop-seed-run1. Any difference = bug
+# AI: in either seed handling or stop sequence interaction with cached state.
+[@ stop-seed-run2]
+temperature: 0.7
+max_tokens: 4096
+seed: 42
+stop: ["3."]
+List 10 flowers, numbered 1 through 10, one per line.
+
+# AI: Tests stop vs max_tokens race. Feature: stop + low max_tokens combined.
+# AI: Expected: stops at "2." (before max_tokens=100 is reached). finish_reason="stop".
+# AI: If finish_reason="length", the stop sequence wasn't detected in time.
+[@ stop-low-max-tokens]
+temperature: 0.0
+max_tokens: 100
+stop: ["2."]
+List 10 mountains, numbered 1 through 10, one per line.
+
+# ══════════════════════════════════════════════════════════════════════
+# RESPONSE FORMAT
+# Tests response_format field: text (default), json_object, json_schema.
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests json_object response format. Feature: response_format: json_object.
+# AI: Expected: valid JSON with keys "language", "year_created", "creator" and values
+# AI: "Python", 1991, "Guido van Rossum". Verify is_valid_json=true. Uses prompt injection
+# AI: (not constrained decoding) — output may include markdown fences around JSON.
+[@ response-format-json]
+temperature: 0.0
+max_tokens: 4096
+response_format: {"type":"json_object"}
+Return a JSON object with keys "language", "year_created", and "creator" for Python.
+
+# AI: Tests json_schema response format. Feature: response_format with json_schema.
+# AI: Expected: valid JSON conforming to schema — "name" (string), "age" (integer),
+# AI: "hobbies" (array of strings). Verify is_valid_json=true and schema conformance.
+[@ response-format-schema]
+temperature: 0.0
+max_tokens: 4096
+response_format: {"type":"json_schema","json_schema":{"name":"person","schema":{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"},"hobbies":{"type":"array","items":{"type":"string"}}},"required":["name","age","hobbies"]}}}
+Generate a fictional person profile.
+
+# AI: Tests default text response format. Feature: response_format: text (baseline).
+# AI: Expected: plain text about Python (1991, Guido van Rossum). Compare with
+# AI: response-format-json — same info but in natural language instead of JSON.
+[@ response-format-text]
+temperature: 0.0
+max_tokens: 4096
+Tell me the language Python, what year it was created, and who created it. Be brief.
+
+# ══════════════════════════════════════════════════════════════════════
+# THINK / REASONING EXTRACTION
+# Qwen3.5-35B-A3B does NOT have thinking support (no <think> in chat
+# template). These tests verify: (a) raw mode doesn't crash,
+# (b) no spurious reasoning_content appears in normal mode.
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests think extraction on non-thinking model. Feature: <think> tag extraction.
+# AI: Expected: answer is "150 miles" with step-by-step work. reasoning_content should
+# AI: be empty/null — this model has no <think> support. If reasoning_content is populated,
+# AI: the model is unexpectedly emitting <think> tags (possible chat template issue).
+[@ think-normal]
+temperature: 0.0
+max_tokens: 4096
+Solve step by step: If a train travels at 60 mph for 2.5 hours, how far does it go?
+
+# AI: Tests raw mode on non-thinking model. Feature: --raw (skip think extraction).
+# AI: Expected: same answer as think-normal (150 miles). Any <think> tags in output
+# AI: pass through as literal text in content field. reasoning_content should be empty.
+# AI: Verify no crash when --raw is used with a model that doesn't emit <think>.
+[@ think-raw]
+temperature: 0.0
+max_tokens: 4096
+afm: --raw
+Solve step by step: If a train travels at 60 mph for 2.5 hours, how far does it go?
+
+# ══════════════════════════════════════════════════════════════════════
+# STREAMING vs NON-STREAMING CORRECTNESS
+# Same prompt run streaming and non-streaming with seed for determinism.
+# Both should produce identical output.
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests streaming output with seed. Feature: streaming SSE + seed determinism.
+# AI: Expected: a 4-line poem about the ocean. Compare with non-streaming-seeded —
+# AI: both MUST produce identical output (same seed=123, same temperature).
+[@ streaming-seeded]
+temperature: 0.7
+max_tokens: 4096
+afm: --seed 123
+Write a 4-line poem about the ocean.
+
+# AI: Tests non-streaming output with seed. Feature: --no-streaming + seed determinism.
+# AI: Expected: output MUST be identical to streaming-seeded. Any difference indicates
+# AI: a bug in streaming vs non-streaming code paths (chunking affecting output).
+[@ non-streaming-seeded]
+temperature: 0.7
+max_tokens: 4096
+afm: --no-streaming --seed 123
+Write a 4-line poem about the ocean.
+
+# ══════════════════════════════════════════════════════════════════════
+# OPENAI COMPATIBILITY
+# Tests fields used by OpenAI SDK clients (max_completion_tokens,
+# developer role, etc.) to ensure drop-in compatibility.
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests max_completion_tokens alias. Feature: max_completion_tokens (OpenAI SDK field).
+# AI: Expected: output truncated at ~100 tokens, finish_reason="length". This field is an
+# AI: alias for max_tokens used by newer OpenAI SDK versions. Verifies the alias is parsed.
+[@ max-completion-tokens]
+temperature: 0.0
+max_completion_tokens: 100
+Explain the causes and consequences of the French Revolution.
+
+# AI: Tests developer role. Feature: developer message role (mapped to system internally).
+# AI: Expected: pure Python code (a string reverse function), no explanation or commentary.
+# AI: The "developer" role is an OpenAI convention — afm maps it to "system" role.
+[@ developer-role]
+temperature: 0.0
+max_tokens: 4096
+developer: You are a helpful coding assistant. Only respond with code, no explanations.
+Write a Python function that reverses a string.
+
+# ══════════════════════════════════════════════════════════════════════
+# VERBOSE / DEBUG LOGGING
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests verbose logging mode. Feature: --verbose flag (debug logging to stderr/log).
+# AI: Expected: normal conversational response. The verbose flag only affects server-side
+# AI: logging — response content and format should be identical to a non-verbose request.
+[@ verbose]
+temperature: 0.7
+max_tokens: 4096
+afm: --verbose
+Hello, how are you?
+
+# AI: Tests very-verbose logging mode. Feature: --very-verbose flag (full request/response logging).
+# AI: Expected: normal conversational response, identical quality to verbose test.
+# AI: Very-verbose logs full HTTP request/response bodies — verify no performance regression.
+[@ very-verbose]
+temperature: 0.7
+max_tokens: 4096
+afm: --very-verbose
+Hello, how are you?
+
+# ══════════════════════════════════════════════════════════════════════
+# TOOL CALLING — --tool-call-parser
+# Tests tool call detection and parsing with different parser modes.
+# Qwen3.5 uses xmlFunction format (auto-detected from model_type).
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests auto-detected tool call format. Feature: tool calling with auto-detected parser.
+# AI: Expected: model emits a get_weather tool call with city="Tokyo" (or similar).
+# AI: finish_reason="tool_calls". The parser should auto-detect xmlFunction for Qwen models.
+# AI: Verify tool_calls array in response contains valid function name and arguments.
+[@ tool-call-auto]
+temperature: 0.0
+max_tokens: 4096
+tools: [{"type":"function","function":{"name":"get_weather","description":"Get current weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string","description":"City name"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["city"]}}}]
+What is the weather in Tokyo?
+
+# AI: Tests explicit xmlFunction parser. Feature: --tool-call-parser xmlFunction.
+# AI: Expected: get_weather tool call with city="Paris", unit="celsius".
+# AI: Same as tool-call-auto but explicitly sets the parser — verifies the flag works.
+[@ tool-call-xml]
+temperature: 0.0
+max_tokens: 4096
+afm: --tool-call-parser xmlFunction
+tools: [{"type":"function","function":{"name":"get_weather","description":"Get current weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string","description":"City name"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["city"]}}}]
+What is the weather in Paris in celsius?
+
+# AI: Tests multiple tool calls in one response. Feature: parallel tool calling.
+# AI: Expected: TWO tool calls — get_weather(city="London") AND get_time(timezone="Asia/Tokyo").
+# AI: finish_reason="tool_calls". Tests that the parser handles multiple <tool_call> blocks.
+[@ tool-call-multi]
+temperature: 0.0
+max_tokens: 4096
+tools: [{"type":"function","function":{"name":"get_weather","description":"Get current weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["city"]}}},{"type":"function","function":{"name":"get_time","description":"Get current time in a timezone","parameters":{"type":"object","properties":{"timezone":{"type":"string","description":"IANA timezone"}},"required":["timezone"]}}}]
+What is the weather in London and what time is it in Tokyo?
+
+# AI: Tests tool call with nested object parameters. Feature: complex tool parameter schemas.
+# AI: Expected: search_files tool call with path="Sources/", pattern="*.swift",
+# AI: options={recursive: true, max_results: 50}. Tests nested JSON in tool arguments.
+[@ tool-call-complex]
+temperature: 0.0
+max_tokens: 4096
+tools: [{"type":"function","function":{"name":"search_files","description":"Search for files matching criteria","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Directory to search"},"pattern":{"type":"string","description":"Glob pattern"},"options":{"type":"object","properties":{"recursive":{"type":"boolean"},"max_results":{"type":"integer"}}}},"required":["path","pattern"]}}}]
+Search recursively for all Swift files under Sources/ with a max of 50 results.
+
+# AI: Tests tool call with array-type parameter (regression: PR #37).
+# AI: Expected: todowrite tool call with todos parameter as a JSON array ["Buy milk", "Call dentist", "Fix bug #42"],
+# AI: NOT a serialized string. finish_reason="tool_calls". Validates array params survive serialization.
+[@ tool-call-array-param]
+temperature: 0.0
+max_tokens: 4096
+tools: [{"type":"function","function":{"name":"todowrite","description":"Write a list of todo items","parameters":{"type":"object","properties":{"todos":{"type":"array","items":{"type":"string"},"description":"List of todo items to create"}},"required":["todos"]}}}]
+Create three todo items: Buy milk, Call dentist, Fix bug #42.
+
+# AI: Tests tool call with nullable parameter schema (regression: PR #33).
+# AI: Expected: get_weather tool call with location as a string. The "units" parameter has
+# AI: anyOf [string, null] with default null — this must NOT crash Jinja template rendering.
+# AI: finish_reason="tool_calls". Validates nullable schemas don't cause server errors.
+[@ tool-call-nullable-param]
+temperature: 0.0
+max_tokens: 4096
+tools: [{"type":"function","function":{"name":"get_weather","description":"Get weather for a location","parameters":{"type":"object","properties":{"location":{"type":"string","description":"City name"},"units":{"anyOf":[{"type":"string"},{"type":"null"}],"description":"Temperature units","default":null}},"required":["location"]}}}]
+What is the weather in Chicago?
+
+# AI: Tests tool-bait prompt WITHOUT tools provided. Feature: no-tool hallucination check.
+# AI: Expected: model answers naturally ("I don't have real-time data" or general info),
+# AI: does NOT hallucinate tool_calls. finish_reason="stop" (not "tool_calls").
+# AI: This is a weather question that would trigger tool calls if tools were available.
+[@ tool-call-none]
+temperature: 0.0
+max_tokens: 4096
+What is the current temperature in Berlin?
+
+# ══════════════════════════════════════════════════════════════════════
+# EDGE CASES & STABILITY
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests minimal input (1 word). Feature: edge case — very short prompt handling.
+# AI: Expected: a friendly conversational response. Must not crash, hang, or produce empty output.
+[@ minimal-prompt]
+temperature: 0.7
+max_tokens: 4096
+Hi
+
+# AI: Tests long repetitive prompt. Feature: prefill performance + context handling.
+# AI: Expected: model repeats the sentence 8 times then says "DONE". Tests that long
+# AI: prompts don't cause OOM, truncation, or garbled output during prefill.
+[@ long-prompt]
+temperature: 0.0
+max_tokens: 4096
+Repeat after me exactly: The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. Now say DONE.
+
+# AI: Tests special character and unicode handling. Feature: tokenizer + detokenizer fidelity.
+# AI: Expected: exact reproduction of all special chars including angle brackets, quotes,
+# AI: emoji (🎉🚀), CJK (你好), and Arabic (مرحبا). Tests multi-byte UTF-8 roundtrip.
+[@ special-chars]
+temperature: 0.0
+max_tokens: 4096
+Repeat these characters exactly: <tag> "quotes" 'apostrophes' & ampersand \n newline \t tab emoji: 🎉🚀 CJK: 你好 Arabic: مرحبا
+
+# ══════════════════════════════════════════════════════════════════════
+# MODEL QUALITY — ONBOARDING VALIDATION
+# These tests verify the model produces sensible, correct output across
+# key domains. Review output quality to decide if model is "tested".
+# ══════════════════════════════════════════════════════════════════════
+
+# AI: Tests multilingual output. Feature: tokenizer handling of diverse scripts.
+# AI: Expected: correct translations in French (Bonjour), Spanish (Hola), Japanese (こんにちは),
+# AI: and Arabic (مرحبا). Tests that tokenizer handles non-Latin scripts without garbling.
+[@ multilingual]
+temperature: 0.3
+max_tokens: 4096
+Translate "Hello, how are you?" into French, Spanish, Japanese, and Arabic. Format as a numbered list.
+
+# AI: Tests Python code generation. Feature: model quality — code output.
+# AI: Expected: working Sieve of Eratosthenes implementation. Code should be syntactically
+# AI: valid Python, use correct algorithm, and handle edge cases (n < 2).
+[@ code-python]
+temperature: 0.0
+max_tokens: 32768
+system: You are a Python expert. Write clean code with no explanation.
+Write a function that finds all prime numbers up to n using the Sieve of Eratosthenes.
+
+# AI: Tests Swift code generation. Feature: model quality — Swift async/await code.
+# AI: Expected: working Swift function using URLSession async API, Codable protocol,
+# AI: and Result type for error handling. Relevant to this project (afm is written in Swift).
+[@ code-swift]
+temperature: 0.0
+max_tokens: 32768
+system: You are a Swift expert. Write clean code with no explanation.
+Write a Swift async function that fetches JSON from a URL using URLSession, decodes it into a Codable struct, and handles errors with Result type.
+
+# AI: Tests mathematical reasoning. Feature: model quality — multi-step arithmetic.
+# AI: Expected: correct answer $21.252 (7 × $3.50 × 0.80 × 1.085). The model must chain
+# AI: discount, subtotal, and tax steps correctly. Tests reasoning without <think> support.
+[@ math]
+temperature: 0.0
+max_tokens: 32768
+A store sells notebooks for $3.50 each. If you buy 5 or more, you get a 20% discount. Sales tax is 8.5%. How much do 7 notebooks cost after tax? Show your work.
+
+# AI: Tests long-form coherent writing. Feature: model quality — extended generation.
+# AI: Expected: multi-paragraph technical blog post about MoE models. Should mention
+# AI: expert routing, sparse activation, and comparison with dense models. Tests coherence
+# AI: over 1000+ tokens — watch for repetition loops or topic drift.
+[@ long-form]
+temperature: 0.7
+max_tokens: 4096
+Write a detailed technical blog post explaining how Mixture-of-Experts (MoE) models work, why they are efficient, and how they compare to dense models of similar total parameter count. Include concrete examples.
+
+# AI: Tests strict format compliance. Feature: model quality — exact instruction following.
+# AI: Expected: exactly 3 lines, each with one word: "apple", "banana", "cherry".
+# AI: No numbering, no punctuation, no extra text. Any deviation = instruction following failure.
+[@ strict-format]
+temperature: 0.0
+max_tokens: 4096
+Output EXACTLY 3 lines. Each line must contain exactly one word. The words must be: apple, banana, cherry. No other text, no numbering, no punctuation.

@@ -37,6 +37,8 @@ public enum LLMTypeRegistry {
         "qwen3": create(Qwen3Configuration.self, Qwen3Model.init),
         "qwen3_moe": create(Qwen3MoEConfiguration.self, Qwen3MoEModel.init),
         "qwen3_next": create(Qwen3NextConfiguration.self, Qwen3NextModel.init),
+        "qwen3_5": create(Qwen3_5MoEConfiguration.self, Qwen3_5MoEModel.init),
+        "qwen3_5_moe": create(Qwen3_5MoEConfiguration.self, Qwen3_5MoEModel.init),
         "starcoder2": create(Starcoder2Configuration.self, Starcoder2Model.init),
         "cohere": create(CohereConfiguration.self, CohereModel.init),
         "openelm": create(OpenElmConfiguration.self, OpenELMModel.init),
@@ -435,8 +437,17 @@ private struct LLMUserInputProcessor: UserInputProcessor {
     func prepare(input: UserInput) throws -> LMInput {
         let messages = messageGenerator.generate(from: input)
         do {
+            // Check for chat template override in additionalContext
+            let chatTemplateArg: ChatTemplateArgument?
+            if let override = input.additionalContext?["chatTemplateOverride"] as? String {
+                chatTemplateArg = .literal(override)
+            } else {
+                chatTemplateArg = nil
+            }
             let promptTokens = try tokenizer.applyChatTemplate(
-                messages: messages, tools: input.tools, additionalContext: input.additionalContext)
+                messages: messages, chatTemplate: chatTemplateArg, addGenerationPrompt: true,
+                truncation: false, maxLength: nil,
+                tools: input.tools, additionalContext: input.additionalContext)
 
             return LMInput(tokens: MLXArray(promptTokens))
         } catch TokenizerError.missingChatTemplate {

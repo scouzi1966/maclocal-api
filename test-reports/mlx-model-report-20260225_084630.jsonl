@@ -1,0 +1,1 @@
+{"_meta":true,"afm_version":"v0.9.5-0cfba17","test_command":"mlx-model-test.sh --prompts /Users/syl/bin/test-Qwen3.5-35B-A3B-4bit.txt --smart claude,codex","afm_binary":"/opt/homebrew/bin/afm","timestamp":"2026-02-25T13:46:06Z"}

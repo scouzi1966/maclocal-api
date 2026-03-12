@@ -1,6 +1,7 @@
 import Vapor
 import Foundation
 import Compression
+import Logging
 
 // Storage key for the continuation
 struct ContinuationKey: StorageKey {
@@ -33,12 +34,14 @@ class Server {
     private let hostname: String
     private let verbose: Bool
     private let veryVerbose: Bool
+    private let trace: Bool
     private let streamingEnabled: Bool
     private let instructions: String
     private let adapter: String?
     private let temperature: Double?
     private let randomness: String?
     private let permissiveGuardrails: Bool
+    private let stop: String?
     private let webuiEnabled: Bool
     private let webuiPath: String?
     private let gatewayEnabled: Bool
@@ -46,18 +49,29 @@ class Server {
     private let mlxModelID: String?
     private let mlxModelService: MLXModelService?
     private let mlxRepetitionPenalty: Double?
+    private let mlxTopP: Double?
+    private let mlxMaxTokens: Int?
+    private let mlxRawOutput: Bool
+    private let mlxTopK: Int?
+    private let mlxMinP: Double?
+    private let mlxPresencePenalty: Double?
+    private let mlxSeed: Int?
+    private let mlxMaxLogprobs: Int
+    private let contextWindow: Int?
 
-    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil) async throws {
+    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
         self.veryVerbose = veryVerbose
+        self.trace = trace
         self.streamingEnabled = streamingEnabled
         self.instructions = instructions
         self.adapter = adapter
         self.temperature = temperature
         self.randomness = randomness
         self.permissiveGuardrails = permissiveGuardrails
+        self.stop = stop
         self.webuiEnabled = webuiEnabled
         self.webuiPath = Server.findWebuiPath()
         self.gatewayEnabled = gatewayEnabled
@@ -65,10 +79,21 @@ class Server {
         self.mlxModelID = mlxModelID
         self.mlxModelService = mlxModelService
         self.mlxRepetitionPenalty = mlxRepetitionPenalty
+        self.mlxTopP = mlxTopP
+        self.mlxMaxTokens = mlxMaxTokens
+        self.mlxRawOutput = mlxRawOutput
+        self.mlxTopK = mlxTopK
+        self.mlxMinP = mlxMinP
+        self.mlxPresencePenalty = mlxPresencePenalty
+        self.mlxSeed = mlxSeed
+        self.mlxMaxLogprobs = mlxMaxLogprobs ?? 20
+        self.contextWindow = contextWindow
 
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
-        try LoggingSystem.bootstrap(from: &env)
+        LoggingSystem.bootstrap { label in
+            CompactLogHandler(label: label)
+        }
 
         self.app = try await Application.make(env)
 
@@ -122,7 +147,8 @@ class Server {
                             object: "model",
                             created: Int(Date().timeIntervalSince1970),
                             owned_by: "mlx",
-                            loaded: true
+                            loaded: true,
+                            max_context_length: self.contextWindow
                         )
                     ],
                     models: [
@@ -215,8 +241,18 @@ class Server {
                 modelID: mlxModelID,
                 service: mlxModelService,
                 temperature: temperature,
+                topP: mlxTopP,
+                maxTokens: mlxMaxTokens,
                 repetitionPenalty: mlxRepetitionPenalty,
-                veryVerbose: veryVerbose
+                topK: mlxTopK,
+                minP: mlxMinP,
+                presencePenalty: mlxPresencePenalty,
+                seed: mlxSeed,
+                maxLogprobs: mlxMaxLogprobs,
+                veryVerbose: veryVerbose,
+                trace: trace,
+                rawOutput: mlxRawOutput,
+                stop: stop
             )
             try app.register(collection: mlxController)
         } else {
@@ -227,7 +263,8 @@ class Server {
                 temperature: temperature,
                 randomness: randomness,
                 permissiveGuardrails: permissiveGuardrails,
-                veryVerbose: veryVerbose
+                veryVerbose: veryVerbose,
+                stop: stop
             )
             try app.register(collection: chatController)
         }
@@ -255,7 +292,8 @@ class Server {
                     chat_template: "",
                     bos_token: "",
                     eos_token: "",
-                    build_info: "AFM \(BuildInfo.version ?? "dev")"
+                    build_info: "AFM \(BuildInfo.version ?? "dev")",
+                    default_model: mlxModelID
                 )
             }
 
@@ -292,12 +330,13 @@ class Server {
                 ),
                 total_slots: 1,
                 model_path: modelPath,
-                role: "router",
+                role: self.gatewayEnabled ? "router" : "model",
                 modalities: Modalities(vision: hasVision, audio: false),
                 chat_template: "",
                 bos_token: "",
                 eos_token: "",
-                build_info: "AFM \(BuildInfo.version ?? "dev")"
+                build_info: "AFM \(BuildInfo.version ?? "dev")",
+                default_model: "foundation"
             )
         }
 
@@ -370,10 +409,48 @@ class Server {
             document.title=document.title.replace('llama.cpp','AFM');
         }
 
-        // Keep reveal gating simple: no programmatic model auto-clicking.
-        var _autoSelectDone = true;
+        var _autoSelectDone = false;
         var _userClickedModel = false;
         var _isMultiModel = false; // detected from /v1/models count
+
+        // Auto-select "foundation" model in router mode if no model is selected
+        function autoSelectFoundation(){
+            var trigger = getModelTrigger();
+            if(!trigger) { _autoSelectDone = true; return; }
+            var txt = (trigger.textContent || '').trim();
+            // Already selected
+            if(txt && !txt.includes('Select model')){ _autoSelectDone = true; return; }
+            // Open the dropdown
+            _selectingModel = true;
+            trigger.click();
+            setTimeout(function(){
+                // Find the "foundation" option in the listbox
+                var options = document.querySelectorAll('[role="option"]');
+                var found = false;
+                for(var i=0;i<options.length;i++){
+                    var label = (options[i].textContent || '').trim().toLowerCase();
+                    if(label.indexOf('foundation') !== -1 || label.indexOf('apple') !== -1){
+                        options[i].click();
+                        found = true;
+                        break;
+                    }
+                }
+                // If only one option and not found by name, click the first one
+                if(!found && options.length === 1){
+                    options[0].click();
+                }
+                // Close dropdown if still open
+                setTimeout(function(){
+                    var trigger2 = getModelTrigger();
+                    if(trigger2){
+                        var listbox = document.querySelector('[role="listbox"]');
+                        if(listbox){ trigger2.click(); }
+                    }
+                    _selectingModel = false;
+                    _autoSelectDone = true;
+                }, 150);
+            }, 300);
+        }
 
         function getModelTrigger(){
             var form = document.querySelector('[data-slot="chat-form"]');
@@ -520,11 +597,26 @@ class Server {
 
         function init(){
             waitForSpaAndReveal();
-            // Discover if gateway mode has multiple models; no auto-selection side effects.
+            // Discover if gateway mode has multiple models, then auto-select foundation.
             fetch('/v1/models').then(function(r){return r.json()}).then(function(d){
                 var count = d && d.data ? d.data.length : 0;
                 _isMultiModel = count > 1;
-            }).catch(function(){});
+                // In router mode, auto-select foundation after SPA renders
+                if(_isMultiModel){
+                    // Wait for the SPA model list to populate, then auto-select
+                    var selectAttempts = 0;
+                    var selectInterval = setInterval(function(){
+                        selectAttempts++;
+                        var trigger = getModelTrigger();
+                        if(trigger || selectAttempts > 40){
+                            clearInterval(selectInterval);
+                            autoSelectFoundation();
+                        }
+                    }, 100);
+                } else {
+                    _autoSelectDone = true;
+                }
+            }).catch(function(){ _autoSelectDone = true; });
 
             // Update branding/info on real DOM changes rather than polling.
             var refreshTimer = null;
@@ -659,9 +751,27 @@ class Server {
         if gatewayEnabled {
             print("     • Gateway:            ✓ enabled (multi-backend proxy)")
         }
+        if veryVerbose {
+            let red = "\u{001B}[38;5;196m"
+            let pink = "\u{001B}[38;5;213m"
+            let purple = "\u{001B}[38;5;135m"
+            let teal = "\u{001B}[38;5;43m"
+            let orange = "\u{001B}[38;5;208m"
+            print("  🎨 Log colors (-V):")
+            print("     • \(red)Red\(reset)      User prompt")
+            print("     • \(pink)Pink\(reset)     Full request JSON")
+            print("     • \(purple)Purple\(reset)   Reasoning")
+            print("     • \(teal)Teal\(reset)     Content / answer / usage")
+            print("     • \(orange)Orange\(reset)   Start / done bookends")
+        }
         print("")
         print("  ℹ️  Requires macOS 26+ with Apple Intelligence")
         print("  💡 Press Ctrl+C to stop the server")
+        if let mlxModel = mlxModelID {
+            print("  💡 OpenClaw:  afm mlx -m \(mlxModel) --openclaw-config")
+        } else {
+            print("  💡 OpenClaw:  afm mlx -m <model> --openclaw-config")
+        }
         if gatewayEnabled {
             print("")
             let yellow = "\u{001B}[33m"
@@ -892,13 +1002,14 @@ struct ModelInfo: Content {
     let created: Int
     let owned_by: String
     let status: ModelStatus
-
-    init(id: String, object: String, created: Int, owned_by: String, loaded: Bool = true) {
+    let max_context_length: Int?
+    init(id: String, object: String, created: Int, owned_by: String, loaded: Bool = true, max_context_length: Int? = nil) {
         self.id = id
         self.object = object
         self.created = created
         self.owned_by = owned_by
         self.status = ModelStatus(value: loaded ? "loaded" : "unloaded")
+        self.max_context_length = max_context_length
     }
 }
 
@@ -924,6 +1035,7 @@ struct PropsResponse: Content {
     let bos_token: String
     let eos_token: String
     let build_info: String
+    let default_model: String
 }
 
 struct DefaultGenerationSettings: Content {
@@ -944,4 +1056,48 @@ struct GenerationParams: Content {
 struct Modalities: Content {
     let vision: Bool
     let audio: Bool
+}
+
+// Compact log handler that prints "[INFO]" instead of Vapor's padded "[ INFO ]"
+struct CompactLogHandler: LogHandler {
+    var metadata: Logger.Metadata = [:]
+    var logLevel: Logger.Level = .info
+    let label: String
+
+    init(label: String) {
+        self.label = label
+    }
+
+    subscript(metadataKey key: String) -> Logger.Metadata.Value? {
+        get { metadata[key] }
+        set { metadata[key] = newValue }
+    }
+
+    private static let timestampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
+    func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?,
+             source: String, file: String, function: String, line: UInt) {
+        let ts = Self.timestampFormatter.string(from: Date())
+        let levelStr = level.rawValue.uppercased()
+        let metaStr = Self.formatMetadata(self.metadata, metadata)
+        if metaStr.isEmpty {
+            print("[\(ts)] [\(levelStr)] \(message)")
+        } else {
+            print("[\(ts)] [\(levelStr)] \(message) \(metaStr)")
+        }
+    }
+
+    private static func formatMetadata(_ base: Logger.Metadata, _ extra: Logger.Metadata?) -> String {
+        var merged = base
+        if let extra { merged.merge(extra) { _, new in new } }
+        guard !merged.isEmpty else { return "" }
+        return merged.sorted(by: { $0.key < $1.key })
+            .map { "[\($0.key): \($0.value)]" }
+            .joined(separator: " ")
+    }
 }

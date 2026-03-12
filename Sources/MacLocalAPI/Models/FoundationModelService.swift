@@ -108,6 +108,7 @@ enum FoundationModelError: Error, LocalizedError {
     case invalidRandomnessParameter(String)
     case contextWindowExceeded(provided: Int, maximum: Int)
     case guardrailViolation(String)
+    case schemaConversionFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -125,6 +126,8 @@ enum FoundationModelError: Error, LocalizedError {
             return "Context window exceeded: Your conversation has \(provided) tokens but the maximum is \(maximum). Please start a new conversation or reduce the message length."
         case .guardrailViolation(let message):
             return "Content policy violation: \(message)"
+        case .schemaConversionFailed(let message):
+            return "Schema conversion failed: \(message)"
         }
     }
 
@@ -281,7 +284,7 @@ class FoundationModelService {
         #endif
     }
     
-    func generateResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil, maxTokens: Int? = nil) async throws -> String {
+    func generateResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil, maxTokens: Int? = nil, stop: [String]? = nil) async throws -> String {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
@@ -292,7 +295,7 @@ class FoundationModelService {
         do {
             let options = try createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
             let response = try await session.respond(to: prompt, options: options)
-            return response.content
+            return applyStopSequences(to: response.content, stopSequences: stop)
         } catch {
             // Check for context window exceeded error and wrap it
             if let contextError = FoundationModelError.parseContextWindowError(error) {
@@ -314,7 +317,7 @@ class FoundationModelService {
 
         for message in messages {
             switch message.role {
-            case "system":
+            case "system", "developer":
                 prompt += "System: \(message.textContent)\n\n"
             case "user":
                 prompt += "User: \(message.textContent)\n\n"
@@ -344,7 +347,8 @@ class FoundationModelService {
         for messages: [Message],
         temperature: Double? = nil,
         randomness: String? = nil,
-        maxTokens: Int? = nil
+        maxTokens: Int? = nil,
+        stop: [String]? = nil
     ) -> AsyncThrowingStream<String, Error> {
         return AsyncThrowingStream { continuation in
             Task {
@@ -362,10 +366,30 @@ class FoundationModelService {
                     // so we must extract only the new delta each iteration.
                     let stream = session.streamResponse(to: prompt, options: options)
                     var previousContent = ""
+                    var stopped = false
                     for try await partialResponse in stream {
+                        if stopped { break }
                         let full = partialResponse.content
                         if full.count > previousContent.count {
-                            let delta = String(full.dropFirst(previousContent.count))
+                            var delta = String(full.dropFirst(previousContent.count))
+                            // Check if any stop sequence appears in the accumulated content
+                            if let stopSeqs = stop, !stopSeqs.isEmpty {
+                                let accumulated = previousContent + delta
+                                for seq in stopSeqs {
+                                    if let range = accumulated.range(of: seq) {
+                                        // Truncate delta to exclude stop sequence and everything after
+                                        let keepUpTo = range.lowerBound
+                                        let alreadyEmitted = accumulated.index(accumulated.startIndex, offsetBy: previousContent.count)
+                                        if keepUpTo > alreadyEmitted {
+                                            delta = String(accumulated[alreadyEmitted..<keepUpTo])
+                                            continuation.yield(delta)
+                                        }
+                                        stopped = true
+                                        break
+                                    }
+                                }
+                                if stopped { break }
+                            }
                             continuation.yield(delta)
                         }
                         previousContent = full
@@ -387,6 +411,135 @@ class FoundationModelService {
         }
     }
     
+    /// Generate a guided (structured) response using constrained decoding.
+    /// Converts the OpenAI JSON Schema to Apple's GenerationSchema internally.
+    func generateGuidedResponse(
+        for messages: [Message],
+        jsonSchema: ResponseJsonSchema,
+        temperature: Double? = nil,
+        randomness: String? = nil,
+        maxTokens: Int? = nil,
+        stop: [String]? = nil
+    ) async throws -> String {
+        #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
+        guard let session = session else {
+            throw FoundationModelError.sessionCreationFailed
+        }
+
+        let schema: GenerationSchema
+        do {
+            schema = try JSONSchemaConverter.convert(jsonSchema)
+        } catch {
+            throw FoundationModelError.schemaConversionFailed(error.localizedDescription)
+        }
+
+        let prompt = formatMessagesAsPrompt(messages)
+
+        do {
+            let options = try createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
+            let response = try await session.respond(to: prompt, schema: schema, options: options)
+            return applyStopSequences(to: response.content.jsonString, stopSequences: stop)
+        } catch {
+            if let contextError = FoundationModelError.parseContextWindowError(error) {
+                throw contextError
+            }
+            if let guardrailError = FoundationModelError.parseGuardrailError(error) {
+                throw guardrailError
+            }
+            throw FoundationModelError.responseGenerationFailed(error.localizedDescription)
+        }
+        #else
+        throw FoundationModelError.notAvailable
+        #endif
+    }
+
+    /// Generate a guided (structured) streaming response using constrained decoding.
+    /// Converts the OpenAI JSON Schema to Apple's GenerationSchema internally.
+    ///
+    /// Note: Apple's guided generation streams partial JSON *snapshots* (the entire
+    /// structure mutates, not just appends). We diff successive snapshots to emit
+    /// append-only deltas that are compatible with SSE streaming consumers.
+    func generateGuidedStreamingResponse(
+        for messages: [Message],
+        jsonSchema: ResponseJsonSchema,
+        temperature: Double? = nil,
+        randomness: String? = nil,
+        maxTokens: Int? = nil,
+        stop: [String]? = nil
+    ) -> AsyncThrowingStream<String, Error> {
+        return AsyncThrowingStream { continuation in
+            Task {
+                #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
+                guard let session = self.session else {
+                    continuation.finish(throwing: FoundationModelError.sessionCreationFailed)
+                    return
+                }
+
+                let schema: GenerationSchema
+                do {
+                    schema = try JSONSchemaConverter.convert(jsonSchema)
+                } catch {
+                    continuation.finish(throwing: FoundationModelError.schemaConversionFailed(error.localizedDescription))
+                    return
+                }
+
+                let prompt = self.formatMessagesAsPrompt(messages)
+
+                do {
+                    let options = try self.createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
+                    let stream = session.streamResponse(to: prompt, schema: schema, options: options)
+                    var previousJson = ""
+                    var stopped = false
+                    for try await partialResponse in stream {
+                        if stopped { break }
+                        let currentJson = partialResponse.content.jsonString
+                        // Emit only the new suffix (delta) when the snapshot extends
+                        if currentJson.count > previousJson.count && currentJson.hasPrefix(previousJson) {
+                            var delta = String(currentJson.dropFirst(previousJson.count))
+                            if let stopSeqs = stop, !stopSeqs.isEmpty {
+                                let accumulated = previousJson + delta
+                                for seq in stopSeqs {
+                                    if let range = accumulated.range(of: seq) {
+                                        let keepUpTo = range.lowerBound
+                                        let alreadyEmitted = accumulated.index(accumulated.startIndex, offsetBy: previousJson.count)
+                                        if keepUpTo > alreadyEmitted {
+                                            delta = String(accumulated[alreadyEmitted..<keepUpTo])
+                                            continuation.yield(delta)
+                                        }
+                                        stopped = true
+                                        break
+                                    }
+                                }
+                                if stopped { break }
+                            }
+                            continuation.yield(delta)
+                        } else if currentJson != previousJson {
+                            // Structure mutated (not a simple append) — emit full snapshot
+                            // This is rare but possible with guided generation
+                            let truncated = self.applyStopSequences(to: currentJson, stopSequences: stop)
+                            if truncated.count < currentJson.count { stopped = true }
+                            continuation.yield(truncated)
+                            if stopped { break }
+                        }
+                        previousJson = currentJson
+                    }
+                    continuation.finish()
+                } catch {
+                    if let contextError = FoundationModelError.parseContextWindowError(error) {
+                        continuation.finish(throwing: contextError)
+                    } else if let guardrailError = FoundationModelError.parseGuardrailError(error) {
+                        continuation.finish(throwing: guardrailError)
+                    } else {
+                        continuation.finish(throwing: FoundationModelError.responseGenerationFailed(error.localizedDescription))
+                    }
+                }
+                #else
+                continuation.finish(throwing: FoundationModelError.notAvailable)
+                #endif
+            }
+        }
+    }
+
     #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
     private func createGenerationOptions(temperature: Double?, randomness: String?, maxTokens: Int? = nil) throws -> GenerationOptions {
         // Default to 2000 tokens when max_tokens is absent or non-positive.
@@ -453,6 +606,26 @@ class FoundationModelService {
     }
     #endif
     
+    /// Truncate content at the earliest occurrence of any stop sequence.
+    /// The stop sequence itself is excluded from the output.
+    private func applyStopSequences(to content: String, stopSequences: [String]?) -> String {
+        guard let stopSequences = stopSequences, !stopSequences.isEmpty else {
+            return content
+        }
+        var earliestIndex: String.Index? = nil
+        for seq in stopSequences {
+            if let range = content.range(of: seq) {
+                if earliestIndex == nil || range.lowerBound < earliestIndex! {
+                    earliestIndex = range.lowerBound
+                }
+            }
+        }
+        if let idx = earliestIndex {
+            return String(content[..<idx])
+        }
+        return content
+    }
+
     static func isAvailable() -> Bool {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         return true

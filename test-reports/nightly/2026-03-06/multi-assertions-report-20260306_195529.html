@@ -1,0 +1,2996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AFM Multi-Model Assertion Report — 2026-03-06 20:01</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif;
+         background: #0d1117; color: #c9d1d9; padding: 24px; }
+  h1 { color: #58a6ff; margin-bottom: 8px; font-size: 1.5em; }
+  .meta { color: #8b949e; margin-bottom: 24px; font-size: 0.9em; }
+  .overall { background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+             padding: 16px 24px; margin-bottom: 24px; }
+  .overall .pct { font-size: 2em; font-weight: bold; }
+  .overall .pct.good { color: #3fb950; }
+  .overall .pct.warn { color: #d29922; }
+  .overall .pct.bad { color: #f85149; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0 24px; }
+  th { background: #161b22; color: #8b949e; text-align: left; padding: 8px 12px;
+       border-bottom: 2px solid #30363d; font-size: 0.85em; text-transform: uppercase; }
+  td { padding: 8px 12px; border-bottom: 1px solid #21262d; font-size: 0.9em; }
+  tr:hover { background: #161b22; }
+  tr.pass td:first-child { border-left: 3px solid #3fb950; }
+  tr.fail td:first-child { border-left: 3px solid #f85149; }
+  .model { font-family: 'SF Mono', monospace; font-weight: 600; }
+  .pass-count { color: #3fb950; font-weight: bold; }
+  .fail-count { color: #f85149; font-weight: bold; }
+  a { color: #58a6ff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .model-section { background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+                   padding: 16px 24px; margin-bottom: 20px; }
+  .model-section h2 { color: #c9d1d9; font-size: 1.2em; margin-bottom: 8px; }
+  .parser-badge { background: #1f6feb33; color: #58a6ff; padding: 2px 8px;
+                  border-radius: 4px; font-size: 0.7em; font-weight: normal; }
+  .summary-bar { color: #8b949e; margin-bottom: 12px; font-size: 0.9em; }
+  .results-table td.PASS { color: #3fb950; }
+  .results-table td.FAIL { color: #f85149; }
+  .results-table td.SKIP { color: #d29922; }
+  .group-badge { display: inline-block; padding: 1px 6px; border-radius: 3px;
+                 border: 1px solid; font-size: 0.8em; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>AFM Multi-Model Assertion Report</h1>
+<div class="meta">
+  Generated: 2026-03-06 20:01:00 | Tier: standard | Models: 3 configurations<br>
+  Binary: .build/release/afm | Cache: /Volumes/edata/models/vesta-test-cache
+</div>
+
+<div class="overall">
+  <span class="pct bad">0%</span>
+  &nbsp; 318 / 0 passed across all models
+  — <span class="fail-count">34 failures</span>
+</div>
+
+<h2 style="color:#c9d1d9; margin-bottom: 12px;">Summary</h2>
+<table>
+  <thead>
+    <tr><th>Model</th><th>Parser</th><th>Pass</th><th>Fail</th><th>Skip</th><th>Total</th><th>Status</th></tr>
+  </thead>
+  <tbody>
+    <tr class="fail">
+    <td class="model">mlx-community/Qwen3-Coder-Next-4bit</td>
+    <td>auto</td>
+    <td class="pass-count">46</td>
+    <td class="fail-count">6</td>
+    <td>0</td>
+    <td></td>
+    <td>❌ <a href="assertions-report-20260306_195536.html">[details]</a></td>
+  </tr><tr class="fail">
+    <td class="model">mlx-community/Qwen3-Coder-Next-4bit</td>
+    <td>qwen3_xml</td>
+    <td class="pass-count">46</td>
+    <td class="fail-count">6</td>
+    <td>0</td>
+    <td></td>
+    <td>❌ <a href="assertions-report-20260306_195609.html">[details]</a></td>
+  </tr><tr class="fail">
+    <td class="model">mlx-community/Qwen3.5-9B-MLX-4bit</td>
+    <td>auto</td>
+    <td class="pass-count">55</td>
+    <td class="fail-count">7</td>
+    <td>0</td>
+    <td></td>
+    <td>❌ <a href="assertions-report-20260306_195640.html">[details]</a></td>
+  </tr><tr class="fail">
+    <td class="model">mlx-community/Qwen3.5-9B-MLX-4bit</td>
+    <td>qwen3_xml</td>
+    <td class="pass-count">55</td>
+    <td class="fail-count">7</td>
+    <td>0</td>
+    <td></td>
+    <td>❌ <a href="assertions-report-20260306_195746.html">[details]</a></td>
+  </tr><tr class="fail">
+    <td class="model">mlx-community/Qwen3.5-35B-A3B-4bit</td>
+    <td>auto</td>
+    <td class="pass-count">58</td>
+    <td class="fail-count">4</td>
+    <td>0</td>
+    <td></td>
+    <td>❌ <a href="assertions-report-20260306_195854.html">[details]</a></td>
+  </tr><tr class="fail">
+    <td class="model">mlx-community/Qwen3.5-35B-A3B-4bit</td>
+    <td>qwen3_xml</td>
+    <td class="pass-count">58</td>
+    <td class="fail-count">4</td>
+    <td>0</td>
+    <td></td>
+    <td>❌ <a href="assertions-report-20260306_195958.html">[details]</a></td>
+  </tr>
+  </tbody>
+</table>
+
+<h2 style="color:#c9d1d9; margin-bottom: 12px;">Detailed Results</h2>
+
+  <div class="model-section">
+    <h2>mlx-community/Qwen3-Coder-Next-4bit <span class="parser-badge">auto</span></h2>
+    <div class="summary-bar">
+      <span class="pass-count">46 passed</span> /
+      <span class="fail-count">6 failed</span> /
+       total
+    </div>
+    <table class="results-table">
+      <thead><tr><th>Group</th><th>Test</th><th>Expected</th><th>Result</th><th>Time</th></tr></thead>
+      <tbody>
+<tr>
+  <td><strong>1</strong></td>
+  <td>Binary exists at .build/release/afm</td>
+  <td><span class="group-badge Preflight">Preflight</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">file exists</div></td>
+</tr>
+<tr>
+  <td><strong>2</strong></td>
+  <td>Server reachable at http://127.0.0.1:9998</td>
+  <td><span class="group-badge Preflight">Preflight</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">200 OK</div></td>
+</tr>
+<tr>
+  <td><strong>3</strong></td>
+  <td>/v1/models contains model ID</td>
+  <td><span class="group-badge Lifecycle">Lifecycle</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">model in response</div></td>
+</tr>
+<tr>
+  <td><strong>4</strong></td>
+  <td>Basic completion returns content</td>
+  <td><span class="group-badge Lifecycle">Lifecycle</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.3s</span></td>
+  <td><div class="detail">non-empty content or reasoning</div></td>
+</tr>
+<tr>
+  <td><strong>5</strong></td>
+  <td>Stop string '5' absent from output</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">no '5' in content</div></td>
+</tr>
+<tr>
+  <td><strong>6</strong></td>
+  <td>finish_reason is 'stop' with stop sequence</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">stop</div></td>
+</tr>
+<tr>
+  <td><strong>7</strong></td>
+  <td>Multi-word stop 'and' truncates correctly</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">no 'and' in output</div></td>
+</tr>
+<tr>
+  <td><strong>8</strong></td>
+  <td>Stop on newline produces single line</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">Expected: single line\nActual: FAIL: multi-line output</div></td>
+</tr>
+<tr>
+  <td><strong>9</strong></td>
+  <td>Multiple stop sequences [7, 12]</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.6s</span></td>
+  <td><div class="detail">neither found</div></td>
+</tr>
+<tr>
+  <td><strong>10</strong></td>
+  <td>Empty stop array is no-op</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">valid output</div></td>
+</tr>
+<tr>
+  <td><strong>11</strong></td>
+  <td>Streaming: stop string '5' absent</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">Expected: no '5' in stream\nActual: FAIL: found '5'</div></td>
+</tr>
+<tr>
+  <td><strong>12</strong></td>
+  <td>Stop sequence '3.' truncates list</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">no '3.' in output</div></td>
+</tr>
+<tr>
+  <td><strong>13</strong></td>
+  <td>Stop 'stopped' doesn't fire on 'stopping'</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">output produced</div></td>
+</tr>
+<tr>
+  <td><strong>14</strong></td>
+  <td>Stop 'llo' fires mid-word in 'hello'</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">no 'llo'</div></td>
+</tr>
+<tr>
+  <td><strong>15</strong></td>
+  <td>ChoiceLogprobs JSON schema valid</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">valid schema</div></td>
+</tr>
+<tr>
+  <td><strong>16</strong></td>
+  <td>top_logprobs count &lt;= requested (5)</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">count valid</div></td>
+</tr>
+<tr>
+  <td><strong>17</strong></td>
+  <td>logprobs=false returns null</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">null logprobs</div></td>
+</tr>
+<tr>
+  <td><strong>18</strong></td>
+  <td>top_logprobs=99 returns 400</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>19</strong></td>
+  <td>Streaming logprobs present and valid</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>20</strong></td>
+  <td>top_logprobs=0 returns empty arrays</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">empty top_logprobs</div></td>
+</tr>
+<tr>
+  <td><strong>21</strong></td>
+  <td>Think extraction (model lacks &lt;think&gt; support)</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge skip">SKIP</span></td>
+  <td><span class="duration"></span></td>
+  <td><div class="detail">skip</div></td>
+</tr>
+<tr>
+  <td><strong>22</strong></td>
+  <td>Basic tool call: finish_reason=tool_calls, valid args</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.7s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>23</strong></td>
+  <td>tool_choice=none suppresses tool calls</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">0.7s</span></td>
+  <td><div class="detail">Expected: no tool calls\nActual: FAIL: finish_reason=tool_calls, tool_calls=[{'function': {'arguments': '{"location":"Paris","unit":"celsius"}', 'name': 'get_weather'}, 'type': 'function', 'id': 'call_YYMQ3Ua38byiUXXsdPXByFy0'}]</div></td>
+</tr>
+<tr>
+  <td><strong>24</strong></td>
+  <td>Tool arguments are valid JSON dict</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.8s</span></td>
+  <td><div class="detail">valid JSON</div></td>
+</tr>
+<tr>
+  <td><strong>25</strong></td>
+  <td>Streaming: tool calls with finish_reason</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.7s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>26</strong></td>
+  <td>Multi-tool: at least 1 tool call with 2 tools</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">&gt;=1 calls</div></td>
+</tr>
+<tr>
+  <td><strong>27</strong></td>
+  <td>Array param: todos is JSON array (not string)</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.7s</span></td>
+  <td><div class="detail">array</div></td>
+</tr>
+<tr>
+  <td><strong>28</strong></td>
+  <td>Nullable param: anyOf [string, null] does not crash</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.6s</span></td>
+  <td><div class="detail">no crash</div></td>
+</tr>
+<tr>
+  <td><strong>29</strong></td>
+  <td>No tools: normal text response</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">text response</div></td>
+</tr>
+<tr>
+  <td><strong>30</strong></td>
+  <td>First request: cached_tokens=0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.4s</span></td>
+  <td><div class="detail">0</div></td>
+</tr>
+<tr>
+  <td><strong>31</strong></td>
+  <td>Second identical request: cached_tokens&gt;0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">0.4s</span></td>
+  <td><div class="detail">Expected: &gt;0\nActual: FAIL: cached_tokens=0</div></td>
+</tr>
+<tr>
+  <td><strong>32</strong></td>
+  <td>Different prompt: cached_tokens=0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.4s</span></td>
+  <td><div class="detail">0</div></td>
+</tr>
+<tr>
+  <td><strong>33</strong></td>
+  <td>Streaming: cached_tokens&gt;0 in usage chunk</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">0.5s</span></td>
+  <td><div class="detail">Expected: &gt;0\nActual: FAIL: no cached_tokens&gt;0 in stream usage</div></td>
+</tr>
+<tr>
+  <td><strong>34</strong></td>
+  <td>Two simultaneous requests: both 200</td>
+  <td><span class="group-badge Concurrent">Concurrent</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">200+200</div></td>
+</tr>
+<tr>
+  <td><strong>35</strong></td>
+  <td>Three simultaneous requests: all 200</td>
+  <td><span class="group-badge Concurrent">Concurrent</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">all 200</div></td>
+</tr>
+<tr>
+  <td><strong>36</strong></td>
+  <td>Empty messages → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>37</strong></td>
+  <td>Malformed JSON → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>38</strong></td>
+  <td>Missing messages field → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>39</strong></td>
+  <td>response_format json_object returns valid JSON</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">valid JSON</div></td>
+</tr>
+<tr>
+  <td><strong>40</strong></td>
+  <td>max_tokens=5 is respected</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">&lt;=10 tokens</div></td>
+</tr>
+<tr>
+  <td><strong>41</strong></td>
+  <td>OPTIONS /v1/chat/completions → 200 (CORS)</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">200</div></td>
+</tr>
+<tr>
+  <td><strong>42</strong></td>
+  <td>developer role accepted (mapped to system)</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.4s</span></td>
+  <td><div class="detail">valid response</div></td>
+</tr>
+<tr>
+  <td><strong>43</strong></td>
+  <td>chat_template_kwargs (model lacks thinking)</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge skip">SKIP</span></td>
+  <td><span class="duration"></span></td>
+  <td><div class="detail">skip</div></td>
+</tr>
+<tr>
+  <td><strong>44</strong></td>
+  <td>Function name correctly extracted</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.8s</span></td>
+  <td><div class="detail">get_weather</div></td>
+</tr>
+<tr>
+  <td><strong>45</strong></td>
+  <td>Parameter values are correct string types</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.8s</span></td>
+  <td><div class="detail">strings</div></td>
+</tr>
+<tr>
+  <td><strong>46</strong></td>
+  <td>Mixed-type params (string+bool+int) parse correctly</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">valid types</div></td>
+</tr>
+<tr>
+  <td><strong>47</strong></td>
+  <td>Nested object param survives XML parsing</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">valid dict</div></td>
+</tr>
+<tr>
+  <td><strong>48</strong></td>
+  <td>tool_choice=required forces tool call</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.7s</span></td>
+  <td><div class="detail">tool_calls</div></td>
+</tr>
+<tr>
+  <td><strong>49</strong></td>
+  <td>tool_choice={function: get_time} calls correct function</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.6s</span></td>
+  <td><div class="detail">get_time</div></td>
+</tr>
+<tr>
+  <td><strong>50</strong></td>
+  <td>Tool call IDs are unique</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">unique IDs</div></td>
+</tr>
+<tr>
+  <td><strong>51</strong></td>
+  <td>Streaming: XML tool call assembles valid JSON args</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.8s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>52</strong></td>
+  <td>Streaming: array param is JSON array (not string)</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.8s</span></td>
+  <td><div class="detail">array</div></td>
+</tr>
+<tr>
+  <td><strong>53</strong></td>
+  <td>Tool call matches OpenAI schema (id, type, function.name, function.arguments)</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.7s</span></td>
+  <td><div class="detail">valid schema</div></td>
+</tr>
+</tbody>
+    </table>
+  </div>
+  <div class="model-section">
+    <h2>mlx-community/Qwen3-Coder-Next-4bit <span class="parser-badge">qwen3_xml</span></h2>
+    <div class="summary-bar">
+      <span class="pass-count">46 passed</span> /
+      <span class="fail-count">6 failed</span> /
+       total
+    </div>
+    <table class="results-table">
+      <thead><tr><th>Group</th><th>Test</th><th>Expected</th><th>Result</th><th>Time</th></tr></thead>
+      <tbody>
+<tr>
+  <td><strong>1</strong></td>
+  <td>Binary exists at .build/release/afm</td>
+  <td><span class="group-badge Preflight">Preflight</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">file exists</div></td>
+</tr>
+<tr>
+  <td><strong>2</strong></td>
+  <td>Server reachable at http://127.0.0.1:9998</td>
+  <td><span class="group-badge Preflight">Preflight</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">200 OK</div></td>
+</tr>
+<tr>
+  <td><strong>3</strong></td>
+  <td>/v1/models contains model ID</td>
+  <td><span class="group-badge Lifecycle">Lifecycle</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">model in response</div></td>
+</tr>
+<tr>
+  <td><strong>4</strong></td>
+  <td>Basic completion returns content</td>
+  <td><span class="group-badge Lifecycle">Lifecycle</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">non-empty content or reasoning</div></td>
+</tr>
+<tr>
+  <td><strong>5</strong></td>
+  <td>Stop string '5' absent from output</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">no '5' in content</div></td>
+</tr>
+<tr>
+  <td><strong>6</strong></td>
+  <td>finish_reason is 'stop' with stop sequence</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">stop</div></td>
+</tr>
+<tr>
+  <td><strong>7</strong></td>
+  <td>Multi-word stop 'and' truncates correctly</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">no 'and' in output</div></td>
+</tr>
+<tr>
+  <td><strong>8</strong></td>
+  <td>Stop on newline produces single line</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">Expected: single line\nActual: FAIL: multi-line output</div></td>
+</tr>
+<tr>
+  <td><strong>9</strong></td>
+  <td>Multiple stop sequences [7, 12]</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.6s</span></td>
+  <td><div class="detail">neither found</div></td>
+</tr>
+<tr>
+  <td><strong>10</strong></td>
+  <td>Empty stop array is no-op</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">valid output</div></td>
+</tr>
+<tr>
+  <td><strong>11</strong></td>
+  <td>Streaming: stop string '5' absent</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">Expected: no '5' in stream\nActual: FAIL: found '5'</div></td>
+</tr>
+<tr>
+  <td><strong>12</strong></td>
+  <td>Stop sequence '3.' truncates list</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">no '3.' in output</div></td>
+</tr>
+<tr>
+  <td><strong>13</strong></td>
+  <td>Stop 'stopped' doesn't fire on 'stopping'</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">output produced</div></td>
+</tr>
+<tr>
+  <td><strong>14</strong></td>
+  <td>Stop 'llo' fires mid-word in 'hello'</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">no 'llo'</div></td>
+</tr>
+<tr>
+  <td><strong>15</strong></td>
+  <td>ChoiceLogprobs JSON schema valid</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">valid schema</div></td>
+</tr>
+<tr>
+  <td><strong>16</strong></td>
+  <td>top_logprobs count &lt;= requested (5)</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">count valid</div></td>
+</tr>
+<tr>
+  <td><strong>17</strong></td>
+  <td>logprobs=false returns null</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">null logprobs</div></td>
+</tr>
+<tr>
+  <td><strong>18</strong></td>
+  <td>top_logprobs=99 returns 400</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>19</strong></td>
+  <td>Streaming logprobs present and valid</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>20</strong></td>
+  <td>top_logprobs=0 returns empty arrays</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">empty top_logprobs</div></td>
+</tr>
+<tr>
+  <td><strong>21</strong></td>
+  <td>Think extraction (model lacks &lt;think&gt; support)</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge skip">SKIP</span></td>
+  <td><span class="duration"></span></td>
+  <td><div class="detail">skip</div></td>
+</tr>
+<tr>
+  <td><strong>22</strong></td>
+  <td>Basic tool call: finish_reason=tool_calls, valid args</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.7s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>23</strong></td>
+  <td>tool_choice=none suppresses tool calls</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">0.7s</span></td>
+  <td><div class="detail">Expected: no tool calls\nActual: FAIL: finish_reason=tool_calls, tool_calls=[{'function': {'arguments': '{"location":"Paris","unit":"celsius"}', 'name': 'get_weather'}, 'id': 'call_UYr0J6kzHpbD0gODl8bUoGo0', 'type': 'function'}]</div></td>
+</tr>
+<tr>
+  <td><strong>24</strong></td>
+  <td>Tool arguments are valid JSON dict</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.8s</span></td>
+  <td><div class="detail">valid JSON</div></td>
+</tr>
+<tr>
+  <td><strong>25</strong></td>
+  <td>Streaming: tool calls with finish_reason</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.7s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>26</strong></td>
+  <td>Multi-tool: at least 1 tool call with 2 tools</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">&gt;=1 calls</div></td>
+</tr>
+<tr>
+  <td><strong>27</strong></td>
+  <td>Array param: todos is JSON array (not string)</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.7s</span></td>
+  <td><div class="detail">array</div></td>
+</tr>
+<tr>
+  <td><strong>28</strong></td>
+  <td>Nullable param: anyOf [string, null] does not crash</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.6s</span></td>
+  <td><div class="detail">no crash</div></td>
+</tr>
+<tr>
+  <td><strong>29</strong></td>
+  <td>No tools: normal text response</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">text response</div></td>
+</tr>
+<tr>
+  <td><strong>30</strong></td>
+  <td>First request: cached_tokens=0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.4s</span></td>
+  <td><div class="detail">0</div></td>
+</tr>
+<tr>
+  <td><strong>31</strong></td>
+  <td>Second identical request: cached_tokens&gt;0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">0.4s</span></td>
+  <td><div class="detail">Expected: &gt;0\nActual: FAIL: cached_tokens=0</div></td>
+</tr>
+<tr>
+  <td><strong>32</strong></td>
+  <td>Different prompt: cached_tokens=0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.4s</span></td>
+  <td><div class="detail">0</div></td>
+</tr>
+<tr>
+  <td><strong>33</strong></td>
+  <td>Streaming: cached_tokens&gt;0 in usage chunk</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">0.5s</span></td>
+  <td><div class="detail">Expected: &gt;0\nActual: FAIL: no cached_tokens&gt;0 in stream usage</div></td>
+</tr>
+<tr>
+  <td><strong>34</strong></td>
+  <td>Two simultaneous requests: both 200</td>
+  <td><span class="group-badge Concurrent">Concurrent</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">200+200</div></td>
+</tr>
+<tr>
+  <td><strong>35</strong></td>
+  <td>Three simultaneous requests: all 200</td>
+  <td><span class="group-badge Concurrent">Concurrent</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">all 200</div></td>
+</tr>
+<tr>
+  <td><strong>36</strong></td>
+  <td>Empty messages → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>37</strong></td>
+  <td>Malformed JSON → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>38</strong></td>
+  <td>Missing messages field → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>39</strong></td>
+  <td>response_format json_object returns valid JSON</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">valid JSON</div></td>
+</tr>
+<tr>
+  <td><strong>40</strong></td>
+  <td>max_tokens=5 is respected</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">&lt;=10 tokens</div></td>
+</tr>
+<tr>
+  <td><strong>41</strong></td>
+  <td>OPTIONS /v1/chat/completions → 200 (CORS)</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">200</div></td>
+</tr>
+<tr>
+  <td><strong>42</strong></td>
+  <td>developer role accepted (mapped to system)</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.3s</span></td>
+  <td><div class="detail">valid response</div></td>
+</tr>
+<tr>
+  <td><strong>43</strong></td>
+  <td>chat_template_kwargs (model lacks thinking)</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge skip">SKIP</span></td>
+  <td><span class="duration"></span></td>
+  <td><div class="detail">skip</div></td>
+</tr>
+<tr>
+  <td><strong>44</strong></td>
+  <td>Function name correctly extracted</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.8s</span></td>
+  <td><div class="detail">get_weather</div></td>
+</tr>
+<tr>
+  <td><strong>45</strong></td>
+  <td>Parameter values are correct string types</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.8s</span></td>
+  <td><div class="detail">strings</div></td>
+</tr>
+<tr>
+  <td><strong>46</strong></td>
+  <td>Mixed-type params (string+bool+int) parse correctly</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">valid types</div></td>
+</tr>
+<tr>
+  <td><strong>47</strong></td>
+  <td>Nested object param survives XML parsing</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">valid dict</div></td>
+</tr>
+<tr>
+  <td><strong>48</strong></td>
+  <td>tool_choice=required forces tool call</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.7s</span></td>
+  <td><div class="detail">tool_calls</div></td>
+</tr>
+<tr>
+  <td><strong>49</strong></td>
+  <td>tool_choice={function: get_time} calls correct function</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.6s</span></td>
+  <td><div class="detail">get_time</div></td>
+</tr>
+<tr>
+  <td><strong>50</strong></td>
+  <td>Tool call IDs are unique</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">unique IDs</div></td>
+</tr>
+<tr>
+  <td><strong>51</strong></td>
+  <td>Streaming: XML tool call assembles valid JSON args</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.7s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>52</strong></td>
+  <td>Streaming: array param is JSON array (not string)</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.8s</span></td>
+  <td><div class="detail">array</div></td>
+</tr>
+<tr>
+  <td><strong>53</strong></td>
+  <td>Tool call matches OpenAI schema (id, type, function.name, function.arguments)</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.7s</span></td>
+  <td><div class="detail">valid schema</div></td>
+</tr>
+</tbody>
+    </table>
+  </div>
+  <div class="model-section">
+    <h2>mlx-community/Qwen3.5-9B-MLX-4bit <span class="parser-badge">auto</span></h2>
+    <div class="summary-bar">
+      <span class="pass-count">55 passed</span> /
+      <span class="fail-count">7 failed</span> /
+       total
+    </div>
+    <table class="results-table">
+      <thead><tr><th>Group</th><th>Test</th><th>Expected</th><th>Result</th><th>Time</th></tr></thead>
+      <tbody>
+<tr>
+  <td><strong>1</strong></td>
+  <td>Binary exists at .build/release/afm</td>
+  <td><span class="group-badge Preflight">Preflight</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">file exists</div></td>
+</tr>
+<tr>
+  <td><strong>2</strong></td>
+  <td>Server reachable at http://127.0.0.1:9998</td>
+  <td><span class="group-badge Preflight">Preflight</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">200 OK</div></td>
+</tr>
+<tr>
+  <td><strong>3</strong></td>
+  <td>/v1/models contains model ID</td>
+  <td><span class="group-badge Lifecycle">Lifecycle</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">model in response</div></td>
+</tr>
+<tr>
+  <td><strong>4</strong></td>
+  <td>Basic completion returns content</td>
+  <td><span class="group-badge Lifecycle">Lifecycle</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">3.7s</span></td>
+  <td><div class="detail">non-empty content or reasoning</div></td>
+</tr>
+<tr>
+  <td><strong>5</strong></td>
+  <td>Stop string '5' absent from output</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.9s</span></td>
+  <td><div class="detail">no '5' in content</div></td>
+</tr>
+<tr>
+  <td><strong>6</strong></td>
+  <td>finish_reason is 'stop' with stop sequence</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">stop</div></td>
+</tr>
+<tr>
+  <td><strong>7</strong></td>
+  <td>Multi-word stop 'and' truncates correctly</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">no 'and' in output</div></td>
+</tr>
+<tr>
+  <td><strong>8</strong></td>
+  <td>Stop on newline produces single line</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">2.9s</span></td>
+  <td><div class="detail">Expected: single line\nActual: FAIL: multi-line output</div></td>
+</tr>
+<tr>
+  <td><strong>9</strong></td>
+  <td>Multiple stop sequences [7, 12]</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">neither found</div></td>
+</tr>
+<tr>
+  <td><strong>10</strong></td>
+  <td>Empty stop array is no-op</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">4.4s</span></td>
+  <td><div class="detail">valid output</div></td>
+</tr>
+<tr>
+  <td><strong>11</strong></td>
+  <td>Streaming: stop string '5' absent</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">no '5' in stream</div></td>
+</tr>
+<tr>
+  <td><strong>12</strong></td>
+  <td>Stop sequence '3.' truncates list</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">no '3.' in output</div></td>
+</tr>
+<tr>
+  <td><strong>13</strong></td>
+  <td>Stop 'stopped' doesn't fire on 'stopping'</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.2s</span></td>
+  <td><div class="detail">output produced</div></td>
+</tr>
+<tr>
+  <td><strong>14</strong></td>
+  <td>Stop 'llo' fires mid-word in 'hello'</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.5s</span></td>
+  <td><div class="detail">no 'llo'</div></td>
+</tr>
+<tr>
+  <td><strong>15</strong></td>
+  <td>ChoiceLogprobs JSON schema valid</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">valid schema</div></td>
+</tr>
+<tr>
+  <td><strong>16</strong></td>
+  <td>top_logprobs count &lt;= requested (5)</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">count valid</div></td>
+</tr>
+<tr>
+  <td><strong>17</strong></td>
+  <td>logprobs=false returns null</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">null logprobs</div></td>
+</tr>
+<tr>
+  <td><strong>18</strong></td>
+  <td>top_logprobs=99 returns 400</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>19</strong></td>
+  <td>Streaming logprobs present and valid</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>20</strong></td>
+  <td>top_logprobs=0 returns empty arrays</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">empty top_logprobs</div></td>
+</tr>
+<tr>
+  <td><strong>21</strong></td>
+  <td>reasoning_content present in response</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">present</div></td>
+</tr>
+<tr>
+  <td><strong>22</strong></td>
+  <td>No &lt;think&gt; tags in content field</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">clean content</div></td>
+</tr>
+<tr>
+  <td><strong>23</strong></td>
+  <td>Streaming: reasoning_content in deltas</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">present</div></td>
+</tr>
+<tr>
+  <td><strong>24</strong></td>
+  <td>Stop sequence doesn't break think extraction</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">response ok</div></td>
+</tr>
+<tr>
+  <td><strong>25</strong></td>
+  <td>reasoning_content has meaningful length (&gt;5 chars)</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">&gt;5 chars</div></td>
+</tr>
+<tr>
+  <td><strong>26</strong></td>
+  <td>Basic tool call: finish_reason=tool_calls, valid args</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>27</strong></td>
+  <td>tool_choice=none suppresses tool calls</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">Expected: no tool calls\nActual: FAIL: finish_reason=tool_calls, tool_calls=[{'id': 'call_Z70ubDpU4wS6kVzQGE8yNl1s', 'type': 'function', 'function': {'name': 'get_weather', 'arguments': '{"location":"Paris"}'}}]</div></td>
+</tr>
+<tr>
+  <td><strong>28</strong></td>
+  <td>Tool arguments are valid JSON dict</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.3s</span></td>
+  <td><div class="detail">valid JSON</div></td>
+</tr>
+<tr>
+  <td><strong>29</strong></td>
+  <td>Streaming: tool calls with finish_reason</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>30</strong></td>
+  <td>Multi-tool: at least 1 tool call with 2 tools</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.5s</span></td>
+  <td><div class="detail">&gt;=1 calls</div></td>
+</tr>
+<tr>
+  <td><strong>31</strong></td>
+  <td>Array param: todos is JSON array (not string)</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">array</div></td>
+</tr>
+<tr>
+  <td><strong>32</strong></td>
+  <td>Nullable param: anyOf [string, null] does not crash</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.2s</span></td>
+  <td><div class="detail">no crash</div></td>
+</tr>
+<tr>
+  <td><strong>33</strong></td>
+  <td>No tools: normal text response</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">text response</div></td>
+</tr>
+<tr>
+  <td><strong>34</strong></td>
+  <td>First request: cached_tokens=0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">0</div></td>
+</tr>
+<tr>
+  <td><strong>35</strong></td>
+  <td>Second identical request: cached_tokens&gt;0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">Expected: &gt;0\nActual: FAIL: cached_tokens=0</div></td>
+</tr>
+<tr>
+  <td><strong>36</strong></td>
+  <td>Different prompt: cached_tokens=0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">0</div></td>
+</tr>
+<tr>
+  <td><strong>37</strong></td>
+  <td>Streaming: cached_tokens&gt;0 in usage chunk</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">Expected: &gt;0\nActual: FAIL: no cached_tokens&gt;0 in stream usage</div></td>
+</tr>
+<tr>
+  <td><strong>38</strong></td>
+  <td>Two simultaneous requests: both 200</td>
+  <td><span class="group-badge Concurrent">Concurrent</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">200+200</div></td>
+</tr>
+<tr>
+  <td><strong>39</strong></td>
+  <td>Three simultaneous requests: all 200</td>
+  <td><span class="group-badge Concurrent">Concurrent</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">all 200</div></td>
+</tr>
+<tr>
+  <td><strong>40</strong></td>
+  <td>Empty messages → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>41</strong></td>
+  <td>Malformed JSON → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>42</strong></td>
+  <td>Missing messages field → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>43</strong></td>
+  <td>response_format json_object returns valid JSON</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">valid JSON</div></td>
+</tr>
+<tr>
+  <td><strong>44</strong></td>
+  <td>max_tokens=5 is respected</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">&lt;=10 tokens</div></td>
+</tr>
+<tr>
+  <td><strong>45</strong></td>
+  <td>OPTIONS /v1/chat/completions → 200 (CORS)</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">200</div></td>
+</tr>
+<tr>
+  <td><strong>46</strong></td>
+  <td>developer role accepted (mapped to system)</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">4.4s</span></td>
+  <td><div class="detail">valid response</div></td>
+</tr>
+<tr>
+  <td><strong>47</strong></td>
+  <td>enable_thinking=false disables thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">no_think</div></td>
+</tr>
+<tr>
+  <td><strong>48</strong></td>
+  <td>Streaming: enable_thinking=false disables thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">no_think</div></td>
+</tr>
+<tr>
+  <td><strong>49</strong></td>
+  <td>Default (no kwargs) retains thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">Expected: thinking\nActual: FAIL: state=empty</div></td>
+</tr>
+<tr>
+  <td><strong>50</strong></td>
+  <td>enable_thinking=false (2K tokens) returns content</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">content present, no reasoning</div></td>
+</tr>
+<tr>
+  <td><strong>51</strong></td>
+  <td>enable_thinking=true explicitly keeps thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">Expected: thinking\nActual: FAIL: state=empty</div></td>
+</tr>
+<tr>
+  <td><strong>52</strong></td>
+  <td>Function name correctly extracted</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">get_weather</div></td>
+</tr>
+<tr>
+  <td><strong>53</strong></td>
+  <td>Parameter values are correct string types</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">strings</div></td>
+</tr>
+<tr>
+  <td><strong>54</strong></td>
+  <td>Mixed-type params (string+bool+int) parse correctly</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.5s</span></td>
+  <td><div class="detail">valid types</div></td>
+</tr>
+<tr>
+  <td><strong>55</strong></td>
+  <td>Nested object param survives XML parsing</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.5s</span></td>
+  <td><div class="detail">valid dict</div></td>
+</tr>
+<tr>
+  <td><strong>56</strong></td>
+  <td>tool_choice=required forces tool call</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">tool_calls</div></td>
+</tr>
+<tr>
+  <td><strong>57</strong></td>
+  <td>tool_choice={function: get_time} calls correct function</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.2s</span></td>
+  <td><div class="detail">get_time</div></td>
+</tr>
+<tr>
+  <td><strong>58</strong></td>
+  <td>Tool call IDs are unique</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.7s</span></td>
+  <td><div class="detail">unique IDs</div></td>
+</tr>
+<tr>
+  <td><strong>59</strong></td>
+  <td>Streaming: XML tool call assembles valid JSON args</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>60</strong></td>
+  <td>Streaming: array param is JSON array (not string)</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.4s</span></td>
+  <td><div class="detail">array</div></td>
+</tr>
+<tr>
+  <td><strong>61</strong></td>
+  <td>Tool call matches OpenAI schema (id, type, function.name, function.arguments)</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">valid schema</div></td>
+</tr>
+</tbody>
+    </table>
+  </div>
+  <div class="model-section">
+    <h2>mlx-community/Qwen3.5-9B-MLX-4bit <span class="parser-badge">qwen3_xml</span></h2>
+    <div class="summary-bar">
+      <span class="pass-count">55 passed</span> /
+      <span class="fail-count">7 failed</span> /
+       total
+    </div>
+    <table class="results-table">
+      <thead><tr><th>Group</th><th>Test</th><th>Expected</th><th>Result</th><th>Time</th></tr></thead>
+      <tbody>
+<tr>
+  <td><strong>1</strong></td>
+  <td>Binary exists at .build/release/afm</td>
+  <td><span class="group-badge Preflight">Preflight</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">file exists</div></td>
+</tr>
+<tr>
+  <td><strong>2</strong></td>
+  <td>Server reachable at http://127.0.0.1:9998</td>
+  <td><span class="group-badge Preflight">Preflight</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">200 OK</div></td>
+</tr>
+<tr>
+  <td><strong>3</strong></td>
+  <td>/v1/models contains model ID</td>
+  <td><span class="group-badge Lifecycle">Lifecycle</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">model in response</div></td>
+</tr>
+<tr>
+  <td><strong>4</strong></td>
+  <td>Basic completion returns content</td>
+  <td><span class="group-badge Lifecycle">Lifecycle</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">3.6s</span></td>
+  <td><div class="detail">non-empty content or reasoning</div></td>
+</tr>
+<tr>
+  <td><strong>5</strong></td>
+  <td>Stop string '5' absent from output</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.9s</span></td>
+  <td><div class="detail">no '5' in content</div></td>
+</tr>
+<tr>
+  <td><strong>6</strong></td>
+  <td>finish_reason is 'stop' with stop sequence</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">stop</div></td>
+</tr>
+<tr>
+  <td><strong>7</strong></td>
+  <td>Multi-word stop 'and' truncates correctly</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">no 'and' in output</div></td>
+</tr>
+<tr>
+  <td><strong>8</strong></td>
+  <td>Stop on newline produces single line</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">2.9s</span></td>
+  <td><div class="detail">Expected: single line\nActual: FAIL: multi-line output</div></td>
+</tr>
+<tr>
+  <td><strong>9</strong></td>
+  <td>Multiple stop sequences [7, 12]</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">neither found</div></td>
+</tr>
+<tr>
+  <td><strong>10</strong></td>
+  <td>Empty stop array is no-op</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">4.4s</span></td>
+  <td><div class="detail">valid output</div></td>
+</tr>
+<tr>
+  <td><strong>11</strong></td>
+  <td>Streaming: stop string '5' absent</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">no '5' in stream</div></td>
+</tr>
+<tr>
+  <td><strong>12</strong></td>
+  <td>Stop sequence '3.' truncates list</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">no '3.' in output</div></td>
+</tr>
+<tr>
+  <td><strong>13</strong></td>
+  <td>Stop 'stopped' doesn't fire on 'stopping'</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.2s</span></td>
+  <td><div class="detail">output produced</div></td>
+</tr>
+<tr>
+  <td><strong>14</strong></td>
+  <td>Stop 'llo' fires mid-word in 'hello'</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.5s</span></td>
+  <td><div class="detail">no 'llo'</div></td>
+</tr>
+<tr>
+  <td><strong>15</strong></td>
+  <td>ChoiceLogprobs JSON schema valid</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">valid schema</div></td>
+</tr>
+<tr>
+  <td><strong>16</strong></td>
+  <td>top_logprobs count &lt;= requested (5)</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">count valid</div></td>
+</tr>
+<tr>
+  <td><strong>17</strong></td>
+  <td>logprobs=false returns null</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">null logprobs</div></td>
+</tr>
+<tr>
+  <td><strong>18</strong></td>
+  <td>top_logprobs=99 returns 400</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>19</strong></td>
+  <td>Streaming logprobs present and valid</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>20</strong></td>
+  <td>top_logprobs=0 returns empty arrays</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">empty top_logprobs</div></td>
+</tr>
+<tr>
+  <td><strong>21</strong></td>
+  <td>reasoning_content present in response</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">present</div></td>
+</tr>
+<tr>
+  <td><strong>22</strong></td>
+  <td>No &lt;think&gt; tags in content field</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">clean content</div></td>
+</tr>
+<tr>
+  <td><strong>23</strong></td>
+  <td>Streaming: reasoning_content in deltas</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">present</div></td>
+</tr>
+<tr>
+  <td><strong>24</strong></td>
+  <td>Stop sequence doesn't break think extraction</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">response ok</div></td>
+</tr>
+<tr>
+  <td><strong>25</strong></td>
+  <td>reasoning_content has meaningful length (&gt;5 chars)</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">&gt;5 chars</div></td>
+</tr>
+<tr>
+  <td><strong>26</strong></td>
+  <td>Basic tool call: finish_reason=tool_calls, valid args</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>27</strong></td>
+  <td>tool_choice=none suppresses tool calls</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">Expected: no tool calls\nActual: FAIL: finish_reason=tool_calls, tool_calls=[{'function': {'name': 'get_weather', 'arguments': '{"location":"Paris"}'}, 'type': 'function', 'id': 'call_woQH7pd6sAkUe0hXzGzgjz3a'}]</div></td>
+</tr>
+<tr>
+  <td><strong>28</strong></td>
+  <td>Tool arguments are valid JSON dict</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">valid JSON</div></td>
+</tr>
+<tr>
+  <td><strong>29</strong></td>
+  <td>Streaming: tool calls with finish_reason</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>30</strong></td>
+  <td>Multi-tool: at least 1 tool call with 2 tools</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.6s</span></td>
+  <td><div class="detail">&gt;=1 calls</div></td>
+</tr>
+<tr>
+  <td><strong>31</strong></td>
+  <td>Array param: todos is JSON array (not string)</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">array</div></td>
+</tr>
+<tr>
+  <td><strong>32</strong></td>
+  <td>Nullable param: anyOf [string, null] does not crash</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.3s</span></td>
+  <td><div class="detail">no crash</div></td>
+</tr>
+<tr>
+  <td><strong>33</strong></td>
+  <td>No tools: normal text response</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">text response</div></td>
+</tr>
+<tr>
+  <td><strong>34</strong></td>
+  <td>First request: cached_tokens=0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">0</div></td>
+</tr>
+<tr>
+  <td><strong>35</strong></td>
+  <td>Second identical request: cached_tokens&gt;0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">Expected: &gt;0\nActual: FAIL: cached_tokens=0</div></td>
+</tr>
+<tr>
+  <td><strong>36</strong></td>
+  <td>Different prompt: cached_tokens=0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">0</div></td>
+</tr>
+<tr>
+  <td><strong>37</strong></td>
+  <td>Streaming: cached_tokens&gt;0 in usage chunk</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">Expected: &gt;0\nActual: FAIL: no cached_tokens&gt;0 in stream usage</div></td>
+</tr>
+<tr>
+  <td><strong>38</strong></td>
+  <td>Two simultaneous requests: both 200</td>
+  <td><span class="group-badge Concurrent">Concurrent</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">200+200</div></td>
+</tr>
+<tr>
+  <td><strong>39</strong></td>
+  <td>Three simultaneous requests: all 200</td>
+  <td><span class="group-badge Concurrent">Concurrent</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">all 200</div></td>
+</tr>
+<tr>
+  <td><strong>40</strong></td>
+  <td>Empty messages → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>41</strong></td>
+  <td>Malformed JSON → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>42</strong></td>
+  <td>Missing messages field → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>43</strong></td>
+  <td>response_format json_object returns valid JSON</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">valid JSON</div></td>
+</tr>
+<tr>
+  <td><strong>44</strong></td>
+  <td>max_tokens=5 is respected</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">&lt;=10 tokens</div></td>
+</tr>
+<tr>
+  <td><strong>45</strong></td>
+  <td>OPTIONS /v1/chat/completions → 200 (CORS)</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">200</div></td>
+</tr>
+<tr>
+  <td><strong>46</strong></td>
+  <td>developer role accepted (mapped to system)</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">4.5s</span></td>
+  <td><div class="detail">valid response</div></td>
+</tr>
+<tr>
+  <td><strong>47</strong></td>
+  <td>enable_thinking=false disables thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">no_think</div></td>
+</tr>
+<tr>
+  <td><strong>48</strong></td>
+  <td>Streaming: enable_thinking=false disables thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">no_think</div></td>
+</tr>
+<tr>
+  <td><strong>49</strong></td>
+  <td>Default (no kwargs) retains thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">Expected: thinking\nActual: FAIL: state=empty</div></td>
+</tr>
+<tr>
+  <td><strong>50</strong></td>
+  <td>enable_thinking=false (2K tokens) returns content</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">content present, no reasoning</div></td>
+</tr>
+<tr>
+  <td><strong>51</strong></td>
+  <td>enable_thinking=true explicitly keeps thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">Expected: thinking\nActual: FAIL: state=empty</div></td>
+</tr>
+<tr>
+  <td><strong>52</strong></td>
+  <td>Function name correctly extracted</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">get_weather</div></td>
+</tr>
+<tr>
+  <td><strong>53</strong></td>
+  <td>Parameter values are correct string types</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.4s</span></td>
+  <td><div class="detail">strings</div></td>
+</tr>
+<tr>
+  <td><strong>54</strong></td>
+  <td>Mixed-type params (string+bool+int) parse correctly</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.4s</span></td>
+  <td><div class="detail">valid types</div></td>
+</tr>
+<tr>
+  <td><strong>55</strong></td>
+  <td>Nested object param survives XML parsing</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.6s</span></td>
+  <td><div class="detail">valid dict</div></td>
+</tr>
+<tr>
+  <td><strong>56</strong></td>
+  <td>tool_choice=required forces tool call</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.3s</span></td>
+  <td><div class="detail">tool_calls</div></td>
+</tr>
+<tr>
+  <td><strong>57</strong></td>
+  <td>tool_choice={function: get_time} calls correct function</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">get_time</div></td>
+</tr>
+<tr>
+  <td><strong>58</strong></td>
+  <td>Tool call IDs are unique</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.7s</span></td>
+  <td><div class="detail">unique IDs</div></td>
+</tr>
+<tr>
+  <td><strong>59</strong></td>
+  <td>Streaming: XML tool call assembles valid JSON args</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>60</strong></td>
+  <td>Streaming: array param is JSON array (not string)</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.3s</span></td>
+  <td><div class="detail">array</div></td>
+</tr>
+<tr>
+  <td><strong>61</strong></td>
+  <td>Tool call matches OpenAI schema (id, type, function.name, function.arguments)</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">valid schema</div></td>
+</tr>
+</tbody>
+    </table>
+  </div>
+  <div class="model-section">
+    <h2>mlx-community/Qwen3.5-35B-A3B-4bit <span class="parser-badge">auto</span></h2>
+    <div class="summary-bar">
+      <span class="pass-count">58 passed</span> /
+      <span class="fail-count">4 failed</span> /
+       total
+    </div>
+    <table class="results-table">
+      <thead><tr><th>Group</th><th>Test</th><th>Expected</th><th>Result</th><th>Time</th></tr></thead>
+      <tbody>
+<tr>
+  <td><strong>1</strong></td>
+  <td>Binary exists at .build/release/afm</td>
+  <td><span class="group-badge Preflight">Preflight</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">file exists</div></td>
+</tr>
+<tr>
+  <td><strong>2</strong></td>
+  <td>Server reachable at http://127.0.0.1:9998</td>
+  <td><span class="group-badge Preflight">Preflight</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">200 OK</div></td>
+</tr>
+<tr>
+  <td><strong>3</strong></td>
+  <td>/v1/models contains model ID</td>
+  <td><span class="group-badge Lifecycle">Lifecycle</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">model in response</div></td>
+</tr>
+<tr>
+  <td><strong>4</strong></td>
+  <td>Basic completion returns content</td>
+  <td><span class="group-badge Lifecycle">Lifecycle</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">4.8s</span></td>
+  <td><div class="detail">non-empty content or reasoning</div></td>
+</tr>
+<tr>
+  <td><strong>5</strong></td>
+  <td>Stop string '5' absent from output</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">no '5' in content</div></td>
+</tr>
+<tr>
+  <td><strong>6</strong></td>
+  <td>finish_reason is 'stop' with stop sequence</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">stop</div></td>
+</tr>
+<tr>
+  <td><strong>7</strong></td>
+  <td>Multi-word stop 'and' truncates correctly</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">no 'and' in output</div></td>
+</tr>
+<tr>
+  <td><strong>8</strong></td>
+  <td>Stop on newline produces single line</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">1.5s</span></td>
+  <td><div class="detail">Expected: single line\nActual: FAIL: multi-line output</div></td>
+</tr>
+<tr>
+  <td><strong>9</strong></td>
+  <td>Multiple stop sequences [7, 12]</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">neither found</div></td>
+</tr>
+<tr>
+  <td><strong>10</strong></td>
+  <td>Empty stop array is no-op</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.2s</span></td>
+  <td><div class="detail">valid output</div></td>
+</tr>
+<tr>
+  <td><strong>11</strong></td>
+  <td>Streaming: stop string '5' absent</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">no '5' in stream</div></td>
+</tr>
+<tr>
+  <td><strong>12</strong></td>
+  <td>Stop sequence '3.' truncates list</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">no '3.' in output</div></td>
+</tr>
+<tr>
+  <td><strong>13</strong></td>
+  <td>Stop 'stopped' doesn't fire on 'stopping'</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.0s</span></td>
+  <td><div class="detail">output produced</div></td>
+</tr>
+<tr>
+  <td><strong>14</strong></td>
+  <td>Stop 'llo' fires mid-word in 'hello'</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">no 'llo'</div></td>
+</tr>
+<tr>
+  <td><strong>15</strong></td>
+  <td>ChoiceLogprobs JSON schema valid</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">valid schema</div></td>
+</tr>
+<tr>
+  <td><strong>16</strong></td>
+  <td>top_logprobs count &lt;= requested (5)</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">count valid</div></td>
+</tr>
+<tr>
+  <td><strong>17</strong></td>
+  <td>logprobs=false returns null</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">null logprobs</div></td>
+</tr>
+<tr>
+  <td><strong>18</strong></td>
+  <td>top_logprobs=99 returns 400</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>19</strong></td>
+  <td>Streaming logprobs present and valid</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>20</strong></td>
+  <td>top_logprobs=0 returns empty arrays</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">empty top_logprobs</div></td>
+</tr>
+<tr>
+  <td><strong>21</strong></td>
+  <td>reasoning_content present in response</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">present</div></td>
+</tr>
+<tr>
+  <td><strong>22</strong></td>
+  <td>No &lt;think&gt; tags in content field</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">clean content</div></td>
+</tr>
+<tr>
+  <td><strong>23</strong></td>
+  <td>Streaming: reasoning_content in deltas</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">present</div></td>
+</tr>
+<tr>
+  <td><strong>24</strong></td>
+  <td>Stop sequence doesn't break think extraction</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">response ok</div></td>
+</tr>
+<tr>
+  <td><strong>25</strong></td>
+  <td>reasoning_content has meaningful length (&gt;5 chars)</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">&gt;5 chars</div></td>
+</tr>
+<tr>
+  <td><strong>26</strong></td>
+  <td>Basic tool call: finish_reason=tool_calls, valid args</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.5s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>27</strong></td>
+  <td>tool_choice=none suppresses tool calls</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">no tool calls</div></td>
+</tr>
+<tr>
+  <td><strong>28</strong></td>
+  <td>Tool arguments are valid JSON dict</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">valid JSON</div></td>
+</tr>
+<tr>
+  <td><strong>29</strong></td>
+  <td>Streaming: tool calls with finish_reason</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>30</strong></td>
+  <td>Multi-tool: at least 1 tool call with 2 tools</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.6s</span></td>
+  <td><div class="detail">&gt;=1 calls</div></td>
+</tr>
+<tr>
+  <td><strong>31</strong></td>
+  <td>Array param: todos is JSON array (not string)</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">array</div></td>
+</tr>
+<tr>
+  <td><strong>32</strong></td>
+  <td>Nullable param: anyOf [string, null] does not crash</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.2s</span></td>
+  <td><div class="detail">no crash</div></td>
+</tr>
+<tr>
+  <td><strong>33</strong></td>
+  <td>No tools: normal text response</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">text response</div></td>
+</tr>
+<tr>
+  <td><strong>34</strong></td>
+  <td>First request: cached_tokens=0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">0</div></td>
+</tr>
+<tr>
+  <td><strong>35</strong></td>
+  <td>Second identical request: cached_tokens&gt;0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">Expected: &gt;0\nActual: FAIL: cached_tokens=0</div></td>
+</tr>
+<tr>
+  <td><strong>36</strong></td>
+  <td>Different prompt: cached_tokens=0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">0</div></td>
+</tr>
+<tr>
+  <td><strong>37</strong></td>
+  <td>Streaming: cached_tokens&gt;0 in usage chunk</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">Expected: &gt;0\nActual: FAIL: no cached_tokens&gt;0 in stream usage</div></td>
+</tr>
+<tr>
+  <td><strong>38</strong></td>
+  <td>Two simultaneous requests: both 200</td>
+  <td><span class="group-badge Concurrent">Concurrent</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">200+200</div></td>
+</tr>
+<tr>
+  <td><strong>39</strong></td>
+  <td>Three simultaneous requests: all 200</td>
+  <td><span class="group-badge Concurrent">Concurrent</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">all 200</div></td>
+</tr>
+<tr>
+  <td><strong>40</strong></td>
+  <td>Empty messages → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>41</strong></td>
+  <td>Malformed JSON → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>42</strong></td>
+  <td>Missing messages field → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>43</strong></td>
+  <td>response_format json_object returns valid JSON</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">valid JSON</div></td>
+</tr>
+<tr>
+  <td><strong>44</strong></td>
+  <td>max_tokens=5 is respected</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">&lt;=10 tokens</div></td>
+</tr>
+<tr>
+  <td><strong>45</strong></td>
+  <td>OPTIONS /v1/chat/completions → 200 (CORS)</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">200</div></td>
+</tr>
+<tr>
+  <td><strong>46</strong></td>
+  <td>developer role accepted (mapped to system)</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">4.3s</span></td>
+  <td><div class="detail">valid response</div></td>
+</tr>
+<tr>
+  <td><strong>47</strong></td>
+  <td>enable_thinking=false disables thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">no_think</div></td>
+</tr>
+<tr>
+  <td><strong>48</strong></td>
+  <td>Streaming: enable_thinking=false disables thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">no_think</div></td>
+</tr>
+<tr>
+  <td><strong>49</strong></td>
+  <td>Default (no kwargs) retains thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.5s</span></td>
+  <td><div class="detail">thinking</div></td>
+</tr>
+<tr>
+  <td><strong>50</strong></td>
+  <td>enable_thinking=false (2K tokens) returns content</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">content present, no reasoning</div></td>
+</tr>
+<tr>
+  <td><strong>51</strong></td>
+  <td>enable_thinking=true explicitly keeps thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.5s</span></td>
+  <td><div class="detail">thinking</div></td>
+</tr>
+<tr>
+  <td><strong>52</strong></td>
+  <td>Function name correctly extracted</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">get_weather</div></td>
+</tr>
+<tr>
+  <td><strong>53</strong></td>
+  <td>Parameter values are correct string types</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">strings</div></td>
+</tr>
+<tr>
+  <td><strong>54</strong></td>
+  <td>Mixed-type params (string+bool+int) parse correctly</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.3s</span></td>
+  <td><div class="detail">valid types</div></td>
+</tr>
+<tr>
+  <td><strong>55</strong></td>
+  <td>Nested object param survives XML parsing</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">valid dict</div></td>
+</tr>
+<tr>
+  <td><strong>56</strong></td>
+  <td>tool_choice=required forces tool call</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.4s</span></td>
+  <td><div class="detail">tool_calls</div></td>
+</tr>
+<tr>
+  <td><strong>57</strong></td>
+  <td>tool_choice={function: get_time} calls correct function</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">get_time</div></td>
+</tr>
+<tr>
+  <td><strong>58</strong></td>
+  <td>Tool call IDs are unique</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.6s</span></td>
+  <td><div class="detail">unique IDs</div></td>
+</tr>
+<tr>
+  <td><strong>59</strong></td>
+  <td>Streaming: XML tool call assembles valid JSON args</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>60</strong></td>
+  <td>Streaming: array param is JSON array (not string)</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">array</div></td>
+</tr>
+<tr>
+  <td><strong>61</strong></td>
+  <td>Tool call matches OpenAI schema (id, type, function.name, function.arguments)</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">valid schema</div></td>
+</tr>
+</tbody>
+    </table>
+  </div>
+  <div class="model-section">
+    <h2>mlx-community/Qwen3.5-35B-A3B-4bit <span class="parser-badge">qwen3_xml</span></h2>
+    <div class="summary-bar">
+      <span class="pass-count">58 passed</span> /
+      <span class="fail-count">4 failed</span> /
+       total
+    </div>
+    <table class="results-table">
+      <thead><tr><th>Group</th><th>Test</th><th>Expected</th><th>Result</th><th>Time</th></tr></thead>
+      <tbody>
+<tr>
+  <td><strong>1</strong></td>
+  <td>Binary exists at .build/release/afm</td>
+  <td><span class="group-badge Preflight">Preflight</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">file exists</div></td>
+</tr>
+<tr>
+  <td><strong>2</strong></td>
+  <td>Server reachable at http://127.0.0.1:9998</td>
+  <td><span class="group-badge Preflight">Preflight</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">200 OK</div></td>
+</tr>
+<tr>
+  <td><strong>3</strong></td>
+  <td>/v1/models contains model ID</td>
+  <td><span class="group-badge Lifecycle">Lifecycle</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">model in response</div></td>
+</tr>
+<tr>
+  <td><strong>4</strong></td>
+  <td>Basic completion returns content</td>
+  <td><span class="group-badge Lifecycle">Lifecycle</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">4.9s</span></td>
+  <td><div class="detail">non-empty content or reasoning</div></td>
+</tr>
+<tr>
+  <td><strong>5</strong></td>
+  <td>Stop string '5' absent from output</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">no '5' in content</div></td>
+</tr>
+<tr>
+  <td><strong>6</strong></td>
+  <td>finish_reason is 'stop' with stop sequence</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">stop</div></td>
+</tr>
+<tr>
+  <td><strong>7</strong></td>
+  <td>Multi-word stop 'and' truncates correctly</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">no 'and' in output</div></td>
+</tr>
+<tr>
+  <td><strong>8</strong></td>
+  <td>Stop on newline produces single line</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">1.5s</span></td>
+  <td><div class="detail">Expected: single line\nActual: FAIL: multi-line output</div></td>
+</tr>
+<tr>
+  <td><strong>9</strong></td>
+  <td>Multiple stop sequences [7, 12]</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.7s</span></td>
+  <td><div class="detail">neither found</div></td>
+</tr>
+<tr>
+  <td><strong>10</strong></td>
+  <td>Empty stop array is no-op</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.2s</span></td>
+  <td><div class="detail">valid output</div></td>
+</tr>
+<tr>
+  <td><strong>11</strong></td>
+  <td>Streaming: stop string '5' absent</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">no '5' in stream</div></td>
+</tr>
+<tr>
+  <td><strong>12</strong></td>
+  <td>Stop sequence '3.' truncates list</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">no '3.' in output</div></td>
+</tr>
+<tr>
+  <td><strong>13</strong></td>
+  <td>Stop 'stopped' doesn't fire on 'stopping'</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.0s</span></td>
+  <td><div class="detail">output produced</div></td>
+</tr>
+<tr>
+  <td><strong>14</strong></td>
+  <td>Stop 'llo' fires mid-word in 'hello'</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">no 'llo'</div></td>
+</tr>
+<tr>
+  <td><strong>15</strong></td>
+  <td>ChoiceLogprobs JSON schema valid</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">valid schema</div></td>
+</tr>
+<tr>
+  <td><strong>16</strong></td>
+  <td>top_logprobs count &lt;= requested (5)</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">count valid</div></td>
+</tr>
+<tr>
+  <td><strong>17</strong></td>
+  <td>logprobs=false returns null</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">null logprobs</div></td>
+</tr>
+<tr>
+  <td><strong>18</strong></td>
+  <td>top_logprobs=99 returns 400</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>19</strong></td>
+  <td>Streaming logprobs present and valid</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>20</strong></td>
+  <td>top_logprobs=0 returns empty arrays</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">empty top_logprobs</div></td>
+</tr>
+<tr>
+  <td><strong>21</strong></td>
+  <td>reasoning_content present in response</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">present</div></td>
+</tr>
+<tr>
+  <td><strong>22</strong></td>
+  <td>No &lt;think&gt; tags in content field</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">clean content</div></td>
+</tr>
+<tr>
+  <td><strong>23</strong></td>
+  <td>Streaming: reasoning_content in deltas</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">present</div></td>
+</tr>
+<tr>
+  <td><strong>24</strong></td>
+  <td>Stop sequence doesn't break think extraction</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">response ok</div></td>
+</tr>
+<tr>
+  <td><strong>25</strong></td>
+  <td>reasoning_content has meaningful length (&gt;5 chars)</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">&gt;5 chars</div></td>
+</tr>
+<tr>
+  <td><strong>26</strong></td>
+  <td>Basic tool call: finish_reason=tool_calls, valid args</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.4s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>27</strong></td>
+  <td>tool_choice=none suppresses tool calls</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">no tool calls</div></td>
+</tr>
+<tr>
+  <td><strong>28</strong></td>
+  <td>Tool arguments are valid JSON dict</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">valid JSON</div></td>
+</tr>
+<tr>
+  <td><strong>29</strong></td>
+  <td>Streaming: tool calls with finish_reason</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>30</strong></td>
+  <td>Multi-tool: at least 1 tool call with 2 tools</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.6s</span></td>
+  <td><div class="detail">&gt;=1 calls</div></td>
+</tr>
+<tr>
+  <td><strong>31</strong></td>
+  <td>Array param: todos is JSON array (not string)</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">array</div></td>
+</tr>
+<tr>
+  <td><strong>32</strong></td>
+  <td>Nullable param: anyOf [string, null] does not crash</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">no crash</div></td>
+</tr>
+<tr>
+  <td><strong>33</strong></td>
+  <td>No tools: normal text response</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">text response</div></td>
+</tr>
+<tr>
+  <td><strong>34</strong></td>
+  <td>First request: cached_tokens=0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">0</div></td>
+</tr>
+<tr>
+  <td><strong>35</strong></td>
+  <td>Second identical request: cached_tokens&gt;0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">Expected: &gt;0\nActual: FAIL: cached_tokens=0</div></td>
+</tr>
+<tr>
+  <td><strong>36</strong></td>
+  <td>Different prompt: cached_tokens=0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">0</div></td>
+</tr>
+<tr>
+  <td><strong>37</strong></td>
+  <td>Streaming: cached_tokens&gt;0 in usage chunk</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">Expected: &gt;0\nActual: FAIL: no cached_tokens&gt;0 in stream usage</div></td>
+</tr>
+<tr>
+  <td><strong>38</strong></td>
+  <td>Two simultaneous requests: both 200</td>
+  <td><span class="group-badge Concurrent">Concurrent</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">200+200</div></td>
+</tr>
+<tr>
+  <td><strong>39</strong></td>
+  <td>Three simultaneous requests: all 200</td>
+  <td><span class="group-badge Concurrent">Concurrent</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">all 200</div></td>
+</tr>
+<tr>
+  <td><strong>40</strong></td>
+  <td>Empty messages → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>41</strong></td>
+  <td>Malformed JSON → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>42</strong></td>
+  <td>Missing messages field → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><strong>43</strong></td>
+  <td>response_format json_object returns valid JSON</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">valid JSON</div></td>
+</tr>
+<tr>
+  <td><strong>44</strong></td>
+  <td>max_tokens=5 is respected</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">&lt;=10 tokens</div></td>
+</tr>
+<tr>
+  <td><strong>45</strong></td>
+  <td>OPTIONS /v1/chat/completions → 200 (CORS)</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">200</div></td>
+</tr>
+<tr>
+  <td><strong>46</strong></td>
+  <td>developer role accepted (mapped to system)</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">4.3s</span></td>
+  <td><div class="detail">valid response</div></td>
+</tr>
+<tr>
+  <td><strong>47</strong></td>
+  <td>enable_thinking=false disables thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">no_think</div></td>
+</tr>
+<tr>
+  <td><strong>48</strong></td>
+  <td>Streaming: enable_thinking=false disables thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">no_think</div></td>
+</tr>
+<tr>
+  <td><strong>49</strong></td>
+  <td>Default (no kwargs) retains thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.4s</span></td>
+  <td><div class="detail">thinking</div></td>
+</tr>
+<tr>
+  <td><strong>50</strong></td>
+  <td>enable_thinking=false (2K tokens) returns content</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">content present, no reasoning</div></td>
+</tr>
+<tr>
+  <td><strong>51</strong></td>
+  <td>enable_thinking=true explicitly keeps thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.5s</span></td>
+  <td><div class="detail">thinking</div></td>
+</tr>
+<tr>
+  <td><strong>52</strong></td>
+  <td>Function name correctly extracted</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.5s</span></td>
+  <td><div class="detail">get_weather</div></td>
+</tr>
+<tr>
+  <td><strong>53</strong></td>
+  <td>Parameter values are correct string types</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">strings</div></td>
+</tr>
+<tr>
+  <td><strong>54</strong></td>
+  <td>Mixed-type params (string+bool+int) parse correctly</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.3s</span></td>
+  <td><div class="detail">valid types</div></td>
+</tr>
+<tr>
+  <td><strong>55</strong></td>
+  <td>Nested object param survives XML parsing</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.5s</span></td>
+  <td><div class="detail">valid dict</div></td>
+</tr>
+<tr>
+  <td><strong>56</strong></td>
+  <td>tool_choice=required forces tool call</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">tool_calls</div></td>
+</tr>
+<tr>
+  <td><strong>57</strong></td>
+  <td>tool_choice={function: get_time} calls correct function</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.7s</span></td>
+  <td><div class="detail">get_time</div></td>
+</tr>
+<tr>
+  <td><strong>58</strong></td>
+  <td>Tool call IDs are unique</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.6s</span></td>
+  <td><div class="detail">unique IDs</div></td>
+</tr>
+<tr>
+  <td><strong>59</strong></td>
+  <td>Streaming: XML tool call assembles valid JSON args</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><strong>60</strong></td>
+  <td>Streaming: array param is JSON array (not string)</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">array</div></td>
+</tr>
+<tr>
+  <td><strong>61</strong></td>
+  <td>Tool call matches OpenAI schema (id, type, function.name, function.arguments)</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">valid schema</div></td>
+</tr>
+</tbody>
+    </table>
+  </div>
+
+</body>
+</html>

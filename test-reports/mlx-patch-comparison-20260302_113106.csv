@@ -1,0 +1,100 @@
+File,Target,Type,maclocal-api Lines,Pinned Lines,Pinned Status,Pinned +/-,Latest Tag Lines,Latest Tag Status,Latest Tag +/-,Main Lines,Main Status,Main +/-,Conflict Risk,maclocal-api Features
+Qwen3VL.swift,MLXVLM,MODIFIED,1787,1766,CHANGED,+35/-14,1766,CHANGED,+38/-17,1766,CHANGED,+38/-17,LOW,Qwen3 VL patches
+Qwen3Next.swift,MLXLLM,NEW,723,0,NEW,+0/-723,800,CHANGED,+347/-424,800,CHANGED,+347/-424,LOW,GatedDeltaNet model architecture
+GatedDelta.swift,MLXLLM,NEW,449,0,NEW,+0/-449,0,NEW,+0/-449,0,NEW,+0/-449,NONE,GatedDeltaNet attention layer
+Qwen3_5MoE.swift,MLXLLM,NEW,1012,0,NEW,+0/-1012,0,NEW,+0/-1012,0,NEW,+0/-1012,NONE,Fused QKV/GDN/gate+up projections; fusedSiluMul Metal kernel; MLXFast.rmsNorm; adaptive sanitize
+DeepseekV3.swift,MLXLLM,MODIFIED,717,563,CHANGED,+202/-48,563,CHANGED,+204/-50,563,CHANGED,+204/-50,LOW,Bug fixes; Kimi K2 reuse
+MiniMaxM2.swift,MLXLLM,NEW,362,0,NEW,+0/-362,0,NEW,+0/-362,0,NEW,+0/-362,NONE,MiniMax M2 model architecture
+NemotronH.swift,MLXLLM,NEW,1008,0,NEW,+0/-1008,1003,CHANGED,+8/-3,1003,CHANGED,+8/-3,LOW,NemotronH hybrid Mamba+Attention model
+GLM4MoeLite.swift,MLXLLM,NEW,662,0,NEW,+0/-662,0,NEW,+0/-662,0,NEW,+0/-662,NONE,GLM-4 MoE Lite model
+GLM5MoeDsa.swift,MLXLLM,NEW,866,0,NEW,+0/-866,0,NEW,+0/-866,0,NEW,+0/-866,NONE,GLM-5 MoE DSA model
+KimiK25.swift,MLXLLM,NEW,113,0,NEW,+0/-113,0,NEW,+0/-113,0,NEW,+0/-113,NONE,Kimi K2.5 model architecture
+LLMModelFactory.swift,MLXLLM,MODIFIED,584,554,CHANGED,+31/-1,568,CHANGED,+33/-17,570,CHANGED,+33/-19,LOW,qwen3_5_moe/kimi_k2/kimi_k25/joyai_llm_flash/glm_moe_dsa/minimax_m2; sanitizeJSON(); toolCallFormat removal
+Load.swift,MLXLMCommon,MODIFIED,121,105,CHANGED,+20/-4,105,CHANGED,+20/-4,105,CHANGED,+20/-4,NONE,.jinja/.tiktoken downloads; MXFP4 fix; relaxed weight verification
+Evaluate.swift,MLXLMCommon,MODIFIED,1451,1044,CHANGED,+430/-23,1349,CHANGED,+592/-490,1371,CHANGED,+591/-511,HIGH,TopK/MinP/Presence/Composite processors; seed; logprobs; AFM_PERF; clearCache; shouldQuantizeCache
+Tokenizer.swift,MLXLMCommon,MODIFIED,429,157,CHANGED,+272/-0,157,CHANGED,+272/-0,157,CHANGED,+272/-0,NONE,TikToken support; .jinja fallback; O(n) window trim
+Qwen3_5MoEVL.swift,MLXVLM,NEW,1449,0,NEW,+0/-1449,0,NEW,+0/-1449,0,NEW,+0/-1449,NONE,Qwen3.5 MoE VLM wrapper
+VLMModelFactory.swift,MLXVLM,MODIFIED,398,390,CHANGED,+10/-2,396,CHANGED,+3/-1,396,CHANGED,+3/-1,LOW,Qwen3.5 MoE VL registration
+SamplerTests.swift,Tests,NEW,404,0,NEW,+0/-404,0,NEW,+0/-404,0,NEW,+0/-404,NONE,Unit tests for sampling processors
+ToolCallFormat.swift,MLXLMCommon,MODIFIED,113,0,ABSENT,+0/-113,120,CHANGED,+11/-18,120,CHANGED,+11/-18,MEDIUM,"Qwen3 model type detection (qwen3_next, qwen3_coder)"
+KVCache.swift,MLXLMCommon,MODIFIED,1610,1585,CHANGED,+36/-11,1585,CHANGED,+36/-11,1578,CHANGED,+55/-23,LOW,2x growth strategy; Updatable protocol; MXFP4 mode parameter
+SwitchLayers.swift,MLXLMCommon,MODIFIED,354,200,CHANGED,+163/-9,200,CHANGED,+163/-9,200,CHANGED,+163/-9,NONE,fusedSiluMul Metal kernel; SwitchGLU gate+up fusion; memory headroom check
+AfMoE.swift,MLXLLM/Models,UPSTREAM-ONLY,0,601,UPSTREAM,pinned,591,UPSTREAM,pinned,591,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Apertus.swift,MLXLLM/Models,UPSTREAM-ONLY,0,483,UPSTREAM,pinned,483,UPSTREAM,pinned,483,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+BaichuanM1.swift,MLXLLM/Models,UPSTREAM-ONLY,0,300,UPSTREAM,pinned,300,UPSTREAM,pinned,300,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+BailingMoe.swift,MLXLLM/Models,UPSTREAM-ONLY,0,367,UPSTREAM,pinned,367,UPSTREAM,pinned,367,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Bitnet.swift,MLXLLM/Models,UPSTREAM-ONLY,0,499,UPSTREAM,pinned,499,UPSTREAM,pinned,499,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Cohere.swift,MLXLLM/Models,UPSTREAM-ONLY,0,240,UPSTREAM,pinned,240,UPSTREAM,pinned,240,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Ernie4_5.swift,MLXLLM/Models,UPSTREAM-ONLY,0,236,UPSTREAM,pinned,236,UPSTREAM,pinned,236,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Exaone4.swift,MLXLLM/Models,UPSTREAM-ONLY,0,305,UPSTREAM,pinned,305,UPSTREAM,pinned,305,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+FalconH1.swift,MLXLLM/Models,UPSTREAM-ONLY,0,758,UPSTREAM,pinned,758,UPSTREAM,pinned,758,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Gemma.swift,MLXLLM/Models,UPSTREAM-ONLY,0,237,UPSTREAM,pinned,237,UPSTREAM,pinned,237,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Gemma2.swift,MLXLLM/Models,UPSTREAM-ONLY,0,279,UPSTREAM,pinned,279,UPSTREAM,pinned,279,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Gemma3nText.swift,MLXLLM/Models,UPSTREAM-ONLY,0,1040,UPSTREAM,pinned,1056,UPSTREAM,pinned,1056,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Gemma3Text.swift,MLXLLM/Models,UPSTREAM-ONLY,0,433,UPSTREAM,pinned,445,UPSTREAM,pinned,445,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+GLM4.swift,MLXLLM/Models,UPSTREAM-ONLY,0,281,UPSTREAM,pinned,281,UPSTREAM,pinned,281,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+GLM4MOE.swift,MLXLLM/Models,UPSTREAM-ONLY,0,453,UPSTREAM,pinned,453,UPSTREAM,pinned,453,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+GLM4MOELite.swift,MLXLLM/Models,UPSTREAM-ONLY,0,0,UPSTREAM,latest,724,UPSTREAM,latest,724,UPSTREAM,latest,N/A,Not in maclocal-api patches
+GPTOSS.swift,MLXLLM/Models,UPSTREAM-ONLY,0,548,UPSTREAM,pinned,548,UPSTREAM,pinned,548,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Granite.swift,MLXLLM/Models,UPSTREAM-ONLY,0,287,UPSTREAM,pinned,287,UPSTREAM,pinned,287,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+GraniteMoeHybrid.swift,MLXLLM/Models,UPSTREAM-ONLY,0,711,UPSTREAM,pinned,711,UPSTREAM,pinned,711,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Internlm2.swift,MLXLLM/Models,UPSTREAM-ONLY,0,328,UPSTREAM,pinned,328,UPSTREAM,pinned,328,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Jamba.swift,MLXLLM/Models,UPSTREAM-ONLY,0,581,UPSTREAM,pinned,581,UPSTREAM,pinned,581,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+LFM2.swift,MLXLLM/Models,UPSTREAM-ONLY,0,411,UPSTREAM,pinned,411,UPSTREAM,pinned,417,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+LFM2MoE.swift,MLXLLM/Models,UPSTREAM-ONLY,0,497,UPSTREAM,pinned,497,UPSTREAM,pinned,503,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Lille130m.swift,MLXLLM/Models,UPSTREAM-ONLY,0,247,UPSTREAM,pinned,247,UPSTREAM,pinned,247,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Llama.swift,MLXLLM/Models,UPSTREAM-ONLY,0,476,UPSTREAM,pinned,476,UPSTREAM,pinned,476,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+MiMo.swift,MLXLLM/Models,UPSTREAM-ONLY,0,276,UPSTREAM,pinned,276,UPSTREAM,pinned,276,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+MiMoV2Flash.swift,MLXLLM/Models,UPSTREAM-ONLY,0,0,UPSTREAM,latest,556,UPSTREAM,latest,556,UPSTREAM,latest,N/A,Not in maclocal-api patches
+MiniCPM.swift,MLXLLM/Models,UPSTREAM-ONLY,0,0,UPSTREAM,latest,265,UPSTREAM,latest,265,UPSTREAM,latest,N/A,Not in maclocal-api patches
+MiniMax.swift,MLXLLM/Models,UPSTREAM-ONLY,0,0,UPSTREAM,latest,340,UPSTREAM,latest,340,UPSTREAM,latest,N/A,Not in maclocal-api patches
+Mistral3Text.swift,MLXLLM/Models,UPSTREAM-ONLY,0,492,UPSTREAM,pinned,494,UPSTREAM,pinned,494,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+NanoChat.swift,MLXLLM/Models,UPSTREAM-ONLY,0,282,UPSTREAM,pinned,282,UPSTREAM,pinned,282,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Olmo2.swift,MLXLLM/Models,UPSTREAM-ONLY,0,422,UPSTREAM,pinned,422,UPSTREAM,pinned,422,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Olmo3.swift,MLXLLM/Models,UPSTREAM-ONLY,0,332,UPSTREAM,pinned,332,UPSTREAM,pinned,332,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+OlmoE.swift,MLXLLM/Models,UPSTREAM-ONLY,0,467,UPSTREAM,pinned,467,UPSTREAM,pinned,467,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+OpenELM.swift,MLXLLM/Models,UPSTREAM-ONLY,0,309,UPSTREAM,pinned,309,UPSTREAM,pinned,309,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Phi.swift,MLXLLM/Models,UPSTREAM-ONLY,0,243,UPSTREAM,pinned,243,UPSTREAM,pinned,243,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Phi3.swift,MLXLLM/Models,UPSTREAM-ONLY,0,327,UPSTREAM,pinned,327,UPSTREAM,pinned,327,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+PhiMoE.swift,MLXLLM/Models,UPSTREAM-ONLY,0,270,UPSTREAM,pinned,270,UPSTREAM,pinned,270,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Qwen2.swift,MLXLLM/Models,UPSTREAM-ONLY,0,281,UPSTREAM,pinned,281,UPSTREAM,pinned,281,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Qwen3.swift,MLXLLM/Models,UPSTREAM-ONLY,0,289,UPSTREAM,pinned,289,UPSTREAM,pinned,289,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Qwen35.swift,MLXLLM/Models,UPSTREAM-ONLY,0,0,UPSTREAM,main,0,UPSTREAM,main,683,UPSTREAM,main,N/A,Not in maclocal-api patches
+Qwen35MoE.swift,MLXLLM/Models,UPSTREAM-ONLY,0,0,UPSTREAM,main,0,UPSTREAM,main,75,UPSTREAM,main,N/A,Not in maclocal-api patches
+Qwen3MoE.swift,MLXLLM/Models,UPSTREAM-ONLY,0,364,UPSTREAM,pinned,364,UPSTREAM,pinned,364,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+SmolLM3.swift,MLXLLM/Models,UPSTREAM-ONLY,0,375,UPSTREAM,pinned,375,UPSTREAM,pinned,375,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+SSM.swift,MLXLLM/Models,UPSTREAM-ONLY,0,237,UPSTREAM,pinned,237,UPSTREAM,pinned,237,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Starcoder2.swift,MLXLLM/Models,UPSTREAM-ONLY,0,258,UPSTREAM,pinned,258,UPSTREAM,pinned,258,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+FastVLM.swift,MLXVLM/Models,UPSTREAM-ONLY,0,1183,UPSTREAM,pinned,1183,UPSTREAM,pinned,1183,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Gemma3.swift,MLXVLM/Models,UPSTREAM-ONLY,0,1178,UPSTREAM,pinned,1178,UPSTREAM,pinned,1178,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Idefics3.swift,MLXVLM/Models,UPSTREAM-ONLY,0,900,UPSTREAM,pinned,900,UPSTREAM,pinned,900,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+LFM2VL.swift,MLXVLM/Models,UPSTREAM-ONLY,0,1283,UPSTREAM,pinned,1283,UPSTREAM,pinned,1283,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Mistral3.swift,MLXVLM/Models,UPSTREAM-ONLY,0,1108,UPSTREAM,pinned,1108,UPSTREAM,pinned,1108,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Paligemma.swift,MLXVLM/Models,UPSTREAM-ONLY,0,738,UPSTREAM,pinned,738,UPSTREAM,pinned,738,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Pixtral.swift,MLXVLM/Models,UPSTREAM-ONLY,0,1136,UPSTREAM,pinned,1136,UPSTREAM,pinned,1136,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Qwen25VL.swift,MLXVLM/Models,UPSTREAM-ONLY,0,1095,UPSTREAM,pinned,1098,UPSTREAM,pinned,1098,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Qwen2VL.swift,MLXVLM/Models,UPSTREAM-ONLY,0,922,UPSTREAM,pinned,926,UPSTREAM,pinned,926,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+QwenVL.swift,MLXVLM/Models,UPSTREAM-ONLY,0,258,UPSTREAM,pinned,258,UPSTREAM,pinned,258,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+SmolVLM2.swift,MLXVLM/Models,UPSTREAM-ONLY,0,362,UPSTREAM,pinned,363,UPSTREAM,pinned,363,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+AttentionUtils.swift,MLXLMCommon,UPSTREAM-ONLY,0,77,UPSTREAM,pinned,77,UPSTREAM,pinned,77,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+BaseConfiguration.swift,MLXLMCommon,UPSTREAM-ONLY,0,169,UPSTREAM,pinned,169,UPSTREAM,pinned,169,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Chat.swift,MLXLMCommon,UPSTREAM-ONLY,0,150,UPSTREAM,pinned,150,UPSTREAM,pinned,150,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+ChatSession.swift,MLXLMCommon,UPSTREAM-ONLY,0,359,UPSTREAM,pinned,371,UPSTREAM,pinned,371,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+GenerationConfigFile.swift,MLXLMCommon,UPSTREAM-ONLY,0,16,UPSTREAM,pinned,16,UPSTREAM,pinned,16,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+InterpolationUtils.swift,MLXLMCommon,UPSTREAM-ONLY,0,454,UPSTREAM,pinned,454,UPSTREAM,pinned,454,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+JSONDecodingTypes.swift,MLXLMCommon,UPSTREAM-ONLY,0,148,UPSTREAM,pinned,148,UPSTREAM,pinned,148,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+LanguageModel.swift,MLXLMCommon,UPSTREAM-ONLY,0,219,UPSTREAM,pinned,219,UPSTREAM,pinned,219,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+ModelConfiguration.swift,MLXLMCommon,UPSTREAM-ONLY,0,102,UPSTREAM,pinned,109,UPSTREAM,pinned,109,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+ModelContainer.swift,MLXLMCommon,UPSTREAM-ONLY,0,207,UPSTREAM,pinned,210,UPSTREAM,pinned,210,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+ModelFactory.swift,MLXLMCommon,UPSTREAM-ONLY,0,388,UPSTREAM,pinned,388,UPSTREAM,pinned,388,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Module+Extensions.swift,MLXLMCommon,UPSTREAM-ONLY,0,24,UPSTREAM,pinned,24,UPSTREAM,pinned,24,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+RoPEUtils.swift,MLXLMCommon,UPSTREAM-ONLY,0,276,UPSTREAM,pinned,276,UPSTREAM,pinned,276,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+SuScaledRoPE.swift,MLXLMCommon,UPSTREAM-ONLY,0,75,UPSTREAM,pinned,75,UPSTREAM,pinned,75,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+UserInput.swift,MLXLMCommon,UPSTREAM-ONLY,0,345,UPSTREAM,pinned,365,UPSTREAM,pinned,365,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+WiredMemoryPolicies.swift,MLXLMCommon,UPSTREAM-ONLY,0,0,UPSTREAM,latest,182,UPSTREAM,latest,182,UPSTREAM,latest,N/A,Not in maclocal-api patches
+WiredMemoryUtils.swift,MLXLMCommon,UPSTREAM-ONLY,0,0,UPSTREAM,latest,249,UPSTREAM,latest,249,UPSTREAM,latest,N/A,Not in maclocal-api patches
+Tool.swift,MLXLMCommon/Tool,UPSTREAM-ONLY,0,63,UPSTREAM,pinned,63,UPSTREAM,pinned,63,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+ToolCall.swift,MLXLMCommon/Tool,UPSTREAM-ONLY,0,57,UPSTREAM,pinned,57,UPSTREAM,pinned,57,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+ToolCallProcessor.swift,MLXLMCommon/Tool,UPSTREAM-ONLY,0,136,UPSTREAM,pinned,200,UPSTREAM,pinned,200,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+ToolParameter.swift,MLXLMCommon/Tool,UPSTREAM-ONLY,0,85,UPSTREAM,pinned,85,UPSTREAM,pinned,85,UPSTREAM,pinned,N/A,Not in maclocal-api patches
+Value.swift,MLXLMCommon/Tool,UPSTREAM-ONLY,0,131,UPSTREAM,pinned,131,UPSTREAM,pinned,131,UPSTREAM,pinned,N/A,Not in maclocal-api patches

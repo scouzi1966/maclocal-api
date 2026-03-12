@@ -1,0 +1,6 @@
+{"group": "Preflight", "name": "Binary exists at .build/release/afm", "status": "PASS", "duration_ms": 22}
+{"group": "Preflight", "name": "Server reachable at http://127.0.0.1:9998", "status": "PASS", "duration_ms": 28}
+{"group": "Cache", "name": "First request: cached_tokens=0", "status": "FAIL", "duration_ms": 893}
+{"group": "Cache", "name": "Second identical request: cached_tokens>0", "status": "PASS", "duration_ms": 351}
+{"group": "Cache", "name": "Different prompt: cached_tokens=0", "status": "PASS", "duration_ms": 364}
+{"group": "Cache", "name": "Streaming: cached_tokens>0 in usage chunk", "status": "FAIL", "duration_ms": 401}

@@ -1,0 +1,162 @@
+name: Nightly Build
+
+on:
+  workflow_dispatch:  # manual trigger only
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Set up Node.js (for webui)
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Build from scratch
+      run: ./Scripts/build-from-scratch.sh
+
+    - name: Create release package
+      run: |
+        SHORT_SHA=$(git rev-parse --short HEAD)
+        DATE=$(date -u +%Y%m%d)
+        mkdir -p release-package
+
+        # Copy binary
+        BIN=".build/arm64-apple-macosx/release/afm"
+        if [ ! -x "$BIN" ]; then
+          BIN=".build/release/afm"
+        fi
+        cp "$BIN" release-package/
+
+        # Copy webui resources
+        if [ -f "Resources/webui/index.html.gz" ]; then
+          mkdir -p release-package/Resources/webui
+          cp Resources/webui/index.html.gz release-package/Resources/webui/
+        fi
+
+        # Copy metallib resource bundle
+        BUNDLE_DIR=$(dirname "$BIN")/MacLocalAPI_MacLocalAPI.bundle
+        if [ -d "$BUNDLE_DIR" ]; then
+          cp -r "$BUNDLE_DIR" release-package/
+        fi
+
+        cp README.md LICENSE release-package/ 2>/dev/null || true
+
+        tar -czf afm-next-arm64.tar.gz -C release-package .
+
+        echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_ENV"
+        echo "BUILD_DATE=${DATE}" >> "$GITHUB_ENV"
+
+    - name: Generate changelog
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # Find the most recent nightly-* release to diff against
+        PREV_SHA=$(gh release list --repo scouzi1966/maclocal-api --limit 20 \
+          -q '.[].tagName' --json tagName 2>/dev/null \
+          | grep '^nightly-' | head -1 | grep -oE '[a-f0-9]+$') || true
+
+        if [ -n "$PREV_SHA" ] && git cat-file -e "${PREV_SHA}^{commit}" 2>/dev/null; then
+          CHANGELOG=$(git log --pretty=format:"- %s (\`%h\`)" "${PREV_SHA}..HEAD" -- . ':!vendor' 2>/dev/null)
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="- No changes since previous build"
+          fi
+        else
+          # First build or previous SHA not found — show last 10 commits
+          CHANGELOG=$(git log --pretty=format:"- %s (\`%h\`)" -10 -- . ':!vendor' 2>/dev/null)
+        fi
+
+        # Save for next step (use file to preserve newlines)
+        echo "$CHANGELOG" > /tmp/changelog.txt
+        echo "CHANGELOG<<CHANGELOG_EOF" >> "$GITHUB_ENV"
+        cat /tmp/changelog.txt >> "$GITHUB_ENV"
+        echo "CHANGELOG_EOF" >> "$GITHUB_ENV"
+
+        # Set release tag for unique naming
+        RELEASE_TAG="nightly-${BUILD_DATE}-${SHORT_SHA}"
+        echo "RELEASE_TAG=${RELEASE_TAG}" >> "$GITHUB_ENV"
+        VERSION="0.9.5-next.${SHORT_SHA}.${BUILD_DATE}"
+        echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+        echo "PREV_SHA=${PREV_SHA:-first build}" >> "$GITHUB_ENV"
+
+    - name: Create nightly release
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release create "${RELEASE_TAG}" \
+          --prerelease \
+          --title "afm-next (${BUILD_DATE} · ${SHORT_SHA})" \
+          --notes "$(cat <<EOF
+        Nightly build from \`main\` branch.
+
+        - **Commit:** ${SHORT_SHA}
+        - **Date:** ${BUILD_DATE}
+        - **Version:** ${VERSION}
+        > This is an unstable development build. For the latest stable release, use \`brew install scouzi1966/afm/afm\`.
+
+        ### Changes since last build (\`${PREV_SHA}\`)
+        ${CHANGELOG}
+
+        ### Install / Upgrade via Homebrew
+
+        **Fresh install** (first time):
+        \`\`\`
+        brew tap scouzi1966/afm
+        brew install scouzi1966/afm/afm-next
+        \`\`\`
+
+        **Upgrade** (already installed):
+        \`\`\`
+        brew upgrade afm-next
+        \`\`\`
+
+        **If you have stable \`afm\` installed**, unlink it first:
+        \`\`\`
+        brew unlink afm
+        brew install scouzi1966/afm/afm-next
+        \`\`\`
+
+        **Switch back to stable**:
+        \`\`\`
+        brew unlink afm-next
+        brew link afm
+        \`\`\`
+
+        **Force reinstall** (same version, new build):
+        \`\`\`
+        brew reinstall afm-next
+        \`\`\`
+        EOF
+        )" \
+          --target main \
+          afm-next-arm64.tar.gz
+
+        # Update the 'nightly' tag to point to this release (latest pointer)
+        git tag -f nightly HEAD
+        git push origin nightly --force 2>/dev/null || true
+
+    - name: Update tap formula
+      env:
+        TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+      run: |
+        SHA256=$(shasum -a 256 afm-next-arm64.tar.gz | cut -d' ' -f1)
+
+        git clone https://x-access-token:${TAP_TOKEN}@github.com/scouzi1966/homebrew-afm.git tap
+        cd tap
+
+        # Update URL to point to the unique release tag, plus version and sha256
+        DOWNLOAD_URL="https://github.com/scouzi1966/maclocal-api/releases/download/${RELEASE_TAG}/afm-next-arm64.tar.gz"
+        sed -i '' "s|url \".*\"|url \"${DOWNLOAD_URL}\"|" afm-next.rb
+        sed -i '' "s/version \".*\"/version \"${VERSION}\"/" afm-next.rb
+        sed -i '' "s/sha256 \".*\"/sha256 \"${SHA256}\"/" afm-next.rb
+
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add afm-next.rb
+        git commit -m "afm-next ${VERSION} (${SHORT_SHA})"
+        git push

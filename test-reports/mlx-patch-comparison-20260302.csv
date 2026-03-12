@@ -1,0 +1,21 @@
+File,Target,Type,maclocal-api Lines,Pinned Lines,Pinned Status,Pinned +/-,Latest Tag Lines,Latest Tag Status,Latest Tag +/-,Main Lines,Main Status,Main +/-,Conflict Risk,maclocal-api Features
+Qwen3VL.swift,MLXVLM,MODIFIED,1787,1766,CHANGED,+35/-14,1766,CHANGED,+38/-17,1766,CHANGED,+38/-17,LOW,Qwen3 VL patches
+Qwen3Next.swift,MLXLLM,NEW,723,0,NEW,+0/-723,800,CHANGED,+347/-424,800,CHANGED,+347/-424,LOW,GatedDeltaNet model architecture
+GatedDelta.swift,MLXLLM,NEW,449,0,NEW,+0/-449,0,NEW,+0/-449,0,NEW,+0/-449,NONE,GatedDeltaNet attention layer
+Qwen3_5MoE.swift,MLXLLM,NEW,1012,0,NEW,+0/-1012,0,NEW,+0/-1012,0,NEW,+0/-1012,NONE,Fused QKV/GDN/gate+up projections; fusedSiluMul Metal kernel; MLXFast.rmsNorm; adaptive sanitize
+DeepseekV3.swift,MLXLLM,MODIFIED,717,563,CHANGED,+202/-48,563,CHANGED,+204/-50,563,CHANGED,+204/-50,LOW,Bug fixes; Kimi K2 reuse
+MiniMaxM2.swift,MLXLLM,NEW,362,0,NEW,+0/-362,0,NEW,+0/-362,0,NEW,+0/-362,NONE,MiniMax M2 model architecture
+NemotronH.swift,MLXLLM,NEW,1008,0,NEW,+0/-1008,1003,CHANGED,+8/-3,1003,CHANGED,+8/-3,LOW,NemotronH hybrid Mamba+Attention model
+GLM4MoeLite.swift,MLXLLM,NEW,662,0,NEW,+0/-662,0,NEW,+0/-662,0,NEW,+0/-662,NONE,GLM-4 MoE Lite model
+GLM5MoeDsa.swift,MLXLLM,NEW,866,0,NEW,+0/-866,0,NEW,+0/-866,0,NEW,+0/-866,NONE,GLM-5 MoE DSA model
+KimiK25.swift,MLXLLM,NEW,113,0,NEW,+0/-113,0,NEW,+0/-113,0,NEW,+0/-113,NONE,Kimi K2.5 model architecture
+LLMModelFactory.swift,MLXLLM,MODIFIED,584,554,CHANGED,+31/-1,568,CHANGED,+33/-17,570,CHANGED,+33/-19,LOW,qwen3_5_moe/kimi_k2/kimi_k25/joyai_llm_flash/glm_moe_dsa/minimax_m2; sanitizeJSON(); toolCallFormat removal
+Load.swift,MLXLMCommon,MODIFIED,121,105,CHANGED,+20/-4,105,CHANGED,+20/-4,105,CHANGED,+20/-4,NONE,.jinja/.tiktoken downloads; MXFP4 fix; relaxed weight verification
+Evaluate.swift,MLXLMCommon,MODIFIED,1451,1044,CHANGED,+430/-23,1349,CHANGED,+592/-490,1371,CHANGED,+591/-511,HIGH,TopK/MinP/Presence/Composite processors; seed; logprobs; AFM_PERF; clearCache; shouldQuantizeCache
+Tokenizer.swift,MLXLMCommon,MODIFIED,429,157,CHANGED,+272/-0,157,CHANGED,+272/-0,157,CHANGED,+272/-0,NONE,TikToken support; .jinja fallback; O(n) window trim
+Qwen3_5MoEVL.swift,MLXVLM,NEW,1449,0,NEW,+0/-1449,0,NEW,+0/-1449,0,NEW,+0/-1449,NONE,Qwen3.5 MoE VLM wrapper
+VLMModelFactory.swift,MLXVLM,MODIFIED,398,390,CHANGED,+10/-2,396,CHANGED,+3/-1,396,CHANGED,+3/-1,LOW,Qwen3.5 MoE VL registration
+SamplerTests.swift,Tests,NEW,404,0,NEW,+0/-404,0,NEW,+0/-404,0,NEW,+0/-404,NONE,Unit tests for sampling processors
+ToolCallFormat.swift,MLXLMCommon,MODIFIED,113,0,ABSENT,+0/-113,120,CHANGED,+11/-18,120,CHANGED,+11/-18,MEDIUM,"Qwen3 model type detection (qwen3_next, qwen3_coder)"
+KVCache.swift,MLXLMCommon,MODIFIED,1610,1585,CHANGED,+36/-11,1585,CHANGED,+36/-11,1578,CHANGED,+55/-23,LOW,2x growth strategy; Updatable protocol; MXFP4 mode parameter
+SwitchLayers.swift,MLXLMCommon,MODIFIED,354,200,CHANGED,+163/-9,200,CHANGED,+163/-9,200,CHANGED,+163/-9,NONE,fusedSiluMul Metal kernel; SwitchGLU gate+up fusion; memory headroom check

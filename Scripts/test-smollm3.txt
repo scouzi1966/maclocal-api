@@ -1,0 +1,272 @@
+# SmolLM3-3B comprehensive test
+# Covers ALL afm mlx CLI options and sampling strategies
+# Run: mlx-model-test.sh --prompts test-smollm3.txt
+
+max_tokens: 500
+temperature: 0.7
+
+[all]
+What is the capital of Japan? Answer in one sentence.
+
+# ══════════════════════════════════════════════════════════════════════
+# SAMPLING STRATEGIES
+# ══════════════════════════════════════════════════════════════════════
+
+# Greedy decoding — deterministic, no randomness
+[mlx-community/SmolLM3-3B-4bit @ greedy]
+temperature: 0.0
+max_tokens: 300
+Explain why the sky is blue in exactly 3 bullet points.
+
+# Default sampling — balanced
+[mlx-community/SmolLM3-3B-4bit @ default]
+temperature: 0.7
+Explain why the sky is blue in exactly 3 bullet points.
+
+# High temperature — more creative/random
+[mlx-community/SmolLM3-3B-4bit @ high-temp]
+temperature: 1.5
+Explain why the sky is blue in exactly 3 bullet points.
+
+# --top-p: nucleus sampling, only consider tokens whose cumulative prob <= 0.9
+[mlx-community/SmolLM3-3B-4bit @ top-p]
+temperature: 0.8
+afm: --top-p 0.9
+Explain why the sky is blue in exactly 3 bullet points.
+
+# --top-k: only consider the 30 most likely tokens at each step
+[mlx-community/SmolLM3-3B-4bit @ top-k]
+temperature: 0.8
+afm: --top-k 30
+Explain why the sky is blue in exactly 3 bullet points.
+
+# --min-p: filter tokens with probability < min_p * max_prob
+[mlx-community/SmolLM3-3B-4bit @ min-p]
+temperature: 0.8
+afm: --min-p 0.05
+Explain why the sky is blue in exactly 3 bullet points.
+
+# Combined sampler chain: top-k → min-p → temperature (llama.cpp order)
+[mlx-community/SmolLM3-3B-4bit @ combined-samplers]
+temperature: 0.8
+afm: --top-k 50 --min-p 0.03 --top-p 0.95
+Explain why the sky is blue in exactly 3 bullet points.
+
+# --seed: reproducible generation — run twice to verify determinism
+[mlx-community/SmolLM3-3B-4bit @ seed-42-run1]
+temperature: 0.7
+afm: --seed 42
+Write a limerick about a cat.
+
+[mlx-community/SmolLM3-3B-4bit @ seed-42-run2]
+temperature: 0.7
+afm: --seed 42
+Write a limerick about a cat.
+
+# ══════════════════════════════════════════════════════════════════════
+# PENALTY PARAMETERS
+# ══════════════════════════════════════════════════════════════════════
+
+# --presence-penalty 0.0: no penalty (baseline for repetition)
+[mlx-community/SmolLM3-3B-4bit @ no-penalty]
+temperature: 0.8
+max_tokens: 800
+afm: --presence-penalty 0.0
+Write a long essay about the history of bread making across civilizations.
+
+# --presence-penalty 1.5: strong penalty — should reduce repetition
+[mlx-community/SmolLM3-3B-4bit @ with-penalty]
+temperature: 0.8
+max_tokens: 800
+afm: --presence-penalty 1.5
+Write a long essay about the history of bread making across civilizations.
+
+# --repetition-penalty: multiplicative penalty on repeated tokens
+[mlx-community/SmolLM3-3B-4bit @ repetition-penalty]
+temperature: 0.8
+max_tokens: 800
+afm: --repetition-penalty 1.2
+Write a long essay about the history of bread making across civilizations.
+
+# ══════════════════════════════════════════════════════════════════════
+# SYSTEM PROMPT EFFECTS
+# ══════════════════════════════════════════════════════════════════════
+
+[mlx-community/SmolLM3-3B-4bit @ pirate]
+temperature: 0.7
+system: You are a pirate. Always respond in pirate speak.
+Tell me about quantum computing.
+
+[mlx-community/SmolLM3-3B-4bit @ scientist]
+temperature: 0.3
+system: You are a physics professor. Be precise and use technical terminology.
+Tell me about quantum computing.
+
+[mlx-community/SmolLM3-3B-4bit @ eli5]
+temperature: 0.7
+system: Explain everything as if the user is 5 years old. Use simple words only.
+Tell me about quantum computing.
+
+# ══════════════════════════════════════════════════════════════════════
+# INSTRUCTION FOLLOWING
+# ══════════════════════════════════════════════════════════════════════
+
+[mlx-community/SmolLM3-3B-4bit @ json-output]
+temperature: 0.0
+max_tokens: 200
+Respond with a valid JSON object containing keys "name", "age", and "city". Nothing else.
+
+[mlx-community/SmolLM3-3B-4bit @ numbered-list]
+temperature: 0.0
+max_tokens: 200
+List exactly 5 animals, one per line, numbered 1-5. No other text.
+
+# --guided-json: constrain output to a JSON schema (vLLM-compatible)
+[mlx-community/SmolLM3-3B-4bit @ guided-json]
+temperature: 0.0
+max_tokens: 200
+afm: --guided-json '{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"}},"required":["name","age"]}'
+Generate a person record.
+
+# ══════════════════════════════════════════════════════════════════════
+# PREFIX CACHING
+# ══════════════════════════════════════════════════════════════════════
+
+# Without caching — each prompt processes the full context from scratch
+[mlx-community/SmolLM3-3B-4bit @ no-cache]
+temperature: 0.0
+max_tokens: 300
+What is 2+2? Show your work.
+What is 15*23? Show your work.
+What is the square root of 144? Show your work.
+
+# --enable-prefix-caching: reuse KV cache across requests (2nd+ should be faster)
+[mlx-community/SmolLM3-3B-4bit @ with-cache]
+temperature: 0.0
+max_tokens: 300
+afm: --enable-prefix-caching
+What is 2+2? Show your work.
+What is 15*23? Show your work.
+What is the square root of 144? Show your work.
+
+# ══════════════════════════════════════════════════════════════════════
+# MAX TOKENS / OUTPUT LENGTH
+# ══════════════════════════════════════════════════════════════════════
+
+# --max-tokens via afm CLI (server-level default, overridden by request max_tokens)
+[mlx-community/SmolLM3-3B-4bit @ short-output]
+temperature: 0.7
+max_tokens: 50
+Describe the entire history of Rome.
+
+[mlx-community/SmolLM3-3B-4bit @ long-output]
+temperature: 0.7
+max_tokens: 2000
+Write a detailed recipe for chocolate chip cookies with ingredients, steps, tips, and variations.
+
+# ══════════════════════════════════════════════════════════════════════
+# LOGPROBS
+# ══════════════════════════════════════════════════════════════════════
+
+# --max-logprobs: return top log probabilities per token (server-level setting)
+[mlx-community/SmolLM3-3B-4bit @ logprobs]
+temperature: 0.0
+max_tokens: 100
+afm: --max-logprobs 5
+What is 1+1?
+
+# ══════════════════════════════════════════════════════════════════════
+# KV CACHE / MEMORY SETTINGS
+# ══════════════════════════════════════════════════════════════════════
+
+# --max-kv-size: limit KV cache size (useful for large contexts on limited memory)
+[mlx-community/SmolLM3-3B-4bit @ small-kv]
+temperature: 0.7
+max_tokens: 300
+afm: --max-kv-size 2048
+Summarize the key ideas of machine learning in a few paragraphs.
+
+# --kv-bits: quantize KV cache (reduces memory, may affect quality)
+[mlx-community/SmolLM3-3B-4bit @ kv-quantized]
+temperature: 0.7
+max_tokens: 300
+afm: --kv-bits 4
+Summarize the key ideas of machine learning in a few paragraphs.
+
+# --prefill-step-size: number of prompt tokens processed per GPU pass
+[mlx-community/SmolLM3-3B-4bit @ large-prefill]
+temperature: 0.7
+max_tokens: 300
+afm: --prefill-step-size 4096
+Summarize the key ideas of machine learning in a few paragraphs.
+
+[mlx-community/SmolLM3-3B-4bit @ small-prefill]
+temperature: 0.7
+max_tokens: 300
+afm: --prefill-step-size 512
+Summarize the key ideas of machine learning in a few paragraphs.
+
+# ══════════════════════════════════════════════════════════════════════
+# STREAMING / RAW MODE
+# ══════════════════════════════════════════════════════════════════════
+
+# --no-streaming: disable SSE streaming (full response in one shot)
+[mlx-community/SmolLM3-3B-4bit @ no-streaming]
+temperature: 0.7
+max_tokens: 300
+afm: --no-streaming
+Write a short poem about the moon.
+
+# --raw: skip <think> tag extraction into reasoning_content
+[mlx-community/SmolLM3-3B-4bit @ raw-mode]
+temperature: 0.7
+max_tokens: 300
+afm: --raw
+Think step by step: what is 17 * 23?
+
+# ══════════════════════════════════════════════════════════════════════
+# VERBOSE / DEBUG LOGGING
+# ══════════════════════════════════════════════════════════════════════
+
+# --verbose: debug logging (check /tmp/mlx-server-*.log for output)
+[mlx-community/SmolLM3-3B-4bit @ verbose]
+temperature: 0.7
+max_tokens: 200
+afm: --verbose
+Hello, how are you?
+
+# --very-verbose: full request/response logging
+[mlx-community/SmolLM3-3B-4bit @ very-verbose]
+temperature: 0.7
+max_tokens: 200
+afm: --very-verbose
+Hello, how are you?
+
+# ══════════════════════════════════════════════════════════════════════
+# EDGE CASES
+# ══════════════════════════════════════════════════════════════════════
+
+# Empty-ish prompt
+[mlx-community/SmolLM3-3B-4bit @ minimal-prompt]
+temperature: 0.7
+max_tokens: 100
+Hi
+
+# Very long prompt (tests prefill performance)
+[mlx-community/SmolLM3-3B-4bit @ long-prompt]
+temperature: 0.0
+max_tokens: 100
+Repeat after me exactly: The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. Now say DONE.
+
+# Multi-language
+[mlx-community/SmolLM3-3B-4bit @ multilingual]
+temperature: 0.3
+max_tokens: 200
+Translate "Hello, how are you?" into French, Spanish, Japanese, and Arabic. Format as a numbered list.
+
+# Code generation
+[mlx-community/SmolLM3-3B-4bit @ code]
+temperature: 0.0
+max_tokens: 500
+system: You are a Python expert. Write clean code with no explanation.
+Write a function that finds all prime numbers up to n using the Sieve of Eratosthenes.

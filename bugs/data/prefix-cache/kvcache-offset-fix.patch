@@ -1,0 +1,25 @@
+diff --git a/Scripts/patches/KVCache.swift b/Scripts/patches/KVCache.swift
+index 5b7e80c..f4cf5c2 100644
+--- a/Scripts/patches/KVCache.swift
++++ b/Scripts/patches/KVCache.swift
+@@ -649,8 +649,8 @@ public class RotatingKVCache: BaseKVCache, CustomDebugStringConvertible {
+             }
+             self.keys = newValue[0]
+             self.values = newValue[1]
+-            // Note: RotatingKVCache doesn't set offset from keys like KVCache does
+-            // The offset is managed through meta_state
++            // Restore offset from key shape (dim 2 = sequence length)
++            self.offset = self.keys!.dim(2)
+         }
+     }
+
+@@ -963,6 +963,10 @@ public class QuantizedKVCache: BaseKVCache, QuantizedKVCacheProtocol {
+                     "QuantizedKVCache state must have exactly 6 or 4 arrays (3/2 for keys, 3/2 for values)"
+                 )
+             }
++            // Restore offset from quantized key shape (dim 2 = sequence length)
++            if let keys = self.keys {
++                self.offset = keys.0.dim(2)
++            }
+         }
+     }

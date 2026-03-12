@@ -1,0 +1,3 @@
+{"group": "Preflight", "name": "Binary exists at .build/release/afm", "status": "PASS", "duration_ms": 18}
+{"group": "Preflight", "name": "Server reachable at http://127.0.0.1:9998", "status": "PASS", "duration_ms": 28}
+{"group": "Structured", "name": "json_schema produces valid schema-matching JSON", "status": "PASS", "duration_ms": 233}

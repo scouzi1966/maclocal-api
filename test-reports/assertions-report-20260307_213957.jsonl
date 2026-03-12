@@ -1,0 +1,2 @@
+{"group": "Preflight", "name": "Binary exists at .build/release/afm", "status": "PASS", "duration_ms": 19}
+{"group": "Preflight", "name": "Server reachable at http://127.0.0.1:9998", "status": "FAIL", "duration_ms": 26}

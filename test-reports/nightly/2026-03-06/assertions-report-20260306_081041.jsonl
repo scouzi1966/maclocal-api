@@ -1,0 +1,4 @@
+{"group": "Preflight", "name": "Binary exists at .build/release/afm", "status": "PASS", "duration_ms": 16}
+{"group": "Preflight", "name": "Server reachable at http://127.0.0.1:9998", "status": "PASS", "duration_ms": 25}
+{"group": "Lifecycle", "name": "/v1/models contains model ID", "status": "PASS", "duration_ms": 42}
+{"group": "Lifecycle", "name": "Basic completion returns content", "status": "FAIL", "duration_ms": 1301}

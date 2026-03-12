@@ -43,6 +43,18 @@ public protocol LogitProcessor: Sendable {
     mutating func didSample(token: MLXArray)
 }
 
+/// Per-token log probability data produced during generation.
+public struct TokenLogprobData: Sendable {
+    /// The token ID that was sampled
+    public let tokenId: Int
+    /// Log probability of the sampled token
+    public let logprob: Float
+    /// Token IDs of the top alternatives (sorted by descending probability)
+    public let topTokenIds: [Int]
+    /// Log probabilities corresponding to topTokenIds
+    public let topLogprobs: [Float]
+}
+
 /// Parameters for text generation, see ``TokenIterator``.
 ///
 /// This produces:
@@ -84,6 +96,28 @@ public struct GenerateParameters: Sendable {
     /// number of tokens to consider for repetition penalty
     public var repetitionContextSize: Int
 
+    /// top-k sampling: keep only the k most likely tokens (0 = disabled)
+    public var topK: Int
+
+    /// min-p sampling: filter tokens with probability < minP * maxProb (0.0 = disabled)
+    public var minP: Float
+
+    /// presence penalty: flat additive penalty for tokens already generated (0.0 = disabled)
+    public var presencePenalty: Float
+
+    /// random seed for reproducible sampling (nil = non-deterministic)
+    public var seed: UInt64?
+
+    /// whether to compute per-token log probabilities (default: false)
+    public var computeLogprobs: Bool
+
+    /// number of top alternative tokens to include in logprob output (0-20, default: 0)
+    public var topLogprobsCount: Int
+
+    /// Optional external logit processor (e.g., grammar constrained decoding).
+    /// Applied AFTER the built-in processors in the chain.
+    public var extraProcessor: LogitProcessor?
+
     public init(
         maxTokens: Int? = nil,
         maxKVSize: Int? = nil,
@@ -94,6 +128,12 @@ public struct GenerateParameters: Sendable {
         topP: Float = 1.0,
         repetitionPenalty: Float? = nil,
         repetitionContextSize: Int = 20,
+        topK: Int = 0,
+        minP: Float = 0.0,
+        presencePenalty: Float = 0.0,
+        seed: UInt64? = nil,
+        computeLogprobs: Bool = false,
+        topLogprobsCount: Int = 0,
         prefillStepSize: Int = 512
     ) {
         self.maxTokens = maxTokens
@@ -105,6 +145,12 @@ public struct GenerateParameters: Sendable {
         self.topP = topP
         self.repetitionPenalty = repetitionPenalty
         self.repetitionContextSize = repetitionContextSize
+        self.topK = topK
+        self.minP = minP
+        self.presencePenalty = presencePenalty
+        self.seed = seed
+        self.computeLogprobs = computeLogprobs
+        self.topLogprobsCount = min(max(topLogprobsCount, 0), 20)
         self.prefillStepSize = prefillStepSize
     }
 
@@ -112,18 +158,44 @@ public struct GenerateParameters: Sendable {
         if temperature == 0 {
             return ArgMaxSampler()
         } else if topP > 0 && topP < 1 {
-            return TopPSampler(temperature: temperature, topP: topP)
+            return TopPSampler(temperature: temperature, topP: topP, seed: seed)
         } else {
-            return CategoricalSampler(temperature: temperature)
+            return CategoricalSampler(temperature: temperature, seed: seed)
         }
     }
 
     public func processor() -> LogitProcessor? {
+        // Build processors in llama.cpp sampler chain order:
+        // penalties (repetition, presence) → top_k → min_p
+        // (temperature is handled by the sampler, not a processor)
+        var processors: [LogitProcessor] = []
+
         if let repetitionPenalty, repetitionContextSize > 0, repetitionPenalty != 1.0 {
-            return RepetitionContext(
-                repetitionPenalty: repetitionPenalty, repetitionContextSize: repetitionContextSize)
-        } else {
-            return nil
+            processors.append(RepetitionContext(
+                repetitionPenalty: repetitionPenalty, repetitionContextSize: repetitionContextSize))
+        }
+
+        if presencePenalty != 0.0 {
+            processors.append(PresenceContext(
+                presencePenalty: presencePenalty, contextSize: repetitionContextSize))
+        }
+
+        if topK > 0 {
+            processors.append(TopKProcessor(k: topK))
+        }
+
+        if minP > 0 && minP < 1 {
+            processors.append(MinPProcessor(minP: minP))
+        }
+
+        if let extra = extraProcessor {
+            processors.append(extra)
+        }
+
+        switch processors.count {
+        case 0: return nil
+        case 1: return processors[0]
+        default: return CompositeLogitProcessor(processors)
         }
     }
 }
@@ -143,10 +215,14 @@ public struct TopPSampler: LogitSampler {
     let topP: MLXArray
     let randomState: MLXRandom.RandomState
 
-    public init(temperature: Float, topP: Float) {
+    public init(temperature: Float, topP: Float, seed: UInt64? = nil) {
         self.temp = MLXArray(temperature)
         self.topP = MLXArray(topP)
-        self.randomState = MLXRandom.RandomState()
+        if let seed {
+            self.randomState = MLXRandom.RandomState(seed: seed)
+        } else {
+            self.randomState = MLXRandom.RandomState()
+        }
     }
 
     public func sample(logits: MLXArray) -> MLXArray {
@@ -178,14 +254,187 @@ public struct CategoricalSampler: LogitSampler {
     let temp: MLXArray
     let randomState: MLXRandom.RandomState
 
-    public init(temperature: Float) {
+    public init(temperature: Float, seed: UInt64? = nil) {
         self.temp = MLXArray(temperature)
-        self.randomState = MLXRandom.RandomState()
+        if let seed {
+            self.randomState = MLXRandom.RandomState(seed: seed)
+        } else {
+            self.randomState = MLXRandom.RandomState()
+        }
     }
 
     public func sample(logits: MLXArray) -> MLXArray {
         return withRandomState(randomState) {
             categorical(logits * (1 / temp))
+        }
+    }
+}
+
+/// Processor that applies a flat additive penalty for tokens already generated.
+///
+/// Follows the OpenAI / vLLM / SGLang convention: for every unique token that
+/// has appeared in the generated context, subtract `presencePenalty` from its logit.
+/// Unlike ``RepetitionContext`` (which is multiplicative and sign-aware), the penalty
+/// is always subtracted, matching the OpenAI API specification.
+public struct PresenceContext: LogitProcessor {
+    /// tokens in the context sliding window
+    var tokens = [Int]()
+
+    /// current write index into the tokens circular array
+    var index = 0
+
+    /// additive penalty for tokens already present in context
+    let presencePenalty: Float
+
+    /// number of tokens to consider
+    let contextSize: Int
+
+    public init(presencePenalty: Float, contextSize: Int = 64) {
+        precondition(contextSize > 0)
+        self.presencePenalty = presencePenalty
+        self.contextSize = contextSize
+    }
+
+    mutating public func prompt(_ prompt: MLXArray) {
+        if prompt.shape[0] <= contextSize {
+            self.tokens = prompt.asArray(Int.self)
+        } else {
+            self.tokens = prompt[(-contextSize)...].asArray(Int.self)
+        }
+    }
+
+    public func process(logits: MLXArray) -> MLXArray {
+        guard !tokens.isEmpty else { return logits }
+        let uniqueTokens = Array(Set(tokens))
+        let indices = MLXArray(uniqueTokens.map { UInt32($0) })
+        let penalty = MLXArray(presencePenalty)
+        logits[0..., indices] = logits[0..., indices] - penalty
+        return logits
+    }
+
+    mutating public func didSample(token: MLXArray) {
+        if tokens.count >= contextSize {
+            tokens[index] = token.item(Int.self)
+            index = (index + 1) % contextSize
+        } else {
+            tokens.append(token.item(Int.self))
+        }
+    }
+}
+
+/// Processor that keeps only the top-K logits, setting the rest to `-Float.infinity`.
+///
+/// When `k <= 0` or `k >= vocabSize` the processor is effectively a no-op.
+/// Follows the same algorithm used by llama.cpp and vLLM.
+public struct TopKProcessor: LogitProcessor {
+    let k: Int
+
+    public init(k: Int) {
+        self.k = k
+    }
+
+    public func prompt(_ prompt: MLXArray) {}
+    public func didSample(token: MLXArray) {}
+
+    public func process(logits: MLXArray) -> MLXArray {
+        let vocabSize = logits.dim(-1)
+        guard k > 0, k < vocabSize else { return logits }
+
+        // Sort descending along the last axis to find the k-th largest value
+        let sorted = MLX.sorted(logits, axis: -1)
+        // k-th largest is at index [vocabSize - k] in ascending-sorted array
+        let threshold = sorted[0..., vocabSize - k]
+
+        return MLX.where(logits .>= threshold, logits, MLXArray(-Float.infinity))
+    }
+}
+
+/// Processor that filters tokens whose logit is below `min_p * max_logit` (in log-space).
+///
+/// This avoids a full softmax: instead of computing probabilities, we use the
+/// identity `p(x) >= min_p * p_max` ⟺ `logit(x) >= max_logit + log(min_p)`.
+/// Follows the llama.cpp / vLLM log-space approach.
+public struct MinPProcessor: LogitProcessor {
+    let minP: Float
+
+    public init(minP: Float) {
+        self.minP = minP
+    }
+
+    public func prompt(_ prompt: MLXArray) {}
+    public func didSample(token: MLXArray) {}
+
+    public func process(logits: MLXArray) -> MLXArray {
+        guard minP > 0, minP < 1 else { return logits }
+
+        let maxLogit = MLX.max(logits, axis: -1, keepDims: true)
+        let threshold = maxLogit + MLXArray(log(minP))
+
+        return MLX.where(logits .>= threshold, logits, MLXArray(-Float.infinity))
+    }
+}
+
+/// Logit processor that masks tokens based on grammar constraints.
+/// Uses reference semantics (class) so the mask can be updated externally per-token.
+public final class GrammarLogitProcessor: LogitProcessor, @unchecked Sendable {
+    /// Pre-computed MLXArray mask from the grammar matcher (0 for allowed, -1e9 for disallowed).
+    /// nil = no constraint (passthrough).
+    public var tokenMask: MLXArray?
+
+    /// The grammar matcher handle (type-erased). Caller manages lifecycle.
+    public var matcherHandle: AnyObject?
+
+    /// Callback invoked after each token is sampled, with the token ID.
+    /// Used to advance grammar state and update tokenMask for the next token.
+    public var onTokenSampled: ((Int) -> Void)?
+
+    public init() {}
+
+    public func prompt(_ prompt: MLXArray) {
+        // No-op — grammar state managed externally
+    }
+
+    public func process(logits: MLXArray) -> MLXArray {
+        guard let mask = tokenMask else {
+            return logits  // No constraint — passthrough
+        }
+        return logits + mask
+    }
+
+    public func didSample(token: MLXArray) {
+        let tokenID = token.item(Int.self)
+        onTokenSampled?(tokenID)
+    }
+}
+
+/// Wraps multiple ``LogitProcessor`` instances into a single processor.
+///
+/// The processors are called in order during `process(logits:)`, matching
+/// the llama.cpp sampler chain convention: penalties → top_k → top_p → min_p → temperature.
+public struct CompositeLogitProcessor: LogitProcessor {
+    var processors: [LogitProcessor]
+
+    public init(_ processors: [LogitProcessor]) {
+        self.processors = processors
+    }
+
+    mutating public func prompt(_ prompt: MLXArray) {
+        for i in processors.indices {
+            processors[i].prompt(prompt)
+        }
+    }
+
+    public func process(logits: MLXArray) -> MLXArray {
+        var logits = logits
+        for processor in processors {
+            logits = processor.process(logits: logits)
+        }
+        return logits
+    }
+
+    mutating public func didSample(token: MLXArray) {
+        for i in processors.indices {
+            processors[i].didSample(token: token)
         }
     }
 }
@@ -271,7 +520,8 @@ public struct TokenIterator: Sequence, IteratorProtocol {
     let model: any LanguageModel
     var state: LMOutput.State?
 
-    var y: LMInput.Text
+    // Optional so teardown() can drop the final token array explicitly.
+    var y: LMInput.Text?
     var cache: [KVCache]
     var processor: LogitProcessor?
     let sampler: LogitSampler
@@ -283,9 +533,30 @@ public struct TokenIterator: Sequence, IteratorProtocol {
     let kvBits: Int?
     let kvGroupSize: Int
     let quantizedKVStart: Int
+    let shouldQuantizeCache: Bool
+
 
     // Internal metrics
     var promptPrefillTime: TimeInterval = 0.0
+
+    // Logprob computation
+    let computeLogprobs: Bool
+    let topLogprobsCount: Int
+    let temperatureForLogprobs: Float
+    /// Logprob info for the token that will be returned by the current `next()` call.
+    public private(set) var lastLogprobInfo: TokenLogprobData?
+    /// Logprob info computed during `convertToToken()`, pending for the next `next()` return.
+    private var pendingLogprobInfo: TokenLogprobData?
+
+    // Performance instrumentation (enabled by AFM_PERF=1)
+    static let perfEnabled = ProcessInfo.processInfo.environment["AFM_PERF"] == "1"
+    var perfModelNs: UInt64 = 0        // cumulative: model() graph construction
+    var perfConvertNs: UInt64 = 0      // cumulative: convertToToken (logit processing)
+    var perfAsyncEvalNs: UInt64 = 0    // cumulative: asyncEval() call
+    var perfItemNs: UInt64 = 0         // cumulative: .item() GPU→CPU sync
+    var perfTotalNextNs: UInt64 = 0    // cumulative: total next() wall-clock
+    var perfGpuSyncNs: UInt64 = 0      // cumulative: GPU sync after asyncEval (measures actual GPU time)
+    var perfTokenCount: Int = 0
 
     /// Initialize a `TokenIterator` with the given tokens. Note: this has been
     /// replaced with ``init(input:model:cache:parameters:)``.
@@ -301,7 +572,8 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         parameters: GenerateParameters
     ) throws {
         self.model = model
-        self.y = .init(tokens: prompt)
+        let promptText = LMInput.Text(tokens: prompt)
+        self.y = promptText
         self.cache = cache ?? model.newCache(parameters: parameters)
 
         self.processor = parameters.processor()
@@ -311,9 +583,14 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         self.kvBits = parameters.kvBits
         self.kvGroupSize = parameters.kvGroupSize
         self.quantizedKVStart = parameters.quantizedKVStart
+        self.shouldQuantizeCache = parameters.kvBits != nil
+
+        self.computeLogprobs = parameters.computeLogprobs
+        self.topLogprobsCount = parameters.topLogprobsCount
+        self.temperatureForLogprobs = parameters.temperature
 
         self.promptPrefillTime = try measure {
-            try prepare(input: .init(text: y), windowSize: parameters.prefillStepSize)
+            try prepare(input: .init(text: promptText), windowSize: parameters.prefillStepSize)
         }
     }
 
@@ -344,6 +621,11 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         self.kvBits = parameters.kvBits
         self.kvGroupSize = parameters.kvGroupSize
         self.quantizedKVStart = parameters.quantizedKVStart
+        self.shouldQuantizeCache = parameters.kvBits != nil
+
+        self.computeLogprobs = parameters.computeLogprobs
+        self.topLogprobsCount = parameters.topLogprobsCount
+        self.temperatureForLogprobs = parameters.temperature
 
         self.promptPrefillTime = try measure {
             try prepare(input: input, windowSize: parameters.prefillStepSize)
@@ -377,6 +659,11 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         self.kvBits = nil
         self.kvGroupSize = 64
         self.quantizedKVStart = 0
+        self.shouldQuantizeCache = false
+
+        self.computeLogprobs = false
+        self.topLogprobsCount = 0
+        self.temperatureForLogprobs = 0
 
         self.promptPrefillTime = try measure {
             try prepare(input: input, windowSize: prefillStepSize)
@@ -391,16 +678,19 @@ public struct TokenIterator: Sequence, IteratorProtocol {
             y = tokens
 
             // evaluate the remainder of the prompt -- this primes the pump
-            let token = step(previous: y)
+            let token = step(previous: tokens)
             y = .init(tokens: token)
-            asyncEval(y.tokens)
+            asyncEval(token)
 
         case .logits(let result):
             y = .init(tokens: convertToToken(logits: result.logits))
-            asyncEval(y.tokens)
+            if let y {
+                asyncEval(y.tokens)
+            }
 
             break
         }
+
     }
 
     mutating func convertToToken(logits: MLXArray) -> MLXArray {
@@ -413,24 +703,79 @@ public struct TokenIterator: Sequence, IteratorProtocol {
 
         processor?.didSample(token: y)
 
+        // Compute per-token log probabilities if requested
+        if computeLogprobs {
+            var lpLogits = logits
+            if lpLogits.dtype == .bfloat16 {
+                lpLogits = lpLogits.asType(.float32)
+            }
+            // Apply temperature scaling (same as the sampler uses)
+            if temperatureForLogprobs > 0 {
+                lpLogits = lpLogits / MLXArray(temperatureForLogprobs)
+            }
+            let probs = softmax(lpLogits, axis: -1)
+            let logProbs = log(probs)
+            let flatLogProbs = logProbs.reshaped(-1)
+
+            let tokenId = y.item(Int.self)
+            let tokenLogprob = flatLogProbs[tokenId].item(Float.self)
+
+            var topIds = [Int]()
+            var topLps = [Float]()
+            if topLogprobsCount > 0 {
+                let vocabSize = flatLogProbs.dim(0)
+                let n = Swift.min(topLogprobsCount, vocabSize)
+                let sorted = argSort(flatLogProbs, axis: -1)
+                for i in 0..<n {
+                    let idx = sorted[vocabSize - 1 - i].item(Int.self)
+                    topIds.append(idx)
+                    topLps.append(flatLogProbs[idx].item(Float.self))
+                }
+            }
+
+            pendingLogprobInfo = TokenLogprobData(
+                tokenId: tokenId,
+                logprob: tokenLogprob,
+                topTokenIds: topIds,
+                topLogprobs: topLps
+            )
+        } else {
+            pendingLogprobInfo = nil
+        }
+
         return y
     }
 
     /// Evaluate the next token and return the new token (y), updating cache state
     mutating func step(previous: LMInput.Text) -> MLXArray {
+        let t0: UInt64 = Self.perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
+
         let result = model(
             previous[text: .newAxis], cache: cache.isEmpty ? nil : cache, state: state)
         self.state = result.state
+        let logits = result.logits
 
-        // Apply dynamic cache quantization after each step
-        maybeQuantizeKVCache(
-            cache: &cache,
-            kvBits: kvBits,
-            kvGroupSize: kvGroupSize,
-            quantizedKVStart: quantizedKVStart
-        )
+        let t1: UInt64 = Self.perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
 
-        return convertToToken(logits: result.logits)
+        // Apply dynamic cache quantization after each step (skip entirely when kvBits is nil)
+        if shouldQuantizeCache {
+            maybeQuantizeKVCache(
+                cache: &cache,
+                kvBits: kvBits,
+                kvGroupSize: kvGroupSize,
+                quantizedKVStart: quantizedKVStart
+            )
+        }
+
+        let token = convertToToken(logits: logits)
+
+        if Self.perfEnabled {
+            let t2 = DispatchTime.now().uptimeNanoseconds
+            perfModelNs += (t1 - t0)
+            perfConvertNs += (t2 - t1)
+        }
+
+        return token
     }
 
     mutating public func next() -> Int? {
@@ -438,17 +783,93 @@ public struct TokenIterator: Sequence, IteratorProtocol {
             return nil
         }
 
-        // save current value -- this will be returned
-        let previousY = y
+        guard let previousY = y else {
+            return nil
+        }
+
+        let tStart: UInt64 = Self.perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
+
+        // Promote pending logprob info: the logprob computed during the PREVIOUS
+        // step() corresponds to the token we are about to return (previousY).
+        lastLogprobInfo = pendingLogprobInfo
 
         // compute the next state and async eval the next token
         let token = step(previous: previousY)
         y = .init(tokens: token)
+
+        let tEval0: UInt64 = Self.perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
+        // Eval token — cache arrays share the same computation graph and will be
+        // scheduled automatically as dependencies.
         asyncEval(token)
+        let tEval1: UInt64 = Self.perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
 
         tokenCount += 1
 
-        return previousY.tokens.item(Int.self)
+        // Periodically clear GPU memory cache to prevent fragmentation,
+        // especially important for large MoE models. Higher interval reduces
+        // allocator churn at the cost of slightly more fragmentation.
+        if tokenCount % 1024 == 0 {
+            Memory.clearCache()
+        }
+
+        let tItem0: UInt64 = Self.perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
+        let result = previousY.tokens.item(Int.self)
+        let tItem1: UInt64 = Self.perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
+
+        if Self.perfEnabled {
+            let tEnd = DispatchTime.now().uptimeNanoseconds
+            perfAsyncEvalNs += (tEval1 - tEval0)
+            perfItemNs += (tItem1 - tItem0)
+            perfTotalNextNs += (tEnd - tStart)
+            perfTokenCount += 1
+
+            // Every 100 tokens, sample GPU sync time to see if asyncEval is truly async
+            if perfTokenCount == 100 {
+                // One-shot: time a synchronize to see GPU queue depth
+                let syncStart = DispatchTime.now().uptimeNanoseconds
+                Stream.gpu.synchronize()
+                let syncEnd = DispatchTime.now().uptimeNanoseconds
+                perfGpuSyncNs = syncEnd - syncStart
+            }
+        }
+
+        return result
+    }
+
+    /// Print performance summary (call after generation loop completes)
+    public func printPerfSummary() {
+        guard Self.perfEnabled, perfTokenCount > 0 else { return }
+        let toMs = { (ns: UInt64) -> Double in Double(ns) / 1_000_000.0 }
+        let totalMs = toMs(perfTotalNextNs)
+        let modelMs = toMs(perfModelNs)
+        let convertMs = toMs(perfConvertNs)
+        let evalMs = toMs(perfAsyncEvalNs)
+        let itemMs = toMs(perfItemNs)
+        let overheadMs = totalMs - modelMs - convertMs - evalMs - itemMs
+        let tokPerSec = Double(perfTokenCount) / (totalMs / 1000.0)
+
+        let pct = { (ms: Double) -> String in String(format: "%.1f%%", ms / totalMs * 100) }
+
+        print("""
+        [PERF] Token generation breakdown (\(perfTokenCount) tokens, \(String(format: "%.1f", totalMs))ms total, \(String(format: "%.1f", tokPerSec)) tok/s):
+        [PERF]   model()       : \(String(format: "%8.1f", modelMs))ms  \(pct(modelMs))  (\(String(format: "%.3f", modelMs / Double(perfTokenCount)))ms/tok)
+        [PERF]   convertToToken: \(String(format: "%8.1f", convertMs))ms  \(pct(convertMs))  (\(String(format: "%.3f", convertMs / Double(perfTokenCount)))ms/tok)
+        [PERF]   asyncEval()   : \(String(format: "%8.1f", evalMs))ms  \(pct(evalMs))  (\(String(format: "%.3f", evalMs / Double(perfTokenCount)))ms/tok)
+        [PERF]   .item() sync  : \(String(format: "%8.1f", itemMs))ms  \(pct(itemMs))  (\(String(format: "%.3f", itemMs / Double(perfTokenCount)))ms/tok)
+        [PERF]   overhead      : \(String(format: "%8.1f", overheadMs))ms  \(pct(overheadMs))  (\(String(format: "%.3f", overheadMs / Double(perfTokenCount)))ms/tok)
+        [PERF]   GPU sync probe@100: \(String(format: "%.3f", toMs(perfGpuSyncNs)))ms (0=async working, >0=GPU was still busy)
+        """)
+    }
+
+    /// Explicitly release iterator-held generation state so ARC can drop
+    /// MLX-backed arrays before the final stream synchronization.
+    public mutating func teardown() {
+        cache = []
+        state = nil
+        y = nil
+        processor = nil
+        pendingLogprobInfo = nil
+        lastLogprobInfo = nil
     }
 }
 
@@ -857,7 +1278,7 @@ public func generateTask(
 
     // Launch a Task to perform iteration asynchronously.
     let task = Task {
-        let iterator = iterator.consume()
+        var iterator = iterator.consume()
 
         var start = Date.timeIntervalSinceReferenceDate
         var promptTime: TimeInterval = 0
@@ -878,8 +1299,17 @@ public func generateTask(
         let toolCallProcessor = ToolCallProcessor(
             format: modelConfiguration.toolCallFormat ?? .json
         )
+        var pendingLogprobs = [TokenLogprobData]()
+        let perfEnabled = TokenIterator.perfEnabled
+        var perfDetokNs: UInt64 = 0
+        var perfLoopOverheadNs: UInt64 = 0
 
-        for token in iterator {
+        while true {
+            let tLoopTop: UInt64 = perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
+
+            guard let token = iterator.next() else { break }
+
+            let tAfterNext: UInt64 = perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
 
             // Check for cancellation on every loop iteration.
             if Task.isCancelled {
@@ -896,15 +1326,28 @@ public func generateTask(
                 break
             }
 
+            // Buffer logprob data for this token
+            if let lpInfo = iterator.lastLogprobInfo {
+                pendingLogprobs.append(lpInfo)
+            }
+
+            let tDetok0: UInt64 = perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
             detokenizer.append(token: token)
+            var didYield = false
             if let chunk = detokenizer.next() {
                 tokenCount += 1
 
                 // Process chunk through the tool call processor
                 if let textToYield = toolCallProcessor.processChunk(chunk) {
+                    // Yield buffered logprobs before the chunk they belong to
+                    if !pendingLogprobs.isEmpty {
+                        continuation.yield(.tokenLogprobs(pendingLogprobs))
+                        pendingLogprobs = []
+                    }
                     if case .terminated = continuation.yield(.chunk(textToYield)) {
                         break
                     }
+                    didYield = true
                 }
 
                 // Check if we have a complete tool call
@@ -914,7 +1357,25 @@ public func generateTask(
                     }
                 }
             }
+            if perfEnabled {
+                let tDetok1 = DispatchTime.now().uptimeNanoseconds
+                perfDetokNs += (tDetok1 - tDetok0)
+                perfLoopOverheadNs += (tAfterNext - tLoopTop)
+            }
         }
+
+        // Print performance breakdown if AFM_PERF=1
+        if perfEnabled, iterator.perfTokenCount > 0 {
+            let toMs = { (ns: UInt64) -> Double in Double(ns) / 1_000_000.0 }
+            let detokMs = toMs(perfDetokNs)
+            print("[PERF] Loop overhead: detokenize+yield=\(String(format: "%.1f", detokMs))ms (\(String(format: "%.2f", detokMs / Double(iterator.perfTokenCount)))ms/tok)")
+        }
+        iterator.printPerfSummary()
+
+        // Explicitly release iterator-held GPU arrays (cache, last token, state)
+        // before synchronizing. This ensures no stale references survive into
+        // the next request's generation pass.
+        iterator.teardown()
 
         let now = Date.timeIntervalSinceReferenceDate
         let generateTime = now - start
@@ -1004,12 +1465,16 @@ public enum Generation: Sendable {
     /// A tool call from the language model.
     case toolCall(ToolCall)
 
+    /// Per-token log probability data for the preceding chunk.
+    case tokenLogprobs([TokenLogprobData])
+
     /// Generated text or nil
     public var chunk: String? {
         switch self {
         case .chunk(let string): string
         case .info: nil
         case .toolCall: nil
+        case .tokenLogprobs: nil
         }
     }
 
@@ -1019,6 +1484,7 @@ public enum Generation: Sendable {
         case .chunk: nil
         case .info(let info): info
         case .toolCall: nil
+        case .tokenLogprobs: nil
         }
     }
 
@@ -1028,6 +1494,7 @@ public enum Generation: Sendable {
         case .chunk: nil
         case .info: nil
         case .toolCall(let toolCall): toolCall
+        case .tokenLogprobs: nil
         }
     }
 
