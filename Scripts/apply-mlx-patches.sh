@@ -9,6 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PATCHES_DIR="$SCRIPT_DIR/patches"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 MLX_LM_DIR="$PROJECT_ROOT/vendor/mlx-swift-lm"
+BACKUP_ROOT="$PROJECT_ROOT/.patch-backups/mlx-swift-lm"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -18,6 +19,12 @@ NC='\033[0m'
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+backup_path_for() {
+  local target_file="$1"
+  local rel_path="${target_file#"$MLX_LM_DIR"/}"
+  echo "$BACKUP_ROOT/$rel_path.original"
+}
 
 PATCH_FILES=("Qwen3VL.swift" "Qwen3Next.swift" "GatedDelta.swift" "Qwen3_5MoE.swift" "DeepseekV3.swift" "MiniMaxM2.swift" "NemotronH.swift" "GLM4MoeLite.swift" "GLM5MoeDsa.swift" "KimiK25.swift" "LLMModelFactory.swift" "Load.swift" "Evaluate.swift" "Tokenizer.swift" "Qwen3_5MoEVL.swift" "VLMModelFactory.swift" "SamplerTests.swift" "ToolCallFormat.swift" "KVCache.swift" "SwitchLayers.swift")
 TARGET_PATHS=("Libraries/MLXVLM/Models/Qwen3VL.swift" "Libraries/MLXLLM/Models/Qwen3Next.swift" "Libraries/MLXLLM/Models/GatedDelta.swift" "Libraries/MLXLLM/Models/Qwen3_5MoE.swift" "Libraries/MLXLLM/Models/DeepseekV3.swift" "Libraries/MLXLLM/Models/MiniMaxM2.swift" "Libraries/MLXLLM/Models/NemotronH.swift" "Libraries/MLXLLM/Models/GLM4MoeLite.swift" "Libraries/MLXLLM/Models/GLM5MoeDsa.swift" "Libraries/MLXLLM/Models/KimiK25.swift" "Libraries/MLXLLM/LLMModelFactory.swift" "Libraries/MLXLMCommon/Load.swift" "Libraries/MLXLMCommon/Evaluate.swift" "Libraries/MLXLMCommon/Tokenizer.swift" "Libraries/MLXVLM/Models/Qwen3_5MoEVL.swift" "Libraries/MLXVLM/VLMModelFactory.swift" "Tests/MLXLMTests/SamplerTests.swift" "Libraries/MLXLMCommon/Tool/ToolCallFormat.swift" "Libraries/MLXLMCommon/KVCache.swift" "Libraries/MLXLMCommon/SwitchLayers.swift")
@@ -62,8 +69,11 @@ apply_package_pins() {
   [ -f "$pkg_file" ] || { log_error "Package.swift not found: $pkg_file"; return 1; }
 
   # Backup once
-  if [ ! -f "${pkg_file}.original" ]; then
-    cp "$pkg_file" "${pkg_file}.original"
+  local backup
+  backup="$(backup_path_for "$pkg_file")"
+  mkdir -p "$(dirname "$backup")"
+  if [ ! -f "$backup" ]; then
+    cp "$pkg_file" "$backup"
     log_info "Backed up original: Package.swift"
   fi
 
@@ -100,11 +110,15 @@ check_package_pins() {
 
 revert_package_pins() {
   local pkg_file="$1"
-  local backup="${pkg_file}.original"
+  local backup
+  backup="$(backup_path_for "$pkg_file")"
   if [ -f "$backup" ]; then
     cp "$backup" "$pkg_file"
     rm "$backup"
     log_info "Reverted: Package.swift"
+  elif git -C "$MLX_LM_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$MLX_LM_DIR" checkout -- "Package.swift"
+    log_info "Reverted from git: Package.swift"
   else
     log_warn "No backup found for Package.swift"
   fi
@@ -133,7 +147,9 @@ apply_file() {
     cp "$patch_file" "$target_file"
     log_info "Added new file: $filename"
   else
-    local backup_file="${target_file}.original"
+    local backup_file
+    backup_file="$(backup_path_for "$target_file")"
+    mkdir -p "$(dirname "$backup_file")"
     if [ ! -f "$backup_file" ]; then
       cp "$target_file" "$backup_file"
       log_info "Backed up original: $filename"
@@ -148,7 +164,9 @@ revert_file() {
   local target_file="$1"
   local filename
   filename="$(basename "$target_file")"
-  local backup_file="${target_file}.original"
+  local backup_file
+  backup_file="$(backup_path_for "$target_file")"
+  local rel_path="${target_file#"$MLX_LM_DIR"/}"
 
   if is_new_file "$filename"; then
     if [ -f "$target_file" ]; then
@@ -162,6 +180,10 @@ revert_file() {
     cp "$backup_file" "$target_file"
     rm "$backup_file"
     log_info "Reverted: $filename"
+  elif git -C "$MLX_LM_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    chmod u+w "$target_file" 2>/dev/null || true
+    git -C "$MLX_LM_DIR" checkout -- "$rel_path"
+    log_info "Reverted from git: $filename"
   else
     log_warn "No backup found for: $filename (may already be original)"
   fi

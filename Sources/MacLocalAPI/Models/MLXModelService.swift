@@ -53,6 +53,8 @@ enum MLXServiceError: Error, LocalizedError {
     case loadFailed(String)
     case noModelLoaded
     case serviceShuttingDown
+    case invalidToolSchema(String)
+    case invalidToolCallResponse(String)
 
     var errorDescription: String? {
         switch self {
@@ -68,6 +70,10 @@ enum MLXServiceError: Error, LocalizedError {
             return "No MLX model loaded"
         case .serviceShuttingDown:
             return "MLX service is shutting down"
+        case .invalidToolSchema(let value):
+            return "Invalid tool schema: \(value)"
+        case .invalidToolCallResponse(let value):
+            return "Constrained tool generation failed: \(value)"
         }
     }
 }
@@ -89,6 +95,18 @@ private let vvReset = "\u{1B}[0m"
 private var traceLogging = false
 /// Module-level grammar constraint flag — enables cross-parameter dedup in the XML parser.
 private var grammarConstraintsActive = false
+
+private enum ToolCallingStrategy: Equatable {
+    case legacy
+    case enforcedJSON(required: Bool, selectedToolName: String?)
+}
+
+private struct EnforcedToolingPlan {
+    let strategy: ToolCallingStrategy
+    let responseFormat: ResponseFormat?
+    let promptInstruction: String?
+    let templateTools: [ToolSpec]?
+}
 
 final class MLXModelService: @unchecked Sendable {
     private let resolver: MLXCacheResolver
@@ -319,6 +337,7 @@ final class MLXModelService: @unchecked Sendable {
         logprobs: Bool? = nil,
         topLogprobs: Int? = nil,
         tools: [RequestTool]? = nil,
+        toolChoice: ToolChoice? = nil,
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
         chatTemplateKwargs: [String: AnyCodable]? = nil
@@ -330,8 +349,16 @@ final class MLXModelService: @unchecked Sendable {
         guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
 
         let promptText = buildPrompt(from: messages)
-        let toolSpecs = convertToToolSpecs(tools)
-        let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat, chatTemplateKwargs: chatTemplateKwargs)
+        let toolingPlan = try makeToolingPlan(tools: tools, toolChoice: toolChoice)
+        let effectiveResponseFormat = toolingPlan.responseFormat ?? responseFormat
+        let toolSpecs = toolingPlan.templateTools
+        let (userInput, mediaTempFiles) = try buildUserInput(
+            from: messages,
+            tools: toolSpecs,
+            responseFormat: effectiveResponseFormat,
+            toolInstruction: toolingPlan.promptInstruction,
+            chatTemplateKwargs: chatTemplateKwargs
+        )
         defer { cleanupTempFiles(mediaTempFiles) }
         let wantLogprobs = logprobs == true
 
@@ -361,9 +388,9 @@ final class MLXModelService: @unchecked Sendable {
         let generated: String = try await container.perform { context in
             // Grammar constraint setup (needs tokenizer from context)
             let grammarProcessor: GrammarLogitProcessor?
-            if responseFormat?.type == "json_schema" {
+            if effectiveResponseFormat?.type == "json_schema" {
                 grammarProcessor = self.setupGrammarConstraint(
-                    modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
+                    modelID: modelID, responseFormat: effectiveResponseFormat, tokenizer: context.tokenizer
                 )
             } else if self.enableGrammarConstraints && self.toolCallParser == "afm_adaptive_xml" {
                 grammarProcessor = self.setupToolCallGrammarConstraint(
@@ -639,6 +666,19 @@ final class MLXModelService: @unchecked Sendable {
             return out
         }
 
+        if case .enforcedJSON = toolingPlan.strategy {
+            let responseToolCalls = try Self.parseEnforcedToolCallResponses(
+                from: generated,
+                tools: tools,
+                toolChoice: toolChoice
+            )
+            let promptTokens = completionInfo?.promptTokenCount ?? estimateTokens(promptText)
+            let completionTokens = completionInfo?.generationTokenCount ?? estimateTokens(generated)
+            let promptTime = completionInfo?.promptTime ?? 0
+            let generateTime = completionInfo?.generateTime ?? 0
+            return (modelID, "", promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount, promptTime, generateTime)
+        }
+
         // If the vendor ToolCallProcessor didn't detect tool calls, try fallback parsing.
         // Qwen3-Coder outputs <tool_call><function=name>...</function></tool_call> which
         // the vendor's XMLFunctionParser misses (regex doesn't match multiline content).
@@ -699,6 +739,7 @@ final class MLXModelService: @unchecked Sendable {
         logprobs: Bool? = nil,
         topLogprobs: Int? = nil,
         tools: [RequestTool]? = nil,
+        toolChoice: ToolChoice? = nil,
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
         chatTemplateKwargs: [String: AnyCodable]? = nil
@@ -718,7 +759,9 @@ final class MLXModelService: @unchecked Sendable {
         guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
 
         let promptText = buildPrompt(from: messages)
-        let toolSpecs = convertToToolSpecs(tools)
+        let toolingPlan = try makeToolingPlan(tools: tools, toolChoice: toolChoice)
+        let effectiveResponseFormat = toolingPlan.responseFormat ?? responseFormat
+        let toolSpecs = toolingPlan.templateTools
         // -VV: Log tool schemas as sent to model's Jinja template
         if trace, let toolSpecs {
             for spec in toolSpecs {
@@ -729,7 +772,13 @@ final class MLXModelService: @unchecked Sendable {
             }
             fflush(stdout)
         }
-        let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat, chatTemplateKwargs: chatTemplateKwargs)
+        let (userInput, mediaTempFiles) = try buildUserInput(
+            from: messages,
+            tools: toolSpecs,
+            responseFormat: effectiveResponseFormat,
+            toolInstruction: toolingPlan.promptInstruction,
+            chatTemplateKwargs: chatTemplateKwargs
+        )
         let promptTokens = estimateTokens(promptText)
         let wantLogprobs = logprobs == true
 
@@ -758,9 +807,9 @@ final class MLXModelService: @unchecked Sendable {
                     try await container.perform { context in
                         // Grammar constraint setup — see non-streaming path for details.
                         let grammarProcessor: GrammarLogitProcessor?
-                        if responseFormat?.type == "json_schema" {
+                        if effectiveResponseFormat?.type == "json_schema" {
                             grammarProcessor = self.setupGrammarConstraint(
-                                modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
+                                modelID: modelID, responseFormat: effectiveResponseFormat, tokenizer: context.tokenizer
                             )
                         } else if self.enableGrammarConstraints && self.toolCallParser == "afm_adaptive_xml" {
                             grammarProcessor = self.setupToolCallGrammarConstraint(
@@ -869,6 +918,11 @@ final class MLXModelService: @unchecked Sendable {
                         continuation.yield(StreamChunk(text: "", cachedTokens: streamCachedTokens))
 
                         let activeStops = stop?.filter { !$0.isEmpty } ?? []
+                        let enforcedToolMode: Bool = {
+                            if case .enforcedJSON = toolingPlan.strategy { return true }
+                            return false
+                        }()
+                        var enforcedToolJSON = ""
                         // Buffer to handle stop strings that span chunk boundaries.
                         // Stop sequences only apply to content OUTSIDE <think> blocks —
                         // thinking models emit reasoning inside <think>...</think> tags
@@ -907,6 +961,12 @@ final class MLXModelService: @unchecked Sendable {
                                         resolved = self.resolveLogprobs(lps, tokenizer: context.tokenizer)
                                     } else {
                                         resolved = nil
+                                    }
+
+                                    if enforcedToolMode {
+                                        enforcedToolJSON += text
+                                        pendingLogprobs = nil
+                                        continue
                                     }
 
                                     // Track think boundaries for stop sequence scoping
@@ -966,7 +1026,16 @@ final class MLXModelService: @unchecked Sendable {
                             throw error
                         }
                         // Flush any remaining buffered text (no stop match found)
-                        if !activeStops.isEmpty && !stopBuffer.isEmpty {
+                        if enforcedToolMode {
+                            let responseToolCalls = try Self.parseEnforcedToolCallResponses(
+                                from: enforcedToolJSON,
+                                tools: tools,
+                                toolChoice: toolChoice
+                            )
+                            for responseTC in responseToolCalls {
+                                continuation.yield(StreamChunk(text: "", toolCalls: [responseTC]))
+                            }
+                        } else if !activeStops.isEmpty && !stopBuffer.isEmpty {
                             continuation.yield(StreamChunk(text: stopBuffer))
                         }
                         // Synchronize GPU after generation completes (or breaks early).
@@ -1028,7 +1097,9 @@ final class MLXModelService: @unchecked Sendable {
 
         // Derive tool call start/end tags for streaming detection
         let toolTags: (start: String, end: String)?
-        if let tools, !tools.isEmpty {
+        if case .enforcedJSON = toolingPlan.strategy {
+            toolTags = nil
+        } else if let tools, !tools.isEmpty {
             let format = withStateLock({ currentToolCallFormat })
             if let format {
                 switch format {
@@ -1104,6 +1175,331 @@ final class MLXModelService: @unchecked Sendable {
                 "type": tool.type,
                 "function": funcDict
             ]
+        }
+    }
+
+    static func buildEnforcedToolCallSchema(tools: [RequestTool], selectedToolName: String? = nil) throws -> [String: Any] {
+        guard !tools.isEmpty else {
+            throw MLXServiceError.invalidToolSchema("at least one tool is required")
+        }
+
+        let filteredTools: [RequestTool]
+        if let selectedToolName {
+            guard let match = tools.first(where: { $0.function.name == selectedToolName }) else {
+                throw MLXServiceError.invalidToolSchema("tool_choice names unknown tool '\(selectedToolName)'")
+            }
+            filteredTools = [match]
+        } else {
+            filteredTools = tools
+        }
+
+        let variants = try filteredTools.map { tool -> [String: Any] in
+            let argsSchema = try normalizedToolArgumentsSchema(for: tool)
+            return [
+                "type": "object",
+                "properties": [
+                    "name": ["type": "string", "enum": [tool.function.name]],
+                    "arguments": argsSchema
+                ],
+                "required": ["name", "arguments"],
+                "additionalProperties": false
+            ]
+        }
+
+        let singleCallSchema: [String: Any]
+        if variants.count == 1 {
+            singleCallSchema = variants[0]
+        } else {
+            singleCallSchema = ["oneOf": variants]
+        }
+
+        return [
+            "oneOf": [
+                singleCallSchema,
+                [
+                    "type": "array",
+                    "items": singleCallSchema,
+                    "minItems": 1
+                ]
+            ]
+        ]
+    }
+
+    private static func normalizedToolArgumentsSchema(for tool: RequestTool) throws -> [String: Any] {
+        guard let params = tool.function.parameters?.toSendable() else {
+            return ["type": "object", "properties": [:], "additionalProperties": false]
+        }
+        guard let schema = params as? [String: Any] else {
+            throw MLXServiceError.invalidToolSchema("\(tool.function.name) parameters must decode to a JSON object")
+        }
+        try validateToolSchema(schema, path: "\(tool.function.name).parameters")
+
+        var normalized = schema
+        if normalized["type"] == nil {
+            normalized["type"] = "object"
+        }
+        guard (normalized["type"] as? String) == "object" else {
+            throw MLXServiceError.invalidToolSchema("\(tool.function.name) parameters must have type=object")
+        }
+        if normalized["properties"] == nil {
+            normalized["properties"] = [:]
+        }
+        if normalized["additionalProperties"] == nil {
+            normalized["additionalProperties"] = false
+        }
+        return normalized
+    }
+
+    private static func validateToolSchema(_ schema: [String: Any], path: String) throws {
+        if let oneOf = schema["oneOf"] as? [[String: Any]] {
+            guard !oneOf.isEmpty else {
+                throw MLXServiceError.invalidToolSchema("\(path).oneOf must not be empty")
+            }
+            for (idx, branch) in oneOf.enumerated() {
+                try validateToolSchema(branch, path: "\(path).oneOf[\(idx)]")
+            }
+            return
+        }
+        if let anyOf = schema["anyOf"] as? [[String: Any]] {
+            guard !anyOf.isEmpty else {
+                throw MLXServiceError.invalidToolSchema("\(path).anyOf must not be empty")
+            }
+            for (idx, branch) in anyOf.enumerated() {
+                try validateToolSchema(branch, path: "\(path).anyOf[\(idx)]")
+            }
+            return
+        }
+
+        let schemaType = schema["type"] as? String
+        if let schemaType {
+            switch schemaType {
+            case "object":
+                if let props = schema["properties"], !(props is [String: Any]) {
+                    throw MLXServiceError.invalidToolSchema("\(path).properties must be an object")
+                }
+                if let required = schema["required"], !(required is [String]) {
+                    throw MLXServiceError.invalidToolSchema("\(path).required must be an array of strings")
+                }
+                if let props = schema["properties"] as? [String: Any] {
+                    for (key, rawChild) in props {
+                        guard let child = rawChild as? [String: Any] else {
+                            throw MLXServiceError.invalidToolSchema("\(path).properties.\(key) must be an object schema")
+                        }
+                        try validateToolSchema(child, path: "\(path).properties.\(key)")
+                    }
+                }
+                if let additional = schema["additionalProperties"],
+                   !(additional is Bool), !(additional is [String: Any]) {
+                    throw MLXServiceError.invalidToolSchema("\(path).additionalProperties must be boolean or object")
+                }
+                if let additional = schema["additionalProperties"] as? [String: Any] {
+                    try validateToolSchema(additional, path: "\(path).additionalProperties")
+                }
+            case "array":
+                guard let items = schema["items"] as? [String: Any] else {
+                    throw MLXServiceError.invalidToolSchema("\(path).items must be an object schema")
+                }
+                try validateToolSchema(items, path: "\(path).items")
+            case "string", "integer", "number", "boolean", "null":
+                break
+            default:
+                throw MLXServiceError.invalidToolSchema("\(path) uses unsupported type '\(schemaType)'")
+            }
+        } else if schema["enum"] == nil {
+            throw MLXServiceError.invalidToolSchema("\(path) is missing a supported type")
+        }
+    }
+
+    private static func buildEnforcedToolPrompt(tools: [RequestTool], selectedToolName: String?) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        var lines = [
+            "You are operating in enforced tool-call mode.",
+            "Reply with JSON only. Do not emit XML, markdown, or explanatory text.",
+            "Return either a single object {\"name\": ..., \"arguments\": {...}} or an array of such objects."
+        ]
+        if let selectedToolName {
+            lines.append("The requested tool is fixed to '\(selectedToolName)'.")
+        } else {
+            lines.append("Choose only from the available tools below.")
+        }
+        lines.append("Available tools:")
+        for tool in tools {
+            var line = "- \(tool.function.name)"
+            if let description = tool.function.description, !description.isEmpty {
+                line += ": \(description)"
+            }
+            lines.append(line)
+            if let params = tool.function.parameters,
+               let data = try? encoder.encode(params),
+               let schemaString = String(data: data, encoding: .utf8) {
+                lines.append("  parameters: \(schemaString)")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    static func parseEnforcedToolCallResponses(
+        from text: String,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?
+    ) throws -> [ResponseToolCall] {
+        guard let tools, !tools.isEmpty else {
+            throw MLXServiceError.invalidToolCallResponse("tools were not provided")
+        }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw MLXServiceError.invalidToolCallResponse("model returned empty output")
+        }
+        guard let data = trimmed.data(using: .utf8) else {
+            throw MLXServiceError.invalidToolCallResponse("model output was not UTF-8")
+        }
+        let rawJSON: Any
+        do {
+            rawJSON = try JSONSerialization.jsonObject(with: data)
+        } catch {
+            throw MLXServiceError.invalidToolCallResponse("model output was not valid JSON")
+        }
+
+        let rawCalls: [[String: Any]]
+        switch rawJSON {
+        case let dict as [String: Any]:
+            if let embedded = dict["tool_calls"] as? [[String: Any]] {
+                rawCalls = embedded
+            } else {
+                rawCalls = [dict]
+            }
+        case let array as [[String: Any]]:
+            rawCalls = array
+        default:
+            throw MLXServiceError.invalidToolCallResponse("model returned JSON, but not a tool call object or array")
+        }
+
+        guard !rawCalls.isEmpty else {
+            throw MLXServiceError.invalidToolCallResponse("tool call array was empty")
+        }
+
+        let selectedToolName: String?
+        if case .function(let fn) = toolChoice {
+            selectedToolName = fn.function.name
+        } else {
+            selectedToolName = nil
+        }
+        let allowedNames = Set(tools.map { $0.function.name })
+
+        return try rawCalls.enumerated().map { (index, rawCall) in
+            guard let name = rawCall["name"] as? String, !name.isEmpty else {
+                throw MLXServiceError.invalidToolCallResponse("tool call \(index) is missing a valid name")
+            }
+            if let selectedToolName, name != selectedToolName {
+                throw MLXServiceError.invalidToolCallResponse("tool call \(index) used '\(name)', expected '\(selectedToolName)'")
+            }
+            guard allowedNames.contains(name) else {
+                throw MLXServiceError.invalidToolCallResponse("tool call \(index) used unknown tool '\(name)'")
+            }
+            guard let arguments = rawCall["arguments"] as? [String: Any] else {
+                throw MLXServiceError.invalidToolCallResponse("tool call \(index) must contain an object 'arguments' field")
+            }
+            guard let tool = tools.first(where: { $0.function.name == name }) else {
+                throw MLXServiceError.invalidToolCallResponse("tool '\(name)' is not available")
+            }
+            let schema = try normalizedToolArgumentsSchema(for: tool)
+            try validateGeneratedJSON(arguments, against: schema, path: "\(name).arguments")
+
+            let argsData = try JSONSerialization.data(withJSONObject: arguments, options: [.sortedKeys])
+            guard let argsString = String(data: argsData, encoding: .utf8) else {
+                throw MLXServiceError.invalidToolCallResponse("tool call \(index) arguments could not be serialized")
+            }
+            return ResponseToolCall(
+                id: "call_\(generateCallID())",
+                type: "function",
+                function: ResponseToolCallFunction(name: name, arguments: argsString)
+            )
+        }
+    }
+
+    private static func validateGeneratedJSON(_ value: Any, against schema: [String: Any], path: String) throws {
+        if let oneOf = schema["oneOf"] as? [[String: Any]] {
+            for branch in oneOf {
+                if (try? validateGeneratedJSON(value, against: branch, path: path)) != nil {
+                    return
+                }
+            }
+            throw MLXServiceError.invalidToolCallResponse("\(path) did not match any allowed schema variant")
+        }
+        if let anyOf = schema["anyOf"] as? [[String: Any]] {
+            for branch in anyOf {
+                if (try? validateGeneratedJSON(value, against: branch, path: path)) != nil {
+                    return
+                }
+            }
+            throw MLXServiceError.invalidToolCallResponse("\(path) did not match any allowed schema variant")
+        }
+        if let enumValues = schema["enum"] as? [Any] {
+            let matches = enumValues.contains { String(describing: $0) == String(describing: value) }
+            if !matches {
+                throw MLXServiceError.invalidToolCallResponse("\(path) must be one of \(enumValues)")
+            }
+            return
+        }
+
+        switch schema["type"] as? String {
+        case "object":
+            guard let dict = value as? [String: Any] else {
+                throw MLXServiceError.invalidToolCallResponse("\(path) must be an object")
+            }
+            let properties = schema["properties"] as? [String: Any] ?? [:]
+            let required = schema["required"] as? [String] ?? []
+            for key in required where dict[key] == nil {
+                throw MLXServiceError.invalidToolCallResponse("\(path).\(key) is required")
+            }
+            let additional = schema["additionalProperties"]
+            for (key, childValue) in dict {
+                if let childSchema = properties[key] as? [String: Any] {
+                    try validateGeneratedJSON(childValue, against: childSchema, path: "\(path).\(key)")
+                } else if let additionalBool = additional as? Bool, additionalBool == false {
+                    throw MLXServiceError.invalidToolCallResponse("\(path).\(key) is not allowed")
+                } else if let additionalSchema = additional as? [String: Any] {
+                    try validateGeneratedJSON(childValue, against: additionalSchema, path: "\(path).\(key)")
+                }
+            }
+        case "array":
+            guard let array = value as? [Any] else {
+                throw MLXServiceError.invalidToolCallResponse("\(path) must be an array")
+            }
+            if let minItems = schema["minItems"] as? Int, array.count < minItems {
+                throw MLXServiceError.invalidToolCallResponse("\(path) must contain at least \(minItems) item(s)")
+            }
+            if let items = schema["items"] as? [String: Any] {
+                for (idx, child) in array.enumerated() {
+                    try validateGeneratedJSON(child, against: items, path: "\(path)[\(idx)]")
+                }
+            }
+        case "string":
+            guard value is String else {
+                throw MLXServiceError.invalidToolCallResponse("\(path) must be a string")
+            }
+        case "integer":
+            guard value is Int else {
+                throw MLXServiceError.invalidToolCallResponse("\(path) must be an integer")
+            }
+        case "number":
+            guard value is Int || value is Double || value is NSNumber else {
+                throw MLXServiceError.invalidToolCallResponse("\(path) must be a number")
+            }
+        case "boolean":
+            guard value is Bool else {
+                throw MLXServiceError.invalidToolCallResponse("\(path) must be a boolean")
+            }
+        case "null":
+            if !(value is NSNull) {
+                throw MLXServiceError.invalidToolCallResponse("\(path) must be null")
+            }
+        case nil:
+            return
+        case let unsupported?:
+            throw MLXServiceError.invalidToolCallResponse("\(path) uses unsupported type '\(unsupported)'")
         }
     }
 
@@ -2219,11 +2615,59 @@ final class MLXModelService: @unchecked Sendable {
         return false
     }
 
+    private func makeToolingPlan(
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?
+    ) throws -> EnforcedToolingPlan {
+        guard let tools, !tools.isEmpty else {
+            return EnforcedToolingPlan(strategy: .legacy, responseFormat: nil, promptInstruction: nil, templateTools: nil)
+        }
+
+        if case .mode(let mode) = toolChoice, mode == "none" {
+            return EnforcedToolingPlan(strategy: .legacy, responseFormat: nil, promptInstruction: nil, templateTools: nil)
+        }
+
+        // Explicit parser selection keeps the legacy model-native path available.
+        if toolCallParser != nil {
+            return EnforcedToolingPlan(
+                strategy: .legacy,
+                responseFormat: nil,
+                promptInstruction: nil,
+                templateTools: convertToToolSpecs(tools)
+            )
+        }
+
+        let selectedToolName: String?
+        if case .function(let fn) = toolChoice {
+            selectedToolName = fn.function.name
+        } else {
+            selectedToolName = nil
+        }
+
+        let schema = try Self.buildEnforcedToolCallSchema(tools: tools, selectedToolName: selectedToolName)
+        let responseFormat = ResponseFormat(
+            type: "json_schema",
+            jsonSchema: ResponseJsonSchema(
+                name: "tool_call",
+                description: "Constrained tool call payload",
+                schema: AnyCodable(schema),
+                strict: true
+            )
+        )
+
+        return EnforcedToolingPlan(
+            strategy: .enforcedJSON(required: true, selectedToolName: selectedToolName),
+            responseFormat: responseFormat,
+            promptInstruction: Self.buildEnforcedToolPrompt(tools: tools, selectedToolName: selectedToolName),
+            templateTools: nil
+        )
+    }
+
     private func buildPrompt(from messages: [Message]) -> String {
         messages.map { "\($0.role): \($0.textContent)" }.joined(separator: "\n")
     }
 
-    private func buildUserInput(from messages: [Message], tools: [ToolSpec]? = nil, responseFormat: ResponseFormat? = nil, chatTemplateKwargs: [String: AnyCodable]? = nil) throws -> (UserInput, tempFiles: [URL]) {
+    private func buildUserInput(from messages: [Message], tools: [ToolSpec]? = nil, responseFormat: ResponseFormat? = nil, toolInstruction: String? = nil, chatTemplateKwargs: [String: AnyCodable]? = nil) throws -> (UserInput, tempFiles: [URL]) {
         var chatMessages: [Chat.Message] = []
         var hasSystemMessage = false
         var allTempFiles: [URL] = []
@@ -2270,7 +2714,11 @@ final class MLXModelService: @unchecked Sendable {
             chatMessages.insert(.system("You are a helpful assistant!"), at: 0)
         }
 
-        // Inject JSON format instructions when response_format is requested
+        // Inject tool and JSON format instructions by appending to the primary system message.
+        var systemInstructions: [String] = []
+        if let toolInstruction {
+            systemInstructions.append(toolInstruction)
+        }
         if let format = responseFormat {
             let jsonInstruction: String?
             switch format.type {
@@ -2298,14 +2746,18 @@ final class MLXModelService: @unchecked Sendable {
                 jsonInstruction = nil
             }
             if let instruction = jsonInstruction {
-                // Append to existing system message rather than adding a second one,
-                // because some chat templates (e.g. Qwen3.5) don't support multiple
-                // system messages and throw Jinja.TemplateException.
-                if let sysIdx = chatMessages.firstIndex(where: { $0.role == .system }) {
-                    chatMessages[sysIdx] = .system(chatMessages[sysIdx].content + "\n\n" + instruction)
-                } else {
-                    chatMessages.insert(.system(instruction), at: 0)
-                }
+                systemInstructions.append(instruction)
+            }
+        }
+        if !systemInstructions.isEmpty {
+            let instruction = systemInstructions.joined(separator: "\n\n")
+            // Append to existing system message rather than adding a second one,
+            // because some chat templates (e.g. Qwen3.5) don't support multiple
+            // system messages and throw Jinja.TemplateException.
+            if let sysIdx = chatMessages.firstIndex(where: { $0.role == .system }) {
+                chatMessages[sysIdx] = .system(chatMessages[sysIdx].content + "\n\n" + instruction)
+            } else {
+                chatMessages.insert(.system(instruction), at: 0)
             }
         }
 
@@ -2994,4 +3446,3 @@ final class MLXModelService: @unchecked Sendable {
     """
 
 }
-

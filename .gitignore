@@ -73,6 +73,7 @@ build-from-scratch/
 
 # Vendor patch stamp
 vendor/mlx-swift-lm/.patches-applied
+.patch-backups/
 
 # PyPI package staging (binaries staged temporarily during uv build)
 macafm/bin/

@@ -3,7 +3,7 @@
 #
 # Steps:
 #   1) Initialize submodules
-#   2) Apply MLX patch set (Vesta-style patch management)
+#   2) Apply vendor patch sets (MLX + xgrammar)
 #   3) Build llama.cpp webui assets (optional)
 #   4) Clean + resolve Swift packages
 #   5) Build afm (release by default)
@@ -43,7 +43,7 @@ Options:
   --debug              Build debug instead of release
   --no-clean           Skip clean step before build
   --skip-submodules    Skip git submodule init/update
-  --skip-patches       Skip Scripts/apply-mlx-patches.sh
+  --skip-patches       Skip Scripts/apply-mlx-patches.sh and Scripts/apply-xgrammar-patches.sh
   --skip-webui         Skip llama.cpp webui build
   -h, --help           Show help
 
@@ -104,8 +104,16 @@ if $DO_PATCHES; then
   fi
   "$SCRIPT_DIR/apply-mlx-patches.sh"
   "$SCRIPT_DIR/apply-mlx-patches.sh" --check
+
+  log_step "Applying xgrammar patch set"
+  if [ ! -x "$SCRIPT_DIR/apply-xgrammar-patches.sh" ]; then
+    log_error "Missing patch script: $SCRIPT_DIR/apply-xgrammar-patches.sh"
+    exit 1
+  fi
+  "$SCRIPT_DIR/apply-xgrammar-patches.sh"
+  "$SCRIPT_DIR/apply-xgrammar-patches.sh" --check
 else
-  log_warn "Skipping MLX patch application"
+  log_warn "Skipping vendor patch application"
 fi
 
 if $DO_WEBUI; then

@@ -185,6 +185,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 logprobs: chatRequest.logprobs,
                 topLogprobs: chatRequest.topLogprobs,
                 tools: effectiveTools,
+                toolChoice: chatRequest.toolChoice,
                 stop: effectiveStop,
                 responseFormat: chatRequest.responseFormat,
                 chatTemplateKwargs: chatRequest.chatTemplateKwargs
@@ -335,6 +336,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     logprobs: chatRequest.logprobs,
                     topLogprobs: chatRequest.topLogprobs,
                     tools: effectiveTools,
+                    toolChoice: chatRequest.toolChoice,
                     stop: effectiveStop,
                     responseFormat: chatRequest.responseFormat,
                     chatTemplateKwargs: chatRequest.chatTemplateKwargs
