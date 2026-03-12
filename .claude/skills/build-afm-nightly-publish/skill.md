@@ -409,11 +409,13 @@ Run the publish script with `--skip-build` (already built in Step 2), the confir
 
 This script handles everything:
 1. Packages the binary + metallib bundle + webui into `afm-next-arm64.tar.gz`
-2. Generates changelog from commits since the last `nightly-*` release
+2. Generates changelog from commits since the last `nightly-*` release (with both Homebrew and pip install instructions in the release notes)
 3. Creates a GitHub pre-release tagged `nightly-YYYYMMDD-SHORTSHA`
 4. Updates the `nightly` tag to point to HEAD
 5. Updates `afm-next.rb` in the homebrew-afm tap (url, version, sha256)
 6. Commits and pushes the tap update
+7. Builds a nightly wheel (`macafm-next`) via `Scripts/build-nightly-wheel.sh`
+8. Uploads the wheel to the GitHub release and updates the PEP 503 index on kruks.ai via `Scripts/update-wheel-index.sh` (requires vesta-mac repo at `../vesta-mac` and `wrangler` for Cloudflare Pages deploy)
 
 ### Step 4b: Update README Release Link
 
@@ -453,11 +455,15 @@ Report to the user:
 - Release URL (link to the GitHub release)
 - Release tag name
 - Changelog (what changed since last nightly)
-- Homebrew install/upgrade commands:
+- Install commands (both methods):
   ```
+  # Homebrew
   brew tap scouzi1966/afm
   brew install scouzi1966/afm/afm-next    # fresh install
   brew upgrade afm-next                    # upgrade
+
+  # pip
+  pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next
   ```
 
 ### Error Handling

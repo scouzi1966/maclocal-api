@@ -188,34 +188,33 @@ Nightly build from \`main\` branch.
 ### Changes since last build (\`${PREV_SHA:-first build}\`)
 ${CHANGELOG}
 
-### Install / Upgrade via Homebrew
+### Install / Upgrade
 
-**Fresh install** (first time):
-\`\`\`
+#### Homebrew
+
+\`\`\`bash
 brew tap scouzi1966/afm
-brew install scouzi1966/afm/afm-next
+brew install scouzi1966/afm/afm-next    # fresh install
+brew upgrade afm-next                    # upgrade existing
+brew reinstall afm-next                  # force reinstall (same version, new build)
 \`\`\`
 
-**Upgrade** (already installed):
-\`\`\`
-brew upgrade afm-next
+#### pip
+
+\`\`\`bash
+pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next
 \`\`\`
 
-**If you have stable \`afm\` installed**, unlink it first:
-\`\`\`
-brew unlink afm
-brew install scouzi1966/afm/afm-next
-\`\`\`
+#### Switching between stable and nightly
 
-**Switch back to stable**:
-\`\`\`
-brew unlink afm-next
-brew link afm
-\`\`\`
+\`\`\`bash
+# Homebrew
+brew unlink afm && brew install scouzi1966/afm/afm-next   # switch to nightly
+brew unlink afm-next && brew link afm                      # switch back to stable
 
-**Force reinstall** (same version, new build):
-\`\`\`
-brew reinstall afm-next
+# pip
+pip install macafm          # stable
+pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next   # nightly
 \`\`\`
 EOF
 )" \
