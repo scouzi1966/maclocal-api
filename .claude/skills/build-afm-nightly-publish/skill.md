@@ -387,6 +387,8 @@ Present both reference points and ask:
 - **First nightly after a stable release** (no nightlies since last `v*` tag): use "since last stable release" — the changelog shows everything new in this development cycle
 - **No previous tags at all**: use "Custom commit SHA" or omit `--since` entirely (the script will include all commits)
 
+**Changelog filtering — exclude reverted/superseded commits:** When reviewing the commit list for the changelog, omit commits whose work was later removed or fully replaced. For example, if a commit adds a Python bridge and a later commit removes it, neither should appear in the release notes — the net effect is zero. Only include commits that contribute to the final state of the codebase at HEAD. The `publish-next.sh` script includes all commits mechanically; you should review and curate the changelog before presenting it to the user.
+
 If the user selects "since last stable release", pass `--since <stable-tag-sha>` to the publish script.
 If the user provides a custom SHA, pass `--since <sha>`.
 If the user selects "since last nightly", no `--since` flag is needed (the script defaults to this).
@@ -412,6 +414,24 @@ This script handles everything:
 4. Updates the `nightly` tag to point to HEAD
 5. Updates `afm-next.rb` in the homebrew-afm tap (url, version, sha256)
 6. Commits and pushes the tap update
+
+### Step 4b: Update README Release Link
+
+After publishing, update the nightly release notes link in `README.md` to point to the new release tag:
+
+```bash
+# The README has a table row like:
+# | **Release notes** | [v0.9.6](...) | [v0.9.7-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-YYYYMMDD-SHORTSHA) |
+# Update the nightly link to the just-published tag
+```
+
+1. Read `README.md` and find the nightly release notes link in the Install table
+2. Replace the old `nightly-*` tag in the URL with the new release tag (e.g., `nightly-20260312-a49c207`)
+3. If the base version changed, also update the link text (e.g., `v0.9.7-next` → `v0.9.8-next`)
+4. Commit with message: `Update nightly release link to YYYYMMDD-SHORTSHA`
+5. Push to remote
+
+**Do not skip this step.** The README is the main page users see — it must always point to the latest nightly.
 
 ### Step 5: Verify & Report
 
