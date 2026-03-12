@@ -104,6 +104,7 @@ if $DO_PATCHES; then
   fi
   "$SCRIPT_DIR/apply-mlx-patches.sh"
   "$SCRIPT_DIR/apply-mlx-patches.sh" --check
+  "$SCRIPT_DIR/patches/apply-xgrammar-patches.sh"
 else
   log_warn "Skipping MLX patch application"
 fi
