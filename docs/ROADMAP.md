@@ -1,5 +1,10 @@
 # AFM Roadmap
 
+## Branch Notes
+
+- [Feature: codex-optimize-tooling](/Volumes/edata/codex/dev/git/maclocal-api/docs/feature-codex-optimize-tooling/feature-codex-optimize-tooling.md)
+  Reference notes for the enforced JSON tool-calling path, xgrammar `json_schema` guidance, fail-fast behavior, and legacy parser compatibility.
+
 ## Streaming Tool Call Arguments (Incremental `delta.tool_calls`)
 
 **Status:** Planned
