@@ -247,11 +247,26 @@ git push
 
 log_info "Tap updated"
 
+# Step 7: Build nightly wheel and update PEP 503 index
+cd "$ROOT_DIR"
+if [ -x "$SCRIPT_DIR/build-nightly-wheel.sh" ]; then
+  log_info "Building nightly wheel..."
+  "$SCRIPT_DIR/build-nightly-wheel.sh" --version "$BASE_VERSION"
+  WHL=$(ls dist/macafm_next-*.whl 2>/dev/null | head -1)
+  if [ -n "$WHL" ] && [ -x "$SCRIPT_DIR/update-wheel-index.sh" ]; then
+    log_info "Uploading wheel and updating index..."
+    "$SCRIPT_DIR/update-wheel-index.sh" "$WHL" "$RELEASE_TAG"
+  fi
+else
+  log_warn "build-nightly-wheel.sh not found, skipping wheel"
+fi
+
 # Cleanup
 rm -rf "$STAGING"
 rm -f "$TARBALL"
 
 echo ""
 log_info "Done! afm-next ${VERSION} published."
-echo "  Install: brew install scouzi1966/afm/afm-next"
-echo "  Upgrade: brew upgrade afm-next"
+echo "  Install (Homebrew): brew install scouzi1966/afm/afm-next"
+echo "  Upgrade (Homebrew): brew upgrade afm-next"
+echo "  Install (pip):      pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next"
