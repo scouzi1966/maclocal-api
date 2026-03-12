@@ -603,6 +603,14 @@ final class MLXModelService: @unchecked Sendable {
                     let excess = layer.offset - promptLen
                     if excess > 0 { layer.trim(excess) }
                 }
+                // Physically truncate trimmed cache arrays before saving.
+                // trim() only decrements offset — arrays still hold stale data.
+                // Round-trip through state getter/setter to eliminate stale slices. (#47)
+                for i in 0..<generationCache.count {
+                    if generationCache[i].isTrimmable && generationCache[i].offset > 0 {
+                        generationCache[i].state = generationCache[i].state
+                    }
+                }
                 if debugLogging {
                     let diagLayers = [0, 1, 3, 7]
                     for i in diagLayers where i < generationCache.count {
@@ -986,6 +994,14 @@ final class MLXModelService: @unchecked Sendable {
                             for layer in generationCache {
                                 let excess = layer.offset - promptLen
                                 if excess > 0 { layer.trim(excess) }
+                            }
+                            // Physically truncate trimmed cache arrays before saving.
+                            // trim() only decrements offset — arrays still hold stale data.
+                            // Round-trip through state getter/setter to eliminate stale slices. (#47)
+                            for i in 0..<generationCache.count {
+                                if generationCache[i].isTrimmable && generationCache[i].offset > 0 {
+                                    generationCache[i].state = generationCache[i].state
+                                }
                             }
                             let layerStates = generationCache.map { $0.state }
                             radix.insert(tokens: inputTokens, layerStates: layerStates)
