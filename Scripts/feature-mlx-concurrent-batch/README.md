@@ -58,6 +58,21 @@ MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache \
 
 ## Reference Results (M3 Ultra, Qwen3.5-35B-A3B-4bit, 500 max_tokens)
 
+### Current (lazy eval + pipelined dispatch, d070fad)
+
+```
+    B   Agg t/s   Per-req   ms/step   GPU %   GPU W   DRAM W   Sys W   Temp    TTFT
+    1      90        90      11.1      97%    21.6    17.0    46.8    38°    0.32s
+    2     162        81      12.4      99%    34.0    20.5    52.1    39°    0.15s
+    4     253        63      15.8      99%    50.4    24.6    60.2    42°    0.24s
+    6     299        50      20.0      98%    60.5    25.8    64.3    43°    0.60s
+    8     359        45      22.3      97%    62.4    23.4    70.0    45°    0.43s
+```
+
+4.0x aggregate throughput at B=8. Serial baseline: ~103 tok/s (B=1 batch overhead ~13%).
+
+### Initial Phase 2 (20fb2e1)
+
 ```
     B   Agg t/s   Per-req   ms/step   GPU %   GPU W   DRAM W   Sys W   Temp    TTFT
     1      85        85      11.8      97%    17.7    16.5    47.0    36°    0.31s
@@ -67,4 +82,4 @@ MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache \
     8     315        39      25.4      98%    56.5    21.9    65.2    44°    0.63s
 ```
 
-3.7x aggregate throughput at B=8. GPU power plateaus around 57W at B=6-8 (memory bandwidth limited). Memory constant at ~80 GB regardless of batch size.
+GPU power plateaus around 60W at B=6-8 (memory bandwidth limited). Memory constant at ~80 GB regardless of batch size.
