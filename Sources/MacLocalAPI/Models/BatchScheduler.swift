@@ -217,6 +217,7 @@ actor BatchScheduler {
     /// Main generation loop: prefill pending → batched decode → dispatch.
     /// ALL GPU operations happen here — never from concurrent Tasks.
     private func generationLoop() async {
+        var stepCount = 0
         while !isShutdown {
             // Prefill pending requests (up to capacity, one at a time)
             prefillPending()
@@ -236,29 +237,32 @@ actor BatchScheduler {
             // Extract last-position logits: [B, 1, V] → [B, V]
             let logits = output.logits[0..., -1, 0...]
 
-            // Materialize logits synchronously (needed for sampling below).
-            // Cache state evaluates async — GPU works on it while CPU samples.
-            eval(logits)
-            var cacheArrays = batchCaches.flatMap { $0.innerState() }
-            if let s = batchState?.crossAttentionStates { cacheArrays.append(s) }
-            if !cacheArrays.isEmpty { asyncEval(cacheArrays) }
+            // --- Lazy sampling: build the full computation graph without eval ---
+            // Each token flows: model → logits → process → sample → tokenArray.
+            // Cache state is a dependency of the logits graph, so when we
+            // asyncEval the token arrays, MLX evaluates everything (model +
+            // cache updates) in one shot — matching the serial TokenIterator
+            // pattern and avoiding the two-sync-point overhead of
+            // eval(logits) + asyncEval(cacheArrays).
+            var tokenArrays = [MLXArray]()
+            for i in 0..<B {
+                let slot = slots[i]
+                let slotLogits = B == 1 ? logits : logits[i]
+                let processed = slot.processor?.process(logits: slotLogits) ?? slotLogits
+                tokenArrays.append(slot.sampler.sample(logits: processed))
+            }
 
-            // Per-sequence sampling and dispatch
+            // Single async eval — cache arrays evaluate as graph dependencies
+            asyncEval(tokenArrays)
+
+            // Materialize and dispatch
             var completedIndices: [Int] = []
 
             for i in 0..<B {
                 let slot = slots[i]
-                let slotLogits = logits[i]  // [V]
+                let token = tokenArrays[i].item(Int.self)
 
-                // Apply per-sequence processor (repeat penalty, top_k, min_p, etc.)
-                let processed = slot.processor?.process(logits: slotLogits) ?? slotLogits
-
-                // Sample
-                let tokenArray = slot.sampler.sample(logits: processed)
-                let token = tokenArray.item(Int.self)
-
-                // Tell processor about the sampled token
-                slot.processor?.didSample(token: tokenArray)
+                slot.processor?.didSample(token: tokenArrays[i])
 
                 // Track time to first decode token
                 if slot.firstTokenTime == 0 {
@@ -298,8 +302,11 @@ actor BatchScheduler {
                 finishSlot(at: i)
             }
 
-            // Yield to allow submit() calls to be processed by the actor
-            await Task.yield()
+            // Yield periodically to allow submit() calls to be processed
+            stepCount += 1
+            if stepCount % 16 == 0 || !pendingRequests.isEmpty {
+                await Task.yield()
+            }
         }
 
         loopTask = nil
