@@ -163,7 +163,7 @@ struct MlxCommand: ParsableCommand {
           --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
           --tool-call-parser: Override tool call format (afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml)
           --fix-tool-args: Post-process tool call arg names to match original tool schema
-          --enable-grammar-constraints: EBNF grammar-constrained decoding for tool calls (requires --tool-call-parser afm_adaptive_xml). Forces valid XML structure at generation time — prevents JSON-inside-XML and missing required parameters. Improves tool call success from ~60% to 100% on realistic workloads.
+          --enable-grammar-constraints: EBNF grammar-constrained decoding for legacy XML tool calls (requires --tool-call-parser afm_adaptive_xml). Use only for the explicit compatibility path; the default tool-calling path now uses enforced JSON schema constraints.
           --no-think: Disable thinking/reasoning (sets enable_thinking=false)
           --default-chat-template-kwargs: JSON object merged into chat template context
           --openclaw-config: Print OpenClaw provider config JSON and exit
@@ -185,9 +185,9 @@ struct MlxCommand: ParsableCommand {
           - max_completion_tokens is accepted alongside max_tokens
         supported_model_types: [llama, qwen2, qwen3, qwen3_moe, qwen3_5, qwen3_5_moe, gemma, gemma2, phi3, starcoder2, openelm, cohere2, deepseek_v3, glm4, glm4_moe, lfm2, lfm2_moe, nemotron_h, minimax_m2, kimi_k2]
         tool_calling:
-          auto_detection: Tool call format is auto-detected from model_type in config.json. Most models work without --tool-call-parser.
+          auto_detection: When tools are present and no parser override is set, afm uses enforced JSON-schema tool calling by default. Most models work without --tool-call-parser.
           parser_overrides:
-            afm_adaptive_xml: Adaptive XML parser with JSON-in-XML fallback, type coercion, and EBNF grammar-constrained decoding (with --enable-grammar-constraints). Best for Qwen3+ models. Recommended combo: --tool-call-parser afm_adaptive_xml --enable-grammar-constraints
+            afm_adaptive_xml: Legacy compatibility path for models that emit malformed or mixed XML tool calls. Adds JSON-in-XML fallback, type coercion, and optional EBNF grammar-constrained decoding (with --enable-grammar-constraints).
             hermes: JSON format with Hermes chat template (Llama, Qwen, most models)
             llama3_json: JSON format with Llama-3 chat template
             mistral: JSON format with Mistral chat template
@@ -218,7 +218,7 @@ struct MlxCommand: ParsableCommand {
           limitations:
             - Single-sequence inference only (one request at a time, queued)
             - MLX-format models only (safetensors from Hugging Face, not GGUF)
-            - JSON mode uses prompt injection, not grammar-constrained decoding
+            - Guided JSON and enforced tool calling use JSON-schema constraints; legacy XML grammar is only used when a parser override is requested
             - Apple Silicon Mac required (M1/M2/M3/M4)
           typical_workflow:
             - 1. Download model — afm mlx -m mlx-community/Qwen3.5-35B-A3B-4bit (auto-downloads on first use)
@@ -330,7 +330,7 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible)")
     var guidedJson: String?
 
-    @Option(name: .long, help: "Tool call parser override: afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml. afm_adaptive_xml adds JSON-in-XML fallback, type coercion, and optional xgrammar EBNF constrained decoding for models that switch between XML and JSON formats. Recommended for Qwen3+ models.")
+    @Option(name: .long, help: "Tool call parser override: afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml. Use this only to force a legacy model-native format. afm_adaptive_xml adds JSON-in-XML fallback, type coercion, and optional xgrammar EBNF constrained decoding for malformed XML outputs.")
     var toolCallParser: String?
 
     @Flag(name: .long, help: "Post-process tool call argument names to match the original tool schema (fixes model renaming e.g. path→filePath)")
@@ -345,7 +345,7 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Enable radix tree prefix caching for KV cache reuse across requests")
     var enablePrefixCaching: Bool = false
 
-    @Flag(name: .long, help: "Enable EBNF grammar-constrained decoding for tool calls (requires --tool-call-parser afm_adaptive_xml). Forces valid XML tool call structure at generation time, preventing JSON-inside-XML and missing parameters.")
+    @Flag(name: .long, help: "Enable EBNF grammar-constrained decoding for legacy XML tool calls (requires --tool-call-parser afm_adaptive_xml). The default tool path already uses enforced JSON-schema constraints.")
     var enableGrammarConstraints: Bool = false
 
     @Flag(name: .long, help: "Disable thinking/reasoning (sets enable_thinking=false in chat template)")
