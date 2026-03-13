@@ -57,6 +57,10 @@ actor BatchScheduler {
         var detokenizer: NaiveStreamingDetokenizer
         let maxTokens: Int?
 
+        /// Lazy token array from the previous decode step (for pipelined dispatch).
+        /// Set after asyncEval; read via .item() at the top of the next iteration.
+        var pendingTokenArray: MLXArray? = nil
+
         init(
             continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation,
             promptTokenCount: Int,
@@ -216,8 +220,17 @@ actor BatchScheduler {
 
     /// Main generation loop: prefill pending → batched decode → dispatch.
     /// ALL GPU operations happen here — never from concurrent Tasks.
+    ///
+    /// **Pipelined decode** (matching serial TokenIterator pattern):
+    /// Each step builds the computation graph lazily (model → sample),
+    /// asyncEval's the token arrays, then materializes and dispatches.
+    /// The sampled token MLXArrays are stored on each slot so the model
+    /// input for the next step uses the lazy (unevaluated) token directly,
+    /// and .item() for dispatch reads the previous step's already-evaluated
+    /// result.
     private func generationLoop() async {
         var stepCount = 0
+
         while !isShutdown {
             // Prefill pending requests (up to capacity, one at a time)
             prefillPending()
@@ -225,66 +238,37 @@ actor BatchScheduler {
             if slots.isEmpty { break }
             if Task.isCancelled { return }
 
-            // --- Batched decode step ---
             let B = slots.count
-            let tokens = MLXArray(slots.map { Int32($0.lastTokenId) }).reshaped([B, 1])
-            let input = LMInput.Text(tokens: tokens)
 
-            // Single batched model call — B sequences at once
-            let output = model(input, cache: batchCaches, state: batchState)
-            batchState = output.state
-
-            // Extract last-position logits: [B, 1, V] → [B, V]
-            let logits = output.logits[0..., -1, 0...]
-
-            // --- Lazy sampling: build the full computation graph without eval ---
-            // Each token flows: model → logits → process → sample → tokenArray.
-            // Cache state is a dependency of the logits graph, so when we
-            // asyncEval the token arrays, MLX evaluates everything (model +
-            // cache updates) in one shot — matching the serial TokenIterator
-            // pattern and avoiding the two-sync-point overhead of
-            // eval(logits) + asyncEval(cacheArrays).
-            var tokenArrays = [MLXArray]()
-            for i in 0..<B {
-                let slot = slots[i]
-                let slotLogits = B == 1 ? logits : logits[i]
-                let processed = slot.processor?.process(logits: slotLogits) ?? slotLogits
-                tokenArrays.append(slot.sampler.sample(logits: processed))
-            }
-
-            // Single async eval — cache arrays evaluate as graph dependencies
-            asyncEval(tokenArrays)
-
-            // Materialize and dispatch
+            // --- Dispatch previous step's tokens (already asyncEval'd — .item() is instant) ---
+            // On the first iteration, pendingTokenArray is nil (set during prefill).
+            // On subsequent iterations, it holds the lazy token from the previous step
+            // that has since been evaluated by asyncEval.
             var completedIndices: [Int] = []
-
             for i in 0..<B {
                 let slot = slots[i]
-                let token = tokenArrays[i].item(Int.self)
+                guard let tokenArray = slot.pendingTokenArray else { continue }
 
-                slot.processor?.didSample(token: tokenArrays[i])
+                let token = tokenArray.item(Int.self)
+                slot.processor?.didSample(token: tokenArray)
+                slot.pendingTokenArray = nil
 
-                // Track time to first decode token
                 if slot.firstTokenTime == 0 {
                     slot.firstTokenTime = Date().timeIntervalSince(slot.startTime)
                 }
 
-                // EOS check
                 if token == tokenizer.unknownTokenId || eosTokenIds.contains(token) {
                     completedIndices.append(i)
                     continue
                 }
 
-                // Max tokens check
                 if let max = slot.maxTokens, slot.tokenCount >= max {
                     completedIndices.append(i)
                     continue
                 }
 
-                // Update slot state
                 slot.lastTokenId = token
 
-                // Detokenize and yield
                 slot.detokenizer.append(token: token)
                 if let chunk = slot.detokenizer.next() {
                     slot.tokenCount += 1
@@ -292,14 +276,43 @@ actor BatchScheduler {
                 }
             }
 
-            totalTokensGenerated += B
-            if totalTokensGenerated % 1024 < B {
-                Memory.clearCache()
-            }
-
-            // Finish completed slots (reverse order to preserve indices)
+            // Remove completed slots
             for i in completedIndices.reversed() {
                 finishSlot(at: i)
+            }
+
+            if slots.isEmpty { break }
+
+            // --- Batched decode step: compute next token for each active slot ---
+            let activeB = slots.count
+            let tokens = MLXArray(slots.map { Int32($0.lastTokenId) }).reshaped([activeB, 1])
+            let input = LMInput.Text(tokens: tokens)
+
+            let output = model(input, cache: batchCaches, state: batchState)
+            batchState = output.state
+
+            let logits = output.logits[0..., -1, 0...]
+
+            // Lazy sampling — build graph without eval
+            var tokenArrays = [MLXArray]()
+            for i in 0..<activeB {
+                let slot = slots[i]
+                let slotLogits = activeB == 1 ? logits : logits[i]
+                let processed = slot.processor?.process(logits: slotLogits) ?? slotLogits
+                tokenArrays.append(slot.sampler.sample(logits: processed))
+            }
+
+            // Kick off async evaluation — GPU computes while we loop back
+            asyncEval(tokenArrays)
+
+            // Stash token arrays on each slot for dispatch next iteration
+            for i in 0..<activeB {
+                slots[i].pendingTokenArray = tokenArrays[i]
+            }
+
+            totalTokensGenerated += activeB
+            if totalTokensGenerated % 1024 < activeB {
+                Memory.clearCache()
             }
 
             // Yield periodically to allow submit() calls to be processed
