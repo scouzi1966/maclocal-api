@@ -116,6 +116,10 @@ final class MLXModelService: @unchecked Sendable {
     private(set) var thinkStartTag: String?
     private(set) var thinkEndTag: String?
     private var xgrammarService: XGrammarService?
+    /// Concurrent generation scheduler (nil = serial mode via container.perform).
+    private var scheduler: BatchScheduler?
+    /// Whether concurrent mode is enabled (--concurrent flag).
+    var concurrent: Bool = false
     init(resolver: MLXCacheResolver) {
         self.resolver = resolver
         self.resolver.applyEnvironment()
@@ -303,6 +307,27 @@ final class MLXModelService: @unchecked Sendable {
         } catch {
             throw MLXServiceError.loadFailed("\(modelID): \(error.localizedDescription)")
         }
+    }
+
+    /// Initialize the concurrent BatchScheduler by extracting model/tokenizer/processor
+    /// from the container. Must be called after ensureLoaded() and only when concurrent=true.
+    func initScheduler() async throws {
+        guard concurrent else { return }
+        guard let container = withStateLock({ currentContainer }) else {
+            throw MLXServiceError.noModelLoaded
+        }
+        let prefixCaching = self.enablePrefixCaching
+        let sched = await container.perform { context -> BatchScheduler in
+            BatchScheduler(
+                model: context.model,
+                tokenizer: context.tokenizer,
+                processor: context.processor,
+                configuration: context.configuration,
+                enablePrefixCaching: prefixCaching
+            )
+        }
+        self.scheduler = sched
+        print("[\(ts())] Concurrent mode: up to \(BatchScheduler.defaultMaxConcurrent) parallel generations\(prefixCaching ? " (prefix caching enabled)" : "")")
     }
 
     func generate(
@@ -751,6 +776,40 @@ final class MLXModelService: @unchecked Sendable {
             prefillStepSize: self.prefillStepSize
         )
 
+        // --- Concurrent path: bypass container.perform lock, route through BatchScheduler ---
+        if let scheduler = self.scheduler {
+            let input = try await scheduler.prepareInput(userInput)
+            let concurrentStream = await scheduler.submit(
+                input: input,
+                parameters: params,
+                promptTokens: promptTokens
+            )
+            self.cleanupTempFiles(mediaTempFiles)
+
+            // Derive tool call tags (same logic as serial path, below)
+            let toolTags: (start: String, end: String)?
+            if let tools, !tools.isEmpty {
+                let format = withStateLock({ currentToolCallFormat })
+                if let format {
+                    switch format {
+                    case .xmlFunction:
+                        toolTags = ("<tool_call>", "</tool_call>")
+                    default:
+                        let parser = format.createParser()
+                        toolTags = (parser.startTag ?? "<tool_call>", parser.endTag ?? "</tool_call>")
+                    }
+                } else {
+                    toolTags = ("<tool_call>", "</tool_call>")
+                }
+            } else {
+                toolTags = nil
+            }
+
+            endOperationOnExit = false
+            return (modelID, concurrentStream, promptTokens, toolTags?.start, toolTags?.end, self.thinkStartTag, self.thinkEndTag)
+        }
+
+        // --- Serial path: full-featured generation via container.perform lock ---
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             let task = Task {
                 defer { self.endOperation() }
@@ -1051,6 +1110,12 @@ final class MLXModelService: @unchecked Sendable {
     }
 
     func shutdownAndReleaseResources(verbose: Bool = false, timeoutSeconds: TimeInterval = 30) async {
+        // Shut down concurrent scheduler first (cancels pending + active)
+        if let scheduler = self.scheduler {
+            await scheduler.shutdown()
+            self.scheduler = nil
+        }
+
         let start = Date()
         withStateLock { isShuttingDown = true }
 
