@@ -5,18 +5,16 @@ import Tokenizers
 
 /// Manages concurrent generation with dynamic slot allocation and request queuing.
 ///
-/// All GPU operations (prefill + decode) run in a **single serial loop** to avoid
-/// Metal command buffer conflicts. MLX operations are NOT thread-safe across
-/// concurrent Tasks — multiple `model()` calls from different threads crash in
-/// `mlx_quantized_matmul`.
+/// **Phase 2: Dense Batched Decoding**
 ///
-/// CPU/GPU interleaving happens naturally within the round-robin loop:
-/// `iterator.next()` for slot N submits GPU work via `asyncEval()` and returns
-/// immediately (the result is read on the NEXT call). While the GPU processes
-/// slot N's token, the CPU builds slot N+1's computation graph.
+/// All GPU operations run in a **single serial loop**. During decode, multiple
+/// sequences are packed into a single `model([B, 1])` call that returns
+/// `[B, 1, vocabSize]` logits. Per-sequence sampling, detokenization, and
+/// stream dispatch happen after each batched step.
 ///
-/// Phase 2 (future): Upgrade to dense batched decoding where multiple sequences
-/// are packed into a single `model(batch_input, batch_cache)` call.
+/// Prefill runs individually per sequence (B=1), then the per-layer KV caches
+/// are merged into `BatchKVCacheSimple` for batched decode. Dynamic slot
+/// add/remove uses `extend()` and `filter()` on the batch cache.
 actor BatchScheduler {
 
     /// Default maximum concurrent generations.
@@ -36,52 +34,72 @@ actor BatchScheduler {
 
     // MARK: - Slot State
 
-    /// Per-request state for the round-robin generation loop.
-    /// Wraps TokenIterator (a value type) in a class for reference semantics.
+    /// Per-request state for batched generation.
+    /// Each slot holds its own sampler/processor (since each request can have
+    /// different temperature, top_p, penalties etc.).
     private class SlotState {
         let id: UUID
-        var iterator: TokenIterator
-        var detokenizer: NaiveStreamingDetokenizer
         let continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation
         let promptTokenCount: Int
         let startTime: Date
-        /// Time spent in prefill (TokenIterator init), measured externally.
         let prefillTime: TimeInterval
         var tokenCount = 0
-        /// Wall-clock time from slot start to first decode token.
         var firstTokenTime: TimeInterval = 0
-        /// Full prompt token array (for prefix cache save on completion).
         let inputTokens: [Int]
-        /// KV cache reference (shared with TokenIterator, for prefix cache save).
-        let generationCache: [KVCache]
-        /// Number of tokens restored from prefix cache (0 = full prefill).
         let cachedTokens: Int
+        /// The individual per-layer caches from prefill (retained for prefix cache save).
+        let prefillCaches: [KVCache]
+
+        // Per-sequence decode state
+        var lastTokenId: Int
+        let sampler: LogitSampler
+        var processor: LogitProcessor?
+        var detokenizer: NaiveStreamingDetokenizer
+        let maxTokens: Int?
 
         init(
-            iterator: TokenIterator,
-            detokenizer: NaiveStreamingDetokenizer,
             continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation,
             promptTokenCount: Int,
             prefillTime: TimeInterval,
             inputTokens: [Int],
-            generationCache: [KVCache],
-            cachedTokens: Int
+            cachedTokens: Int,
+            prefillCaches: [KVCache],
+            lastTokenId: Int,
+            sampler: LogitSampler,
+            processor: LogitProcessor?,
+            detokenizer: NaiveStreamingDetokenizer,
+            maxTokens: Int?
         ) {
             self.id = UUID()
-            self.iterator = iterator
-            self.detokenizer = detokenizer
             self.continuation = continuation
             self.promptTokenCount = promptTokenCount
             self.prefillTime = prefillTime
             self.startTime = Date()
             self.inputTokens = inputTokens
-            self.generationCache = generationCache
             self.cachedTokens = cachedTokens
+            self.prefillCaches = prefillCaches
+            self.lastTokenId = lastTokenId
+            self.sampler = sampler
+            self.processor = processor
+            self.detokenizer = detokenizer
+            self.maxTokens = maxTokens
         }
     }
 
-    /// Active slots in the round-robin decode loop.
+    /// Active slots in the batched decode loop.
     private var slots: [SlotState] = []
+
+    /// Per-layer batch caches. Each element is a `BatchKVCacheSimple` with
+    /// `batchSize == slots.count`. Empty when no slots are active.
+    private var batchCaches: [KVCache] = []
+
+    /// Model output state (e.g. cross-attention states for VLMs).
+    /// For most LLMs (including Qwen3.5-MoE), this is nil — recurrent
+    /// state lives inside the KV cache, not in LMOutput.State.
+    private var batchState: LMOutput.State? = nil
+
+    /// Total tokens generated across all slots (for periodic cache clearing).
+    private var totalTokensGenerated = 0
 
     struct PendingRequest: @unchecked Sendable {
         let input: LMInput
@@ -180,10 +198,11 @@ actor BatchScheduler {
         }
 
         for slot in slots {
-            slot.iterator.teardown()
             slot.continuation.finish(throwing: MLXServiceError.serviceShuttingDown)
         }
         slots.removeAll()
+        batchCaches = []
+        batchState = nil
     }
 
     // MARK: - Private
@@ -195,7 +214,7 @@ actor BatchScheduler {
         }
     }
 
-    /// Single serial loop: prefill pending requests, then round-robin decode.
+    /// Main generation loop: prefill pending → batched decode → dispatch.
     /// ALL GPU operations happen here — never from concurrent Tasks.
     private func generationLoop() async {
         while !isShutdown {
@@ -203,18 +222,43 @@ actor BatchScheduler {
             prefillPending()
 
             if slots.isEmpty { break }
+            if Task.isCancelled { return }
 
-            // Round-robin: one decode step per active slot
+            // --- Batched decode step ---
+            let B = slots.count
+            let tokens = MLXArray(slots.map { Int32($0.lastTokenId) }).reshaped([B, 1])
+            let input = LMInput.Text(tokens: tokens)
+
+            // Single batched model call — B sequences at once
+            let output = model(input, cache: batchCaches, state: batchState)
+            batchState = output.state
+
+            // Extract last-position logits: [B, 1, V] → [B, V]
+            let logits = output.logits[0..., -1, 0...]
+
+            // Materialize logits synchronously (needed for sampling below).
+            // Cache state evaluates async — GPU works on it while CPU samples.
+            eval(logits)
+            var cacheArrays = batchCaches.flatMap { $0.innerState() }
+            if let s = batchState?.crossAttentionStates { cacheArrays.append(s) }
+            if !cacheArrays.isEmpty { asyncEval(cacheArrays) }
+
+            // Per-sequence sampling and dispatch
             var completedIndices: [Int] = []
 
-            for i in 0..<slots.count {
-                if Task.isCancelled { return }
+            for i in 0..<B {
                 let slot = slots[i]
+                let slotLogits = logits[i]  // [V]
 
-                guard let token = slot.iterator.next() else {
-                    completedIndices.append(i)
-                    continue
-                }
+                // Apply per-sequence processor (repeat penalty, top_k, min_p, etc.)
+                let processed = slot.processor?.process(logits: slotLogits) ?? slotLogits
+
+                // Sample
+                let tokenArray = slot.sampler.sample(logits: processed)
+                let token = tokenArray.item(Int.self)
+
+                // Tell processor about the sampled token
+                slot.processor?.didSample(token: tokenArray)
 
                 // Track time to first decode token
                 if slot.firstTokenTime == 0 {
@@ -227,18 +271,26 @@ actor BatchScheduler {
                     continue
                 }
 
-                // Resolve logprobs if available
-                var resolved: [ResolvedLogprob]? = nil
-                if let lpInfo = slot.iterator.lastLogprobInfo {
-                    resolved = [resolveLogprob(lpInfo)]
+                // Max tokens check
+                if let max = slot.maxTokens, slot.tokenCount >= max {
+                    completedIndices.append(i)
+                    continue
                 }
+
+                // Update slot state
+                slot.lastTokenId = token
 
                 // Detokenize and yield
                 slot.detokenizer.append(token: token)
                 if let chunk = slot.detokenizer.next() {
                     slot.tokenCount += 1
-                    slot.continuation.yield(StreamChunk(text: chunk, logprobs: resolved))
+                    slot.continuation.yield(StreamChunk(text: chunk))
                 }
+            }
+
+            totalTokensGenerated += B
+            if totalTokensGenerated % 1024 < B {
+                Memory.clearCache()
             }
 
             // Finish completed slots (reverse order to preserve indices)
@@ -253,101 +305,158 @@ actor BatchScheduler {
         loopTask = nil
     }
 
-    /// Prefill pending requests up to capacity. Runs on the actor (GPU-serial).
+    // MARK: - Prefill
+
+    /// Prefill pending requests up to capacity. Each request is processed
+    /// individually (B=1), then its cache is merged into the batch.
     private func prefillPending() {
         while !pendingRequests.isEmpty && slots.count < maxConcurrent && !isShutdown {
             let req = pendingRequests.removeFirst()
 
-            do {
-                var cache = model.newCache(parameters: req.parameters)
-                var generateInput = req.input
-                var cachedTokens = 0
+            var cache = model.newCache(parameters: req.parameters)
+            var generateInput = req.input
+            var cachedTokens = 0
 
-                // Extract token array for prefix cache lookup
-                let inputTokens = req.input.text.tokens.reshaped(-1).asArray(Int.self)
-                let isMultimodal = req.input.image != nil || req.input.video != nil
+            // Extract token array for prefix cache lookup
+            let inputTokens = req.input.text.tokens.reshaped(-1).asArray(Int.self)
+            let isMultimodal = req.input.image != nil || req.input.video != nil
 
-                // Prefix cache: restore KV state if available
-                if !isMultimodal, let radix = radixCache {
-                    let (prefixLen, layerStates) = radix.findPrefix(inputTokens)
-                    let minSuffix = 16
-                    let effectivePrefix = min(prefixLen, max(0, inputTokens.count - minSuffix))
+            // Prefix cache: restore KV state if available
+            if !isMultimodal, let radix = radixCache {
+                let (prefixLen, layerStates) = radix.findPrefix(inputTokens)
+                let minSuffix = 16
+                let effectivePrefix = min(prefixLen, max(0, inputTokens.count - minSuffix))
 
-                    if effectivePrefix > 0, let states = layerStates {
-                        // Restore per-layer KV cache state
-                        for i in 0..<cache.count where i < states.count {
-                            cache[i].state = states[i]
-                        }
-                        // Trim to effective prefix length
-                        for i in 0..<cache.count {
-                            let excess = cache[i].offset - effectivePrefix
-                            if excess > 0 { cache[i].trim(excess) }
-                        }
-                        // Physically truncate trimmed arrays (#47)
-                        for i in 0..<cache.count {
-                            if cache[i].isTrimmable && cache[i].offset > 0 {
-                                cache[i].state = cache[i].state
-                            }
-                        }
-                        // Create suffix-only input
-                        let suffixTokens = Array(inputTokens[effectivePrefix...])
-                        generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
-                        cachedTokens = effectivePrefix
-                        DebugLogger.log("[BatchScheduler] Prefix cache hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
+                if effectivePrefix > 0, let states = layerStates {
+                    for i in 0..<cache.count where i < states.count {
+                        cache[i].state = states[i]
                     }
+                    for i in 0..<cache.count {
+                        let excess = cache[i].offset - effectivePrefix
+                        if excess > 0 { cache[i].trim(excess) }
+                    }
+                    for i in 0..<cache.count {
+                        if cache[i].isTrimmable && cache[i].offset > 0 {
+                            cache[i].state = cache[i].state
+                        }
+                    }
+                    let suffixTokens = Array(inputTokens[effectivePrefix...])
+                    generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
+                    cachedTokens = effectivePrefix
+                    DebugLogger.log("[BatchScheduler] Prefix cache hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
                 }
+            }
 
-                let prefillStart = Date()
-                let iterator = try TokenIterator(
-                    input: generateInput,
-                    model: model,
-                    cache: cache,
-                    parameters: req.parameters
-                )
-                let prefillTime = Date().timeIntervalSince(prefillStart)
-                let detokenizer = NaiveStreamingDetokenizer(tokenizer: tokenizer)
+            let prefillStart = Date()
 
-                let slot = SlotState(
-                    iterator: iterator,
-                    detokenizer: detokenizer,
-                    continuation: req.continuation,
-                    promptTokenCount: req.promptTokens,
-                    prefillTime: prefillTime,
-                    inputTokens: inputTokens,
-                    generationCache: cache,
-                    cachedTokens: cachedTokens
-                )
+            // Set up per-sequence processor and sampler
+            var logitProcessor = req.parameters.processor()
+            let logitSampler = req.parameters.sampler()
+            logitProcessor?.prompt(generateInput.text.tokens)
 
-                // Emit cached token count so the controller can include it in usage
-                if cachedTokens > 0 {
-                    req.continuation.yield(StreamChunk(text: "", cachedTokens: cachedTokens))
+            // Run model on full prompt (B=1)
+            let prefillInput = generateInput.text[text: .newAxis]  // [1, seqLen]
+            let result = model(prefillInput, cache: cache, state: nil)
+
+            // Extract last-position logits and sample first token
+            let logits = result.logits[0..., -1, 0...]
+            let processed = logitProcessor?.process(logits: logits) ?? logits
+            let tokenArray = logitSampler.sample(logits: processed)
+            logitProcessor?.didSample(token: tokenArray)
+
+            // Materialize cache and token
+            var evalArrays: [MLXArray] = [tokenArray]
+            evalArrays.append(contentsOf: cache.flatMap { $0.innerState() })
+            if let s = result.state?.crossAttentionStates { evalArrays.append(s) }
+            eval(evalArrays)
+
+            let firstToken = tokenArray.item(Int.self)
+            let prefillTime = Date().timeIntervalSince(prefillStart)
+
+            // Merge individual caches into batch
+            mergeCacheIntoBatch(individualCache: cache, modelState: result.state)
+
+            let slot = SlotState(
+                continuation: req.continuation,
+                promptTokenCount: req.promptTokens,
+                prefillTime: prefillTime,
+                inputTokens: inputTokens,
+                cachedTokens: cachedTokens,
+                prefillCaches: cache,
+                lastTokenId: firstToken,
+                sampler: logitSampler,
+                processor: logitProcessor,
+                detokenizer: NaiveStreamingDetokenizer(tokenizer: tokenizer),
+                maxTokens: req.parameters.maxTokens
+            )
+
+            // Emit cached token count so the controller can include it in usage
+            if cachedTokens > 0 {
+                req.continuation.yield(StreamChunk(text: "", cachedTokens: cachedTokens))
+            }
+
+            slots.append(slot)
+            DebugLogger.log("[BatchScheduler] Prefilled slot \(slot.id.uuidString.prefix(8)) (B=\(slots.count), \(cachedTokens > 0 ? "cache hit \(cachedTokens) tokens" : "full prefill"), \(String(format: "%.0f", prefillTime * 1000))ms)")
+        }
+    }
+
+    /// Merge a newly-prefilled individual cache into the batch.
+    ///
+    /// Handles mixed cache types: KVCacheSimple → BatchKVCacheSimple (batched K/V),
+    /// MambaCache/ArraysCache → kept as-is with native extend/filter (recurrent state).
+    private func mergeCacheIntoBatch(individualCache: [KVCache], modelState: LMOutput.State?) {
+        if batchCaches.isEmpty {
+            // First sequence: promote each per-layer cache appropriately
+            batchCaches = individualCache.map { layerCache in
+                if layerCache is ArraysCache {
+                    // MambaCache/ArraysCache: create a copy so slot.prefillCaches stays independent
+                    let copy = MambaCache()
+                    copy.state = layerCache.state
+                    return copy as KVCache
+                } else {
+                    return BatchKVCacheSimple.merge([layerCache]) as KVCache
                 }
+            }
+        } else {
+            // Extend existing batch with the new sequence
+            for layer in 0..<batchCaches.count where layer < individualCache.count {
+                if let batchAC = batchCaches[layer] as? ArraysCache,
+                   let newAC = individualCache[layer] as? ArraysCache {
+                    batchAC.extend(other: newAC)
+                } else {
+                    let singleBatch = BatchKVCacheSimple.merge([individualCache[layer]])
+                    (batchCaches[layer] as! BatchKVCacheSimple).extend(with: singleBatch)
+                }
+            }
+        }
 
-                slots.append(slot)
-                DebugLogger.log("[BatchScheduler] Prefilled slot \(slot.id.uuidString.prefix(8)) (\(slots.count) active, \(cachedTokens > 0 ? "cache hit \(cachedTokens) tokens" : "full prefill"))")
-            } catch {
-                req.continuation.finish(throwing: error)
-                DebugLogger.log("[BatchScheduler] Prefill error: \(error.localizedDescription)")
+        // Merge model cross-attention state if present
+        if let newCAS = modelState?.crossAttentionStates {
+            if let existingCAS = batchState?.crossAttentionStates {
+                batchState = .init(crossAttentionStates: concatenated([existingCAS, newCAS], axis: 0))
+            } else {
+                batchState = modelState
             }
         }
     }
 
-    /// Finish a completed slot: save prefix cache, yield timing info, teardown, remove.
+    // MARK: - Slot Completion
+
+    /// Finish a completed slot: save prefix cache, yield timing info, remove from batch.
     private func finishSlot(at index: Int) {
         let slot = slots[index]
         let elapsed = Date().timeIntervalSince(slot.startTime)
         let generateTime = elapsed - slot.prefillTime
 
-        // Save prompt KV state to prefix cache before teardown
+        // Save prompt KV state to prefix cache before removal.
+        // Use the original per-layer prefill caches (retained on the slot).
         if let radix = radixCache, !slot.inputTokens.isEmpty {
             let promptLen = slot.inputTokens.count
-            var cache = slot.generationCache
-            // Trim generated tokens beyond prompt length
+            var cache = slot.prefillCaches
             for layer in cache {
                 let excess = layer.offset - promptLen
                 if excess > 0 { layer.trim(excess) }
             }
-            // Physically truncate trimmed arrays (#47)
             for i in 0..<cache.count {
                 if cache[i].isTrimmable && cache[i].offset > 0 {
                     cache[i].state = cache[i].state
@@ -355,7 +464,7 @@ actor BatchScheduler {
             }
             let layerStates = cache.map { $0.state }
             radix.insert(tokens: slot.inputTokens, layerStates: layerStates)
-            DebugLogger.log("[BatchScheduler] Prefix cache save: \(slot.inputTokens.count) tokens, \(cache.count) layers")
+            DebugLogger.log("[BatchScheduler] Prefix cache save: \(slot.inputTokens.count) tokens")
         }
 
         slot.continuation.yield(StreamChunk(
@@ -365,12 +474,31 @@ actor BatchScheduler {
             promptTime: slot.prefillTime,
             generateTime: generateTime
         ))
-
-        slot.iterator.teardown()
-        Stream.gpu.synchronize()
         slot.continuation.finish()
 
         DebugLogger.log("[BatchScheduler] Finished slot \(slot.id.uuidString.prefix(8)) (\(slot.tokenCount) tok, \(String(format: "%.2f", elapsed))s)")
+
+        // Remove from batch cache and state
+        let keepIndices = (0..<slots.count).filter { $0 != index }
+        if keepIndices.isEmpty {
+            batchCaches = []
+            batchState = nil
+        } else {
+            let idxArray = MLXArray(keepIndices.map { Int32($0) })
+            for layer in 0..<batchCaches.count {
+                if let bkvCache = batchCaches[layer] as? BatchKVCacheSimple {
+                    bkvCache.filter(keepIndices)
+                } else if let acCache = batchCaches[layer] as? ArraysCache {
+                    acCache.filter(batchIndices: idxArray)
+                }
+            }
+            if let cas = batchState?.crossAttentionStates {
+                let idxArray = MLXArray(keepIndices.map { Int32($0) })
+                batchState = .init(crossAttentionStates: cas[idxArray])
+            }
+        }
+
+        Stream.gpu.synchronize()
         slots.remove(at: index)
     }
 
