@@ -32,7 +32,7 @@ REPO_ROOT = SCRIPT_DIR.parents[1]
 AFM_BINARY = REPO_ROOT / ".build" / "arm64-apple-macosx" / "release" / "afm"
 CASES_PATH = SCRIPT_DIR / "guided-json-cases.json"
 REPORT_DIR = SCRIPT_DIR / "results"
-MODEL_CACHE = os.environ.get("MACAFM_MLX_MODEL_CACHE", "/Volumes/edata/models/vesta-test-cache")
+MODEL_CACHE = os.environ.get("MACAFM_MLX_MODEL_CACHE", str(Path.home() / ".cache" / "macafm" / "models"))
 DEFAULT_MODEL = "mlx-community/Qwen3.5-35B-A3B-4bit"
 
 
@@ -55,6 +55,7 @@ def run_subprocess(cmd: list[str], timeout: int = 240, env: dict[str, str] | Non
         cmd,
         cwd=REPO_ROOT,
         env=env,
+        shell=False,
         text=True,
         capture_output=True,
         timeout=timeout,
@@ -117,6 +118,7 @@ def start_server(model: str, port: int, extra_args: list[str], mode: str) -> sub
         cmd,
         cwd=REPO_ROOT,
         env=env,
+        shell=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -492,14 +494,27 @@ def run_cli_invalid_schema(model: str) -> dict:
         "not valid json",
     ]
     result = run_subprocess(cmd, timeout=120, env=env)
-    ok = result.returncode != 0
+    stderr_tail = result.stderr[-400:]
+    error_indicators = (
+        "guided-json",
+        "guided json",
+        "invalid json",
+        "json",
+        "schema",
+    )
+    matched_indicator = next(
+        (marker for marker in error_indicators if marker in stderr_tail.lower()),
+        None,
+    )
+    ok = result.returncode != 0 and matched_indicator is not None
     return {
         "name": "cli_guided_json::invalid_schema_error",
         "ok": ok,
         "elapsed_s": round(time.time() - started, 3),
         "details": {
             "returncode": result.returncode,
-            "stderr": result.stderr[-400:],
+            "stderr": stderr_tail,
+            "error_indicator": matched_indicator,
         },
     }
 
@@ -520,14 +535,27 @@ def run_cli_invalid_schema_no_think(model: str) -> dict:
         "not valid json",
     ]
     result = run_subprocess(cmd, timeout=120, env=env)
-    ok = result.returncode != 0
+    stderr_tail = result.stderr[-400:]
+    error_indicators = (
+        "guided-json",
+        "guided json",
+        "invalid json",
+        "json",
+        "schema",
+    )
+    matched_indicator = next(
+        (marker for marker in error_indicators if marker in stderr_tail.lower()),
+        None,
+    )
+    ok = result.returncode != 0 and matched_indicator is not None
     return {
         "name": "cli_guided_json::no_think::invalid_schema_error",
         "ok": ok,
         "elapsed_s": round(time.time() - started, 3),
         "details": {
             "returncode": result.returncode,
-            "stderr": result.stderr[-400:],
+            "stderr": stderr_tail,
+            "error_indicator": matched_indicator,
         },
     }
 

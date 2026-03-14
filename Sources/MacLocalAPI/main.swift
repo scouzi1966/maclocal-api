@@ -639,7 +639,10 @@ struct MlxCommand: ParsableCommand {
         }
         group.wait()
         fflush(stdout)
-        _ = dup2(stdoutFD, STDOUT_FILENO)
+        if dup2(stdoutFD, STDOUT_FILENO) == -1 {
+            close(stdoutFD)
+            throw ValidationError("Failed to restore stdout after single-prompt execution")
+        }
         close(stdoutFD)
 
         switch output {
@@ -670,14 +673,9 @@ struct MlxCommand: ParsableCommand {
                 output.removeSubrange(start.lowerBound..<end.upperBound)
             } else {
                 // Some guided/grammar-constrained generations can emit a stray
-                // opening think tag before the actual payload without ever
-                // closing it. In that case keep the payload and drop only the tag.
-                if start.lowerBound == output.startIndex {
-                    output.removeSubrange(start)
-                } else {
-                    output.removeSubrange(start.lowerBound..<output.endIndex)
-                }
-                break
+                // opening think tag without ever closing it. In that case keep
+                // the payload and drop only the unmatched tag.
+                output.removeSubrange(start)
             }
         }
         return output.trimmingCharacters(in: .whitespacesAndNewlines)

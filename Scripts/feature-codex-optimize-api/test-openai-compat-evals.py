@@ -33,7 +33,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
 AFM_BINARY = REPO_ROOT / ".build" / "arm64-apple-macosx" / "release" / "afm"
 REPORT_DIR = SCRIPT_DIR / "results"
-MODEL_CACHE = os.environ.get("MACAFM_MLX_MODEL_CACHE", "/Volumes/edata/models/vesta-test-cache")
+MODEL_CACHE = os.environ.get("MACAFM_MLX_MODEL_CACHE", str(Path.home() / ".cache" / "macafm" / "models"))
 DEFAULT_MODEL = "mlx-community/Qwen3.5-35B-A3B-4bit"
 DEFAULT_TOKENIZER = "Qwen/Qwen3-Coder-30B-A3B-Instruct"
 
@@ -51,6 +51,7 @@ def run_subprocess(cmd: list[str], timeout: int = 120, env: dict[str, str] | Non
         cmd,
         cwd=REPO_ROOT,
         env=env,
+        shell=False,
         text=True,
         capture_output=True,
         timeout=timeout,
@@ -89,6 +90,7 @@ def start_server(model: str, port: int, extra_args: list[str]) -> subprocess.Pop
         cmd,
         cwd=REPO_ROOT,
         env=env,
+        shell=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,

@@ -101,6 +101,8 @@ struct RandomnessConfig {
 }
 
 enum FoundationModelError: Error, LocalizedError {
+    private static let structuredTruncationMarker = "Failed to deserialize a Generable type from model output"
+
     case notAvailable
     case sessionCreationFailed
     case responseGenerationFailed(String)
@@ -184,7 +186,7 @@ enum FoundationModelError: Error, LocalizedError {
     static func parseStructuredTruncationError(_ error: Error, maxTokens: Int?) -> FoundationModelError? {
         guard let maxTokens, maxTokens > 0 else { return nil }
         let errorString = String(describing: error)
-        if errorString.contains("Failed to deserialize a Generable type from model output") {
+        if errorString.contains(Self.structuredTruncationMarker) {
             return .responseTruncated(maxTokens: maxTokens)
         }
         return nil
