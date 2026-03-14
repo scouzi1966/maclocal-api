@@ -1,6 +1,9 @@
 import Vapor
 import Foundation
 import Compression
+#if canImport(AppKit)
+import AppKit
+#endif
 import Logging
 
 // Storage key for the continuation
@@ -905,9 +908,19 @@ class Server {
 
     /// Open URL in default browser
     private func openBrowser(url: String) {
+        guard let targetURL = URL(string: url) else { return }
+
+        #if canImport(AppKit)
+        if NSWorkspace.shared.open(targetURL) {
+            return
+        }
+        #endif
+
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        task.arguments = [url]
+        task.arguments = [targetURL.absoluteString]
+        task.standardOutput = nil
+        task.standardError = nil
         try? task.run()
     }
 
