@@ -2,10 +2,55 @@ import Vapor
 import Foundation
 import Compression
 import Logging
+import struct os.OSAllocatedUnfairLock
 
 // Storage key for the continuation
 struct ContinuationKey: StorageKey {
     typealias Value = CheckedContinuation<Void, Error>
+}
+
+// Middleware to limit concurrent /v1/chat/completions requests.
+// Returns 503 with OpenAI-compatible error when at capacity.
+final class ConcurrencyLimitMiddleware: AsyncMiddleware, @unchecked Sendable {
+    private let maxConcurrent: Int
+    private let _active = OSAllocatedUnfairLock(initialState: 0)
+
+    init(maxConcurrent: Int) {
+        self.maxConcurrent = maxConcurrent
+    }
+
+    func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
+        // Only limit chat completions endpoint
+        guard request.url.path.hasSuffix("/chat/completions") else {
+            return try await next.respond(to: request)
+        }
+
+        let allowed = _active.withLock { count -> Bool in
+            if count >= maxConcurrent { return false }
+            count += 1
+            return true
+        }
+
+        guard allowed else {
+            let peer = request.peerAddress?.description ?? "unknown"
+            let ua = request.headers.first(name: .userAgent) ?? "unknown"
+            request.logger.warning("Connection refused: at capacity (\(self.maxConcurrent)/\(self.maxConcurrent)) — client=\(peer) ua=\(ua)")
+
+            let errorResponse = OpenAIError(
+                message: "Server at capacity (\(maxConcurrent) concurrent requests). Please retry shortly.",
+                type: "server_busy"
+            )
+            let response = Response(status: .serviceUnavailable)
+            response.headers.add(name: .contentType, value: "application/json")
+            response.headers.add(name: .accessControlAllowOrigin, value: "*")
+            response.headers.add(name: "Retry-After", value: "2")
+            try response.content.encode(errorResponse)
+            return response
+        }
+
+        defer { _active.withLock { $0 -= 1 } }
+        return try await next.respond(to: request)
+    }
 }
 
 // Middleware to handle payload too large errors with a user-friendly message
@@ -58,8 +103,9 @@ class Server {
     private let mlxSeed: Int?
     private let mlxMaxLogprobs: Int
     private let contextWindow: Int?
+    private let maxConcurrent: Int
 
-    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil) async throws {
+    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil, maxConcurrent: Int = 0) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -88,6 +134,7 @@ class Server {
         self.mlxSeed = mlxSeed
         self.mlxMaxLogprobs = mlxMaxLogprobs ?? 20
         self.contextWindow = contextWindow
+        self.maxConcurrent = maxConcurrent
 
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
@@ -124,6 +171,11 @@ class Server {
 
         // Add custom error middleware to handle payload too large errors
         app.middleware.use(PayloadTooLargeMiddleware())
+
+        // Limit concurrent chat completions when in batch mode
+        if maxConcurrent >= 2 {
+            app.middleware.use(ConcurrencyLimitMiddleware(maxConcurrent: maxConcurrent))
+        }
 
         try routes()
     }

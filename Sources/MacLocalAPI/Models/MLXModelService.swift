@@ -118,8 +118,8 @@ final class MLXModelService: @unchecked Sendable {
     private var xgrammarService: XGrammarService?
     /// Concurrent generation scheduler (nil = serial mode via container.perform).
     private var scheduler: BatchScheduler?
-    /// Whether concurrent mode is enabled (--concurrent flag).
-    var concurrent: Bool = false
+    /// Maximum concurrent generations (0 = serial mode, 2+ = batch mode).
+    var maxConcurrent: Int = 0
     init(resolver: MLXCacheResolver) {
         self.resolver = resolver
         self.resolver.applyEnvironment()
@@ -310,24 +310,26 @@ final class MLXModelService: @unchecked Sendable {
     }
 
     /// Initialize the concurrent BatchScheduler by extracting model/tokenizer/processor
-    /// from the container. Must be called after ensureLoaded() and only when concurrent=true.
+    /// from the container. Must be called after ensureLoaded() and only when maxConcurrent >= 2.
     func initScheduler() async throws {
-        guard concurrent else { return }
+        guard maxConcurrent >= 2 else { return }
         guard let container = withStateLock({ currentContainer }) else {
             throw MLXServiceError.noModelLoaded
         }
         let prefixCaching = self.enablePrefixCaching
+        let limit = self.maxConcurrent
         let sched = await container.perform { context -> BatchScheduler in
             BatchScheduler(
                 model: context.model,
                 tokenizer: context.tokenizer,
                 processor: context.processor,
                 configuration: context.configuration,
+                maxConcurrent: limit,
                 enablePrefixCaching: prefixCaching
             )
         }
         self.scheduler = sched
-        print("[\(ts())] Concurrent mode: up to \(BatchScheduler.defaultMaxConcurrent) parallel generations\(prefixCaching ? " (prefix caching enabled)" : "")")
+        print("[\(ts())] Concurrent mode: up to \(limit) parallel generations\(prefixCaching ? " (prefix caching enabled)" : "")")
     }
 
     func generate(

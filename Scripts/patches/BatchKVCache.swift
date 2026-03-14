@@ -134,23 +134,27 @@ public class BatchKVCacheSimple: BaseKVCache {
     public override func makeMask(
         n: Int, windowSize: Int?, returnArray: Bool
     ) -> MLXFast.ScaledDotProductAttentionMaskMode {
-        guard batchSize > 0 && _idx > 0 else { return .none }
+        // makeMask is called BEFORE update() in the model's forward pass.
+        // update() will add n tokens, so the total key length after update = _idx + n.
+        // The mask must cover all _idx + n positions to match SDPA's K/V dimensions.
+        let totalLen = _idx + n
+        guard batchSize > 0 && totalLen > 0 else { return .none }
 
-        // Key indices: [1, 1, _idx]
-        let keyIndices = MLXArray(Int32(0) ..< Int32(_idx)).reshaped([1, 1, _idx])
+        // Key indices: [1, 1, totalLen]
+        let keyIndices = MLXArray(Int32(0) ..< Int32(totalLen)).reshaped([1, 1, totalLen])
         // Padding mask: attend only to non-padding positions
         // leftPadding: [B] → [B, 1, 1]
         let padMask = keyIndices .>= leftPadding.reshaped([batchSize, 1, 1])
 
         if n == 1 {
             // Decode: single new token — causal constraint is automatic
-            // Shape: [B, 1, 1, _idx]
+            // Shape: [B, 1, 1, totalLen]
             return .array(padMask.expandedDimensions(axis: 1))
         }
 
         // Prefill: need causal + padding
-        // Query indices: [1, n, 1]
-        let queryStart = Int32(_idx - n)
+        // Query indices: [1, n, 1] — queries cover positions [_idx, _idx+n)
+        let queryStart = Int32(_idx)
         let queryIndices = (MLXArray(Int32(0) ..< Int32(n)) + queryStart).reshaped([1, n, 1])
         var mask = (queryIndices .>= keyIndices) .&& padMask
 
@@ -158,7 +162,7 @@ public class BatchKVCacheSimple: BaseKVCache {
             mask = mask .&& (keyIndices .>= (queryIndices - Int32(windowSize)))
         }
 
-        // [B, 1, n, _idx]
+        // [B, 1, n, totalLen]
         return .array(mask.expandedDimensions(axis: 1))
     }
 
@@ -188,10 +192,10 @@ public class BatchKVCacheSimple: BaseKVCache {
 
     /// Merge another BatchKVCacheSimple into this one (extend batch).
     public func extend(with other: BatchKVCacheSimple) {
-        guard let otherK = other.keys, let otherV = other.values else { return }
-        guard let selfK = self.keys, let selfV = self.values else {
-            self.keys = otherK
-            self.values = otherV
+        guard let otherKFull = other.keys, let otherVFull = other.values else { return }
+        guard let selfKFull = self.keys, let selfVFull = self.values else {
+            self.keys = otherKFull[.ellipsis, ..<other._idx, 0...]
+            self.values = otherVFull[.ellipsis, ..<other._idx, 0...]
             self.leftPadding = other.leftPadding
             self.perSeqOffset = other.perSeqOffset
             self._idx = other._idx
@@ -199,8 +203,14 @@ public class BatchKVCacheSimple: BaseKVCache {
             return
         }
 
+        // Trim to actual used length — pre-allocated step padding would cause
+        // shape mismatch after rightJustify (self and other would get different dim(2)).
+        let selfK = selfKFull[.ellipsis, ..<_idx, 0...]
+        let selfV = selfVFull[.ellipsis, ..<_idx, 0...]
+        let otherK = otherKFull[.ellipsis, ..<other._idx, 0...]
+        let otherV = otherVFull[.ellipsis, ..<other._idx, 0...]
+
         let maxIdx = Swift.max(_idx, other._idx)
-        let maxSize = Swift.max(selfK.dim(2), otherK.dim(2))
 
         func rightJustify(_ k: MLXArray, _ v: MLXArray, _ pad: MLXArray, _ off: MLXArray, idx: Int)
             -> (MLXArray, MLXArray, MLXArray, MLXArray)
@@ -212,12 +222,6 @@ public class BatchKVCacheSimple: BaseKVCache {
                 rk = concatenated([MLXArray.zeros(shape, dtype: rk.dtype), rk], axis: 2)
                 rv = concatenated([MLXArray.zeros(shape, dtype: rv.dtype), rv], axis: 2)
                 rp = rp + Int32(left)
-            }
-            let right = maxSize - rk.dim(2)
-            if right > 0 {
-                let shape = [rk.dim(0), rk.dim(1), right, rk.dim(3)]
-                rk = concatenated([rk, MLXArray.zeros(shape, dtype: rk.dtype)], axis: 2)
-                rv = concatenated([rv, MLXArray.zeros(shape, dtype: rv.dtype)], axis: 2)
             }
             return (rk, rv, rp, ro)
         }

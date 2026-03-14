@@ -22,8 +22,8 @@ Example output (M3 Ultra, Qwen3.5-35B-A3B-4bit, 500 max_tokens):
 """
 import asyncio, aiohttp, json, time, sys, subprocess
 
-URL = "http://localhost:9999/v1/chat/completions"
-MAX_TOKENS = 500
+URL = "http://localhost:9876/v1/chat/completions"
+MAX_TOKENS = 4096
 
 PROMPTS = [
     "Explain the Pythagorean theorem in detail with examples.",
