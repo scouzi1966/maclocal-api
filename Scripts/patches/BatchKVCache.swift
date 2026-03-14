@@ -33,21 +33,17 @@ public class BatchKVCacheSimple: BaseKVCache {
     /// Current batch size
     var batchSize: Int
 
-    /// True if any sequence has non-zero left padding.
-    /// Cached to avoid GPU→CPU sync in makeMask hot path.
-    var hasPadding: Bool
-
     public override var offset: Int {
         get { _idx }
         set { _idx = newValue }
     }
+    public override var maxSize: Int? { nil }
     public override var isTrimmable: Bool { true }
 
     public init(batchSize: Int, leftPadding: [Int]) {
         self.batchSize = batchSize
         self.leftPadding = MLXArray(leftPadding.map { Int32($0) })
         self.perSeqOffset = MLXArray(leftPadding.map { -Int32($0) })
-        self.hasPadding = leftPadding.contains(where: { $0 > 0 })
         super.init()
     }
 
@@ -135,45 +131,34 @@ public class BatchKVCacheSimple: BaseKVCache {
 
     // MARK: - Mask
 
-    /// Build attention mask anticipating that `update()` will add `n` tokens.
-    ///
-    /// The model calls `makeMask(n:)` BEFORE calling `update()` in each layer.
-    /// After `update()`, the KV cache will have `_idx + n` entries. The mask must
-    /// match that post-update size, so we use `totalLen = _idx + n`.
     public override func makeMask(
         n: Int, windowSize: Int?, returnArray: Bool
     ) -> MLXFast.ScaledDotProductAttentionMaskMode {
-        let totalLen = _idx + n
-        guard batchSize > 0 && totalLen > 0 else { return .none }
+        guard batchSize > 0 && _idx > 0 else { return .none }
 
-        // Fast path: decode with no padding — no mask needed (matches KVCacheSimple behavior)
-        if n == 1 && !hasPadding {
-            return .none
-        }
-
-        // Key indices: [1, 1, totalLen] — covers all positions after update
-        let keyIndices = MLXArray(Int32(0) ..< Int32(totalLen)).reshaped([1, 1, totalLen])
+        // Key indices: [1, 1, _idx]
+        let keyIndices = MLXArray(Int32(0) ..< Int32(_idx)).reshaped([1, 1, _idx])
         // Padding mask: attend only to non-padding positions
         // leftPadding: [B] → [B, 1, 1]
         let padMask = keyIndices .>= leftPadding.reshaped([batchSize, 1, 1])
 
         if n == 1 {
             // Decode: single new token — causal constraint is automatic
-            // Shape: [B, 1, 1, totalLen]
+            // Shape: [B, 1, 1, _idx]
             return .array(padMask.expandedDimensions(axis: 1))
         }
 
         // Prefill: need causal + padding
-        // Query indices cover positions [_idx ..< _idx + n]
-        let queryStart = Int32(_idx)
+        // Query indices: [1, n, 1]
+        let queryStart = Int32(_idx - n)
         let queryIndices = (MLXArray(Int32(0) ..< Int32(n)) + queryStart).reshaped([1, n, 1])
-        var mask = (queryIndices .>= keyIndices) & padMask
+        var mask = (queryIndices .>= keyIndices) .&& padMask
 
         if let windowSize {
-            mask = mask & (keyIndices .>= (queryIndices - Int32(windowSize)))
+            mask = mask .&& (keyIndices .>= (queryIndices - Int32(windowSize)))
         }
 
-        // [B, 1, n, totalLen]
+        // [B, 1, n, _idx]
         return .array(mask.expandedDimensions(axis: 1))
     }
 
@@ -199,7 +184,6 @@ public class BatchKVCacheSimple: BaseKVCache {
             _idx -= mp
             leftPadding = leftPadding - minPad
         }
-        hasPadding = leftPadding.max().item(Int32.self) > 0
     }
 
     /// Merge another BatchKVCacheSimple into this one (extend batch).
@@ -247,7 +231,6 @@ public class BatchKVCacheSimple: BaseKVCache {
         perSeqOffset = concatenated([ro1, ro2], axis: 0)
         _idx = maxIdx
         batchSize += other.batchSize
-        hasPadding = hasPadding || other.hasPadding || (_idx != other._idx)
     }
 
     /// Extract a single sequence's cache (for saving to prefix cache or removal).
