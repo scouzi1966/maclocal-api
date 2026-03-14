@@ -818,10 +818,12 @@ class Server {
 
         // Open browser if webui is enabled
         if webuiEnabled && webuiPath != nil {
-            let url = "http://\(hostname):\(port)"
+            let url = "http://\(browserLaunchHost(for: hostname)):\(port)"
             print("  🌐 Opening WebUI in browser: \(url)")
             print("")
-            openBrowser(url: url)
+            Task { @MainActor in
+                self.openBrowser(url: url)
+            }
         }
 
         // Wait indefinitely (until shutdown is called)
@@ -892,6 +894,8 @@ class Server {
             "/opt/homebrew/share/afm/webui/index.html.gz",
             // Development: Resources folder in current working directory
             "\(cwd)/Resources/webui/index.html.gz",
+            // Development: vendored llama.cpp webui relative to executable
+            "\(executableDir)/../../../vendor/llama.cpp/tools/server/public/index.html.gz",
             // Development: llama.cpp submodule public folder
             "\(cwd)/vendor/llama.cpp/tools/server/public/index.html.gz"
         ]
@@ -906,7 +910,17 @@ class Server {
         return nil
     }
 
+    private func browserLaunchHost(for hostname: String) -> String {
+        switch hostname {
+        case "0.0.0.0", "::", "[::]":
+            return "127.0.0.1"
+        default:
+            return hostname
+        }
+    }
+
     /// Open URL in default browser
+    @MainActor
     private func openBrowser(url: String) {
         guard let targetURL = URL(string: url) else { return }
 
@@ -916,12 +930,31 @@ class Server {
         }
         #endif
 
+        if runBrowserOpenProcess(executable: "/usr/bin/open", arguments: [targetURL.absoluteString]) {
+            return
+        }
+
+        if runBrowserOpenProcess(executable: "/usr/bin/osascript", arguments: ["-e", "open location \"\(targetURL.absoluteString)\""]) {
+            return
+        }
+
+        print("  ⚠️  Failed to open WebUI automatically. Open this URL manually: \(targetURL.absoluteString)")
+    }
+
+    @MainActor
+    private func runBrowserOpenProcess(executable: String, arguments: [String]) -> Bool {
         let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        task.arguments = [targetURL.absoluteString]
+        task.executableURL = URL(fileURLWithPath: executable)
+        task.arguments = arguments
         task.standardOutput = nil
         task.standardError = nil
-        try? task.run()
+        do {
+            try task.run()
+            task.waitUntilExit()
+            return task.terminationReason == .exit && task.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
 
     /// Decompress gzip data
