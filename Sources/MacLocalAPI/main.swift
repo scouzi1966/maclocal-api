@@ -409,6 +409,11 @@ struct MlxCommand: ParsableCommand {
         if !parsedKwargs.isEmpty {
             service.defaultChatTemplateKwargs = parsedKwargs
         }
+
+        if let guidedJson {
+            _ = try parseGuidedJsonSchema(guidedJson)
+        }
+
         _ = try service.revalidateRegistry()
 
         let rawModel: String
