@@ -98,6 +98,7 @@ private var grammarConstraintsActive = false
 
 private enum ToolCallingStrategy: Equatable {
     case legacy
+    case nativeConstrainedXML(selectedToolName: String?)
     case enforcedJSON(required: Bool, selectedToolName: String?)
 }
 
@@ -391,6 +392,10 @@ final class MLXModelService: @unchecked Sendable {
             if effectiveResponseFormat?.type == "json_schema" {
                 grammarProcessor = self.setupGrammarConstraint(
                     modelID: modelID, responseFormat: effectiveResponseFormat, tokenizer: context.tokenizer
+                )
+            } else if case .nativeConstrainedXML = toolingPlan.strategy {
+                grammarProcessor = self.setupToolCallGrammarConstraint(
+                    modelID: modelID, tokenizer: context.tokenizer, tools: tools
                 )
             } else if self.enableGrammarConstraints && self.toolCallParser == "afm_adaptive_xml" {
                 grammarProcessor = self.setupToolCallGrammarConstraint(
@@ -810,6 +815,10 @@ final class MLXModelService: @unchecked Sendable {
                         if effectiveResponseFormat?.type == "json_schema" {
                             grammarProcessor = self.setupGrammarConstraint(
                                 modelID: modelID, responseFormat: effectiveResponseFormat, tokenizer: context.tokenizer
+                            )
+                        } else if case .nativeConstrainedXML = toolingPlan.strategy {
+                            grammarProcessor = self.setupToolCallGrammarConstraint(
+                                modelID: modelID, tokenizer: context.tokenizer, tools: tools
                             )
                         } else if self.enableGrammarConstraints && self.toolCallParser == "afm_adaptive_xml" {
                             grammarProcessor = self.setupToolCallGrammarConstraint(
@@ -2202,18 +2211,70 @@ final class MLXModelService: @unchecked Sendable {
             // Create processor
             let proc = GrammarLogitProcessor()
             proc.matcherHandle = matcher
-            proc.tokenMask = matcher.nextTokenMask()
+
+            // vLLM-style reasoner gating for enforced JSON tool calls:
+            // allow <think>...</think> to flow unconstrained, then activate
+            // the JSON schema matcher only after reasoning ends.
+            let thinkTokenId = tokenizer.convertTokenToId("<think>")
+            let endThinkTokenId = tokenizer.convertTokenToId("</think>")
+            var inReasoning = false
+            var firstToken = true
+            var grammarTokenCount = 0
+            let dbg = debugLogging
+            let vvTrace = self.trace
+            let vvTokenizer = tokenizer
+
+            // Initial mask: nil so models may begin with <think>.
+            // If the first token is not a think opener, the JSON constraint
+            // becomes active immediately after that first sampled token.
+            proc.tokenMask = nil
             proc.onTokenSampled = { [weak matcher] tokenID in
-                guard let matcher, !matcher.isTerminated() else {
+                guard let matcher else {
                     proc.tokenMask = nil
                     return
                 }
-                matcher.acceptToken(tokenID)
-                proc.tokenMask = matcher.nextTokenMask()
+                grammarTokenCount += 1
+
+                if firstToken {
+                    firstToken = false
+                    if tokenID == thinkTokenId {
+                        inReasoning = true
+                        if dbg { print("[\(ts())] [XGrammar] Reasoning started, json_schema suspended") }
+                        proc.tokenMask = nil
+                        return
+                    }
+                    if dbg { print("[\(ts())] [XGrammar] No reasoning, json_schema active from token 1") }
+                }
+
+                if inReasoning {
+                    if tokenID == endThinkTokenId {
+                        inReasoning = false
+                        if dbg { print("[\(ts())] [XGrammar] Reasoning ended, json_schema active") }
+                        proc.tokenMask = matcher.nextTokenMask()
+                    } else {
+                        proc.tokenMask = nil
+                    }
+                    return
+                }
+
+                guard !matcher.isTerminated() else {
+                    proc.tokenMask = nil
+                    return
+                }
+
+                let accepted = matcher.acceptToken(tokenID)
+                let mask = matcher.nextTokenMask()
+                proc.tokenMask = mask
+
+                if vvTrace {
+                    let tokenStr = vvTokenizer.decode(tokens: [tokenID])
+                    let maskStatus = mask != nil ? "constrained" : "unconstrained"
+                    print("\(vvCyan)[\(ts())] [VV] JSON-SCHEMA token[\(grammarTokenCount)] id=\(tokenID) \"\(tokenStr.replacingOccurrences(of: "\n", with: "\\n"))\" accepted=\(accepted) \(maskStatus)\(vvReset)")
+                }
             }
 
             if debugLogging {
-                print("[\(ts())] [XGrammar] Grammar constraint active for json_schema (native C++, vocab_size=\(service.vocabSize))")
+                print("[\(ts())] [XGrammar] Grammar constraint active for json_schema (native C++, vocab_size=\(service.vocabSize), reasoner gating=\(thinkTokenId != nil ? "enabled" : "disabled"))")
             }
 
             return proc
@@ -2642,6 +2703,15 @@ final class MLXModelService: @unchecked Sendable {
             selectedToolName = fn.function.name
         } else {
             selectedToolName = nil
+        }
+
+        if withStateLock({ currentToolCallFormat }) == .xmlFunction {
+            return EnforcedToolingPlan(
+                strategy: .nativeConstrainedXML(selectedToolName: selectedToolName),
+                responseFormat: nil,
+                promptInstruction: nil,
+                templateTools: convertToToolSpecs(tools)
+            )
         }
 
         let schema = try Self.buildEnforcedToolCallSchema(tools: tools, selectedToolName: selectedToolName)
