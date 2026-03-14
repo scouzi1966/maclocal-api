@@ -351,7 +351,7 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Disable thinking/reasoning (sets enable_thinking=false in chat template)")
     var noThink: Bool = false
 
-    @Option(name: .long, help: "Max concurrent requests (enables batch mode; default 4; 0 or 1 reverts to serial)")
+    @Option(name: .long, help: "Max concurrent requests (enables batch mode; 0 or 1 reverts to serial)")
     var concurrent: Int?
 
     @Flag(name: .long, help: "Print OpenClaw provider config JSON and exit")
