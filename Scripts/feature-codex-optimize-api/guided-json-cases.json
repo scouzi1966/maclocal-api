@@ -1,0 +1,272 @@
+[
+  {
+    "id": "person_basic",
+    "kind": "schema",
+    "prompt": "Return a person record for Ada Lovelace, age 36, occupation mathematician.",
+    "schema_name": "person_record",
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "age": { "type": "integer" },
+        "occupation": { "type": "string" }
+      },
+      "required": ["name", "age", "occupation"]
+    }
+  },
+  {
+    "id": "meeting_action_items",
+    "kind": "schema",
+    "prompt": "Extract action items from this meeting note. Transcript: Sarah will draft the customer email by Friday. Ben owns the dashboard fix and will deploy on Tuesday. Priya needs to confirm pricing with finance this afternoon.",
+    "schema_name": "meeting_action_items",
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "owner": { "type": "string" },
+              "task": { "type": "string" },
+              "due_date": { "type": "string" }
+            },
+            "required": ["owner", "task", "due_date"]
+          }
+        }
+      },
+      "required": ["items"]
+    }
+  },
+  {
+    "id": "support_ticket_triage",
+    "kind": "schema",
+    "prompt": "Structure this support ticket: Subject: Billing issue after upgrade. Body: Hi team, after upgrading to Pro yesterday, our invoices still show the Starter plan and two users cannot access analytics. This is blocking our finance close. Please prioritize. Account: Acme Labs.",
+    "schema_name": "support_ticket",
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_name": { "type": "string" },
+        "category": { "type": "string", "enum": ["billing", "access", "bug", "feature_request"] },
+        "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+        "summary": { "type": "string" },
+        "blocked_teams": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["account_name", "category", "severity", "summary", "blocked_teams"]
+    }
+  },
+  {
+    "id": "article_summary",
+    "kind": "schema",
+    "prompt": "Summarize this article into structured JSON. Article: The city council voted 8-3 to approve a new electric bus fleet after a six-month pilot reduced fuel costs by 22 percent. Transit officials said the first 40 buses will enter service in September, with charging depots completed by July. Critics raised concerns about winter battery performance, but the transport committee said the pilot data from two cold snaps remained within operational targets.",
+    "schema_name": "article_summary",
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "headline": { "type": "string" },
+        "summary": { "type": "string" },
+        "key_points": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "entities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "type": { "type": "string", "enum": ["organization", "government", "metric", "date"] }
+            },
+            "required": ["name", "type"]
+          }
+        }
+      },
+      "required": ["headline", "summary", "key_points", "entities"]
+    }
+  },
+  {
+    "id": "catalog_normalization_refs",
+    "kind": "schema",
+    "prompt": "Normalize this product listing: TrailPro 18L commuter backpack. Water-resistant recycled nylon shell, laptop sleeve for 16 inch devices, color midnight blue, retail price 89 dollars, weight 0.9 kg, suitable for commuting and short hikes.",
+    "schema_name": "catalog_normalization",
+    "schema": {
+      "$defs": {
+        "attribute": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string" },
+            "value": { "type": "string" }
+          },
+          "required": ["name", "value"]
+        }
+      },
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "product_name": { "type": "string" },
+        "category": { "type": "string", "enum": ["backpack", "shoes", "jacket", "accessory"] },
+        "price_usd": { "type": "number" },
+        "attributes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/attribute" }
+        },
+        "use_cases": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["product_name", "category", "price_usd", "attributes", "use_cases"]
+    }
+  },
+  {
+    "id": "sdk_parse_person",
+    "kind": "parse",
+    "prompt": "Return a person record for Grace Hopper, age 45, occupation computer scientist."
+  },
+  {
+    "id": "stream_person_basic",
+    "kind": "stream_schema",
+    "prompt": "Return a person record for Katherine Johnson, age 50, occupation mathematician.",
+    "schema_name": "person_record_stream",
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "age": { "type": "integer" },
+        "occupation": { "type": "string" }
+      },
+      "required": ["name", "age", "occupation"]
+    }
+  },
+  {
+    "id": "conflict_prompt_person",
+    "kind": "conflict_schema",
+    "prompt": "Do not use JSON. Reply with a single plain-English sentence about Ada Lovelace and do not use braces.",
+    "schema_name": "person_record_conflict",
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "age": { "type": "integer" },
+        "occupation": { "type": "string" }
+      },
+      "required": ["name", "age", "occupation"]
+    }
+  },
+  {
+    "id": "truncation_article_summary",
+    "kind": "truncation_schema",
+    "prompt": "Summarize this article into structured JSON. Article: The city council voted 8-3 to approve a new electric bus fleet after a six-month pilot reduced fuel costs by 22 percent. Transit officials said the first 40 buses will enter service in September, with charging depots completed by July. Critics raised concerns about winter battery performance, but the transport committee said the pilot data from two cold snaps remained within operational targets.",
+    "schema_name": "article_summary_truncation",
+    "max_tokens": 24,
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "headline": { "type": "string" },
+        "summary": { "type": "string" },
+        "key_points": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "entities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "type": { "type": "string", "enum": ["organization", "government", "metric", "date"] }
+            },
+            "required": ["name", "type"]
+          }
+        }
+      },
+      "required": ["headline", "summary", "key_points", "entities"]
+    }
+  },
+  {
+    "id": "edge_nullable_contact",
+    "kind": "schema_edge",
+    "prompt": "Return a CRM lead record for customer Jordan Lee at Acme Labs. Jordan does not have a phone number on file and prefers email.",
+    "schema_name": "crm_lead_nullable",
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "company": { "type": "string" },
+        "preferred_channel": { "type": "string", "enum": ["email", "phone", "sms"] },
+        "phone": { "type": ["string", "null"] }
+      },
+      "required": ["name", "company", "preferred_channel", "phone"]
+    }
+  },
+  {
+    "id": "edge_bounded_tags",
+    "kind": "schema_edge",
+    "prompt": "Classify this bug report with exactly two tags chosen from ui, backend, billing, auth: Users are billed twice after changing plans in the settings screen.",
+    "schema_name": "bug_tags_bounded",
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tags": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "string",
+            "enum": ["ui", "backend", "billing", "auth"]
+          }
+        }
+      },
+      "required": ["tags"]
+    }
+  },
+  {
+    "id": "edge_anyof_priority",
+    "kind": "schema_edge",
+    "prompt": "Return a triage object for this issue: production payments are failing and executives are asking for updates every hour.",
+    "schema_name": "triage_anyof",
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "priority": {
+          "anyOf": [
+            { "type": "integer", "enum": [1, 2, 3] },
+            { "type": "string", "enum": ["p1", "p2", "p3"] }
+          ]
+        },
+        "summary": { "type": "string" }
+      },
+      "required": ["priority", "summary"]
+    }
+  },
+  {
+    "id": "unsupported_pattern_properties",
+    "kind": "unsupported_schema",
+    "prompt": "Return a dictionary of environment variables.",
+    "schema_name": "env_map_unsupported",
+    "schema": {
+      "type": "object",
+      "patternProperties": {
+        "^[A-Z_]+$": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+]

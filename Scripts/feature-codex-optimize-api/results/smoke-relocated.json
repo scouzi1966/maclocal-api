@@ -1,0 +1,78 @@
+{
+  "generated_at": "2026-03-13T22:06:13.519494",
+  "results": [
+    {
+      "name": "models_endpoint",
+      "ok": true,
+      "elapsed_s": 0.006,
+      "details": {
+        "count": 1,
+        "first_id": "mlx-community/Qwen3.5-35B-A3B-4bit"
+      }
+    },
+    {
+      "name": "openai_python_nonstream",
+      "ok": true,
+      "elapsed_s": 0.657,
+      "details": {
+        "finish_reason": "stop",
+        "content": "ok",
+        "usage": {
+          "completion_tokens": 1,
+          "prompt_tokens": 28,
+          "total_tokens": 29,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_time": 0.01,
+          "prompt_time": 0.05,
+          "prompt_tokens_per_second": 574.54,
+          "completion_tokens_per_second": 120.1,
+          "total_time": 0.06
+        },
+        "stderr": null
+      }
+    },
+    {
+      "name": "openai_python_stream",
+      "ok": true,
+      "elapsed_s": 0.404,
+      "details": {
+        "chunk_count": 4,
+        "last_choices": 0,
+        "last_usage": {
+          "completion_tokens": 1,
+          "prompt_tokens": 28,
+          "total_tokens": 29,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_time": 0.01,
+          "prompt_time": 0.04,
+          "prompt_tokens_per_second": 631.21,
+          "completion_tokens_per_second": 118.85,
+          "total_time": 0.05
+        },
+        "content": "ok",
+        "finish_reason": "stop",
+        "stderr": null
+      }
+    },
+    {
+      "name": "vllm_bench_smoke",
+      "ok": true,
+      "elapsed_s": 7.811,
+      "details": {
+        "successful_requests": "4",
+        "failed_requests": "0",
+        "total_generated_tokens": "128",
+        "output_token_throughput": "77.20",
+        "stderr_tail": " (0x1371d43f8). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.\n\n  0%|          | 0/4 [00:00<?, ?it/s]\n 25%|\u2588\u2588\u258c       | 1/4 [00:00<00:01,  1.64it/s]\n 50%|\u2588\u2588\u2588\u2588\u2588     | 2/4 [00:00<00:00,  2.19it/s]\n 75%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u258c  | 3/4 [00:01<00:00,  2.43it/s]\n100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [00:01<00:00,  2.61it/s]\n100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [00:01<00:00,  2.41it/s]\n"
+      }
+    }
+  ]
+}

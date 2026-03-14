@@ -1,0 +1,377 @@
+{
+  "generated_at": "2026-03-13T23:41:26.474100",
+  "results": [
+    {
+      "name": "models_endpoint",
+      "ok": true,
+      "elapsed_s": 0.001,
+      "details": {
+        "count": 1,
+        "first_id": "foundation"
+      }
+    },
+    {
+      "name": "api_json_schema::person_basic",
+      "ok": true,
+      "elapsed_s": 0.61,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\"name\": \"Ada Lovelace\", \"age\": 36, \"occupation\": \"mathematician\"}",
+        "parsed": {
+          "name": "Ada Lovelace",
+          "age": 36,
+          "occupation": "mathematician"
+        },
+        "usage": {
+          "completion_tokens": 16,
+          "prompt_tokens": 18,
+          "total_tokens": 34,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": null
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "api_json_schema::meeting_action_items",
+      "ok": true,
+      "elapsed_s": 1.007,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\"items\": [{\"task\": \"draft the customer email\", \"owner\": \"Sarah\", \"due_date\": \"Friday\"}, {\"task\": \"deploy the dashboard fix\", \"owner\": \"Ben\", \"due_date\": \"Tuesday\"}, {\"due_date\": \"this afternoon\", \"owner\": \"Priya\", \"task\": \"confirm pricing with finance\"}]}",
+        "parsed": {
+          "items": [
+            {
+              "task": "draft the customer email",
+              "owner": "Sarah",
+              "due_date": "Friday"
+            },
+            {
+              "task": "deploy the dashboard fix",
+              "owner": "Ben",
+              "due_date": "Tuesday"
+            },
+            {
+              "due_date": "this afternoon",
+              "owner": "Priya",
+              "task": "confirm pricing with finance"
+            }
+          ]
+        },
+        "usage": {
+          "completion_tokens": 64,
+          "prompt_tokens": 54,
+          "total_tokens": 118,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": null
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "api_json_schema::support_ticket_triage",
+      "ok": true,
+      "elapsed_s": 0.852,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\"blocked_teams\": [\"finance\"], \"severity\": \"high\", \"summary\": \"After upgrading to Pro yesterday, invoices still show the Starter plan, and two users cannot access analytics, blocking the finance close.\", \"account_name\": \"Acme Labs\", \"category\": \"billing\"}",
+        "parsed": {
+          "blocked_teams": [
+            "finance"
+          ],
+          "severity": "high",
+          "summary": "After upgrading to Pro yesterday, invoices still show the Starter plan, and two users cannot access analytics, blocking the finance close.",
+          "account_name": "Acme Labs",
+          "category": "billing"
+        },
+        "usage": {
+          "completion_tokens": 63,
+          "prompt_tokens": 68,
+          "total_tokens": 131,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": null
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "api_json_schema::article_summary",
+      "ok": true,
+      "elapsed_s": 3.709,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\"entities\": [{\"name\": \"City Council\", \"type\": \"government\"}, {\"name\": \"Transit Officials\", \"type\": \"organization\"}, {\"name\": \"Electric Bus Fleet\", \"type\": \"metric\"}, {\"name\": \"Winter\", \"type\": \"date\"}, {\"type\": \"date\", \"name\": \"September\"}, {\"name\": \"July\", \"type\": \"date\"}, {\"name\": \"Fuel Costs\", \"type\": \"metric\"}, {\"name\": \"Battery Performance\", \"type\": \"metric\"}], \"headline\": \"City Council Approves New Electric Bus Fleet\", \"key_points\": [\"The city council voted 8-3 to approve a new electric bus fleet.\", \"A six-month pilot reduced fuel costs by 22 percent.\", \"The first 40 buses will enter service in September.\", \"Charging depots are expected to be completed by July.\", \"Critics raised concerns about winter battery performance, but pilot data showed targets were met.\"], \"summary\": \"The city council has approved a new electric bus fleet following a successful six-month pilot that reduced fuel costs by 22 percent. The first 40 buses will begin service in September, with charging infrastructure ready by July. Despite concerns about winter battery performance, pilot data from cold snaps indicated that targets were met.\"}",
+        "parsed": {
+          "entities": [
+            {
+              "name": "City Council",
+              "type": "government"
+            },
+            {
+              "name": "Transit Officials",
+              "type": "organization"
+            },
+            {
+              "name": "Electric Bus Fleet",
+              "type": "metric"
+            },
+            {
+              "name": "Winter",
+              "type": "date"
+            },
+            {
+              "type": "date",
+              "name": "September"
+            },
+            {
+              "name": "July",
+              "type": "date"
+            },
+            {
+              "name": "Fuel Costs",
+              "type": "metric"
+            },
+            {
+              "name": "Battery Performance",
+              "type": "metric"
+            }
+          ],
+          "headline": "City Council Approves New Electric Bus Fleet",
+          "key_points": [
+            "The city council voted 8-3 to approve a new electric bus fleet.",
+            "A six-month pilot reduced fuel costs by 22 percent.",
+            "The first 40 buses will enter service in September.",
+            "Charging depots are expected to be completed by July.",
+            "Critics raised concerns about winter battery performance, but pilot data showed targets were met."
+          ],
+          "summary": "The city council has approved a new electric bus fleet following a successful six-month pilot that reduced fuel costs by 22 percent. The first 40 buses will begin service in September, with charging infrastructure ready by July. Despite concerns about winter battery performance, pilot data from cold snaps indicated that targets were met."
+        },
+        "usage": {
+          "completion_tokens": 283,
+          "prompt_tokens": 113,
+          "total_tokens": 396,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": null
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "api_json_schema::catalog_normalization_refs",
+      "ok": true,
+      "elapsed_s": 1.914,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\"attributes\": [{\"name\": \"material\", \"value\": \"water-resistant recycled nylon shell\"}, {\"value\": \"midnight blue\", \"name\": \"color\"}, {\"value\": \"18L\", \"name\": \"capacity\"}, {\"value\": \"for 16 inch devices\", \"name\": \"laptop sleeve\"}, {\"name\": \"weight\", \"value\": \"0.9 kg\"}, {\"value\": \"commuting and short hikes\", \"name\": \"suitable for\"}], \"use_cases\": [\"commuting\", \"short hikes\"], \"product_name\": \"TrailPro 18L Commuter Backpack\", \"price_usd\": 89, \"category\": \"backpack\"}",
+        "parsed": {
+          "attributes": [
+            {
+              "name": "material",
+              "value": "water-resistant recycled nylon shell"
+            },
+            {
+              "value": "midnight blue",
+              "name": "color"
+            },
+            {
+              "value": "18L",
+              "name": "capacity"
+            },
+            {
+              "value": "for 16 inch devices",
+              "name": "laptop sleeve"
+            },
+            {
+              "name": "weight",
+              "value": "0.9 kg"
+            },
+            {
+              "value": "commuting and short hikes",
+              "name": "suitable for"
+            }
+          ],
+          "use_cases": [
+            "commuting",
+            "short hikes"
+          ],
+          "product_name": "TrailPro 18L Commuter Backpack",
+          "price_usd": 89,
+          "category": "backpack"
+        },
+        "usage": {
+          "completion_tokens": 116,
+          "prompt_tokens": 59,
+          "total_tokens": 175,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": null
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "openai_python_parse::sdk_parse_person",
+      "ok": true,
+      "elapsed_s": 0.393,
+      "details": {
+        "content": "{\"age\": 45, \"occupation\": \"computer scientist\", \"name\": \"Grace Hopper\"}",
+        "parsed": {
+          "name": "Grace Hopper",
+          "age": 45,
+          "occupation": "computer scientist"
+        },
+        "refusal": null
+      }
+    },
+    {
+      "name": "api_stream_json_schema::stream_person_basic",
+      "ok": true,
+      "elapsed_s": 0.422,
+      "details": {
+        "content": "{\"name\": \"Katherine Johnson\", \"age\": 50, \"occupation\": \"mathematician\"}",
+        "parsed": {
+          "name": "Katherine Johnson",
+          "age": 50,
+          "occupation": "mathematician"
+        },
+        "validation_error": null,
+        "chunk_count": 4,
+        "saw_usage_chunk": true,
+        "usage": {
+          "completion_tokens": 17,
+          "prompt_tokens": 19,
+          "total_tokens": 36,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": null,
+          "prompt_tokens_per_second": 50.84,
+          "completion_time": 0.05,
+          "completion_tokens_per_second": 375.84,
+          "total_time": 0.42,
+          "prompt_time": 0.37
+        },
+        "finish_reason": "stop"
+      }
+    },
+    {
+      "name": "api_conflict_json_schema::conflict_prompt_person",
+      "ok": true,
+      "elapsed_s": 0.404,
+      "details": {
+        "content": "{\"name\": \"Ada Lovelace\", \"age\": 0, \"occupation\": \"mathematician\"}",
+        "parsed": {
+          "name": "Ada Lovelace",
+          "age": 0,
+          "occupation": "mathematician"
+        },
+        "refusal": null,
+        "finish_reason": "stop",
+        "usage": {
+          "completion_tokens": 16,
+          "prompt_tokens": 25,
+          "total_tokens": 41,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": null
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "api_truncation_json_schema::truncation_article_summary",
+      "ok": true,
+      "elapsed_s": 0.545,
+      "details": {
+        "finish_reason": "length",
+        "hit_budget": true,
+        "content": "",
+        "parsed": null,
+        "validation_error": "Expecting value: line 1 column 1 (char 0)",
+        "refusal": null,
+        "usage": {
+          "completion_tokens": 24,
+          "prompt_tokens": 113,
+          "total_tokens": 137,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": null
+        }
+      }
+    },
+    {
+      "name": "api_json_schema::edge_nullable_contact",
+      "ok": true,
+      "elapsed_s": 0.539,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\"phone\": \"null\", \"company\": \"Acme Labs\", \"preferred_channel\": \"email\", \"name\": \"Jordan Lee\"}",
+        "parsed": {
+          "phone": "null",
+          "company": "Acme Labs",
+          "preferred_channel": "email",
+          "name": "Jordan Lee"
+        },
+        "usage": {
+          "completion_tokens": 23,
+          "prompt_tokens": 32,
+          "total_tokens": 55,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": null
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "api_json_schema::edge_bounded_tags",
+      "ok": true,
+      "elapsed_s": 0.338,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\"tags\": [\"ui\", \"billing\"]}",
+        "parsed": {
+          "tags": [
+            "ui",
+            "billing"
+          ]
+        },
+        "usage": {
+          "completion_tokens": 6,
+          "prompt_tokens": 38,
+          "total_tokens": 44,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": null
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "api_json_schema::edge_anyof_priority",
+      "ok": true,
+      "elapsed_s": 0.489,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\"summary\": \"Production payments are failing, and executives are requesting updates every hour.\", \"priority\": 1}",
+        "parsed": {
+          "summary": "Production payments are failing, and executives are requesting updates every hour.",
+          "priority": 1
+        },
+        "usage": {
+          "completion_tokens": 28,
+          "prompt_tokens": 30,
+          "total_tokens": 58,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": null
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "api_unsupported_json_schema::unsupported_pattern_properties",
+      "ok": true,
+      "elapsed_s": 0.188,
+      "details": {
+        "mode": "accepted",
+        "content": "{}",
+        "parsed": {},
+        "validation_error": null,
+        "finish_reason": "stop"
+      }
+    }
+  ]
+}

@@ -46,8 +46,14 @@ struct ChatCompletionsController: RouteCollection {
     }
     
     func chatCompletions(req: Request) async throws -> Response {
+        var fallbackModel = "foundation"
+        var fallbackMessages: [Message] = []
+        var fallbackMaxTokens = 2000
         do {
             let chatRequest = try req.content.decode(ChatCompletionRequest.self)
+            fallbackModel = chatRequest.model ?? "foundation"
+            fallbackMessages = chatRequest.messages
+            fallbackMaxTokens = chatRequest.effectiveMaxTokens ?? 2000
             if veryVerbose {
                 req.logger.info("Foundation full request: \(encodeJSON(chatRequest))")
             }
@@ -124,10 +130,13 @@ struct ChatCompletionsController: RouteCollection {
 
             let promptTokens = estimateTokens(for: processedMessages)
             let completionTokens = estimateTokens(for: content)
+            let effectiveMaxTokens = chatRequest.effectiveMaxTokens ?? 2000
+            let stopReason = completionTokens >= effectiveMaxTokens ? "length" : "stop"
 
             let response = ChatCompletionResponse(
                 model: chatRequest.model ?? "foundation",
                 content: content,
+                finishReason: stopReason,
                 promptTokens: promptTokens,
                 completionTokens: completionTokens
             )
@@ -138,6 +147,29 @@ struct ChatCompletionsController: RouteCollection {
             return try await createSuccessResponse(req: req, response: response)
 
         } catch let foundationError as FoundationModelError {
+            if case .responseTruncated(let maxTokens) = foundationError {
+                let promptTokens = estimateTokens(for: fallbackMessages)
+                let response = ChatCompletionResponse(
+                    model: fallbackModel,
+                    content: "",
+                    finishReason: "length",
+                    promptTokens: promptTokens,
+                    completionTokens: maxTokens
+                )
+                return try await createSuccessResponse(req: req, response: response)
+            }
+            if case .responseGenerationFailed(let message) = foundationError,
+               message.contains("Failed to deserialize a Generable type from model output") {
+                let promptTokens = estimateTokens(for: fallbackMessages)
+                let response = ChatCompletionResponse(
+                    model: fallbackModel,
+                    content: "",
+                    finishReason: "length",
+                    promptTokens: promptTokens,
+                    completionTokens: fallbackMaxTokens
+                )
+                return try await createSuccessResponse(req: req, response: response)
+            }
             // Handle specific error types
             let errorType: String
             let status: HTTPStatus
@@ -306,6 +338,8 @@ struct ChatCompletionsController: RouteCollection {
                     completionTime: completionTime,
                     promptTime: promptTime
                 )
+                let effectiveMaxTokens = chatRequest.effectiveMaxTokens ?? 2000
+                let finishReason = completionTokens >= effectiveMaxTokens ? "length" : "stop"
 
                 // Build timings for webui tokens/sec display
                 let timings = StreamTimings(
@@ -321,17 +355,29 @@ struct ChatCompletionsController: RouteCollection {
                     model: chatRequest.model ?? "foundation",
                     content: "",
                     isFinished: true,
-                    usage: usage,
-                    timings: timings
+                    finishReason: finishReason,
+                    usage: nil,
+                    timings: nil
                 )
                 let finalData = try encoder.encode(finalChunk)
                 if let jsonString = String(data: finalData, encoding: .utf8) {
+                    try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                }
+                let usageChunk = ChatCompletionStreamResponse(
+                    id: streamId,
+                    model: chatRequest.model ?? "foundation",
+                    usage: usage,
+                    timings: timings
+                )
+                let usageData = try encoder.encode(usageChunk)
+                if let jsonString = String(data: usageData, encoding: .utf8) {
                     try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                 }
                 if self.veryVerbose {
                     req.logger.info("Foundation full streamed response content: \(fullStreamedContent)")
                     req.logger.info("Foundation stream final usage: \(encodeJSON(usage))")
                     req.logger.info("Foundation stream final chunk: \(encodeJSON(finalChunk))")
+                    req.logger.info("Foundation stream usage chunk: \(encodeJSON(usageChunk))")
                 }
 
                 // Send done marker

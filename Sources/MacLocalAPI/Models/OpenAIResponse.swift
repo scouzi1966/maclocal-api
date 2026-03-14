@@ -31,7 +31,7 @@ struct ChatCompletionResponse: Content {
         }
     }
 
-    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil, timings: StreamTimings? = nil) {
+    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, finishReason: String = "stop", promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil, timings: StreamTimings? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion"
         self.created = Int(Date().timeIntervalSince1970)
@@ -41,7 +41,7 @@ struct ChatCompletionResponse: Content {
                 index: 0,
                 message: ResponseMessage(role: "assistant", content: content, reasoningContent: reasoningContent),
                 logprobs: logprobs,
-                finishReason: "stop"
+                finishReason: finishReason
             )
         ]
         self.usage = Usage(
@@ -291,6 +291,21 @@ struct ChatCompletionStreamResponse: Content {
                 )
             ]
         }
+    }
+
+    /// Init for the final stream usage summary chunk.
+    /// OpenAI-compatible usage chunks carry top-level usage with an empty
+    /// choices array so downstream parsers can distinguish them from content
+    /// deltas and terminal finish_reason chunks.
+    init(id: String, model: String, usage: StreamUsage, timings: StreamTimings? = nil) {
+        self.id = "chatcmpl-\(id.prefix(8))"
+        self.object = "chat.completion.chunk"
+        self.created = Int(Date().timeIntervalSince1970)
+        self.model = model
+        self.usage = usage
+        self.timings = timings
+        self.systemFingerprint = Self.fingerprint(for: model)
+        self.choices = []
     }
 
     /// Init for streaming tool call deltas

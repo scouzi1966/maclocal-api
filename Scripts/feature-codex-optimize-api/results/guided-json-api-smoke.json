@@ -1,0 +1,251 @@
+{
+  "generated_at": "2026-03-13T22:23:41.485616",
+  "results": [
+    {
+      "name": "models_endpoint",
+      "ok": true,
+      "elapsed_s": 0.002,
+      "details": {
+        "count": 1,
+        "first_id": "mlx-community/Qwen3.5-35B-A3B-4bit"
+      }
+    },
+    {
+      "name": "api_json_schema::person_basic",
+      "ok": true,
+      "elapsed_s": 0.662,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\"occupation\":\"mathematician\",\"age\":36,\"name\":\"Ada Lovelace\"}",
+        "parsed": {
+          "occupation": "mathematician",
+          "age": 36,
+          "name": "Ada Lovelace"
+        },
+        "usage": {
+          "completion_tokens": 19,
+          "prompt_tokens": 116,
+          "total_tokens": 135,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_tokens_per_second": 97.07,
+          "completion_time": 0.2,
+          "prompt_tokens_per_second": 997.68,
+          "prompt_time": 0.12,
+          "total_time": 0.31
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "api_json_schema::meeting_action_items",
+      "ok": true,
+      "elapsed_s": 1.347,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\n  \"items\": [\n    {\n      \"due_date\": \"Friday\",\n      \"task\": \"draft the customer email\",\n      \"owner\": \"Sarah\"\n    },\n    {\n      \"due_date\": \"Tuesday\",\n      \"task\": \"deploy the dashboard fix\",\n      \"owner\": \"Ben\"\n    },\n    {\n      \"due_date\": \"this afternoon\",\n      \"task\": \"confirm pricing with finance\",\n      \"owner\": \"Priya\"\n    }\n  ]\n}",
+        "parsed": {
+          "items": [
+            {
+              "due_date": "Friday",
+              "task": "draft the customer email",
+              "owner": "Sarah"
+            },
+            {
+              "due_date": "Tuesday",
+              "task": "deploy the dashboard fix",
+              "owner": "Ben"
+            },
+            {
+              "due_date": "this afternoon",
+              "task": "confirm pricing with finance",
+              "owner": "Priya"
+            }
+          ]
+        },
+        "usage": {
+          "completion_tokens": 116,
+          "prompt_tokens": 165,
+          "total_tokens": 281,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_tokens_per_second": 97.25,
+          "completion_time": 1.19,
+          "prompt_tokens_per_second": 1242.06,
+          "prompt_time": 0.13,
+          "total_time": 1.33
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "api_json_schema::support_ticket_triage",
+      "ok": true,
+      "elapsed_s": 0.794,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\n  \"severity\": \"high\",\n  \"blocked_teams\": [\n    \"billing\",\n    \"engineering\"\n  ],\n  \"summary\": \"Billing issue after upgrade\",\n  \"account_name\": \"Acme Labs\",\n  \"category\": \"billing\"\n}",
+        "parsed": {
+          "severity": "high",
+          "blocked_teams": [
+            "billing",
+            "engineering"
+          ],
+          "summary": "Billing issue after upgrade",
+          "account_name": "Acme Labs",
+          "category": "billing"
+        },
+        "usage": {
+          "completion_tokens": 61,
+          "prompt_tokens": 197,
+          "total_tokens": 258,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_tokens_per_second": 97.1,
+          "completion_time": 0.63,
+          "prompt_tokens_per_second": 1369.94,
+          "prompt_time": 0.14,
+          "total_time": 0.77
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "api_json_schema::article_summary",
+      "ok": true,
+      "elapsed_s": 3.743,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\n  \"headline\": \"City Council Approves Electric Bus Fleet Following Successful Pilot\",\n  \"entities\": [\n    {\n      \"type\": \"organization\",\n      \"name\": \"city council\"\n    },\n    {\n      \"type\": \"organization\",\n      \"name\": \"Transit officials\"\n    },\n    {\n      \"type\": \"organization\",\n      \"name\": \"transport committee\"\n    },\n    {\n      \"type\": \"metric\",\n      \"name\": \"22 percent\"\n    },\n    {\n      \"type\": \"date\",\n      \"name\": \"September\"\n    },\n    {\n      \"type\": \"date\",\n      \"name\": \"July\"\n    }\n  ],\n  \"key_points\": [\n    \"The city council voted 8-3 to approve a new electric bus fleet.\",\n    \"A six-month pilot program reduced fuel costs by 22 percent.\",\n    \"The first 40 buses will enter service in September.\",\n    \"Charging depots are scheduled for completion by July.\",\n    \"Winter battery performance concerns were addressed by the transport committee using pilot data from two cold snaps.\"\n  ],\n  \"summary\": \"The city council has officially approved a new electric bus fleet following a successful six-month pilot that cut fuel costs by 22 percent. While critics raised concerns regarding winter battery performance, the transport committee confirmed that pilot data from two cold snaps met operational targets. The first 40 buses are set to begin service in September, with charging infrastructure to be completed by July.\"\n}",
+        "parsed": {
+          "headline": "City Council Approves Electric Bus Fleet Following Successful Pilot",
+          "entities": [
+            {
+              "type": "organization",
+              "name": "city council"
+            },
+            {
+              "type": "organization",
+              "name": "Transit officials"
+            },
+            {
+              "type": "organization",
+              "name": "transport committee"
+            },
+            {
+              "type": "metric",
+              "name": "22 percent"
+            },
+            {
+              "type": "date",
+              "name": "September"
+            },
+            {
+              "type": "date",
+              "name": "July"
+            }
+          ],
+          "key_points": [
+            "The city council voted 8-3 to approve a new electric bus fleet.",
+            "A six-month pilot program reduced fuel costs by 22 percent.",
+            "The first 40 buses will enter service in September.",
+            "Charging depots are scheduled for completion by July.",
+            "Winter battery performance concerns were addressed by the transport committee using pilot data from two cold snaps."
+          ],
+          "summary": "The city council has officially approved a new electric bus fleet following a successful six-month pilot that cut fuel costs by 22 percent. While critics raised concerns regarding winter battery performance, the transport committee confirmed that pilot data from two cold snaps met operational targets. The first 40 buses are set to begin service in September, with charging infrastructure to be completed by July."
+        },
+        "usage": {
+          "completion_tokens": 343,
+          "prompt_tokens": 243,
+          "total_tokens": 586,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_tokens_per_second": 96.46,
+          "completion_time": 3.56,
+          "prompt_tokens_per_second": 1485.71,
+          "prompt_time": 0.16,
+          "total_time": 3.72
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "api_json_schema::catalog_normalization_refs",
+      "ok": true,
+      "elapsed_s": 1.97,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\n  \"product_name\": \"TrailPro 18L commuter backpack\",\n  \"category\": \"backpack\",\n  \"price_usd\": 89,\n  \"use_cases\": [\n    \"commuting\",\n    \"short hikes\"\n  ],\n  \"attributes\": [\n    {\n      \"value\": \"water-resistant recycled nylon shell\",\n      \"name\": \"material\"\n    },\n    {\n      \"value\": \"16 inch\",\n      \"name\": \"laptop sleeve capacity\"\n    },\n    {\n      \"value\": \"midnight blue\",\n      \"name\": \"color\"\n    },\n    {\n      \"value\": \"0.9 kg\",\n      \"name\": \"weight\"\n    }\n  ]\n}",
+        "parsed": {
+          "product_name": "TrailPro 18L commuter backpack",
+          "category": "backpack",
+          "price_usd": 89,
+          "use_cases": [
+            "commuting",
+            "short hikes"
+          ],
+          "attributes": [
+            {
+              "value": "water-resistant recycled nylon shell",
+              "name": "material"
+            },
+            {
+              "value": "16 inch",
+              "name": "laptop sleeve capacity"
+            },
+            {
+              "value": "midnight blue",
+              "name": "color"
+            },
+            {
+              "value": "0.9 kg",
+              "name": "weight"
+            }
+          ]
+        },
+        "usage": {
+          "completion_tokens": 172,
+          "prompt_tokens": 244,
+          "total_tokens": 416,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_tokens_per_second": 96.47,
+          "completion_time": 1.78,
+          "prompt_tokens_per_second": 1495.35,
+          "prompt_time": 0.16,
+          "total_time": 1.95
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "openai_python_parse::sdk_parse_person",
+      "ok": true,
+      "elapsed_s": 0.323,
+      "details": {
+        "content": "{\"occupation\":\"computer scientist\",\"name\":\"Grace Hopper\",\"age\":45}",
+        "parsed": {
+          "name": "Grace Hopper",
+          "age": 45,
+          "occupation": "computer scientist"
+        },
+        "refusal": null
+      }
+    }
+  ]
+}

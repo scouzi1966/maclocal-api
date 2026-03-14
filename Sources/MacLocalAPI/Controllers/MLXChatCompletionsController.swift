@@ -264,6 +264,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 content: finalContent,
                 reasoningContent: reasoningContent,
                 logprobs: choiceLogprobs,
+                finishReason: stopReason,
                 promptTokens: result.promptTokens,
                 completionTokens: completionTok,
                 cachedTokens: result.cachedTokens,
@@ -779,10 +780,14 @@ struct MLXChatCompletionsController: RouteCollection {
                         let emitContent = extracted.content
                         let emitReasoning = extracted.reasoning
 
-                        // Only emit a chunk if we have something to send
+                        let flushLogprobs = logprobBuffer.isEmpty ? nil : self.buildChoiceLogprobs(logprobBuffer)
+
+                        // Emit a chunk whenever we have visible content, extracted reasoning,
+                        // or buffered logprobs. Without this, per-token logprobs can be lost
+                        // when detokenized content is still buffered for think-tag extraction.
                         let hasReasoning = emitReasoning != nil
                         let hasContent = emitContent != nil
-                        if hasReasoning || hasContent {
+                        if hasReasoning || hasContent || flushLogprobs != nil {
                             if self.veryVerbose {
                                 if let r = emitReasoning { verboseReasoningBuf += r }
                                 if let c = emitContent { verboseContentBuf += c }
@@ -796,8 +801,6 @@ struct MLXChatCompletionsController: RouteCollection {
                                     verboseContentBuf = ""
                                 }
                             }
-                            // Flush accumulated logprobs with this chunk
-                            let flushLogprobs = logprobBuffer.isEmpty ? nil : self.buildChoiceLogprobs(logprobBuffer)
                             logprobBuffer = []
                             let contentChunk = ChatCompletionStreamResponse(
                                 id: streamId,
@@ -1054,13 +1057,29 @@ struct MLXChatCompletionsController: RouteCollection {
                         remainingReasoning = nil
                     }
                     if remaining != nil || remainingReasoning != nil {
+                        let flushLogprobs = logprobBuffer.isEmpty ? nil : self.buildChoiceLogprobs(logprobBuffer)
+                        logprobBuffer = []
                         let flushChunk = ChatCompletionStreamResponse(
                             id: streamId,
                             model: res.modelID,
                             content: remaining ?? "",
                             reasoningContent: remainingReasoning,
+                            logprobs: flushLogprobs,
                             isFirst: false
                         )
+                        if let flushData = try? encoder.encode(flushChunk),
+                           let jsonString = String(data: flushData, encoding: .utf8) {
+                            try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                        }
+                    } else if !logprobBuffer.isEmpty {
+                        let flushChunk = ChatCompletionStreamResponse(
+                            id: streamId,
+                            model: res.modelID,
+                            content: "",
+                            logprobs: self.buildChoiceLogprobs(logprobBuffer),
+                            isFirst: false
+                        )
+                        logprobBuffer = []
                         if let flushData = try? encoder.encode(flushChunk),
                            let jsonString = String(data: flushData, encoding: .utf8) {
                             try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
@@ -1082,12 +1101,20 @@ struct MLXChatCompletionsController: RouteCollection {
                     model: res.modelID,
                     content: "",
                     isFinished: true,
-                    finishReason: finishReason,
-                    usage: usage,
-                    timings: StreamTimings(prompt_n: promptTokens, prompt_ms: promptTime * 1000, predicted_n: completionTokens, predicted_ms: generateTime * 1000)
+                    finishReason: finishReason
                 )
                 let finalData = try encoder.encode(finalChunk)
                 if let jsonString = String(data: finalData, encoding: .utf8) {
+                    try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                }
+                let usageChunk = ChatCompletionStreamResponse(
+                    id: streamId,
+                    model: res.modelID,
+                    usage: usage,
+                    timings: StreamTimings(prompt_n: promptTokens, prompt_ms: promptTime * 1000, predicted_n: completionTokens, predicted_ms: generateTime * 1000)
+                )
+                let usageData = try encoder.encode(usageChunk)
+                if let jsonString = String(data: usageData, encoding: .utf8) {
                     try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                 }
                 try? await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))

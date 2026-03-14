@@ -582,6 +582,11 @@ struct MlxCommand: ParsableCommand {
 
         let group = DispatchGroup()
         var output: Result<String, Error>?
+        let stdoutFD = dup(STDOUT_FILENO)
+        if stdoutFD == -1 || dup2(STDERR_FILENO, STDOUT_FILENO) == -1 {
+            if stdoutFD != -1 { close(stdoutFD) }
+            throw ValidationError("Failed to redirect single-prompt operational logs to stderr")
+        }
         group.enter()
         Task {
             do {
@@ -633,16 +638,49 @@ struct MlxCommand: ParsableCommand {
             group.leave()
         }
         group.wait()
+        fflush(stdout)
+        _ = dup2(stdoutFD, STDOUT_FILENO)
+        close(stdoutFD)
 
         switch output {
         case .success(let text):
-            print(text)
+            let rendered: String
+            if raw {
+                rendered = text
+            } else {
+                rendered = Self.stripThinkContent(
+                    from: text,
+                    startTag: service.thinkStartTag ?? "<think>",
+                    endTag: service.thinkEndTag ?? "</think>"
+                )
+            }
+            print(rendered)
         case .failure(let error):
             print("Error: \(error.localizedDescription)")
             throw ExitCode.failure
         case .none:
             throw ExitCode.failure
         }
+    }
+
+    private static func stripThinkContent(from text: String, startTag: String, endTag: String) -> String {
+        var output = text
+        while let start = output.range(of: startTag) {
+            if let end = output.range(of: endTag, range: start.upperBound..<output.endIndex) {
+                output.removeSubrange(start.lowerBound..<end.upperBound)
+            } else {
+                // Some guided/grammar-constrained generations can emit a stray
+                // opening think tag before the actual payload without ever
+                // closing it. In that case keep the payload and drop only the tag.
+                if start.lowerBound == output.startIndex {
+                    output.removeSubrange(start)
+                } else {
+                    output.removeSubrange(start.lowerBound..<output.endIndex)
+                }
+                break
+            }
+        }
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func readFromStdin() throws -> String? {
