@@ -129,6 +129,24 @@ actor BatchScheduler {
     /// Thread-safe shutdown flag — accessed without actor isolation.
     private let _isShutdown = OSAllocatedUnfairLock(initialState: false)
 
+    /// Thread-safe in-flight counter (pending + active). Incremented in submit(),
+    /// decremented in finishSlot() and error paths. Used for capacity checks.
+    private let _inFlightCount = OSAllocatedUnfairLock(initialState: 0)
+
+    /// Atomically reserve a slot if under capacity. Returns true if reserved.
+    nonisolated func tryReserve() -> Bool {
+        _inFlightCount.withLock { count in
+            if count >= maxConcurrent { return false }
+            count += 1
+            return true
+        }
+    }
+
+    /// Release a reserved slot (call if request fails before reaching submit).
+    nonisolated func releaseReservation() {
+        _inFlightCount.withLock { $0 = max($0 - 1, 0) }
+    }
+
     private var loopTask: Task<Void, Never>?
 
     /// Tracks concrete type in batchCaches to avoid per-step type checks.
@@ -197,6 +215,7 @@ actor BatchScheduler {
 
         let (stream, continuation) = AsyncThrowingStream<StreamChunk, Error>.makeStream()
 
+        // Note: slot already reserved by tryReserve() in the controller layer.
         _pendingQueue.withLock {
             $0.append(PendingRequest(
                 input: input,
@@ -206,7 +225,7 @@ actor BatchScheduler {
             ))
         }
 
-        DebugLogger.log("[BatchScheduler] Request enqueued")
+        DebugLogger.log("[BatchScheduler] Request enqueued (\(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
         Task { await self.ensureLoopRunning() }
 
         return stream
@@ -243,6 +262,8 @@ actor BatchScheduler {
         for slot in slots {
             slot.continuation.finish(throwing: MLXServiceError.serviceShuttingDown)
         }
+        // Reset in-flight counter
+        _inFlightCount.withLock { $0 = 0 }
         slots.removeAll()
         batchCaches = []
         batchState = nil
@@ -646,8 +667,9 @@ actor BatchScheduler {
             generateTime: generateTime
         ))
         slot.continuation.finish()
+        _inFlightCount.withLock { $0 = max($0 - 1, 0) }
 
-        DebugLogger.log("[BatchScheduler] Finished slot \(slot.id.uuidString.prefix(8)) (\(slot.tokenCount) tok, \(String(format: "%.2f", elapsed))s)")
+        DebugLogger.log("[BatchScheduler] Finished slot \(slot.id.uuidString.prefix(8)) (\(slot.tokenCount) tok, \(String(format: "%.2f", elapsed))s, in-flight: \(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
 
         // Remove from batch cache and state
         let keepIndices = (0..<slots.count).filter { $0 != index }

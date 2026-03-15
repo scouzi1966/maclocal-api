@@ -147,6 +147,23 @@ struct MLXChatCompletionsController: RouteCollection {
                 fflush(stdout)
             }
 
+            // Atomically reserve a concurrent slot (check + increment in one lock).
+            // Serial mode always returns true. Returns 503 if at capacity.
+            guard service.tryReserveSlot() else {
+                let peer = req.peerAddress?.description ?? "unknown"
+                let ua = req.headers.first(name: .userAgent) ?? "unknown"
+                req.logger.warning("Connection refused: at capacity (\(service.maxConcurrent)/\(service.maxConcurrent)) — client=\(peer) ua=\(ua)")
+                let response = Response(status: .serviceUnavailable)
+                response.headers.add(name: .contentType, value: "application/json")
+                response.headers.add(name: .accessControlAllowOrigin, value: "*")
+                response.headers.add(name: "Retry-After", value: "2")
+                try response.content.encode(OpenAIError(
+                    message: "Server at capacity (\(service.maxConcurrent) concurrent requests). Please retry shortly.",
+                    type: "server_busy"
+                ))
+                return response
+            }
+
             let isWebUI = req.headers.first(name: .origin) != nil
             let extractThinking = !rawOutput || isWebUI
 

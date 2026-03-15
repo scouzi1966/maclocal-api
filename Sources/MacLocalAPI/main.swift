@@ -556,8 +556,7 @@ struct MlxCommand: ParsableCommand {
                     mlxPresencePenalty: presencePenalty,
                     mlxSeed: seed,
                     mlxMaxLogprobs: maxLogprobs,
-                    contextWindow: contextWindow,
-                    maxConcurrent: maxConcurrent
+                    contextWindow: contextWindow
                 )
                 globalServer = server
                 if !explicitPort && chosenPort != 9999 {

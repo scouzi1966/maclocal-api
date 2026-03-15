@@ -53,6 +53,7 @@ enum MLXServiceError: Error, LocalizedError {
     case loadFailed(String)
     case noModelLoaded
     case serviceShuttingDown
+    case serverBusy(Int)
 
     var errorDescription: String? {
         switch self {
@@ -68,6 +69,8 @@ enum MLXServiceError: Error, LocalizedError {
             return "No MLX model loaded"
         case .serviceShuttingDown:
             return "MLX service is shutting down"
+        case .serverBusy(let max):
+            return "Server at capacity (\(max) concurrent requests). Please retry shortly."
         }
     }
 }
@@ -120,6 +123,10 @@ final class MLXModelService: @unchecked Sendable {
     private var scheduler: BatchScheduler?
     /// Maximum concurrent generations (0 = serial mode, 2+ = batch mode).
     var maxConcurrent: Int = 0
+    /// Atomically reserve a concurrent slot. Returns true if reserved (or serial mode).
+    func tryReserveSlot() -> Bool { scheduler?.tryReserve() ?? true }
+    /// Release a reserved slot (call if request fails before generation starts).
+    func releaseSlot() { scheduler?.releaseReservation() }
     init(resolver: MLXCacheResolver) {
         self.resolver = resolver
         self.resolver.applyEnvironment()
