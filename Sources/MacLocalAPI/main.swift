@@ -351,6 +351,9 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Disable thinking/reasoning (sets enable_thinking=false in chat template)")
     var noThink: Bool = false
 
+    @Option(name: .long, help: "Max concurrent requests (enables batch mode; 0 or 1 reverts to serial)")
+    var concurrent: Int?
+
     @Flag(name: .long, help: "Print OpenClaw provider config JSON and exit")
     var openclawConfig: Bool = false
 
@@ -380,6 +383,9 @@ struct MlxCommand: ParsableCommand {
         service.kvEvictionPolicy = kvEviction ?? "none"
         service.enablePrefixCaching = enablePrefixCaching
         service.enableGrammarConstraints = enableGrammarConstraints
+        // --concurrent N: 0 or 1 silently falls back to serial; nil = serial; 2+ = batch mode
+        let maxConcurrent = concurrent ?? 0
+        service.maxConcurrent = (maxConcurrent >= 2) ? maxConcurrent : 0
         service.trace = vv
 
         // Parse --default-chat-template-kwargs and --no-think into defaultChatTemplateKwargs
@@ -526,6 +532,8 @@ struct MlxCommand: ParsableCommand {
                     stage: { s in loadReporter.updateStage(s) }
                 )
                 loadReporter.finish(success: true)
+                // Initialize concurrent scheduler after model is loaded
+                try await service.initScheduler()
                 let server = try await Server(
                     port: chosenPort,
                     hostname: hostname,

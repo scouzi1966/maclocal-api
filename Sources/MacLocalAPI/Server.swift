@@ -5,7 +5,6 @@ import Compression
 import AppKit
 #endif
 import Logging
-
 // Storage key for the continuation
 struct ContinuationKey: StorageKey {
     typealias Value = CheckedContinuation<Void, Error>
