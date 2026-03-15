@@ -26,8 +26,9 @@ struct StreamChunk: Sendable {
     let cachedTokens: Int?
     let promptTime: Double?
     let generateTime: Double?
+    let stoppedBySequence: Bool?
 
-    init(text: String, logprobs: [ResolvedLogprob]? = nil, toolCalls: [ResponseToolCall]? = nil, promptTokens: Int? = nil, completionTokens: Int? = nil, cachedTokens: Int? = nil, promptTime: Double? = nil, generateTime: Double? = nil) {
+    init(text: String, logprobs: [ResolvedLogprob]? = nil, toolCalls: [ResponseToolCall]? = nil, promptTokens: Int? = nil, completionTokens: Int? = nil, cachedTokens: Int? = nil, promptTime: Double? = nil, generateTime: Double? = nil, stoppedBySequence: Bool? = nil) {
         self.text = text
         self.logprobs = logprobs
         self.toolCalls = toolCalls
@@ -36,6 +37,7 @@ struct StreamChunk: Sendable {
         self.cachedTokens = cachedTokens
         self.promptTime = promptTime
         self.generateTime = generateTime
+        self.stoppedBySequence = stoppedBySequence
     }
 }
 
@@ -365,7 +367,7 @@ final class MLXModelService: @unchecked Sendable {
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
         chatTemplateKwargs: [String: AnyCodable]? = nil
-    ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?, cachedTokens: Int, promptTime: Double, generateTime: Double) {
+    ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?, cachedTokens: Int, promptTime: Double, generateTime: Double, stoppedBySequence: Bool) {
         try beginOperation()
         defer { endOperation() }
 
@@ -401,6 +403,7 @@ final class MLXModelService: @unchecked Sendable {
         var collectedToolCalls = [ToolCall]()
         var completionInfo: GenerateCompletionInfo? = nil
         var cachedTokenCount = 0
+        var stoppedBySequence = false
         let generated: String = try await container.perform { context in
             // Grammar constraint setup (needs tokenizer from context)
             let grammarProcessor: GrammarLogitProcessor?
@@ -590,6 +593,7 @@ final class MLXModelService: @unchecked Sendable {
                                     let keepEnd = out.index(vcStart, offsetBy: visibleContent.distance(from: visibleContent.startIndex, to: range.lowerBound))
                                     out = String(out[..<keepEnd])
                                 }
+                                stoppedBySequence = true
                                 break
                             }
                         }
@@ -725,7 +729,7 @@ final class MLXModelService: @unchecked Sendable {
         let completionTokens = completionInfo?.generationTokenCount ?? estimateTokens(generated)
         let promptTime = completionInfo?.promptTime ?? 0
         let generateTime = completionInfo?.generateTime ?? 0
-        return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount, promptTime, generateTime)
+        return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount, promptTime, generateTime, stoppedBySequence)
     }
 
     func generateStreaming(
@@ -1007,7 +1011,9 @@ final class MLXModelService: @unchecked Sendable {
                                             if let range = stopBuffer.range(of: match) {
                                                 let before = String(stopBuffer[..<range.lowerBound])
                                                 if !before.isEmpty {
-                                                    continuation.yield(StreamChunk(text: before, logprobs: resolved))
+                                                    continuation.yield(StreamChunk(text: before, logprobs: resolved, stoppedBySequence: true))
+                                                } else {
+                                                    continuation.yield(StreamChunk(text: "", logprobs: resolved, stoppedBySequence: true))
                                                 }
                                             }
                                             break

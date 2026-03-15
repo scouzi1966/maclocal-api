@@ -255,7 +255,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 return try await createSuccessResponse(req: req, response: response)
             }
 
-            let stopReason = completionTok >= effectiveMaxTokens ? "length" : "stop"
+            let stopReason = result.stoppedBySequence ? "stop" : (completionTok >= effectiveMaxTokens ? "length" : "stop")
             if veryVerbose {
                 print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false\n  prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok)\n  prompt=\(String(format: "%.2f", promptTime))s gen=\(String(format: "%.2f", generateTime))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=\(stopReason)\(Self.reset)"); fflush(stdout)
             }
@@ -377,6 +377,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 var logprobBuffer = [ResolvedLogprob]()
                 var collectedToolCalls = [ResponseToolCall]()
                 var hasToolCalls = false
+                var stoppedBySequence = false
                 var realPromptTokens: Int? = nil
                 var realCompletionTokens: Int? = nil
                 var realCachedTokens: Int? = nil
@@ -431,6 +432,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     if let pt = streamChunk.promptTokens { realPromptTokens = pt }
                     if let ct = streamChunk.completionTokens { realCompletionTokens = ct }
                     if let cached = streamChunk.cachedTokens { realCachedTokens = cached }
+                    if streamChunk.stoppedBySequence == true { stoppedBySequence = true }
                     if let pt = streamChunk.promptTime { realPromptTime = pt }
                     if let gt = streamChunk.generateTime { realGenerateTime = gt }
 
@@ -1032,7 +1034,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true\n  prompt_tokens=\(promptTokens) completion_tokens=\(completionTokens)\n  elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=tool_calls\(Self.reset)")
                     }
                 } else {
-                    finishReason = completionTokens >= effectiveMaxTokens ? "length" : "stop"
+                    finishReason = stoppedBySequence ? "stop" : (completionTokens >= effectiveMaxTokens ? "length" : "stop")
                     if self.veryVerbose {
                         let (finalAnswer, _) = Self.extractThinkContent(from: fullContent, startTag: thinkStartTag ?? "<think>", endTag: thinkEndTag ?? "</think>")
                         let trimmedAnswer = finalAnswer.trimmingCharacters(in: .whitespacesAndNewlines)

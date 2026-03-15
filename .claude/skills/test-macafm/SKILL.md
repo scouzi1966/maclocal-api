@@ -120,6 +120,9 @@ kill %1  # or whatever the background job is
 | **Error** | Wrong HTTP status codes | Check controller validation logic |
 | **Kwargs** | Thinking not disabled by `enable_thinking: false` | Check `chat_template_kwargs` merging into `additionalContext` in `MLXModelService.swift` |
 | **Perf** | Low tok/s, high TTFT | Check model quantization, Metal kernel performance |
+| **OpenAI-compat** | Stream usage chunk missing, logprobs absent | Check `StreamingUsageChunk` encoding, empty choices on final chunk |
+| **Guided JSON** | Schema validation failure, invalid JSON | Check `--guided-json` / `response_format` pipeline, grammar constraints |
+| **Batch** | Garbage output, wrong answers at B>1 | Check BatchScheduler, KV cache isolation, mask generation |
 
 ### Smart Analysis False Positives
 
@@ -141,7 +144,7 @@ Known patterns where AI judges score incorrectly (see `references/interpreting-s
 
 | File | Purpose |
 |------|---------|
-| `Scripts/test-assertions.sh` | Automated pass/fail assertion tests (smoke/standard/full tiers) |
+| `Scripts/test-assertions.sh` | Automated pass/fail assertion tests (unit/smoke/standard/full tiers, includes `swift test`) |
 | `Scripts/test-llm-comprehensive.txt` | Comprehensive smart analysis test suite (model-generic, `[@ label]` template mode, has `[all]` baseline) |
 | `Scripts/test-Qwen3.5-35B-A3B-4bit.txt` | Model-specific test suite for Qwen3.5-35B-A3B-4bit (same tests as comprehensive, hardcoded model) |
 | `Scripts/test-edge-cases.txt` | Legacy smart analysis test prompts (smaller set) |
@@ -151,6 +154,13 @@ Known patterns where AI judges score incorrectly (see `references/interpreting-s
 | `Scripts/mlx-model-test.sh` | Test harness: runs prompts, collects results, generates reports |
 | `Scripts/test-chat-template-kwargs.sh` | Standalone chat_template_kwargs tests (includes --no-think CLI + precedence) |
 | `Scripts/regression-test.sh` | Quick regression smoke test |
+| `Scripts/feature-codex-optimize-api/test-openai-compat-evals.py` | OpenAI-python SDK compatibility evals (non-stream, stream, logprobs, vllm bench) |
+| `Scripts/feature-codex-optimize-api/test-guided-json-evals.py` | Guided JSON / structured output evals (API, streaming, CLI, SDK parse, edge cases) |
+| `Scripts/feature-mlx-concurrent-batch/validate_responses.py` | Batched generation correctness: known-answer questions at B={1,2,4,8} |
+| `Scripts/feature-mlx-concurrent-batch/validate_mixed_workload.py` | Mixed short+long workload batch validation with GPU metrics |
+| `Scripts/feature-mlx-concurrent-batch/validate_multiturn_prefix.py` | Multi-turn prefix cache validation under concurrency |
+| `Tests/MacLocalAPITests/StreamingUsageChunkTests.swift` | Unit tests: streaming usage chunks, finish reasons, Foundation commonPrefixLength |
+| `Tests/MacLocalAPITests/ConcurrentBatchTests.swift` | Unit tests: RequestSlot, StreamChunk, BatchScheduler internals |
 
 ## Validation Checklist
 
@@ -174,6 +184,8 @@ Known patterns where AI judges score incorrectly (see `references/interpreting-s
 - [ ] chat_template_kwargs: `enable_thinking=false` disables thinking (if model supports it)
 - [ ] chat_template_kwargs: streaming parity
 - [ ] chat_template_kwargs: default behavior unaffected
+- [ ] OpenAI-compat evals: `test-openai-compat-evals.py` (non-stream, stream, logprobs, usage chunk)
+- [ ] Guided JSON evals: `test-guided-json-evals.py` (API schema, streaming schema, SDK parse)
 
 ### Full Tier (adds)
 - [ ] All standard checks
@@ -182,3 +194,6 @@ Known patterns where AI judges score incorrectly (see `references/interpreting-s
 - [ ] Smart analysis: test-llm-comprehensive.txt with AI judge (`--smart 1:claude` or `--smart 1:codex`)
 - [ ] Streaming parity (assembled content matches non-streaming)
 - [ ] Cache timing improvement visible
+- [ ] Batch correctness: `validate_responses.py` at B={1,2,4,8}
+- [ ] Batch mixed workload: `validate_mixed_workload.py` (short+long decode, GPU metrics)
+- [ ] Batch prefix cache: `validate_multiturn_prefix.py` (multi-turn conversations under concurrency)
