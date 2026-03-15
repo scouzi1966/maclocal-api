@@ -59,6 +59,9 @@ struct ServeCommand: ParsableCommand {
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
 
+    @Option(name: .long, help: "Enable iMessage bridge with a comma-separated Apple ID whitelist (direct chats only, pairing required)")
+    var imessage: String?
+
     @Flag(name: [.customShort("g"), .long], help: "Enable API gateway mode: discover and proxy to local LLM backends (Ollama, LM Studio, Jan, etc.)")
     var gateway: Bool = false
 
@@ -86,6 +89,18 @@ struct ServeCommand: ParsableCommand {
 
         // Parse prewarm flag
         let prewarmEnabled = prewarm.lowercased() != "n" && prewarm.lowercased() != "no" && prewarm != "0"
+        let iMessageConfiguration = try makeIMessageConfiguration(
+            rawAllowlist: imessage,
+            hostname: hostname,
+            port: port,
+            modelID: "foundation",
+            instructions: instructions,
+            verbose: verbose || veryVerbose || vv
+        )
+
+        if gateway, iMessageConfiguration != nil {
+            throw ValidationError("--imessage is not supported with --gateway")
+        }
 
         if verbose {
             print("Starting afm server with verbose logging enabled...")
@@ -101,7 +116,7 @@ struct ServeCommand: ParsableCommand {
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: port, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose || vv, trace: vv, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled)
+                let server = try await Server(port: port, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose || vv, trace: vv, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled, iMessageConfiguration: iMessageConfiguration)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -143,6 +158,7 @@ struct MlxCommand: ParsableCommand {
           -v, --verbose: Enable verbose logging
           -V, --very-verbose: Log full requests/responses and all parameters
           -w, --webui: Enable WebUI and open in browser
+          --imessage: Enable iMessage bridge with a comma-separated Apple ID whitelist
           -t, --temperature: Sampling temperature (0.0-2.0)
           --top-p: Nucleus sampling threshold (0.0-1.0)
           --top-k: Keep only k most likely tokens (0 = disabled)
@@ -330,6 +346,9 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible). Auto-disables thinking on reasoning models for deterministic output.")
     var guidedJson: String?
 
+    @Option(name: .long, help: "Enable iMessage bridge with a comma-separated Apple ID whitelist (direct chats only, pairing required)")
+    var imessage: String?
+
     @Option(name: .long, help: "Tool call parser override: afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml. afm_adaptive_xml adds JSON-in-XML fallback, type coercion, and optional xgrammar EBNF constrained decoding for models that switch between XML and JSON formats. Recommended for Qwen3+ models.")
     var toolCallParser: String?
 
@@ -368,6 +387,11 @@ struct MlxCommand: ParsableCommand {
 
         if gateway {
             print("Error: -g/--gateway is not supported in 'afm mlx' mode.")
+            throw ExitCode.failure
+        }
+
+        if imessage != nil && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
+            print("Error: --imessage requires server mode and cannot be used with -s or piped single-prompt input")
             throw ExitCode.failure
         }
 
@@ -517,6 +541,14 @@ struct MlxCommand: ParsableCommand {
             chosenPort = try findEphemeralPort()
             print("Port 9999 is busy, using ephemeral port \(chosenPort)")
         }
+        let iMessageConfiguration = try makeIMessageConfiguration(
+            rawAllowlist: imessage,
+            hostname: hostname,
+            port: chosenPort,
+            modelID: selectedModel,
+            instructions: instructions,
+            verbose: verbose || veryVerbose || vv
+        )
 
         if verbose {
             print("Loading MLX model (download if needed): \(selectedModel)")
@@ -550,6 +582,7 @@ struct MlxCommand: ParsableCommand {
                     webuiEnabled: webui,
                     gatewayEnabled: false,
                     prewarmEnabled: false,
+                    iMessageConfiguration: iMessageConfiguration,
                     mlxModelID: selectedModel,
                     mlxModelService: service,
                     mlxRepetitionPenalty: repetitionPenalty,
@@ -990,6 +1023,7 @@ struct MacLocalAPI: ParsableCommand {
           -v, --verbose: Enable verbose logging
           -V, --very-verbose: Log full requests/responses
           -w, --webui: Enable WebUI and open in browser
+          --imessage: Enable iMessage bridge with a comma-separated Apple ID whitelist
           -g, --gateway: Enable API gateway (discover/proxy Ollama, LM Studio, Jan, etc.)
           -t, --temperature: Sampling temperature (0.0-1.0)
           -r, --randomness: "greedy", "random", "random:top-p=0.9", "random:top-k=40", ":seed=42"
@@ -1064,6 +1098,7 @@ struct RootCommand: ParsableCommand {
           -v, --verbose: Enable verbose logging
           -V, --very-verbose: Log full requests/responses
           -w, --webui: Enable WebUI and open in browser
+          --imessage: Enable iMessage bridge with a comma-separated Apple ID whitelist
           -g, --gateway: Enable API gateway (discover/proxy Ollama, LM Studio, Jan, etc.)
           -t, --temperature: Sampling temperature (0.0-1.0)
           -r, --randomness: "greedy", "random", "random:top-p=0.9", "random:top-k=40", ":seed=42"
@@ -1142,6 +1177,9 @@ struct RootCommand: ParsableCommand {
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
 
+    @Option(name: .long, help: "Enable iMessage bridge with a comma-separated Apple ID whitelist (direct chats only, pairing required)")
+    var imessage: String?
+
     @Flag(name: [.customShort("g"), .long], help: "Enable API gateway mode: discover and proxy to local LLM backends (Ollama, LM Studio, Jan, etc.)")
     var gateway: Bool = false
 
@@ -1181,6 +1219,10 @@ struct RootCommand: ParsableCommand {
             }
         }
 
+        if imessage != nil && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
+            throw ValidationError("--imessage requires server mode and cannot be used with -s or piped single-prompt input")
+        }
+
         // Handle single-prompt mode for backward compatibility
         if let prompt = singlePrompt {
             return try runSinglePrompt(prompt, adapter: adapter)
@@ -1201,6 +1243,7 @@ struct RootCommand: ParsableCommand {
         if permissiveGuardrails { args.append("--permissive-guardrails") }
         if webui { args.append("--webui") }
         if gateway { args.append("--gateway") }
+        if let imessage { args += ["--imessage", imessage] }
         if let adapter { args += ["--adapter", adapter] }
         if let temperature { args += ["--temperature", "\(temperature)"] }
         if let randomness { args += ["--randomness", randomness] }
@@ -1607,5 +1650,32 @@ func parseGuidedJsonSchema(_ jsonString: String) throws -> ResponseJsonSchema {
         description: nil,
         schema: AnyCodable(jsonObj),
         strict: true
+    )
+}
+
+private func makeIMessageConfiguration(
+    rawAllowlist: String?,
+    hostname: String,
+    port: Int,
+    modelID: String,
+    instructions: String,
+    verbose: Bool
+) throws -> IMessageConfiguration? {
+    guard let rawAllowlist, !rawAllowlist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        return nil
+    }
+    let host: String
+    switch hostname {
+    case "0.0.0.0", "::", "[::]":
+        host = "127.0.0.1"
+    default:
+        host = hostname
+    }
+    return IMessageConfiguration(
+        allowedSenders: try IMessageConfiguration.parseAllowedSenders(rawAllowlist),
+        localBaseURL: "http://\(host):\(port)",
+        modelID: modelID,
+        instructions: instructions,
+        verbose: verbose
     )
 }
