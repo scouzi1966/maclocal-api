@@ -91,6 +91,11 @@ private var traceLogging = false
 private var grammarConstraintsActive = false
 
 final class MLXModelService: @unchecked Sendable {
+    private static let registerModelFactoriesOnce: Void = {
+        ModelFactoryRegistry.shared.addTrampoline { LLMModelFactory.shared }
+        ModelFactoryRegistry.shared.addTrampoline { VLMModelFactory.shared }
+    }()
+
     private let resolver: MLXCacheResolver
     private let registry = MLXModelRegistry()
     private let stateLock = NSLock()
@@ -117,6 +122,7 @@ final class MLXModelService: @unchecked Sendable {
     private(set) var thinkEndTag: String?
     private var xgrammarService: XGrammarService?
     init(resolver: MLXCacheResolver) {
+        _ = Self.registerModelFactoriesOnce
         self.resolver = resolver
         self.resolver.applyEnvironment()
     }
@@ -255,6 +261,9 @@ final class MLXModelService: @unchecked Sendable {
                 do {
                     loaded = try await LLMModelFactory.shared.loadContainer(configuration: config)
                 } catch {
+                    if debugLogging {
+                        print("[\(ts())] [MLX] LLM factory load failed for \(modelID): \(error)")
+                    }
                     // LLM factory failed — try VLM factory as fallback
                     loaded = try await VLMModelFactory.shared.loadContainer(configuration: config)
                 }
@@ -2350,6 +2359,12 @@ final class MLXModelService: @unchecked Sendable {
                 resolvedKwargs[key] = value.value.toAny()
             }
         }
+        if responseFormat?.type == "json_schema",
+           thinkStartTag != nil, thinkEndTag != nil,
+           (resolvedKwargs["enable_thinking"] as? Bool) != false {
+            resolvedKwargs["enable_thinking"] = false
+            print("[\(ts())] [StructuredOutput] Disabling thinking for guided JSON on reasoning-capable model")
+        }
         if !resolvedKwargs.isEmpty {
             if input.additionalContext == nil { input.additionalContext = [:] }
             for (key, value) in resolvedKwargs {
@@ -2994,4 +3009,3 @@ final class MLXModelService: @unchecked Sendable {
     """
 
 }
-

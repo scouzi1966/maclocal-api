@@ -1,0 +1,309 @@
+{
+  "generated_at": "2026-03-13T22:25:01.650962",
+  "results": [
+    {
+      "name": "models_endpoint",
+      "ok": true,
+      "elapsed_s": 0.002,
+      "details": {
+        "count": 1,
+        "first_id": "mlx-community/Qwen3.5-35B-A3B-4bit"
+      }
+    },
+    {
+      "name": "api_json_schema::person_basic",
+      "ok": true,
+      "elapsed_s": 0.653,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\"occupation\":\"mathematician\",\"age\":36,\"name\":\"Ada Lovelace\"}",
+        "parsed": {
+          "occupation": "mathematician",
+          "age": 36,
+          "name": "Ada Lovelace"
+        },
+        "usage": {
+          "completion_tokens": 19,
+          "prompt_tokens": 116,
+          "total_tokens": 135,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_tokens_per_second": 97.33,
+          "completion_time": 0.2,
+          "prompt_tokens_per_second": 1033.72,
+          "prompt_time": 0.11,
+          "total_time": 0.31
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "cli_guided_json::person_basic",
+      "ok": false,
+      "elapsed_s": 3.321,
+      "details": {
+        "error": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+        "stdout": "MLX model: mlx-community/Qwen3.5-35B-A3B-4bit\nLoading MLX model: mlx-community/Qwen3.5-35B-A3B-4bit\n\n[/                       ]   --.-% checking cache | mem 0.02 GB | 0.0s[2026-03-13 22:24:34.816] MLX GPU: cache=1024MB wired=427622MB (system 512GB)\n\n[-                       ]   --.-% loading model | mem 0.99 GB | 0.2s\n[\\                       ]   --.-% loading model | mem 7.27 GB | 0.4s\n[|                       ]   --.-% loading model | mem 13.64 GB | 0.6s\n[/                       ]   --.-% loading model | mem 18.41 GB | 0.8s\n[done] ready | mem 18.36 GB | 1.0s\n<think>{\"occupation\":\"mathematician\",\"name\":\"Ada Lovelace\",\"age\":36}"
+      }
+    },
+    {
+      "name": "api_json_schema::meeting_action_items",
+      "ok": true,
+      "elapsed_s": 1.622,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\n  \"items\": [\n    {\n      \"owner\": \"Sarah\",\n      \"due_date\": \"Friday\",\n      \"task\": \"draft the customer email\"\n    },\n    {\n      \"owner\": \"Ben\",\n      \"due_date\": \"Tuesday\",\n      \"task\": \"deploy the dashboard fix\"\n    },\n    {\n      \"owner\": \"Priya\",\n      \"due_date\": \"this afternoon\",\n      \"task\": \"confirm pricing with finance\"\n    }\n  ]\n}",
+        "parsed": {
+          "items": [
+            {
+              "owner": "Sarah",
+              "due_date": "Friday",
+              "task": "draft the customer email"
+            },
+            {
+              "owner": "Ben",
+              "due_date": "Tuesday",
+              "task": "deploy the dashboard fix"
+            },
+            {
+              "owner": "Priya",
+              "due_date": "this afternoon",
+              "task": "confirm pricing with finance"
+            }
+          ]
+        },
+        "usage": {
+          "completion_tokens": 116,
+          "prompt_tokens": 165,
+          "total_tokens": 281,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_tokens_per_second": 97.41,
+          "completion_time": 1.19,
+          "prompt_tokens_per_second": 1186.57,
+          "prompt_time": 0.14,
+          "total_time": 1.33
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "cli_guided_json::meeting_action_items",
+      "ok": false,
+      "elapsed_s": 2.593,
+      "details": {
+        "error": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+        "stdout": "MLX model: mlx-community/Qwen3.5-35B-A3B-4bit\nLoading MLX model: mlx-community/Qwen3.5-35B-A3B-4bit\n\n[/                       ]   --.-% checking cache | mem 0.02 GB | 0.0s[2026-03-13 22:24:39.748] MLX GPU: cache=1024MB wired=427622MB (system 512GB)\n\n[-                       ]   --.-% loading model | mem 1.50 GB | 0.2s\n[\\                       ]   --.-% loading model | mem 7.58 GB | 0.4s\n[|                       ]   --.-% loading model | mem 13.82 GB | 0.6s\n[/                       ]   --.-% loading model | mem 18.41 GB | 0.8s\n[done] ready | mem 18.35 GB | 0.9s\n<think>{\"items\":[{\"due_date\":\"Friday\",\"owner\":\"Sarah\",\"task\":\"draft the customer email\"},{\"due_date\":\"Tuesday\",\"owner\":\"Ben\",\"task\":\"deploy the dashboard fix\"},{\"due_date\":\"this afternoon\",\"owner\":\"Priya\",\"task\":\"confirm pricing with finance\"}]}"
+      }
+    },
+    {
+      "name": "api_json_schema::support_ticket_triage",
+      "ok": true,
+      "elapsed_s": 1.228,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\n  \"summary\": \"Billing issue after upgrade: invoices show Starter plan and two users cannot access analytics, blocking finance close.\",\n  \"category\": \"billing\",\n  \"blocked_teams\": [\n    \"finance\",\n    \"analytics\"\n  ],\n  \"severity\": \"high\",\n  \"account_name\": \"Acme Labs\"\n}",
+        "parsed": {
+          "summary": "Billing issue after upgrade: invoices show Starter plan and two users cannot access analytics, blocking finance close.",
+          "category": "billing",
+          "blocked_teams": [
+            "finance",
+            "analytics"
+          ],
+          "severity": "high",
+          "account_name": "Acme Labs"
+        },
+        "usage": {
+          "completion_tokens": 76,
+          "prompt_tokens": 197,
+          "total_tokens": 273,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_tokens_per_second": 96.27,
+          "completion_time": 0.79,
+          "prompt_tokens_per_second": 1349.13,
+          "prompt_time": 0.15,
+          "total_time": 0.94
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "cli_guided_json::support_ticket_triage",
+      "ok": false,
+      "elapsed_s": 2.624,
+      "details": {
+        "error": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+        "stdout": "MLX model: mlx-community/Qwen3.5-35B-A3B-4bit\nLoading MLX model: mlx-community/Qwen3.5-35B-A3B-4bit\n\n[/                       ]   --.-% checking cache | mem 0.02 GB | 0.0s[2026-03-13 22:24:43.577] MLX GPU: cache=1024MB wired=427622MB (system 512GB)\n\n[-                       ]   --.-% loading model | mem 1.27 GB | 0.2s\n[\\                       ]   --.-% loading model | mem 7.28 GB | 0.4s\n[|                       ]   --.-% loading model | mem 13.62 GB | 0.6s\n[/                       ]   --.-% loading model | mem 18.41 GB | 0.8s\n[done] ready | mem 18.37 GB | 0.9s\n<think>{\n  \"summary\": \"Billing issue after upgrade: invoices still show Starter plan and two users cannot access analytics, blocking finance close.\",\n  \"severity\": \"high\",\n  \"category\": \"billing\",\n  \"account_name\": \"Acme Labs\",\n  \"blocked_teams\": [\n    \"finance\"\n  ]\n}"
+      }
+    },
+    {
+      "name": "api_json_schema::article_summary",
+      "ok": true,
+      "elapsed_s": 4.044,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\n  \"headline\": \"City Council Approves Electric Bus Fleet Following Successful Pilot\",\n  \"entities\": [\n    {\n      \"type\": \"organization\",\n      \"name\": \"city council\"\n    },\n    {\n      \"type\": \"organization\",\n      \"name\": \"Transit officials\"\n    },\n    {\n      \"type\": \"organization\",\n      \"name\": \"transport committee\"\n    },\n    {\n      \"type\": \"metric\",\n      \"name\": \"22 percent\"\n    },\n    {\n      \"type\": \"date\",\n      \"name\": \"September\"\n    },\n    {\n      \"type\": \"date\",\n      \"name\": \"July\"\n    }\n  ],\n  \"key_points\": [\n    \"The city council voted 8-3 to approve a new electric bus fleet.\",\n    \"A six-month pilot program reduced fuel costs by 22 percent.\",\n    \"The first 40 buses will enter service in September.\",\n    \"Charging depots are scheduled for completion by July.\",\n    \"Winter battery performance concerns were addressed by the transport committee using pilot data from two cold snaps.\"\n  ],\n  \"summary\": \"The city council has officially approved a new electric bus fleet following a successful six-month pilot that cut fuel costs by 22 percent. While critics raised concerns regarding winter battery performance, the transport committee confirmed that pilot data from two cold snaps met operational targets. The first 40 buses are set to begin service in September, with charging infrastructure to be completed by July.\"\n}",
+        "parsed": {
+          "headline": "City Council Approves Electric Bus Fleet Following Successful Pilot",
+          "entities": [
+            {
+              "type": "organization",
+              "name": "city council"
+            },
+            {
+              "type": "organization",
+              "name": "Transit officials"
+            },
+            {
+              "type": "organization",
+              "name": "transport committee"
+            },
+            {
+              "type": "metric",
+              "name": "22 percent"
+            },
+            {
+              "type": "date",
+              "name": "September"
+            },
+            {
+              "type": "date",
+              "name": "July"
+            }
+          ],
+          "key_points": [
+            "The city council voted 8-3 to approve a new electric bus fleet.",
+            "A six-month pilot program reduced fuel costs by 22 percent.",
+            "The first 40 buses will enter service in September.",
+            "Charging depots are scheduled for completion by July.",
+            "Winter battery performance concerns were addressed by the transport committee using pilot data from two cold snaps."
+          ],
+          "summary": "The city council has officially approved a new electric bus fleet following a successful six-month pilot that cut fuel costs by 22 percent. While critics raised concerns regarding winter battery performance, the transport committee confirmed that pilot data from two cold snaps met operational targets. The first 40 buses are set to begin service in September, with charging infrastructure to be completed by July."
+        },
+        "usage": {
+          "completion_tokens": 343,
+          "prompt_tokens": 243,
+          "total_tokens": 586,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_tokens_per_second": 95.6,
+          "completion_time": 3.59,
+          "prompt_tokens_per_second": 1480.96,
+          "prompt_time": 0.16,
+          "total_time": 3.75
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "cli_guided_json::article_summary",
+      "ok": false,
+      "elapsed_s": 4.646,
+      "details": {
+        "error": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+        "stdout": "MLX model: mlx-community/Qwen3.5-35B-A3B-4bit\nLoading MLX model: mlx-community/Qwen3.5-35B-A3B-4bit\n\n[/                       ]   --.-% checking cache | mem 0.02 GB | 0.0s[2026-03-13 22:24:50.245] MLX GPU: cache=1024MB wired=427622MB (system 512GB)\n\n[-                       ]   --.-% loading model | mem 1.32 GB | 0.2s\n[\\                       ]   --.-% loading model | mem 7.35 GB | 0.4s\n[|                       ]   --.-% loading model | mem 13.71 GB | 0.6s\n[/                       ]   --.-% loading model | mem 18.41 GB | 0.8s\n[done] ready | mem 18.37 GB | 0.9s\n<think>{\"headline\": \"City Council Approves Electric Bus Fleet Following Successful Pilot\", \"summary\": \"The city council voted 8-3 to approve a new electric bus fleet after a six-month pilot program demonstrated a 22% reduction in fuel costs. The first 40 buses are scheduled to begin service in September, with charging infrastructure to be completed by July. Despite concerns about winter battery performance, the transport committee confirmed that pilot data from cold weather events met operational targets.\", \"key_points\": [\"City council approved electric bus fleet with 8-3 vote\", \"Six-month pilot reduced fuel costs by 22 percent\", \"First 40 buses enter service in September\", \"Charging depots to be completed by July\", \"Winter battery performance concerns addressed by transport committee\", \"Pilot data from cold snaps met operational targets\"], \"entities\": [{\"type\": \"organization\", \"name\": \"city council\"}, {\"type\": \"organization\", \"name\": \"transport committee\"}, {\"type\": \"date\", \"name\": \"September\"}, {\"type\": \"date\", \"name\": \"July\"}, {\"type\": \"metric\", \"name\": \"22 percent\"}, {\"type\": \"metric\", \"name\": \"8-3 vote\"}, {\"type\": \"metric\", \"name\": \"40 buses\"}]}"
+      }
+    },
+    {
+      "name": "api_json_schema::catalog_normalization_refs",
+      "ok": true,
+      "elapsed_s": 2.485,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\n  \"price_usd\": 89,\n  \"use_cases\": [\n    \"commuting\",\n    \"short hikes\"\n  ],\n  \"product_name\": \"TrailPro 18L commuter backpack\",\n  \"attributes\": [\n    {\n      \"value\": \"recycled nylon\",\n      \"name\": \"material\"\n    },\n    {\n      \"value\": \"water-resistant\",\n      \"name\": \"water_resistance\"\n    },\n    {\n      \"value\": \"16 inch\",\n      \"name\": \"laptop_capacity\"\n    },\n    {\n      \"value\": \"midnight blue\",\n      \"name\": \"color\"\n    },\n    {\n      \"value\": \"0.9 kg\",\n      \"name\": \"weight\"\n    }\n  ],\n  \"category\": \"backpack\"\n}",
+        "parsed": {
+          "price_usd": 89,
+          "use_cases": [
+            "commuting",
+            "short hikes"
+          ],
+          "product_name": "TrailPro 18L commuter backpack",
+          "attributes": [
+            {
+              "value": "recycled nylon",
+              "name": "material"
+            },
+            {
+              "value": "water-resistant",
+              "name": "water_resistance"
+            },
+            {
+              "value": "16 inch",
+              "name": "laptop_capacity"
+            },
+            {
+              "value": "midnight blue",
+              "name": "color"
+            },
+            {
+              "value": "0.9 kg",
+              "name": "weight"
+            }
+          ],
+          "category": "backpack"
+        },
+        "usage": {
+          "completion_tokens": 194,
+          "prompt_tokens": 244,
+          "total_tokens": 438,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_tokens_per_second": 96.63,
+          "completion_time": 2.01,
+          "prompt_tokens_per_second": 1415.39,
+          "prompt_time": 0.17,
+          "total_time": 2.18
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "cli_guided_json::catalog_normalization_refs",
+      "ok": false,
+      "elapsed_s": 2.686,
+      "details": {
+        "error": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+        "stdout": "MLX model: mlx-community/Qwen3.5-35B-A3B-4bit\nLoading MLX model: mlx-community/Qwen3.5-35B-A3B-4bit\n\n[/                       ]   --.-% checking cache | mem 0.02 GB | 0.0s[2026-03-13 22:24:57.371] MLX GPU: cache=1024MB wired=427622MB (system 512GB)\n\n[-                       ]   --.-% loading model | mem 1.53 GB | 0.2s\n[\\                       ]   --.-% loading model | mem 7.69 GB | 0.4s\n[|                       ]   --.-% loading model | mem 13.06 GB | 0.6s\n[/                       ]   --.-% loading model | mem 18.37 GB | 0.8s\n[done] ready | mem 18.36 GB | 0.9s\n<think>{\"attributes\":[{\"value\":\"Water-resistant recycled nylon shell\",\"name\":\"Material\"},{\"value\":\"16 inch\",\"name\":\"Laptop Sleeve Capacity\"},{\"value\":\"Midnight Blue\",\"name\":\"Color\"},{\"value\":\"0.9 kg\",\"name\":\"Weight\"}],\"category\":\"backpack\",\"price_usd\":89,\"product_name\":\"TrailPro 18L commuter backpack\",\"use_cases\":[\"commuting\",\"short hikes\"]}"
+      }
+    },
+    {
+      "name": "openai_python_parse::sdk_parse_person",
+      "ok": true,
+      "elapsed_s": 0.593,
+      "details": {
+        "content": "{\"occupation\":\"computer scientist\",\"age\":45,\"name\":\"Grace Hopper\"}",
+        "parsed": {
+          "name": "Grace Hopper",
+          "age": 45,
+          "occupation": "computer scientist"
+        },
+        "refusal": null
+      }
+    },
+    {
+      "name": "cli_guided_json::invalid_schema_error",
+      "ok": true,
+      "elapsed_s": 1.094,
+      "details": {
+        "returncode": 1,
+        "stderr": ""
+      }
+    }
+  ]
+}

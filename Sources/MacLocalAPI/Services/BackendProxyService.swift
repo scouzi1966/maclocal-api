@@ -296,8 +296,8 @@ actor BackendProxyService {
             "model": "error",
             "choices": [[
                 "index": 0,
-                "delta": ["content": ""],
-                "finish_reason": "stop"
+                "delta": [:],
+                "finish_reason": NSNull()
             ]]
         ]
         if let data = try? JSONSerialization.data(withJSONObject: finish),

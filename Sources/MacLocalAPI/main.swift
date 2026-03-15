@@ -153,7 +153,7 @@ struct MlxCommand: ParsableCommand {
           --seed: Random seed for reproducible output
           --max-logprobs: Max top logprobs per token (default: 20)
           --stop: Stop sequences, comma-separated (e.g. "###,END")
-          --guided-json: Constrain output to JSON schema (vLLM-compatible)
+          --guided-json: Constrain output to JSON schema (vLLM-compatible; auto-disables thinking on reasoning models)
           --no-streaming: Disable streaming (streaming enabled by default)
           --raw: Output raw model text without extracting <think> tags
           --vlm: Force load as vision model (VLM) instead of text-only LLM
@@ -327,7 +327,7 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Stop sequences - comma-separated strings where generation should stop (e.g., '###,END')")
     var stop: String?
 
-    @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible)")
+    @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible). Auto-disables thinking on reasoning models for deterministic output.")
     var guidedJson: String?
 
     @Option(name: .long, help: "Tool call parser override: afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml. afm_adaptive_xml adds JSON-in-XML fallback, type coercion, and optional xgrammar EBNF constrained decoding for models that switch between XML and JSON formats. Recommended for Qwen3+ models.")
@@ -409,6 +409,11 @@ struct MlxCommand: ParsableCommand {
         if !parsedKwargs.isEmpty {
             service.defaultChatTemplateKwargs = parsedKwargs
         }
+
+        if let guidedJson {
+            _ = try parseGuidedJsonSchema(guidedJson)
+        }
+
         _ = try service.revalidateRegistry()
 
         let rawModel: String
@@ -582,6 +587,11 @@ struct MlxCommand: ParsableCommand {
 
         let group = DispatchGroup()
         var output: Result<String, Error>?
+        let stdoutFD = dup(STDOUT_FILENO)
+        if stdoutFD == -1 || dup2(STDERR_FILENO, STDOUT_FILENO) == -1 {
+            if stdoutFD != -1 { close(stdoutFD) }
+            throw ValidationError("Failed to redirect single-prompt operational logs to stderr")
+        }
         group.enter()
         Task {
             do {
@@ -633,16 +643,47 @@ struct MlxCommand: ParsableCommand {
             group.leave()
         }
         group.wait()
+        fflush(stdout)
+        if dup2(stdoutFD, STDOUT_FILENO) == -1 {
+            close(stdoutFD)
+            throw ValidationError("Failed to restore stdout after single-prompt execution")
+        }
+        close(stdoutFD)
 
         switch output {
         case .success(let text):
-            print(text)
+            let rendered: String
+            if raw {
+                rendered = text
+            } else {
+                rendered = Self.stripThinkContent(
+                    from: text,
+                    startTag: service.thinkStartTag ?? "<think>",
+                    endTag: service.thinkEndTag ?? "</think>"
+                )
+            }
+            print(rendered)
         case .failure(let error):
             print("Error: \(error.localizedDescription)")
             throw ExitCode.failure
         case .none:
             throw ExitCode.failure
         }
+    }
+
+    private static func stripThinkContent(from text: String, startTag: String, endTag: String) -> String {
+        var output = text
+        while let start = output.range(of: startTag) {
+            if let end = output.range(of: endTag, range: start.upperBound..<output.endIndex) {
+                output.removeSubrange(start.lowerBound..<end.upperBound)
+            } else {
+                // Some guided/grammar-constrained generations can emit a stray
+                // opening think tag without ever closing it. In that case keep
+                // the payload and drop only the unmatched tag.
+                output.removeSubrange(start)
+            }
+        }
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func readFromStdin() throws -> String? {
@@ -947,7 +988,7 @@ struct MacLocalAPI: ParsableCommand {
           -P, --permissive-guardrails: Disable safety guardrails
           -a, --adapter: Path to .fmadapter LoRA adapter file
           --stop: Stop sequences, comma-separated
-          --guided-json: Constrain output to JSON schema
+          --guided-json: Constrain output to JSON schema (auto-disables thinking on reasoning models)
           --no-streaming: Disable streaming
           --prewarm: Pre-warm model on startup (y/n, default: y)
           --help-json: Print machine-readable JSON capability card for AI agents and exit
@@ -1021,7 +1062,7 @@ struct RootCommand: ParsableCommand {
           -P, --permissive-guardrails: Disable safety guardrails
           -a, --adapter: Path to .fmadapter LoRA adapter file
           --stop: Stop sequences, comma-separated
-          --guided-json: Constrain output to JSON schema
+          --guided-json: Constrain output to JSON schema (auto-disables thinking on reasoning models)
           --no-streaming: Disable streaming
           --prewarm: Pre-warm model on startup (y/n, default: y)
           --help-json: Print machine-readable JSON capability card for AI agents and exit
@@ -1096,7 +1137,7 @@ struct RootCommand: ParsableCommand {
     @Flag(name: [.customShort("g"), .long], help: "Enable API gateway mode: discover and proxy to local LLM backends (Ollama, LM Studio, Jan, etc.)")
     var gateway: Bool = false
 
-    @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible)")
+    @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible). Auto-disables thinking on reasoning models for deterministic output.")
     var guidedJson: String?
 
     @Option(name: .long, help: "Stop sequences - comma-separated strings where generation should stop (e.g., '###,END')")

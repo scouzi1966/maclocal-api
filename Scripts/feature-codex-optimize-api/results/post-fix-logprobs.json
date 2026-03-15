@@ -1,0 +1,183 @@
+{
+  "generated_at": "2026-03-13T22:16:28.102469",
+  "results": [
+    {
+      "name": "models_endpoint",
+      "ok": true,
+      "elapsed_s": 0.008,
+      "details": {
+        "count": 1,
+        "first_id": "mlx-community/Qwen3.5-35B-A3B-4bit"
+      }
+    },
+    {
+      "name": "openai_python_nonstream",
+      "ok": true,
+      "elapsed_s": 0.968,
+      "details": {
+        "finish_reason": "stop",
+        "content": "ok",
+        "usage": {
+          "completion_tokens": 1,
+          "prompt_tokens": 28,
+          "total_tokens": 29,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "total_time": 0.48,
+          "prompt_tokens_per_second": 59.63,
+          "completion_tokens_per_second": 116.69,
+          "completion_time": 0.01,
+          "prompt_time": 0.47
+        },
+        "stderr": null
+      }
+    },
+    {
+      "name": "openai_python_stream",
+      "ok": true,
+      "elapsed_s": 0.399,
+      "details": {
+        "chunk_count": 4,
+        "last_choices": 0,
+        "last_usage": {
+          "completion_tokens": 1,
+          "prompt_tokens": 28,
+          "total_tokens": 29,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "total_time": 0.05,
+          "prompt_tokens_per_second": 630.53,
+          "completion_tokens_per_second": 121.83,
+          "completion_time": 0.01,
+          "prompt_time": 0.04
+        },
+        "content": "ok",
+        "finish_reason": "stop",
+        "stderr": null
+      }
+    },
+    {
+      "name": "openai_python_nonstream_logprobs",
+      "ok": true,
+      "elapsed_s": 0.422,
+      "details": {
+        "finish_reason": "stop",
+        "content": "ok",
+        "logprobs_present": true,
+        "token_count": 1,
+        "first_token": {
+          "token": "ok",
+          "bytes": [
+            111,
+            107
+          ],
+          "logprob": -0.0008224649936892092,
+          "top_logprobs": [
+            {
+              "token": "ok",
+              "bytes": [
+                111,
+                107
+              ],
+              "logprob": -0.0008224649936892092
+            },
+            {
+              "token": "Ok",
+              "bytes": [
+                79,
+                107
+              ],
+              "logprob": -8.375822067260742
+            },
+            {
+              "token": "o",
+              "bytes": [
+                111
+              ],
+              "logprob": -9.375822067260742
+            }
+          ]
+        },
+        "stderr": null
+      }
+    },
+    {
+      "name": "openai_python_stream_logprobs",
+      "ok": true,
+      "elapsed_s": 0.423,
+      "details": {
+        "finish_reason": "stop",
+        "content": "ok",
+        "logprob_chunk_count": 1,
+        "first_logprob_token": {
+          "token": "ok",
+          "bytes": [
+            111,
+            107
+          ],
+          "logprob": -0.0008224649936892092,
+          "top_logprobs": [
+            {
+              "token": "ok",
+              "bytes": [
+                111,
+                107
+              ],
+              "logprob": -0.0008224649936892092
+            },
+            {
+              "token": "Ok",
+              "bytes": [
+                79,
+                107
+              ],
+              "logprob": -8.375822067260742
+            },
+            {
+              "token": "o",
+              "bytes": [
+                111
+              ],
+              "logprob": -9.375822067260742
+            }
+          ]
+        },
+        "last_choices": 0,
+        "last_usage": {
+          "completion_tokens": 1,
+          "prompt_tokens": 28,
+          "total_tokens": 29,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_tokens_per_second": 76.59,
+          "completion_time": 0.01,
+          "prompt_tokens_per_second": 478.33,
+          "prompt_time": 0.06,
+          "total_time": 0.07
+        },
+        "stderr": null
+      }
+    },
+    {
+      "name": "vllm_bench_smoke",
+      "ok": true,
+      "elapsed_s": 7.953,
+      "details": {
+        "successful_requests": "4",
+        "failed_requests": "0",
+        "total_generated_tokens": "128",
+        "output_token_throughput": "78.16",
+        "stderr_tail": " (0x17875c3f8). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.\n\n  0%|          | 0/4 [00:00<?, ?it/s]\n 25%|\u2588\u2588\u258c       | 1/4 [00:00<00:01,  1.63it/s]\n 50%|\u2588\u2588\u2588\u2588\u2588     | 2/4 [00:00<00:00,  2.20it/s]\n 75%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u258c  | 3/4 [00:01<00:00,  2.49it/s]\n100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [00:01<00:00,  2.64it/s]\n100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [00:01<00:00,  2.44it/s]\n"
+      }
+    }
+  ]
+}

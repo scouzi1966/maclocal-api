@@ -1,0 +1,151 @@
+{
+  "generated_at": "2026-03-13T22:07:55.721250",
+  "results": [
+    {
+      "name": "models_endpoint",
+      "ok": true,
+      "elapsed_s": 0.006,
+      "details": {
+        "count": 1,
+        "first_id": "mlx-community/Qwen3.5-35B-A3B-4bit"
+      }
+    },
+    {
+      "name": "openai_python_nonstream",
+      "ok": true,
+      "elapsed_s": 0.646,
+      "details": {
+        "finish_reason": "stop",
+        "content": "ok",
+        "usage": {
+          "completion_tokens": 1,
+          "prompt_tokens": 28,
+          "total_tokens": 29,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_time": 0.01,
+          "prompt_time": 0.05,
+          "prompt_tokens_per_second": 554.71,
+          "completion_tokens_per_second": 113.24,
+          "total_time": 0.06
+        },
+        "stderr": null
+      }
+    },
+    {
+      "name": "openai_python_stream",
+      "ok": true,
+      "elapsed_s": 0.402,
+      "details": {
+        "chunk_count": 4,
+        "last_choices": 0,
+        "last_usage": {
+          "completion_tokens": 1,
+          "prompt_tokens": 28,
+          "total_tokens": 29,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_time": 0.01,
+          "prompt_time": 0.04,
+          "prompt_tokens_per_second": 642.54,
+          "completion_tokens_per_second": 121.92,
+          "total_time": 0.05
+        },
+        "content": "ok",
+        "finish_reason": "stop",
+        "stderr": null
+      }
+    },
+    {
+      "name": "openai_python_nonstream_logprobs",
+      "ok": true,
+      "elapsed_s": 0.494,
+      "details": {
+        "finish_reason": "stop",
+        "content": "ok",
+        "logprobs_present": true,
+        "token_count": 1,
+        "first_token": {
+          "token": "ok",
+          "bytes": [
+            111,
+            107
+          ],
+          "logprob": -0.0008224649936892092,
+          "top_logprobs": [
+            {
+              "token": "ok",
+              "bytes": [
+                111,
+                107
+              ],
+              "logprob": -0.0008224649936892092
+            },
+            {
+              "token": "Ok",
+              "bytes": [
+                79,
+                107
+              ],
+              "logprob": -8.375822067260742
+            },
+            {
+              "token": "o",
+              "bytes": [
+                111
+              ],
+              "logprob": -9.375822067260742
+            }
+          ]
+        },
+        "stderr": null
+      }
+    },
+    {
+      "name": "openai_python_stream_logprobs",
+      "ok": false,
+      "elapsed_s": 0.417,
+      "details": {
+        "finish_reason": "stop",
+        "content": "ok",
+        "logprob_chunk_count": 0,
+        "first_logprob_token": null,
+        "last_choices": 0,
+        "last_usage": {
+          "completion_tokens": 1,
+          "prompt_tokens": 28,
+          "total_tokens": 29,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_time": 0.01,
+          "prompt_time": 0.05,
+          "prompt_tokens_per_second": 515.28,
+          "completion_tokens_per_second": 83.82,
+          "total_time": 0.07
+        },
+        "stderr": null
+      }
+    },
+    {
+      "name": "vllm_bench_smoke",
+      "ok": true,
+      "elapsed_s": 7.706,
+      "details": {
+        "successful_requests": "4",
+        "failed_requests": "0",
+        "total_generated_tokens": "128",
+        "output_token_throughput": "76.74",
+        "stderr_tail": " (0x1549443f8). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.\n\n  0%|          | 0/4 [00:00<?, ?it/s]\n 25%|\u2588\u2588\u258c       | 1/4 [00:00<00:01,  1.62it/s]\n 50%|\u2588\u2588\u2588\u2588\u2588     | 2/4 [00:00<00:00,  2.18it/s]\n 75%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u258c  | 3/4 [00:01<00:00,  2.42it/s]\n100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [00:01<00:00,  2.59it/s]\n100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [00:01<00:00,  2.40it/s]\n"
+      }
+    }
+  ]
+}

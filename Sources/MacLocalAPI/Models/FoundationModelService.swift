@@ -101,9 +101,12 @@ struct RandomnessConfig {
 }
 
 enum FoundationModelError: Error, LocalizedError {
+    private static let structuredTruncationMarker = "Failed to deserialize a Generable type from model output"
+
     case notAvailable
     case sessionCreationFailed
     case responseGenerationFailed(String)
+    case responseTruncated(maxTokens: Int)
     case invalidInput
     case invalidRandomnessParameter(String)
     case contextWindowExceeded(provided: Int, maximum: Int)
@@ -118,6 +121,8 @@ enum FoundationModelError: Error, LocalizedError {
             return "Failed to create Foundation Models session. Ensure Apple Intelligence is enabled in System Settings."
         case .responseGenerationFailed(let message):
             return "Failed to generate response: \(message)"
+        case .responseTruncated:
+            return "Response generation reached the maximum token budget before a complete structured value was produced."
         case .invalidInput:
             return "Invalid input provided to Foundation Models"
         case .invalidRandomnessParameter(let message):
@@ -176,6 +181,15 @@ enum FoundationModelError: Error, LocalizedError {
         }
 
         return .contextWindowExceeded(provided: provided, maximum: maximum)
+    }
+
+    static func parseStructuredTruncationError(_ error: Error, maxTokens: Int?) -> FoundationModelError? {
+        guard let maxTokens, maxTokens > 0 else { return nil }
+        let errorString = String(describing: error)
+        if errorString.contains(Self.structuredTruncationMarker) {
+            return .responseTruncated(maxTokens: maxTokens)
+        }
+        return nil
     }
 }
 
@@ -446,6 +460,9 @@ class FoundationModelService {
             if let guardrailError = FoundationModelError.parseGuardrailError(error) {
                 throw guardrailError
             }
+            if let truncationError = FoundationModelError.parseStructuredTruncationError(error, maxTokens: maxTokens) {
+                throw truncationError
+            }
             throw FoundationModelError.responseGenerationFailed(error.localizedDescription)
         }
         #else
@@ -489,21 +506,23 @@ class FoundationModelService {
                     let options = try self.createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
                     let stream = session.streamResponse(to: prompt, schema: schema, options: options)
                     var previousJson = ""
+                    var emittedPrefixCount = 0
                     var stopped = false
                     for try await partialResponse in stream {
                         if stopped { break }
                         let currentJson = partialResponse.content.jsonString
-                        // Emit only the new suffix (delta) when the snapshot extends
-                        if currentJson.count > previousJson.count && currentJson.hasPrefix(previousJson) {
-                            var delta = String(currentJson.dropFirst(previousJson.count))
+                        let stablePrefixCount = Self.commonPrefixLength(previousJson, currentJson)
+                        if stablePrefixCount > emittedPrefixCount {
+                            let stablePrefix = String(currentJson.prefix(stablePrefixCount))
+                            var delta = String(stablePrefix.dropFirst(emittedPrefixCount))
                             if let stopSeqs = stop, !stopSeqs.isEmpty {
-                                let accumulated = previousJson + delta
+                                let accumulated = stablePrefix
                                 for seq in stopSeqs {
                                     if let range = accumulated.range(of: seq) {
                                         let keepUpTo = range.lowerBound
-                                        let alreadyEmitted = accumulated.index(accumulated.startIndex, offsetBy: previousJson.count)
-                                        if keepUpTo > alreadyEmitted {
-                                            delta = String(accumulated[alreadyEmitted..<keepUpTo])
+                                        let keepCount = accumulated.distance(from: accumulated.startIndex, to: keepUpTo)
+                                        if keepCount > emittedPrefixCount {
+                                            delta = String(accumulated.dropFirst(emittedPrefixCount).prefix(keepCount - emittedPrefixCount))
                                             continuation.yield(delta)
                                         }
                                         stopped = true
@@ -512,16 +531,18 @@ class FoundationModelService {
                                 }
                                 if stopped { break }
                             }
-                            continuation.yield(delta)
-                        } else if currentJson != previousJson {
-                            // Structure mutated (not a simple append) — emit full snapshot
-                            // This is rare but possible with guided generation
-                            let truncated = self.applyStopSequences(to: currentJson, stopSequences: stop)
-                            if truncated.count < currentJson.count { stopped = true }
-                            continuation.yield(truncated)
-                            if stopped { break }
+                            if !delta.isEmpty {
+                                continuation.yield(delta)
+                            }
+                            emittedPrefixCount = stablePrefixCount
                         }
                         previousJson = currentJson
+                    }
+                    if !stopped, previousJson.count > emittedPrefixCount {
+                        let finalSnapshot = self.applyStopSequences(to: previousJson, stopSequences: stop)
+                        if finalSnapshot.count > emittedPrefixCount {
+                            continuation.yield(String(finalSnapshot.dropFirst(emittedPrefixCount)))
+                        }
                     }
                     continuation.finish()
                 } catch {
@@ -529,6 +550,8 @@ class FoundationModelService {
                         continuation.finish(throwing: contextError)
                     } else if let guardrailError = FoundationModelError.parseGuardrailError(error) {
                         continuation.finish(throwing: guardrailError)
+                    } else if let truncationError = FoundationModelError.parseStructuredTruncationError(error, maxTokens: maxTokens) {
+                        continuation.finish(throwing: truncationError)
                     } else {
                         continuation.finish(throwing: FoundationModelError.responseGenerationFailed(error.localizedDescription))
                     }
@@ -624,6 +647,15 @@ class FoundationModelService {
             return String(content[..<idx])
         }
         return content
+    }
+
+    static func commonPrefixLength(_ lhs: String, _ rhs: String) -> Int {
+        var count = 0
+        for (left, right) in zip(lhs, rhs) {
+            guard left == right else { break }
+            count += 1
+        }
+        return count
     }
 
     static func isAvailable() -> Bool {

@@ -1,0 +1,301 @@
+{
+  "generated_at": "2026-03-13T22:40:15.821646",
+  "results": [
+    {
+      "name": "models_endpoint",
+      "ok": true,
+      "elapsed_s": 0.002,
+      "details": {
+        "count": 1,
+        "first_id": "mlx-community/Qwen3.5-35B-A3B-4bit"
+      }
+    },
+    {
+      "name": "api_json_schema::person_basic",
+      "ok": true,
+      "elapsed_s": 0.65,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\"occupation\":\"mathematician\",\"age\":36,\"name\":\"Ada Lovelace\"}",
+        "parsed": {
+          "occupation": "mathematician",
+          "age": 36,
+          "name": "Ada Lovelace"
+        },
+        "usage": {
+          "completion_tokens": 19,
+          "prompt_tokens": 116,
+          "total_tokens": 135,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_tokens_per_second": 96.61,
+          "completion_time": 0.2,
+          "prompt_tokens_per_second": 1036.07,
+          "prompt_time": 0.11,
+          "total_time": 0.31
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "cli_guided_json::person_basic",
+      "ok": false,
+      "elapsed_s": 2.824,
+      "details": {
+        "error": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+        "stdout": ""
+      }
+    },
+    {
+      "name": "api_json_schema::meeting_action_items",
+      "ok": true,
+      "elapsed_s": 1.624,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\n  \"items\": [\n    {\n      \"owner\": \"Sarah\",\n      \"task\": \"draft the customer email\",\n      \"due_date\": \"Friday\"\n    },\n    {\n      \"owner\": \"Ben\",\n      \"task\": \"deploy the dashboard fix\",\n      \"due_date\": \"Tuesday\"\n    },\n    {\n      \"owner\": \"Priya\",\n      \"task\": \"confirm pricing with finance\",\n      \"due_date\": \"this afternoon\"\n    }\n  ]\n}",
+        "parsed": {
+          "items": [
+            {
+              "owner": "Sarah",
+              "task": "draft the customer email",
+              "due_date": "Friday"
+            },
+            {
+              "owner": "Ben",
+              "task": "deploy the dashboard fix",
+              "due_date": "Tuesday"
+            },
+            {
+              "owner": "Priya",
+              "task": "confirm pricing with finance",
+              "due_date": "this afternoon"
+            }
+          ]
+        },
+        "usage": {
+          "completion_tokens": 116,
+          "prompt_tokens": 165,
+          "total_tokens": 281,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_tokens_per_second": 97.1,
+          "completion_time": 1.19,
+          "prompt_tokens_per_second": 1238.53,
+          "prompt_time": 0.13,
+          "total_time": 1.33
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "cli_guided_json::meeting_action_items",
+      "ok": false,
+      "elapsed_s": 2.336,
+      "details": {
+        "error": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+        "stdout": ""
+      }
+    },
+    {
+      "name": "api_json_schema::support_ticket_triage",
+      "ok": true,
+      "elapsed_s": 1.079,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\n  \"account_name\": \"Acme Labs\",\n  \"blocked_teams\": [\n    \"finance\",\n    \"analytics\"\n  ],\n  \"summary\": \"Billing issue after upgrade: invoices show Starter plan and two users cannot access analytics, blocking finance close.\",\n  \"severity\": \"high\",\n  \"category\": \"billing\"\n}",
+        "parsed": {
+          "account_name": "Acme Labs",
+          "blocked_teams": [
+            "finance",
+            "analytics"
+          ],
+          "summary": "Billing issue after upgrade: invoices show Starter plan and two users cannot access analytics, blocking finance close.",
+          "severity": "high",
+          "category": "billing"
+        },
+        "usage": {
+          "completion_tokens": 76,
+          "prompt_tokens": 197,
+          "total_tokens": 273,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_tokens_per_second": 96.06,
+          "completion_time": 0.79,
+          "prompt_tokens_per_second": 1352.04,
+          "prompt_time": 0.15,
+          "total_time": 0.94
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "cli_guided_json::support_ticket_triage",
+      "ok": false,
+      "elapsed_s": 2.742,
+      "details": {
+        "error": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+        "stdout": ""
+      }
+    },
+    {
+      "name": "api_json_schema::article_summary",
+      "ok": true,
+      "elapsed_s": 3.697,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\n  \"headline\": \"City Council Approves Electric Bus Fleet Following Successful Pilot\",\n  \"summary\": \"The city council has voted 8-3 to approve a new electric bus fleet, following a six-month pilot program that successfully reduced fuel costs by 22 percent. The first 40 buses are scheduled to begin service in September, with charging infrastructure to be completed by July. While critics expressed concerns regarding winter battery performance, the transport committee confirmed that pilot data from two cold snaps met all operational targets.\",\n  \"entities\": [\n    {\n      \"name\": \"city council\",\n      \"type\": \"government\"\n    },\n    {\n      \"name\": \"Transport Committee\",\n      \"type\": \"government\"\n    },\n    {\n      \"name\": \"22 percent\",\n      \"type\": \"metric\"\n    },\n    {\n      \"name\": \"September\",\n      \"type\": \"date\"\n    },\n    {\n      \"name\": \"July\",\n      \"type\": \"date\"\n    }\n  ],\n  \"key_points\": [\n    \"City council approved the electric bus fleet with an 8-3 vote.\",\n    \"A six-month pilot program reduced fuel costs by 22 percent.\",\n    \"The first 40 buses will enter service in September.\",\n    \"Charging depots are scheduled for completion by July.\",\n    \"Pilot data from cold snaps confirmed batteries met operational targets.\"\n  ]\n}",
+        "parsed": {
+          "headline": "City Council Approves Electric Bus Fleet Following Successful Pilot",
+          "summary": "The city council has voted 8-3 to approve a new electric bus fleet, following a six-month pilot program that successfully reduced fuel costs by 22 percent. The first 40 buses are scheduled to begin service in September, with charging infrastructure to be completed by July. While critics expressed concerns regarding winter battery performance, the transport committee confirmed that pilot data from two cold snaps met all operational targets.",
+          "entities": [
+            {
+              "name": "city council",
+              "type": "government"
+            },
+            {
+              "name": "Transport Committee",
+              "type": "government"
+            },
+            {
+              "name": "22 percent",
+              "type": "metric"
+            },
+            {
+              "name": "September",
+              "type": "date"
+            },
+            {
+              "name": "July",
+              "type": "date"
+            }
+          ],
+          "key_points": [
+            "City council approved the electric bus fleet with an 8-3 vote.",
+            "A six-month pilot program reduced fuel costs by 22 percent.",
+            "The first 40 buses will enter service in September.",
+            "Charging depots are scheduled for completion by July.",
+            "Pilot data from cold snaps confirmed batteries met operational targets."
+          ]
+        },
+        "usage": {
+          "completion_tokens": 320,
+          "prompt_tokens": 243,
+          "total_tokens": 563,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_tokens_per_second": 96.84,
+          "completion_time": 3.3,
+          "prompt_tokens_per_second": 1480.7,
+          "prompt_time": 0.16,
+          "total_time": 3.47
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "cli_guided_json::article_summary",
+      "ok": false,
+      "elapsed_s": 4.805,
+      "details": {
+        "error": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+        "stdout": ""
+      }
+    },
+    {
+      "name": "api_json_schema::catalog_normalization_refs",
+      "ok": true,
+      "elapsed_s": 2.34,
+      "details": {
+        "finish_reason": "stop",
+        "content": "{\n  \"product_name\": \"TrailPro 18L commuter backpack\",\n  \"category\": \"backpack\",\n  \"price_usd\": 89,\n  \"attributes\": [\n    {\n      \"name\": \"material\",\n      \"value\": \"water-resistant recycled nylon\"\n    },\n    {\n      \"name\": \"laptop_sleeve_capacity\",\n      \"value\": \"16 inch\"\n    },\n    {\n      \"name\": \"color\",\n      \"value\": \"midnight blue\"\n    },\n    {\n      \"name\": \"weight\",\n      \"value\": \"0.9 kg\"\n    }\n  ],\n  \"use_cases\": [\n    \"commuting\",\n    \"short hikes\"\n  ]\n}",
+        "parsed": {
+          "product_name": "TrailPro 18L commuter backpack",
+          "category": "backpack",
+          "price_usd": 89,
+          "attributes": [
+            {
+              "name": "material",
+              "value": "water-resistant recycled nylon"
+            },
+            {
+              "name": "laptop_sleeve_capacity",
+              "value": "16 inch"
+            },
+            {
+              "name": "color",
+              "value": "midnight blue"
+            },
+            {
+              "name": "weight",
+              "value": "0.9 kg"
+            }
+          ],
+          "use_cases": [
+            "commuting",
+            "short hikes"
+          ]
+        },
+        "usage": {
+          "completion_tokens": 173,
+          "prompt_tokens": 244,
+          "total_tokens": 417,
+          "completion_tokens_details": null,
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0
+          },
+          "completion_tokens_per_second": 98.27,
+          "completion_time": 1.76,
+          "prompt_tokens_per_second": 1423.55,
+          "prompt_time": 0.17,
+          "total_time": 1.93
+        },
+        "validation_error": null
+      }
+    },
+    {
+      "name": "cli_guided_json::catalog_normalization_refs",
+      "ok": false,
+      "elapsed_s": 2.964,
+      "details": {
+        "error": "invalid JSON: Expecting value: line 1 column 1 (char 0)",
+        "stdout": ""
+      }
+    },
+    {
+      "name": "openai_python_parse::sdk_parse_person",
+      "ok": true,
+      "elapsed_s": 0.681,
+      "details": {
+        "content": "{\"name\":\"Grace Hopper\",\"age\":45,\"occupation\":\"computer scientist\"}",
+        "parsed": {
+          "name": "Grace Hopper",
+          "age": 45,
+          "occupation": "computer scientist"
+        },
+        "refusal": null
+      }
+    },
+    {
+      "name": "cli_guided_json::invalid_schema_error",
+      "ok": true,
+      "elapsed_s": 1.065,
+      "details": {
+        "returncode": 1,
+        "stderr": "0.0s[2026-03-13 22:40:14.845] MLX GPU: cache=1024MB wired=427622MB (system 512GB)\n\n[-                       ]   --.-% loading model | mem 1.58 GB | 0.2s\n[\\                       ]   --.-% loading model | mem 7.59 GB | 0.4s\n[|                       ]   --.-% loading model | mem 13.59 GB | 0.6s\n[/                       ]   --.-% loading model | mem 18.41 GB | 0.8s\n[done] ready | mem 18.35 GB | 0.9s\n"
+      }
+    }
+  ]
+}
