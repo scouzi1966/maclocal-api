@@ -2359,6 +2359,12 @@ final class MLXModelService: @unchecked Sendable {
                 resolvedKwargs[key] = value.value.toAny()
             }
         }
+        if responseFormat?.type == "json_schema",
+           thinkStartTag != nil, thinkEndTag != nil,
+           (resolvedKwargs["enable_thinking"] as? Bool) != false {
+            resolvedKwargs["enable_thinking"] = false
+            print("[\(ts())] [StructuredOutput] Disabling thinking for guided JSON on reasoning-capable model")
+        }
         if !resolvedKwargs.isEmpty {
             if input.additionalContext == nil { input.additionalContext = [:] }
             for (key, value) in resolvedKwargs {

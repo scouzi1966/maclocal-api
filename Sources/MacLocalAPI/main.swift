@@ -153,7 +153,7 @@ struct MlxCommand: ParsableCommand {
           --seed: Random seed for reproducible output
           --max-logprobs: Max top logprobs per token (default: 20)
           --stop: Stop sequences, comma-separated (e.g. "###,END")
-          --guided-json: Constrain output to JSON schema (vLLM-compatible)
+          --guided-json: Constrain output to JSON schema (vLLM-compatible; auto-disables thinking on reasoning models)
           --no-streaming: Disable streaming (streaming enabled by default)
           --raw: Output raw model text without extracting <think> tags
           --vlm: Force load as vision model (VLM) instead of text-only LLM
@@ -327,7 +327,7 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Stop sequences - comma-separated strings where generation should stop (e.g., '###,END')")
     var stop: String?
 
-    @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible)")
+    @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible). Auto-disables thinking on reasoning models for deterministic output.")
     var guidedJson: String?
 
     @Option(name: .long, help: "Tool call parser override: afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml. afm_adaptive_xml adds JSON-in-XML fallback, type coercion, and optional xgrammar EBNF constrained decoding for models that switch between XML and JSON formats. Recommended for Qwen3+ models.")
@@ -988,7 +988,7 @@ struct MacLocalAPI: ParsableCommand {
           -P, --permissive-guardrails: Disable safety guardrails
           -a, --adapter: Path to .fmadapter LoRA adapter file
           --stop: Stop sequences, comma-separated
-          --guided-json: Constrain output to JSON schema
+          --guided-json: Constrain output to JSON schema (auto-disables thinking on reasoning models)
           --no-streaming: Disable streaming
           --prewarm: Pre-warm model on startup (y/n, default: y)
           --help-json: Print machine-readable JSON capability card for AI agents and exit
@@ -1062,7 +1062,7 @@ struct RootCommand: ParsableCommand {
           -P, --permissive-guardrails: Disable safety guardrails
           -a, --adapter: Path to .fmadapter LoRA adapter file
           --stop: Stop sequences, comma-separated
-          --guided-json: Constrain output to JSON schema
+          --guided-json: Constrain output to JSON schema (auto-disables thinking on reasoning models)
           --no-streaming: Disable streaming
           --prewarm: Pre-warm model on startup (y/n, default: y)
           --help-json: Print machine-readable JSON capability card for AI agents and exit
@@ -1137,7 +1137,7 @@ struct RootCommand: ParsableCommand {
     @Flag(name: [.customShort("g"), .long], help: "Enable API gateway mode: discover and proxy to local LLM backends (Ollama, LM Studio, Jan, etc.)")
     var gateway: Bool = false
 
-    @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible)")
+    @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible). Auto-disables thinking on reasoning models for deterministic output.")
     var guidedJson: String?
 
     @Option(name: .long, help: "Stop sequences - comma-separated strings where generation should stop (e.g., '###,END')")
