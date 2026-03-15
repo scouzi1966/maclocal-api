@@ -1013,7 +1013,7 @@ final class MLXModelService: @unchecked Sendable {
                                                 if !before.isEmpty {
                                                     continuation.yield(StreamChunk(text: before, logprobs: resolved, stoppedBySequence: true))
                                                 } else {
-                                                    continuation.yield(StreamChunk(text: "", stoppedBySequence: true))
+                                                    continuation.yield(StreamChunk(text: "", logprobs: resolved, stoppedBySequence: true))
                                                 }
                                             }
                                             break
