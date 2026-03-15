@@ -83,6 +83,56 @@ Master table of every test case across all test scripts.
 | stream-parity-ns | Streaming | Non-streaming baseline |
 | stream-parity-s | Streaming | Streaming assembled output matches |
 
+## Swift Unit Tests (`swift test`)
+
+Run automatically by `test-assertions.sh --tier unit` (and all higher tiers).
+
+| File | Tests | Purpose |
+|------|-------|---------|
+| `StreamingUsageChunkTests.swift` | 4 | Non-streaming finish_reason, usage summary chunk empty choices, Foundation commonPrefixLength, terminal chunk shape |
+| `ConcurrentBatchTests.swift` | 10 | RequestSlot init/uniqueID/append/thread-safety/elapsed, StreamChunk defaults/timing/cached, MLXServiceError messages, BatchScheduler constants |
+| `NullableToolSchemaTests.swift` | — | Nullable tool schema parsing |
+| `XMLToolCallParsingTests.swift` | — | XML tool call format parsing |
+
+## OpenAI Compatibility Evals (`test-openai-compat-evals.py`)
+
+End-to-end OpenAI-python SDK compatibility matrix. Requires running server or `--start-server`.
+
+| Test Name | What It Validates |
+|-----------|-------------------|
+| `models_endpoint` | GET /v1/models returns non-empty data |
+| `openai_python_nonstream` | openai-python non-streaming chat completion |
+| `openai_python_stream` | openai-python streaming + `stream_options.include_usage` usage chunk |
+| `openai_python_nonstream_logprobs` | Non-streaming logprobs via openai-python |
+| `openai_python_stream_logprobs` | Streaming logprobs + usage-only final chunk (empty choices) |
+| `vllm_bench_smoke` | vllm bench serve: 4 prompts, 0 failures |
+
+## Guided JSON Evals (`test-guided-json-evals.py`)
+
+Structured output / `--guided-json` eval bundle. Tests API `json_schema`, streaming, CLI, and SDK parse.
+
+| Test Pattern | What It Validates |
+|--------------|-------------------|
+| `api_json_schema::*` | Non-streaming JSON schema response validates against schema |
+| `api_stream_json_schema::*` | Streaming JSON schema + usage chunk + schema validation |
+| `api_conflict_json_schema::*` | Conflicting schema (impossible constraint) → refusal or valid |
+| `api_truncation_json_schema::*` | Low max_tokens → finish_reason=length, truncated JSON |
+| `api_unsupported_json_schema::*` | Edge-case schemas → accepted or gracefully rejected |
+| `openai_python_parse::*` | openai-python `beta.chat.completions.parse()` with Pydantic |
+| `cli_guided_json::*` | CLI `--guided-json` single-prompt mode |
+| `cli_guided_json::no_think::*` | CLI `--guided-json --no-think` mode |
+| `cli_guided_json::invalid_schema_error` | Invalid JSON schema rejected with error |
+
+## Concurrent Batch Validation (`Scripts/feature-mlx-concurrent-batch/`)
+
+Correctness and performance validation for batched MLX generation. Requires running server.
+
+| Script | Tests | Purpose |
+|--------|-------|---------|
+| `validate_responses.py` | 8 × B={1,2,4,8} | Known-answer questions at various batch sizes; catches corrupt KV cache/masks |
+| `validate_mixed_workload.py` | 8 × B={1,2,4,8} | Mixed short-answer + long-decode (4K max_tokens) with GPU metrics via mactop |
+| `validate_multiturn_prefix.py` | 5 convs × B={1,2,4,8} | Multi-turn conversations with long system prompts; validates prefix cache hits under concurrency |
+
 ## Other Test Scripts
 
 | Script | Tests | Purpose |
