@@ -241,12 +241,12 @@ public class SwitchGLU: Module {
 }
 
 public class SwitchLinear: Module, Quantizable {
-    @ModuleInfo(key: "weight") var weight: MLXArray
-    @ModuleInfo(key: "bias") var bias: MLXArray?
+    @ModuleInfo(key: "weight") public var weight: MLXArray
+    @ModuleInfo(key: "bias") public var bias: MLXArray?
 
-    let inputDims: Int
-    let outputDims: Int
-    let numExperts: Int
+    public let inputDims: Int
+    public let outputDims: Int
+    public let numExperts: Int
 
     public init(inputDims: Int, outputDims: Int, numExperts: Int, bias: Bool = true) {
         self.inputDims = inputDims
@@ -302,8 +302,8 @@ public class SwitchLinear: Module, Quantizable {
 }
 
 public class QuantizedSwitchLinear: SwitchLinear, Quantized {
-    @ModuleInfo(key: "scales") var scales: MLXArray
-    @ModuleInfo(key: "biases") var biases: MLXArray?
+    @ModuleInfo(key: "scales") public var scales: MLXArray
+    @ModuleInfo(key: "biases") public var biases: MLXArray?
 
     public let groupSize: Int
     public let bits: Int
