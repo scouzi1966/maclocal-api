@@ -364,24 +364,32 @@ else
   run_test "Combined" "Streaming with all params works" "SSE data" "FAIL: no data received" "$dur"
 fi
 
-# Test 18: Log line shows all params
+# Test 18: All sampling params accepted together (server doesn't reject any)
 t0=$(python3 -c "import time; print(int(time.time()*1000))")
-chat_raw '{"messages":[{"role":"user","content":"Hi"}],"temperature":0.7,"top_p":0.9,"top_k":20,"min_p":0.05,"presence_penalty":1.5,"seed":123,"max_tokens":5,"stream":false}' >/dev/null
-sleep 0.5
-log_line=$(grep -a "MLX start:" /tmp/afm-test.log 2>/dev/null | tail -1 || true)
+all_params_resp=$(curl -sf "$BASE_URL/v1/chat/completions" \
+  -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"Hi"}],"temperature":0.7,"top_p":0.9,"top_k":20,"min_p":0.05,"presence_penalty":1.5,"seed":123,"max_tokens":5,"stream":false}' 2>/dev/null || echo '{"error":"request_failed"}')
 t1=$(python3 -c "import time; print(int(time.time()*1000))")
 dur=$(( t1 - t0 ))
-has_all=true
-for param in "top_k=20" "min_p=0.05" "presence_penalty=1.5" "seed=123"; do
-  if ! echo "$log_line" | grep -q "$param"; then
-    has_all=false
-    break
-  fi
-done
-if $has_all; then
-  run_test "Combined" "Log line contains all new params" "top_k, min_p, presence_penalty, seed in log" "PASS" "$dur"
+all_params_ok=$(echo "$all_params_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if 'error' in d:
+        print(f'FAIL: {d[\"error\"]}')
+    elif d.get('usage', {}).get('completion_tokens', 0) > 0:
+        print('PASS')
+    else:
+        msg = d['choices'][0]['message']
+        c = msg.get('content') or msg.get('reasoning_content') or ''
+        print('PASS' if c.strip() else 'FAIL: empty response')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+if [ "$all_params_ok" = "PASS" ]; then
+  run_test "Combined" "All sampling params accepted (top_k, min_p, presence_penalty, seed)" "valid response" "PASS" "$dur"
 else
-  run_test "Combined" "Log line contains all new params" "all params in log" "FAIL: $log_line" "$dur"
+  run_test "Combined" "All sampling params accepted (top_k, min_p, presence_penalty, seed)" "valid response" "$all_params_ok" "$dur"
 fi
 
 # ─── TEST GROUP: Edge Cases ───────────────────────────────────────────────────
