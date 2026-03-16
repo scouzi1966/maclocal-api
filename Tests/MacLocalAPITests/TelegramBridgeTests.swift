@@ -81,4 +81,16 @@ final class TelegramBridgeTests: XCTestCase {
         let messages = await store.historyMessages(chatID: 99)
         XCTAssertTrue(messages.isEmpty)
     }
+
+    func testStateFileNameDoesNotLeakTelegramToken() {
+        let token = "123456789:AAExampleTokenValueExample123456789"
+        let fileName = TelegramStateStore.stateFileName(for: token)
+
+        XCTAssertTrue(fileName.hasPrefix("state-"))
+        XCTAssertTrue(fileName.hasSuffix(".json"))
+        XCTAssertFalse(fileName.contains(token))
+        XCTAssertFalse(fileName.contains("123456789"))
+        XCTAssertFalse(fileName.contains("AAExampleTokenValueExample123456789"))
+        XCTAssertEqual(fileName, TelegramStateStore.stateFileName(for: token))
+    }
 }

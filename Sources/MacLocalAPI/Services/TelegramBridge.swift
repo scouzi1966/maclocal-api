@@ -1,4 +1,5 @@
 import ArgumentParser
+import CryptoKit
 import Foundation
 
 enum TelegramReplyFormat: String, Codable, CaseIterable, ExpressibleByArgument, Sendable {
@@ -325,12 +326,10 @@ actor TelegramStateStore {
         return try JSONDecoder().decode(TelegramState.self, from: data)
     }
 
-    private static func stateFileName(for token: String) -> String {
-        let digest = Data(token.utf8).base64EncodedString()
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "=", with: "")
-        return "state-\(digest).json"
+    static func stateFileName(for token: String) -> String {
+        let digest = SHA256.hash(data: Data(token.utf8))
+        let hex = digest.map { String(format: "%02x", $0) }.joined()
+        return "state-\(hex).json"
     }
 }
 
