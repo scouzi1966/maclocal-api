@@ -52,6 +52,17 @@ final class TelegramBridgeTests: XCTestCase {
         XCTAssertEqual(rendered, "<b>bold</b> and <code>code</code> and <a href=\"https://example.com\">link</a>")
     }
 
+    func testChunkResponsePrefersParagraphAndWordBoundaries() {
+        let text = "First paragraph line one.\n\nSecond paragraph line two with more words."
+        let chunks = TelegramPolicy.chunkResponse(text, limit: 28)
+
+        XCTAssertEqual(chunks, [
+            "First paragraph line one.",
+            "Second paragraph line two",
+            "with more words."
+        ])
+    }
+
     func testConversationStoreReturnsAlternatingHistoryMessages() async {
         let store = TelegramConversationStore()
         await store.append(chatID: 42, userPrompt: "hello", assistantReply: "hi")

@@ -223,9 +223,31 @@ struct TelegramPolicy {
         var chunks: [String] = []
         var start = text.startIndex
         while start < text.endIndex {
-            let end = text.index(start, offsetBy: limit, limitedBy: text.endIndex) ?? text.endIndex
-            chunks.append(String(text[start..<end]))
-            start = end
+            let hardEnd = text.index(start, offsetBy: limit, limitedBy: text.endIndex) ?? text.endIndex
+            var split = hardEnd
+
+            if hardEnd < text.endIndex {
+                if let paragraphBreak = text[start..<hardEnd].range(of: "\n\n", options: .backwards) {
+                    split = paragraphBreak.upperBound
+                } else if let lineBreak = text[start..<hardEnd].range(of: "\n", options: .backwards) {
+                    split = lineBreak.upperBound
+                } else if let wordBreak = text[start..<hardEnd].range(of: " ", options: .backwards) {
+                    split = wordBreak.upperBound
+                }
+            }
+
+            if split == start {
+                split = hardEnd
+            }
+
+            let chunk = text[start..<split].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !chunk.isEmpty {
+                chunks.append(String(chunk))
+            }
+            start = split
+            while start < text.endIndex, text[start].isWhitespace {
+                start = text.index(after: start)
+            }
         }
         return chunks
     }

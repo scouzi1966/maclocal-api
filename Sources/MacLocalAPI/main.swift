@@ -111,7 +111,7 @@ struct ServeCommand: ParsableCommand {
         )
 
         if gateway && telegramConfiguration != nil {
-            throw ValidationError("--telegram is not supported with --gateway")
+            throw ValidationError("--telegram-bot-token/--telegram-allow are not supported with --gateway")
         }
 
         if verbose {
