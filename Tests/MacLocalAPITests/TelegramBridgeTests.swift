@@ -104,4 +104,72 @@ final class TelegramBridgeTests: XCTestCase {
         XCTAssertFalse(fileName.contains("AAExampleTokenValueExample123456789"))
         XCTAssertEqual(fileName, TelegramStateStore.stateFileName(for: token))
     }
+
+    func testActiveRequestStoreReplaceCancelsPreviousTask() async {
+        let store = TelegramActiveRequestStore()
+
+        let firstCanceled = expectation(description: "first task canceled")
+        let firstTask = Task {
+            do {
+                try await Task.sleep(nanoseconds: 30_000_000_000)
+            } catch is CancellationError {
+                firstCanceled.fulfill()
+            } catch {
+                XCTFail("Unexpected error: \(error)")
+            }
+        }
+
+        _ = await store.replace(chatID: 1, task: firstTask)
+
+        let secondTask = Task {}
+        _ = await store.replace(chatID: 1, task: secondTask)
+
+        await fulfillment(of: [firstCanceled], timeout: 1.0)
+        secondTask.cancel()
+        _ = await secondTask.result
+    }
+
+    func testActiveRequestStoreCancelStopsTrackedTask() async {
+        let store = TelegramActiveRequestStore()
+
+        let canceled = expectation(description: "tracked task canceled")
+        let task = Task {
+            do {
+                try await Task.sleep(nanoseconds: 30_000_000_000)
+            } catch is CancellationError {
+                canceled.fulfill()
+            } catch {
+                XCTFail("Unexpected error: \(error)")
+            }
+        }
+
+        _ = await store.replace(chatID: 42, task: task)
+        let didCancel = await store.cancel(chatID: 42)
+
+        XCTAssertTrue(didCancel)
+        await fulfillment(of: [canceled], timeout: 1.0)
+        _ = await task.result
+        let canceledAgain = await store.cancel(chatID: 42)
+        XCTAssertFalse(canceledAgain)
+    }
+
+    func testActiveRequestStoreFinishDoesNotClearReplacedRequest() async {
+        let store = TelegramActiveRequestStore()
+
+        let firstTask = Task {}
+        let firstID = await store.replace(chatID: 9, task: firstTask)
+
+        let secondTask = Task {}
+        _ = await store.replace(chatID: 9, task: secondTask)
+
+        await store.finish(chatID: 9, id: firstID)
+
+        let didCancel = await store.cancel(chatID: 9)
+        XCTAssertTrue(didCancel)
+
+        firstTask.cancel()
+        secondTask.cancel()
+        _ = await firstTask.result
+        _ = await secondTask.result
+    }
 }

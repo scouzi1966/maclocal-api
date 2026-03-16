@@ -387,6 +387,11 @@ private struct TelegramConversationTurn: Codable, Equatable, Sendable {
     let createdAt: Date
 }
 
+private struct TelegramActiveRequest {
+    let id: UUID
+    let task: Task<Void, Never>
+}
+
 actor TelegramConversationStore {
     private var turnsByChatID: [Int64: [TelegramConversationTurn]] = [:]
 
@@ -419,12 +424,36 @@ actor TelegramConversationStore {
     }
 }
 
+actor TelegramActiveRequestStore {
+    private var requestsByChatID: [Int64: TelegramActiveRequest] = [:]
+
+    func replace(chatID: Int64, task: Task<Void, Never>) -> UUID {
+        let request = TelegramActiveRequest(id: UUID(), task: task)
+        if let previous = requestsByChatID.updateValue(request, forKey: chatID) {
+            previous.task.cancel()
+        }
+        return request.id
+    }
+
+    func cancel(chatID: Int64) -> Bool {
+        guard let existing = requestsByChatID.removeValue(forKey: chatID) else { return false }
+        existing.task.cancel()
+        return true
+    }
+
+    func finish(chatID: Int64, id: UUID) {
+        guard requestsByChatID[chatID]?.id == id else { return }
+        requestsByChatID.removeValue(forKey: chatID)
+    }
+}
+
 final class TelegramBridge {
     private let config: TelegramConfiguration
     private let client: AFMLocalClient
     private let bot: TelegramBotClient
     private let stateStore: TelegramStateStore
     private let conversationStore = TelegramConversationStore()
+    private let activeRequests = TelegramActiveRequestStore()
     private var watcherTask: Task<Void, Never>?
 
     init(config: TelegramConfiguration) throws {
@@ -543,11 +572,12 @@ final class TelegramBridge {
         case .newConversation:
             await handleNewConversation(message: message, userID: from.id)
         case .prompt(let prompt):
-            await handlePrompt(prompt: prompt, message: message, userID: from.id)
+            await enqueuePrompt(prompt: prompt, message: message, userID: from.id)
         }
     }
 
     private func handleNewConversation(message: TelegramMessage, userID: Int64) async {
+        let canceled = await activeRequests.cancel(chatID: message.chat.id)
         await conversationStore.reset(chatID: message.chat.id)
         do {
             try await bot.sendMessage(
@@ -555,10 +585,28 @@ final class TelegramBridge {
                 format: config.replyFormat,
                 chatID: message.chat.id
             )
-            info("reset conversation for Telegram user \(userID)")
+            if canceled {
+                info("canceled in-flight request and reset conversation for Telegram user \(userID)")
+            } else {
+                info("reset conversation for Telegram user \(userID)")
+            }
             info("sent reply to Telegram user \(userID)")
         } catch {
             info("failed to send conversation reset reply to Telegram user \(userID): \(error.localizedDescription)")
+        }
+    }
+
+    private func enqueuePrompt(prompt: String, message: TelegramMessage, userID: Int64) async {
+        let chatID = message.chat.id
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.handlePrompt(prompt: prompt, message: message, userID: userID)
+        }
+        let requestID = await activeRequests.replace(chatID: chatID, task: task)
+        info("started Telegram request for user \(userID) chat=\(chatID)")
+        Task { [weak self] in
+            await task.value
+            await self?.activeRequests.finish(chatID: chatID, id: requestID)
         }
     }
 
@@ -601,6 +649,7 @@ final class TelegramBridge {
             messages.append(currentUserMessage)
 
             let completion = try await client.sendMessagesResponse(messages, userTag: "telegram:\(userID)")
+            try Task.checkCancellation()
             let choice = completion.choices.first
             let reply = choice?.message.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !reply.isEmpty else {
@@ -621,9 +670,12 @@ final class TelegramBridge {
             await conversationStore.append(chatID: message.chat.id, userPrompt: effectivePrompt, assistantReply: reply)
 
             for chunk in TelegramPolicy.chunkResponse(reply) {
+                try Task.checkCancellation()
                 try await bot.sendMessage(text: chunk, format: config.replyFormat, chatID: message.chat.id)
             }
             info("sent reply to Telegram user \(userID)")
+        } catch is CancellationError {
+            info("canceled in-flight Telegram request for user \(userID) chat=\(message.chat.id)")
         } catch {
             info("request failed for Telegram user \(userID): \(error.localizedDescription)")
             do {
