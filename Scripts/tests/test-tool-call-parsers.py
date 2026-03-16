@@ -234,6 +234,11 @@ def send_request(port, prompt, tools, stream=False, timeout=120):
                 if payload_str == "[DONE]":
                     break
                 chunk = json.loads(payload_str)
+                if not chunk.get("choices"):
+                    # Usage-only chunk (empty choices) — just capture usage
+                    if chunk.get("usage"):
+                        usage = chunk["usage"]
+                    continue
                 delta = chunk["choices"][0].get("delta", {})
                 fr = chunk["choices"][0].get("finish_reason")
                 if fr:

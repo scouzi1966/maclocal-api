@@ -73,16 +73,27 @@ chat() {
   curl -sf "$BASE_URL/v1/chat/completions" \
     -H 'Content-Type: application/json' \
     -d "$payload" \
-    | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null || echo "__ERROR__"
+    | python3 -c "
+import sys,json
+msg = json.load(sys.stdin)['choices'][0]['message']
+c = (msg.get('content') or msg.get('reasoning_content') or '').strip()
+print(c)
+" 2>/dev/null || echo "__ERROR__"
 }
 
 chat_raw() {
   # Like chat but takes raw JSON body
+  # Checks both content and reasoning_content for thinking models
   local body="$1"
   curl -sf "$BASE_URL/v1/chat/completions" \
     -H 'Content-Type: application/json' \
     -d "$body" \
-    | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null || echo "__ERROR__"
+    | python3 -c "
+import sys,json
+msg = json.load(sys.stdin)['choices'][0]['message']
+c = (msg.get('content') or msg.get('reasoning_content') or '').strip()
+print(c)
+" 2>/dev/null || echo "__ERROR__"
 }
 
 run_test() {
