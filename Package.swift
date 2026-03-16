@@ -82,7 +82,9 @@ let package = Package(
                 // Create a more portable executable
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path"], .when(configuration: .release)),
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "/usr/lib/swift"], .when(configuration: .release)),
-                .unsafeFlags(["-Xlinker", "-dead_strip"], .when(configuration: .release))
+                .unsafeFlags(["-Xlinker", "-dead_strip"], .when(configuration: .release)),
+                .linkedFramework("Security"),
+                .linkedLibrary("sqlite3")
             ]
         ),
         .testTarget(

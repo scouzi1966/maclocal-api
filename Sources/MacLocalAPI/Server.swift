@@ -48,6 +48,7 @@ class Server {
     private let webuiPath: String?
     private let gatewayEnabled: Bool
     private let prewarmEnabled: Bool
+    private let telegramConfiguration: TelegramConfiguration?
     private let mlxModelID: String?
     private let mlxModelService: MLXModelService?
     private let mlxRepetitionPenalty: Double?
@@ -60,8 +61,9 @@ class Server {
     private let mlxSeed: Int?
     private let mlxMaxLogprobs: Int
     private let contextWindow: Int?
+    private var telegramBridge: TelegramBridge?
 
-    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil) async throws {
+    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, telegramConfiguration: TelegramConfiguration? = nil, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -78,6 +80,7 @@ class Server {
         self.webuiPath = Server.findWebuiPath()
         self.gatewayEnabled = gatewayEnabled
         self.prewarmEnabled = prewarmEnabled
+        self.telegramConfiguration = telegramConfiguration
         self.mlxModelID = mlxModelID
         self.mlxModelService = mlxModelService
         self.mlxRepetitionPenalty = mlxRepetitionPenalty
@@ -815,6 +818,12 @@ class Server {
         // Start the server
         try await app.server.start(address: .hostname(hostname, port: port))
 
+        if let telegramConfiguration {
+            let bridge = try TelegramBridge(config: telegramConfiguration)
+            try await bridge.start()
+            self.telegramBridge = bridge
+        }
+
         // Open browser if webui is enabled
         if webuiEnabled && webuiPath != nil {
             let url = "http://\(browserLaunchHost(for: hostname)):\(port)"
@@ -834,6 +843,8 @@ class Server {
     
     func shutdown() {
         print("🛑 Shutting down server...")
+        telegramBridge?.stop()
+        telegramBridge = nil
 
         // Shutdown the server first
         Task {
