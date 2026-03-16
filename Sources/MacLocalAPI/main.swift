@@ -59,8 +59,17 @@ struct ServeCommand: ParsableCommand {
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
 
-    @Option(name: .long, help: "Enable iMessage bridge with a comma-separated Apple ID whitelist (direct chats only, pairing required)")
-    var imessage: String?
+    @Option(name: .long, help: "Telegram bot token for remote AFM access")
+    var telegramBotToken: String?
+
+    @Option(name: .long, help: "Enable Telegram bridge with a comma-separated allowlist of Telegram numeric user IDs")
+    var telegramAllow: String?
+
+    @Option(name: .long, help: "Telegram reply format: markdown, plain, or html (default: markdown)")
+    var telegramFormat: TelegramReplyFormat = .markdown
+
+    @Option(name: .long, help: "Require a specific prefix for Telegram messages, for example '/afm' (default: no prefix required)")
+    var telegramRequirePrefix: String?
 
     @Flag(name: [.customShort("g"), .long], help: "Enable API gateway mode: discover and proxy to local LLM backends (Ollama, LM Studio, Jan, etc.)")
     var gateway: Bool = false
@@ -89,17 +98,20 @@ struct ServeCommand: ParsableCommand {
 
         // Parse prewarm flag
         let prewarmEnabled = prewarm.lowercased() != "n" && prewarm.lowercased() != "no" && prewarm != "0"
-        let iMessageConfiguration = try makeIMessageConfiguration(
-            rawAllowlist: imessage,
+        let telegramConfiguration = try makeTelegramConfiguration(
+            rawBotToken: telegramBotToken,
+            rawAllowlist: telegramAllow,
             hostname: hostname,
             port: port,
             modelID: "foundation",
             instructions: instructions,
-            verbose: verbose || veryVerbose || vv
+            verbose: verbose || veryVerbose || vv,
+            replyFormat: telegramFormat,
+            requirePrefix: telegramRequirePrefix
         )
 
-        if gateway, iMessageConfiguration != nil {
-            throw ValidationError("--imessage is not supported with --gateway")
+        if gateway && telegramConfiguration != nil {
+            throw ValidationError("--telegram is not supported with --gateway")
         }
 
         if verbose {
@@ -116,7 +128,7 @@ struct ServeCommand: ParsableCommand {
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: port, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose || vv, trace: vv, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled, iMessageConfiguration: iMessageConfiguration)
+                let server = try await Server(port: port, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose || vv, trace: vv, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled, telegramConfiguration: telegramConfiguration)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -158,7 +170,10 @@ struct MlxCommand: ParsableCommand {
           -v, --verbose: Enable verbose logging
           -V, --very-verbose: Log full requests/responses and all parameters
           -w, --webui: Enable WebUI and open in browser
-          --imessage: Enable iMessage bridge with a comma-separated Apple ID whitelist
+          --telegram-bot-token: Telegram bot token for remote AFM access
+          --telegram-allow: Comma-separated allowlist of Telegram numeric user IDs
+          --telegram-format: Telegram reply format: markdown, plain, or html
+          --telegram-require-prefix: Require a specific prefix for Telegram messages, for example '/afm'
           -t, --temperature: Sampling temperature (0.0-2.0)
           --top-p: Nucleus sampling threshold (0.0-1.0)
           --top-k: Keep only k most likely tokens (0 = disabled)
@@ -346,8 +361,17 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible). Auto-disables thinking on reasoning models for deterministic output.")
     var guidedJson: String?
 
-    @Option(name: .long, help: "Enable iMessage bridge with a comma-separated Apple ID whitelist (direct chats only, pairing required)")
-    var imessage: String?
+    @Option(name: .long, help: "Telegram bot token for remote AFM access")
+    var telegramBotToken: String?
+
+    @Option(name: .long, help: "Enable Telegram bridge with a comma-separated allowlist of Telegram numeric user IDs")
+    var telegramAllow: String?
+
+    @Option(name: .long, help: "Telegram reply format: markdown, plain, or html (default: markdown)")
+    var telegramFormat: TelegramReplyFormat = .markdown
+
+    @Option(name: .long, help: "Require a specific prefix for Telegram messages, for example '/afm' (default: no prefix required)")
+    var telegramRequirePrefix: String?
 
     @Option(name: .long, help: "Tool call parser override: afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml. afm_adaptive_xml adds JSON-in-XML fallback, type coercion, and optional xgrammar EBNF constrained decoding for models that switch between XML and JSON formats. Recommended for Qwen3+ models.")
     var toolCallParser: String?
@@ -390,8 +414,8 @@ struct MlxCommand: ParsableCommand {
             throw ExitCode.failure
         }
 
-        if imessage != nil && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
-            print("Error: --imessage requires server mode and cannot be used with -s or piped single-prompt input")
+        if (telegramBotToken != nil || telegramAllow != nil) && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
+            print("Error: --telegram requires server mode and cannot be used with -s or piped single-prompt input")
             throw ExitCode.failure
         }
 
@@ -541,13 +565,16 @@ struct MlxCommand: ParsableCommand {
             chosenPort = try findEphemeralPort()
             print("Port 9999 is busy, using ephemeral port \(chosenPort)")
         }
-        let iMessageConfiguration = try makeIMessageConfiguration(
-            rawAllowlist: imessage,
+        let telegramConfiguration = try makeTelegramConfiguration(
+            rawBotToken: telegramBotToken,
+            rawAllowlist: telegramAllow,
             hostname: hostname,
             port: chosenPort,
             modelID: selectedModel,
             instructions: instructions,
-            verbose: verbose || veryVerbose || vv
+            verbose: verbose || veryVerbose || vv,
+            replyFormat: telegramFormat,
+            requirePrefix: telegramRequirePrefix
         )
 
         if verbose {
@@ -582,7 +609,7 @@ struct MlxCommand: ParsableCommand {
                     webuiEnabled: webui,
                     gatewayEnabled: false,
                     prewarmEnabled: false,
-                    iMessageConfiguration: iMessageConfiguration,
+                    telegramConfiguration: telegramConfiguration,
                     mlxModelID: selectedModel,
                     mlxModelService: service,
                     mlxRepetitionPenalty: repetitionPenalty,
@@ -1023,7 +1050,10 @@ struct MacLocalAPI: ParsableCommand {
           -v, --verbose: Enable verbose logging
           -V, --very-verbose: Log full requests/responses
           -w, --webui: Enable WebUI and open in browser
-          --imessage: Enable iMessage bridge with a comma-separated Apple ID whitelist
+          --telegram-bot-token: Telegram bot token for remote AFM access
+          --telegram-allow: Comma-separated allowlist of Telegram numeric user IDs
+          --telegram-format: Telegram reply format: markdown, plain, or html
+          --telegram-require-prefix: Require a specific prefix for Telegram messages, for example '/afm'
           -g, --gateway: Enable API gateway (discover/proxy Ollama, LM Studio, Jan, etc.)
           -t, --temperature: Sampling temperature (0.0-1.0)
           -r, --randomness: "greedy", "random", "random:top-p=0.9", "random:top-k=40", ":seed=42"
@@ -1098,7 +1128,10 @@ struct RootCommand: ParsableCommand {
           -v, --verbose: Enable verbose logging
           -V, --very-verbose: Log full requests/responses
           -w, --webui: Enable WebUI and open in browser
-          --imessage: Enable iMessage bridge with a comma-separated Apple ID whitelist
+          --telegram-bot-token: Telegram bot token for remote AFM access
+          --telegram-allow: Comma-separated allowlist of Telegram numeric user IDs
+          --telegram-format: Telegram reply format: markdown, plain, or html
+          --telegram-require-prefix: Require a specific prefix for Telegram messages, for example '/afm'
           -g, --gateway: Enable API gateway (discover/proxy Ollama, LM Studio, Jan, etc.)
           -t, --temperature: Sampling temperature (0.0-1.0)
           -r, --randomness: "greedy", "random", "random:top-p=0.9", "random:top-k=40", ":seed=42"
@@ -1177,8 +1210,17 @@ struct RootCommand: ParsableCommand {
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
 
-    @Option(name: .long, help: "Enable iMessage bridge with a comma-separated Apple ID whitelist (direct chats only, pairing required)")
-    var imessage: String?
+    @Option(name: .long, help: "Telegram bot token for remote AFM access")
+    var telegramBotToken: String?
+
+    @Option(name: .long, help: "Enable Telegram bridge with a comma-separated allowlist of Telegram numeric user IDs")
+    var telegramAllow: String?
+
+    @Option(name: .long, help: "Telegram reply format: markdown, plain, or html (default: markdown)")
+    var telegramFormat: TelegramReplyFormat = .markdown
+
+    @Option(name: .long, help: "Require a specific prefix for Telegram messages, for example '/afm' (default: no prefix required)")
+    var telegramRequirePrefix: String?
 
     @Flag(name: [.customShort("g"), .long], help: "Enable API gateway mode: discover and proxy to local LLM backends (Ollama, LM Studio, Jan, etc.)")
     var gateway: Bool = false
@@ -1219,8 +1261,8 @@ struct RootCommand: ParsableCommand {
             }
         }
 
-        if imessage != nil && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
-            throw ValidationError("--imessage requires server mode and cannot be used with -s or piped single-prompt input")
+        if (telegramBotToken != nil || telegramAllow != nil) && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
+            throw ValidationError("--telegram requires server mode and cannot be used with -s or piped single-prompt input")
         }
 
         // Handle single-prompt mode for backward compatibility
@@ -1243,7 +1285,10 @@ struct RootCommand: ParsableCommand {
         if permissiveGuardrails { args.append("--permissive-guardrails") }
         if webui { args.append("--webui") }
         if gateway { args.append("--gateway") }
-        if let imessage { args += ["--imessage", imessage] }
+        if let telegramBotToken { args += ["--telegram-bot-token", telegramBotToken] }
+        if let telegramAllow { args += ["--telegram-allow", telegramAllow] }
+        args += ["--telegram-format", telegramFormat.rawValue]
+        if let telegramRequirePrefix { args += ["--telegram-require-prefix", telegramRequirePrefix] }
         if let adapter { args += ["--adapter", adapter] }
         if let temperature { args += ["--temperature", "\(temperature)"] }
         if let randomness { args += ["--randomness", randomness] }
@@ -1653,17 +1698,29 @@ func parseGuidedJsonSchema(_ jsonString: String) throws -> ResponseJsonSchema {
     )
 }
 
-private func makeIMessageConfiguration(
+private func makeTelegramConfiguration(
+    rawBotToken: String?,
     rawAllowlist: String?,
     hostname: String,
     port: Int,
     modelID: String,
     instructions: String,
-    verbose: Bool
-) throws -> IMessageConfiguration? {
-    guard let rawAllowlist, !rawAllowlist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+    verbose: Bool,
+    replyFormat: TelegramReplyFormat,
+    requirePrefix: String?
+) throws -> TelegramConfiguration? {
+    let token = rawBotToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let allowlist = rawAllowlist?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if token.isEmpty && allowlist.isEmpty {
         return nil
     }
+    guard !token.isEmpty else {
+        throw ValidationError("--telegram-bot-token is required when --telegram-allow is set")
+    }
+    guard !allowlist.isEmpty else {
+        throw ValidationError("--telegram-allow is required when --telegram-bot-token is set")
+    }
+
     let host: String
     switch hostname {
     case "0.0.0.0", "::", "[::]":
@@ -1671,11 +1728,19 @@ private func makeIMessageConfiguration(
     default:
         host = hostname
     }
-    return IMessageConfiguration(
-        allowedSenders: try IMessageConfiguration.parseAllowedSenders(rawAllowlist),
+
+    let normalizedPrefix = requirePrefix?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let effectivePrefix = normalizedPrefix.flatMap { $0.isEmpty ? nil : $0 }
+
+    return TelegramConfiguration(
+        botToken: token,
+        allowedUserIDs: try TelegramConfiguration.parseAllowedUserIDs(allowlist),
         localBaseURL: "http://\(host):\(port)",
         modelID: modelID,
         instructions: instructions,
-        verbose: verbose
+        verbose: verbose,
+        pollIntervalSeconds: 2,
+        replyFormat: replyFormat,
+        requiredPrefix: effectivePrefix
     )
 }
