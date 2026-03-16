@@ -29,6 +29,11 @@ final class AFMLocalClient {
     }
 
     func sendMessages(_ messages: [Message], userTag: String) async throws -> String {
+        let completion = try await sendMessagesResponse(messages, userTag: userTag)
+        return completion.choices.first?.message.content ?? ""
+    }
+
+    func sendMessagesResponse(_ messages: [Message], userTag: String) async throws -> ChatCompletionResponse {
         let endpoint = baseURL.appendingPathComponent("v1/chat/completions")
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
@@ -69,7 +74,6 @@ final class AFMLocalClient {
             throw TelegramBridgeError.localClientError("AFM API error \(http.statusCode): \(body)")
         }
 
-        let completion = try JSONDecoder().decode(ChatCompletionResponse.self, from: data)
-        return completion.choices.first?.message.content ?? ""
+        return try JSONDecoder().decode(ChatCompletionResponse.self, from: data)
     }
 }

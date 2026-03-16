@@ -600,10 +600,20 @@ final class TelegramBridge {
             }
             messages.append(currentUserMessage)
 
-            let response = try await client.sendMessages(messages, userTag: "telegram:\(userID)")
-            let reply = response.trimmingCharacters(in: .whitespacesAndNewlines)
+            let completion = try await client.sendMessagesResponse(messages, userTag: "telegram:\(userID)")
+            let choice = completion.choices.first
+            let reply = choice?.message.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !reply.isEmpty else {
-                try await bot.sendMessage(text: "AFM did not return any content for that request.", format: config.replyFormat, chatID: message.chat.id)
+                let finishReason = choice?.finishReason ?? "unknown"
+                let reasoningPresent = !(choice?.message.reasoningContent?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+                let explanation = reasoningPresent
+                    ? "finish_reason=\(finishReason), reasoning_content present"
+                    : "finish_reason=\(finishReason)"
+                try await bot.sendMessage(
+                    text: "AFM did not return any content for that request (\(explanation)).",
+                    format: config.replyFormat,
+                    chatID: message.chat.id
+                )
                 info("sent empty-response notice to Telegram user \(userID)")
                 return
             }
