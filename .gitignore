@@ -82,3 +82,17 @@ macafm/share/
 Resources/webui/
 vendor/llama.cpp/tools/server/webui/node_modules/
 vendor/llama.cpp/tools/server/public/
+
+# Repo-local Codex shared assets only; keep local state out of git
+.codex/cache/
+.codex/local/
+.codex/logs/
+.codex/memories/
+.codex/state/
+.codex/tmp/
+.codex/*.local.*
+.codex/.env
+.codex/.env.*
+.codex/*token*
+.codex/*secret*
+.codex/*auth*.json
