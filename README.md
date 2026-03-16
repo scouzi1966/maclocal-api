@@ -1,4 +1,4 @@
-If you find this useful, please ⭐ the repo! &nbsp; Also check out [Vesta AI Explorer](https://kruks.ai/) — my full-featured native macOS AI app.
+If you find this useful, please ⭐ the repo! &nbsp; Also check out [Vesta AI Explorer](https://kruks.ai/)! — my full-featured native macOS AI app.
 
 > [!NOTE]
 >
