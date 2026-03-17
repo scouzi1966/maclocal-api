@@ -28,7 +28,7 @@ If you find this useful, please ⭐ the repo! &nbsp; Also check out [Vesta AI Ex
 >
 > Start vibe coding! I will add support for skills with more coding agents in the future.
 
-# afm — Run Any LLM on Your Mac, 100% Local
+# afm — Run Any MLX LLM on Your Mac, 100% Local
 
 Extensive testing of Qwen3.5-35B-A3B with afm. Uses an experimental technique with Claude and Codex as judges for evaluation scoring. Click the link below to view test results.
 
