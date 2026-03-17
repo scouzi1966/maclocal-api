@@ -493,6 +493,59 @@ fi
 
 **If wheel is under 1 MB or missing WebUI, STOP.** Do not provide the publish command.
 
+### Step 12b: User Clean-Slate Installation Testing (MANDATORY)
+
+Before publishing to PyPI, the user MUST verify both installation methods work from a completely clean slate. Each method must be tested independently with full uninstall in between to avoid conflicts.
+
+First, uninstall ALL existing afm installations:
+
+```bash
+# Remove all traces
+brew uninstall afm 2>/dev/null || true
+brew uninstall afm-next 2>/dev/null || true
+pip uninstall macafm -y 2>/dev/null || true
+uv pip uninstall macafm 2>/dev/null || true
+
+# Verify clean slate
+echo "=== Verify clean slate ==="
+brew list --formula 2>&1 | grep -E "^afm" || echo "Homebrew: clean"
+pip show macafm 2>&1 | grep -i version || echo "pip: clean"
+which afm 2>&1 || echo "PATH: clean"
+```
+
+Use **AskUserQuestion**:
+
+**Question:** "Clean-slate testing required. Please test Homebrew install first, then uninstall before testing pip. Ready to start?"
+
+Provide the user with these commands:
+
+**Test 1 — Homebrew (test, then fully uninstall before Test 2):**
+```
+brew update
+brew tap scouzi1966/afm
+brew install scouzi1966/afm/afm
+afm --version          # must show vVERSION
+afm mlx -w -m <model>  # must launch WebUI in browser
+brew uninstall afm      # MUST uninstall before Test 2
+```
+
+**Test 2 — pip from local wheel (after brew is fully removed):**
+```
+pip install FULL_PATH_TO_WHEEL
+afm --version          # must show vVERSION
+afm mlx -w -m <model>  # must launch WebUI in browser
+pip uninstall macafm    # clean up after testing
+```
+
+**IMPORTANT:** Always provide the **full absolute path** to the wheel file. The user may run the command from any directory.
+
+**Options:**
+1. "Both passed" — continue to PyPI publish
+2. "Homebrew failed" — investigate and fix before continuing
+3. "pip failed" — investigate and fix before continuing
+
+**If either test fails, STOP.** Investigate the failure, fix the issue, and re-run the failed test before proceeding. Do NOT publish to PyPI until both methods pass.
+
 ### Step 13: Provide PyPI Publish Command
 
 Present the exact command with the **absolute path** to the wheel and a placeholder token:
