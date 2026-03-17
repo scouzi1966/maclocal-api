@@ -68,11 +68,12 @@ Also locate required assets:
 METALLIB="$(dirname "$BIN")/MacLocalAPI_MacLocalAPI.bundle/default.metallib"
 test -f "$METALLIB" && echo "Metallib: OK ($(ls -lh "$METALLIB" | awk '{print $5}'))" || echo "WARNING: No metallib found"
 
-# WebUI
-test -f Resources/webui/index.html.gz && echo "WebUI: OK" || echo "WARNING: No webui found"
+# WebUI (MANDATORY)
+test -f Resources/webui/index.html.gz && echo "WebUI: OK" || echo "FATAL: WebUI MISSING — run /build-afm first"
 ```
 
 If binary is missing, **STOP** and tell user to run `/build-afm` first.
+If WebUI is missing, **STOP** — the `-w` flag won't work without it. Run `/build-afm` to rebuild with webui.
 
 ### Step 4: Stage Assets and Build Wheel
 
@@ -86,11 +87,9 @@ if [ -f "$METALLIB" ]; then
   cp "$METALLIB" macafm/bin/
 fi
 
-# Stage webui
-if [ -f Resources/webui/index.html.gz ]; then
-  mkdir -p macafm/share/webui
-  cp Resources/webui/index.html.gz macafm/share/webui/
-fi
+# Stage webui (MANDATORY — verified in Step 3)
+mkdir -p macafm/share/webui
+cp Resources/webui/index.html.gz macafm/share/webui/
 
 # Build wheel + sdist
 uv build
@@ -106,6 +105,12 @@ ls -lh dist/macafm-*.whl dist/macafm-*.tar.gz
 ```
 
 If wheel is under 1 MB, **STOP** — assets were not staged correctly.
+
+**MANDATORY:** Verify wheel contains webui:
+```bash
+unzip -l dist/macafm-*.whl | grep "index.html.gz" && echo "WebUI in wheel: OK" || echo "FATAL: WebUI missing from wheel!"
+```
+If WebUI is missing from the wheel, **STOP**.
 
 ### Step 5: Provide Publish Command
 

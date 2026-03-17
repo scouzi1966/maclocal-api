@@ -225,20 +225,52 @@ fi
 
 **If any critical patch fails diff, STOP.** Do not build.
 
-**Step 5d: Build for release:**
+**Step 5d: Build WebUI assets (MANDATORY):**
+
+The WebUI (`-w` flag) is a core feature. Every release MUST include `Resources/webui/index.html.gz`. This asset comes from the llama.cpp submodule and must be built or copied before packaging.
 
 ```bash
-# Build webui (if Node.js available)
-if command -v node >/dev/null 2>&1 && [ -d "webui" ]; then
-  cd webui && npm install && npm run build && cd ..
+cd "$(git rev-parse --show-toplevel)"
+
+# Build webui from llama.cpp submodule
+WEBUI_DIR="vendor/llama.cpp/tools/server/webui"
+WEBUI_PREBUILT="vendor/llama.cpp/tools/server/public/index.html.gz"
+
+if [ -f "$WEBUI_PREBUILT" ]; then
+  # Pre-built webui exists in submodule — copy it
+  mkdir -p Resources/webui
+  cp "$WEBUI_PREBUILT" Resources/webui/index.html.gz
+  echo "WebUI: copied pre-built from llama.cpp submodule"
+elif [ -d "$WEBUI_DIR" ] && command -v node >/dev/null 2>&1; then
+  # Build from source
+  cd "$WEBUI_DIR" && npm install && npm run build && cd "$(git rev-parse --show-toplevel)"
+  mkdir -p Resources/webui
+  cp vendor/llama.cpp/tools/server/public/index.html.gz Resources/webui/index.html.gz
+  echo "WebUI: built from source"
+else
+  echo "FATAL: Cannot build or find WebUI assets."
+  echo "Neither $WEBUI_PREBUILT nor $WEBUI_DIR with Node.js available."
 fi
 
+# MANDATORY CHECK — release MUST have webui
+if [ ! -f "Resources/webui/index.html.gz" ]; then
+  echo "FATAL: Resources/webui/index.html.gz is MISSING. Cannot release without WebUI."
+else
+  echo "WebUI OK: $(ls -lh Resources/webui/index.html.gz | awk '{print $5}')"
+fi
+```
+
+**If `Resources/webui/index.html.gz` does not exist, STOP IMMEDIATELY.** Do NOT proceed with the build. The WebUI is a core feature and every release must include it.
+
+**Step 5e: Build for release:**
+
+```bash
 # Clean and build release
 swift package clean
 swift build -c release
 ```
 
-**Step 5e: Post-build version verification:**
+**Step 5f: Post-build version verification:**
 
 ```bash
 BIN=".build/arm64-apple-macosx/release/afm"
@@ -276,11 +308,9 @@ if [ -d "$BUNDLE_DIR" ]; then
   cp -r "$BUNDLE_DIR" "$STAGING/"
 fi
 
-# WebUI
-if [ -f "Resources/webui/index.html.gz" ]; then
-  mkdir -p "$STAGING/Resources/webui"
-  cp "Resources/webui/index.html.gz" "$STAGING/Resources/webui/"
-fi
+# WebUI (MANDATORY — verified in Step 5d)
+mkdir -p "$STAGING/Resources/webui"
+cp "Resources/webui/index.html.gz" "$STAGING/Resources/webui/"
 
 cp README.md "$STAGING/" 2>/dev/null || true
 cp LICENSE "$STAGING/" 2>/dev/null || true
@@ -291,6 +321,11 @@ SHA256=$(shasum -a 256 "$STABLE_TARBALL" | cut -d' ' -f1)
 
 echo "Tarball: $STABLE_TARBALL ($(du -h "$STABLE_TARBALL" | cut -f1 | xargs))"
 echo "SHA256: $SHA256"
+
+# MANDATORY: Verify tarball contains webui
+if ! tar tzf "$STABLE_TARBALL" | grep -q "index.html.gz"; then
+  echo "FATAL: Tarball does NOT contain WebUI! Aborting."
+fi
 ```
 
 ### Step 7: Return to Original Branch
@@ -433,10 +468,8 @@ if [ -f "$METALLIB" ]; then
   cp "$METALLIB" macafm/bin/
 fi
 
-# WebUI
-if [ -f "Resources/webui/index.html.gz" ]; then
-  cp "Resources/webui/index.html.gz" macafm/share/webui/
-fi
+# WebUI (MANDATORY — verified in Step 5d)
+cp "Resources/webui/index.html.gz" macafm/share/webui/
 
 # Build wheel
 uv build
@@ -451,9 +484,14 @@ echo "Wheel: $WHEEL (${WHEEL_SIZE} bytes)"
 if [ "$WHEEL_SIZE" -lt 1000000 ]; then
   echo "ERROR: Wheel is only ${WHEEL_SIZE} bytes — assets were not staged correctly!"
 fi
+
+# MANDATORY: Verify wheel contains webui
+if ! unzip -l "$WHEEL" | grep -q "index.html.gz"; then
+  echo "FATAL: Wheel does NOT contain WebUI!"
+fi
 ```
 
-**If wheel is under 1 MB, STOP.** Do not provide the publish command.
+**If wheel is under 1 MB or missing WebUI, STOP.** Do not provide the publish command.
 
 ### Step 13: Provide PyPI Publish Command
 
