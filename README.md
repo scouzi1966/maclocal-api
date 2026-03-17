@@ -38,11 +38,11 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 
 ## Install
 
-|  | Stable (v0.9.6) | Nightly (afm-next) |
+|  | Stable (v0.9.7) | Nightly (afm-next) |
 |---|---|---|
 | **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
 | **pip** | `pip install macafm` | `pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next` |
-| **Release notes** | [v0.9.6](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.6) | [v0.9.7-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260316-072340b) |
+| **Release notes** | [v0.9.7](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.7) | [v0.9.7-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260316-072340b) |
 
 > [!TIP]
 > **Switching between stable and nightly:**
@@ -55,15 +55,8 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 ## What's new in afm-next
 
 > [!IMPORTANT]
-> The nightly build is the future stable release. It includes everything in v0.9.6 plus:
-> - `--help-json` AI capability cards for tool-using agents (YAML-based model/feature discovery)
-> - Fix XML tool call parameters serialized as strings instead of arrays/objects (#36, #37)
-> - Fix `qwen3_5` dense model auto-detection — tool calling was broken for Qwen3.5-9B and similar dense models
-> - Fix `qwen3_5_moe` tool call format detection for Qwen3.5-35B-A3B
-> - Interactive model picker viewport scrolling fix
-> - Multi-model assertion test runner (`test-assertions-multi.sh`)
-> - XML tool call deep validation tests (Section 11: 10 tests covering Qwen3/Qwen3.5 XML format)
-> - Increased model load timeout (6 min → 15 min) for large models
+> The nightly build is the future stable release. It includes everything in v0.9.7 plus:
+> - No new features yet — nightly is currently in sync with the stable release
 
 ## Quick Start
 
