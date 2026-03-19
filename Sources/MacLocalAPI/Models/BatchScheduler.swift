@@ -171,16 +171,12 @@ actor BatchScheduler {
         self.configuration = configuration
         self.maxConcurrent = maxConcurrent
 
-        if enablePrefixCaching {
-            let debug = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
-            self.radixCache = RadixTreeCache(
-                modelID: configuration.name,
-                maxEntries: 64,
-                debugLogging: debug
-            )
-        } else {
-            self.radixCache = nil
-        }
+        let debug = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
+        self.radixCache = RadixTreeCache(
+            modelID: configuration.name,
+            maxEntries: 64,
+            debugLogging: debug
+        )
 
         var eos = configuration.eosTokenIds
         if let tokenizerEos = tokenizer.eosTokenId {

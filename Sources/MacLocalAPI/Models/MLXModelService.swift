@@ -309,16 +309,12 @@ final class MLXModelService: @unchecked Sendable {
                 }
             }
             self.radixCache?.invalidateAll()
-            if enablePrefixCaching {
-                self.radixCache = RadixTreeCache(
-                    modelID: modelID,
-                    maxEntries: 64,
-                    debugLogging: debugLogging
-                )
-                print("[\(ts())] [PrefixCache] Radix tree prefix caching active (64 entries max)")
-            } else {
-                self.radixCache = nil
-            }
+            self.radixCache = RadixTreeCache(
+                modelID: modelID,
+                maxEntries: 64,
+                debugLogging: debugLogging
+            )
+            print("[\(ts())] [PrefixCache] Radix tree prefix caching active (64 entries max)")
             try registry.registerModel(modelID)
             stage?(.ready)
             return modelID
