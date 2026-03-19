@@ -1,0 +1,295 @@
+{
+  "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+  "max_tokens": 512,
+  "prompt_tokens": "~3115",
+  "no_cache": [
+    {
+      "concurrent": 1,
+      "aggregate_tps": 84.6,
+      "wall_time": 6.06,
+      "total_tokens": 512,
+      "total_cached": 0,
+      "gpu": {
+        "avg_gpu_power": 19.3,
+        "peak_gpu_power": 29.3
+      },
+      "n_valid": 1,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 2,
+      "aggregate_tps": 122.4,
+      "wall_time": 8.37,
+      "total_tokens": 1024,
+      "total_cached": 0,
+      "gpu": {
+        "avg_gpu_power": 57.2,
+        "peak_gpu_power": 142.8
+      },
+      "n_valid": 2,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 3,
+      "aggregate_tps": 149.3,
+      "wall_time": 10.29,
+      "total_tokens": 1536,
+      "total_cached": 0,
+      "gpu": {
+        "avg_gpu_power": 62.2,
+        "peak_gpu_power": 147.4
+      },
+      "n_valid": 3,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 4,
+      "aggregate_tps": 166.5,
+      "wall_time": 12.3,
+      "total_tokens": 2048,
+      "total_cached": 0,
+      "gpu": {
+        "avg_gpu_power": 80.7,
+        "peak_gpu_power": 147.7
+      },
+      "n_valid": 4,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 6,
+      "aggregate_tps": 182.7,
+      "wall_time": 16.81,
+      "total_tokens": 3072,
+      "total_cached": 0,
+      "gpu": {
+        "avg_gpu_power": 91.3,
+        "peak_gpu_power": 148.0
+      },
+      "n_valid": 6,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 8,
+      "aggregate_tps": 197.6,
+      "wall_time": 20.73,
+      "total_tokens": 4096,
+      "total_cached": 0,
+      "gpu": {
+        "avg_gpu_power": 103.9,
+        "peak_gpu_power": 144.0
+      },
+      "n_valid": 8,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 10,
+      "aggregate_tps": 207.8,
+      "wall_time": 24.63,
+      "total_tokens": 5120,
+      "total_cached": 0,
+      "gpu": {
+        "avg_gpu_power": 103.2,
+        "peak_gpu_power": 149.6
+      },
+      "n_valid": 10,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 12,
+      "aggregate_tps": 217.6,
+      "wall_time": 28.24,
+      "total_tokens": 6144,
+      "total_cached": 0,
+      "gpu": {
+        "avg_gpu_power": 103.1,
+        "peak_gpu_power": 145.4
+      },
+      "n_valid": 12,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 16,
+      "aggregate_tps": 230.1,
+      "wall_time": 35.61,
+      "total_tokens": 8192,
+      "total_cached": 0,
+      "gpu": {
+        "avg_gpu_power": 115.2,
+        "peak_gpu_power": 150.3
+      },
+      "n_valid": 16,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 20,
+      "aggregate_tps": 231.9,
+      "wall_time": 44.15,
+      "total_tokens": 10240,
+      "total_cached": 0,
+      "gpu": {
+        "avg_gpu_power": 115.1,
+        "peak_gpu_power": 156.0
+      },
+      "n_valid": 20,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 24,
+      "aggregate_tps": 239.3,
+      "wall_time": 51.34,
+      "total_tokens": 12288,
+      "total_cached": 0,
+      "gpu": {
+        "avg_gpu_power": 119.7,
+        "peak_gpu_power": 157.7
+      },
+      "n_valid": 24,
+      "n_errors": 0
+    }
+  ],
+  "with_cache": [
+    {
+      "concurrent": 1,
+      "aggregate_tps": 81.7,
+      "wall_time": 6.26,
+      "total_tokens": 512,
+      "total_cached": 0,
+      "gpu": {
+        "avg_gpu_power": 20.0,
+        "peak_gpu_power": 31.1
+      },
+      "n_valid": 1,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 2,
+      "aggregate_tps": 167.5,
+      "wall_time": 6.11,
+      "total_tokens": 1024,
+      "total_cached": 6226,
+      "gpu": {
+        "avg_gpu_power": 29.6,
+        "peak_gpu_power": 43.9
+      },
+      "n_valid": 2,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 3,
+      "aggregate_tps": 225.4,
+      "wall_time": 6.81,
+      "total_tokens": 1536,
+      "total_cached": 9339,
+      "gpu": {
+        "avg_gpu_power": 42.4,
+        "peak_gpu_power": 56.6
+      },
+      "n_valid": 3,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 4,
+      "aggregate_tps": 267.5,
+      "wall_time": 7.66,
+      "total_tokens": 2048,
+      "total_cached": 12452,
+      "gpu": {
+        "avg_gpu_power": 48.1,
+        "peak_gpu_power": 64.8
+      },
+      "n_valid": 4,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 6,
+      "aggregate_tps": 321.3,
+      "wall_time": 9.56,
+      "total_tokens": 3072,
+      "total_cached": 18678,
+      "gpu": {
+        "avg_gpu_power": 61.4,
+        "peak_gpu_power": 77.0
+      },
+      "n_valid": 6,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 8,
+      "aggregate_tps": 368.9,
+      "wall_time": 11.1,
+      "total_tokens": 4096,
+      "total_cached": 24904,
+      "gpu": {
+        "avg_gpu_power": 77.2,
+        "peak_gpu_power": 81.0
+      },
+      "n_valid": 8,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 10,
+      "aggregate_tps": 404.2,
+      "wall_time": 12.67,
+      "total_tokens": 5120,
+      "total_cached": 31130,
+      "gpu": {
+        "avg_gpu_power": 71.1,
+        "peak_gpu_power": 86.2
+      },
+      "n_valid": 10,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 12,
+      "aggregate_tps": 439.5,
+      "wall_time": 13.98,
+      "total_tokens": 6144,
+      "total_cached": 37356,
+      "gpu": {
+        "avg_gpu_power": 87.4,
+        "peak_gpu_power": 90.8
+      },
+      "n_valid": 12,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 16,
+      "aggregate_tps": 498.7,
+      "wall_time": 16.43,
+      "total_tokens": 8192,
+      "total_cached": 49808,
+      "gpu": {
+        "avg_gpu_power": 79.7,
+        "peak_gpu_power": 94.7
+      },
+      "n_valid": 16,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 20,
+      "aggregate_tps": 500.8,
+      "wall_time": 20.45,
+      "total_tokens": 10240,
+      "total_cached": 62260,
+      "gpu": {
+        "avg_gpu_power": 73.9,
+        "peak_gpu_power": 85.8
+      },
+      "n_valid": 20,
+      "n_errors": 0
+    },
+    {
+      "concurrent": 24,
+      "aggregate_tps": 544.1,
+      "wall_time": 22.58,
+      "total_tokens": 12288,
+      "total_cached": 74712,
+      "gpu": {
+        "avg_gpu_power": 76.3,
+        "peak_gpu_power": 88.4
+      },
+      "n_valid": 24,
+      "n_errors": 0
+    }
+  ]
+}
