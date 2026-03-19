@@ -58,6 +58,9 @@ public protocol KVCache: Evaluatable, Updatable {
     @discardableResult
     func trim(_ n: Int) -> Int
 
+    /// Physically truncate internal arrays to match offset, eliminating stale data.
+    func truncateToOffset()
+
     /// Create an attention mask for this cache
     ///
     /// This method encapsulates cache-specific mask creation logic. Implementations should handle offset capping, window size logic,
