@@ -8,11 +8,14 @@ final class KVCacheEntry: @unchecked Sendable {
     let tokens: [Int]
     /// Per-layer KV cache state arrays (saved via cache.state)
     var layerStates: [[MLXArray]]
+    /// Per-layer KV cache metadata (saved via cache.metaState).
+    var layerMetaStates: [[String]]
     var lastAccessTime: UInt64
 
-    init(tokens: [Int], layerStates: [[MLXArray]]) {
+    init(tokens: [Int], layerStates: [[MLXArray]], layerMetaStates: [[String]] = []) {
         self.tokens = tokens
         self.layerStates = layerStates
+        self.layerMetaStates = layerMetaStates
         self.lastAccessTime = mach_absolute_time()
     }
 
@@ -54,7 +57,11 @@ final class RadixTreeCache: @unchecked Sendable {
 
     /// Find longest cached prefix for the given token sequence.
     /// Returns (matched token count, per-layer KV states for the matched prefix).
-    func findPrefix(_ tokens: [Int]) -> (prefixLen: Int, layerStates: [[MLXArray]]?) {
+    func findPrefix(_ tokens: [Int]) -> (
+        prefixLen: Int,
+        layerStates: [[MLXArray]]?,
+        layerMetaStates: [[String]]?
+    ) {
         var node = root
         var matched = 0
         var lastCachedNode: RadixNode? = nil
@@ -105,7 +112,11 @@ final class RadixTreeCache: @unchecked Sendable {
                 let entryTokenCount = cached.cacheEntry?.tokens.count ?? 0
                 print("[PrefixCache] Radix hit: \(lastCachedLen)/\(tokens.count) tokens matched (entry has \(entryTokenCount) tokens)")
             }
-            return (lastCachedLen, cached.cacheEntry?.layerStates)
+            return (
+                lastCachedLen,
+                cached.cacheEntry?.layerStates,
+                cached.cacheEntry?.layerMetaStates
+            )
         }
 
         if debugLogging {
@@ -115,12 +126,12 @@ final class RadixTreeCache: @unchecked Sendable {
                 print("[PrefixCache] Radix miss for \(tokens.count) tokens (no prefix match)")
             }
         }
-        return (0, nil)
+        return (0, nil, nil)
     }
 
     /// Insert a cached prefix into the tree.
     /// layerStates: per-layer KV cache state (from cache[i].state).
-    func insert(tokens: [Int], layerStates: [[MLXArray]]) {
+    func insert(tokens: [Int], layerStates: [[MLXArray]], layerMetaStates: [[String]] = []) {
         guard !tokens.isEmpty else { return }
 
         // Evict if at capacity
@@ -137,7 +148,11 @@ final class RadixTreeCache: @unchecked Sendable {
             guard let child = node.children[nextToken] else {
                 // No matching child — insert remaining tokens as new edge
                 let newNode = RadixNode(edgeTokens: Array(tokens[pos...]), parent: node)
-                newNode.cacheEntry = KVCacheEntry(tokens: tokens, layerStates: layerStates)
+                newNode.cacheEntry = KVCacheEntry(
+                    tokens: tokens,
+                    layerStates: layerStates,
+                    layerMetaStates: layerMetaStates
+                )
                 node.children[nextToken] = newNode
                 entryCount += 1
                 if debugLogging {
@@ -165,12 +180,20 @@ final class RadixTreeCache: @unchecked Sendable {
                 if pos < tokens.count {
                     // Remaining tokens go as a new child of splitNode
                     let newNode = RadixNode(edgeTokens: Array(tokens[pos...]), parent: splitNode)
-                    newNode.cacheEntry = KVCacheEntry(tokens: tokens, layerStates: layerStates)
+                    newNode.cacheEntry = KVCacheEntry(
+                        tokens: tokens,
+                        layerStates: layerStates,
+                        layerMetaStates: layerMetaStates
+                    )
                     splitNode.children[tokens[pos]] = newNode
                     entryCount += 1
                 } else {
                     // Exact split point — cache lives on splitNode
-                    splitNode.cacheEntry = KVCacheEntry(tokens: tokens, layerStates: layerStates)
+                    splitNode.cacheEntry = KVCacheEntry(
+                        tokens: tokens,
+                        layerStates: layerStates,
+                        layerMetaStates: layerMetaStates
+                    )
                     entryCount += 1
                 }
                 if debugLogging {
@@ -185,7 +208,11 @@ final class RadixTreeCache: @unchecked Sendable {
 
         // Exact match — update existing node
         if node.cacheEntry == nil { entryCount += 1 }
-        node.cacheEntry = KVCacheEntry(tokens: tokens, layerStates: layerStates)
+        node.cacheEntry = KVCacheEntry(
+            tokens: tokens,
+            layerStates: layerStates,
+            layerMetaStates: layerMetaStates
+        )
         if debugLogging {
             print("[PrefixCache] Radix insert (update): \(tokens.count) tokens, \(layerStates.count) layers (entries: \(entryCount))")
         }

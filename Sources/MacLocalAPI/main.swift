@@ -388,6 +388,9 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Enable radix tree prefix caching for KV cache reuse across requests")
     var enablePrefixCaching: Bool = false
 
+    @Option(name: .long, help: "Write cache timing profile records as JSONL to this file")
+    var cacheProfilePath: String?
+
     @Flag(name: .long, help: "Enable EBNF grammar-constrained decoding for tool calls (requires --tool-call-parser afm_adaptive_xml). Forces valid XML tool call structure at generation time, preventing JSON-inside-XML and missing parameters.")
     var enableGrammarConstraints: Bool = false
 
@@ -430,6 +433,7 @@ struct MlxCommand: ParsableCommand {
         if let prefillStepSize { service.prefillStepSize = prefillStepSize }
         service.kvEvictionPolicy = kvEviction ?? "none"
         service.enablePrefixCaching = enablePrefixCaching
+        service.cacheProfilePath = cacheProfilePath
         service.enableGrammarConstraints = enableGrammarConstraints
         // --concurrent N: 0 or 1 silently falls back to serial; nil = serial; 2+ = batch mode
         let maxConcurrent = concurrent ?? 0

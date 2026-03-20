@@ -1,0 +1,1068 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AFM Cache Architecture</title>
+  <style>
+    :root {
+      --bg: #f5f1e8;
+      --paper: #fffaf0;
+      --ink: #1f2933;
+      --muted: #5b6773;
+      --line: #c9b89a;
+      --accent: #0f766e;
+      --accent-2: #b45309;
+      --accent-3: #7c3aed;
+      --good: #166534;
+      --warn: #b45309;
+      --bad: #b91c1c;
+      --shadow: 0 10px 30px rgba(31, 41, 51, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at top left, rgba(15, 118, 110, 0.08), transparent 26%),
+        radial-gradient(circle at top right, rgba(180, 83, 9, 0.08), transparent 24%),
+        linear-gradient(180deg, #f8f4eb 0%, var(--bg) 100%);
+      color: var(--ink);
+      font: 16px/1.55 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+    }
+
+    .page {
+      width: min(1220px, calc(100vw - 40px));
+      margin: 32px auto 56px;
+    }
+
+    .hero,
+    .section,
+    .diagram,
+    .legend {
+      background: var(--paper);
+      border: 1px solid rgba(201, 184, 154, 0.9);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      padding: 32px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -80px -80px auto;
+      width: 220px;
+      height: 220px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(124, 58, 237, 0.12), transparent 65%);
+    }
+
+    h1, h2, h3 {
+      margin: 0 0 10px;
+      line-height: 1.15;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    h1 { font-size: clamp(2rem, 4vw, 3.3rem); }
+    h2 { font-size: clamp(1.4rem, 2vw, 2rem); }
+    h3 { font-size: 1.15rem; }
+
+    p, li { color: var(--muted); }
+
+    .eyebrow {
+      display: inline-block;
+      margin-bottom: 12px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(15, 118, 110, 0.09);
+      color: var(--accent);
+      font: 600 0.8rem/1.1 "Avenir Next", "Segoe UI", sans-serif;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .grid-2,
+    .grid-3 {
+      display: grid;
+      gap: 18px;
+      margin-top: 22px;
+    }
+
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+    .card {
+      padding: 18px 18px 16px;
+      border: 1px solid rgba(201, 184, 154, 0.85);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(248,244,235,0.85));
+    }
+
+    .mono {
+      font-family: "SF Mono", "Menlo", "Monaco", "Consolas", monospace;
+      font-size: 0.94rem;
+      color: #22313f;
+    }
+
+    .stack {
+      display: grid;
+      gap: 22px;
+      margin-top: 26px;
+    }
+
+    .section,
+    .diagram,
+    .legend {
+      padding: 24px;
+    }
+
+    .flow {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .flow-row {
+      display: flex;
+      align-items: stretch;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .node {
+      min-width: 150px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: #fff;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
+    }
+
+    .node strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--ink);
+      font: 700 0.98rem/1.2 "Avenir Next", "Segoe UI", sans-serif;
+    }
+
+    .node small {
+      display: block;
+      color: var(--muted);
+      font-size: 0.83rem;
+      line-height: 1.35;
+    }
+
+    .node.service { border-color: rgba(15, 118, 110, 0.45); background: rgba(15, 118, 110, 0.07); }
+    .node.storage { border-color: rgba(124, 58, 237, 0.4); background: rgba(124, 58, 237, 0.06); }
+    .node.cache { border-color: rgba(180, 83, 9, 0.44); background: rgba(180, 83, 9, 0.06); }
+    .node.guard { border-color: rgba(22, 101, 52, 0.4); background: rgba(22, 101, 52, 0.06); }
+    .node.warn { border-color: rgba(185, 28, 28, 0.38); background: rgba(185, 28, 28, 0.05); }
+
+    .arrow {
+      align-self: center;
+      color: var(--accent);
+      font: 700 1.1rem/1 "Avenir Next", "Segoe UI", sans-serif;
+      padding: 0 2px;
+    }
+
+    .arrow.down {
+      width: 100%;
+      text-align: center;
+      padding: 4px 0;
+    }
+
+    .label {
+      display: inline-block;
+      margin: 8px 0 2px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font: 700 0.74rem/1 "Avenir Next", "Segoe UI", sans-serif;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #fff;
+      background: var(--accent-2);
+    }
+
+    .columns {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 18px;
+      margin-top: 16px;
+    }
+
+    .list {
+      margin: 10px 0 0;
+      padding-left: 18px;
+    }
+
+    .list li + li { margin-top: 6px; }
+
+    .split {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 14px;
+    }
+
+    .pill {
+      display: inline-block;
+      margin: 4px 6px 0 0;
+      padding: 5px 9px;
+      border-radius: 999px;
+      font: 600 0.8rem/1 "Avenir Next", "Segoe UI", sans-serif;
+      background: rgba(31, 41, 51, 0.08);
+      color: var(--ink);
+    }
+
+    code {
+      font-family: "SF Mono", "Menlo", "Monaco", "Consolas", monospace;
+      font-size: 0.93em;
+      background: rgba(31, 41, 51, 0.06);
+      padding: 0.12em 0.34em;
+      border-radius: 6px;
+      color: #18212a;
+    }
+
+    .footer-note {
+      margin-top: 22px;
+      padding-top: 16px;
+      border-top: 1px dashed var(--line);
+      font-size: 0.94rem;
+    }
+
+    @media (max-width: 920px) {
+      .grid-2,
+      .grid-3,
+      .columns,
+      .split {
+        grid-template-columns: 1fr;
+      }
+
+      .page {
+        width: min(100vw - 20px, 1220px);
+        margin: 14px auto 28px;
+      }
+
+      .hero,
+      .section,
+      .diagram,
+      .legend {
+        padding: 18px;
+        border-radius: 18px;
+      }
+
+      .flow-row {
+        flex-direction: column;
+      }
+
+      .arrow {
+        align-self: flex-start;
+        transform: rotate(90deg);
+        padding: 0;
+        margin-left: 6px;
+      }
+
+      .arrow.down {
+        transform: none;
+        text-align: left;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="eyebrow">AFM Internal Docs</div>
+      <h1>Prefix Cache Architecture</h1>
+      <p>
+        This document describes how AFM stores, restores, guards, and updates prompt-cache state
+        for MLX models. It covers the request path, the radix-tree store, layer-level cache types,
+        the exact-replay safety rules, and the special handling required for recurrent and rotating
+        caches.
+      </p>
+
+      <div class="grid-3">
+        <div class="card">
+          <h3>Core Idea</h3>
+          <p>AFM caches model-internal layer state, not generated text. The radix tree maps a token prefix to a per-layer cache snapshot.</p>
+        </div>
+        <div class="card">
+          <h3>Fast Path</h3>
+          <p>On a shared prefix, AFM restores layer state, trims it to a safe prefix length, and generates only the remaining suffix.</p>
+        </div>
+        <div class="card">
+          <h3>Safety Guardrails</h3>
+          <p>Exact full-prefix replay is bypassed for recurrent caches, and rotating caches restore metadata differently from simple KV caches.</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="stack">
+      <section class="diagram">
+        <h2>1. End-to-End Request Flow</h2>
+        <div class="flow">
+          <div class="flow-row">
+            <div class="node service">
+              <strong>Incoming Request</strong>
+              <small>Chat messages, parameters, stream mode, model selection.</small>
+            </div>
+            <div class="arrow">→</div>
+            <div class="node service">
+              <strong>MLXModelService / BatchScheduler</strong>
+              <small>Prepare <code>LMInput</code>, flatten token IDs, decide whether prefix cache is allowed.</small>
+            </div>
+            <div class="arrow">→</div>
+            <div class="node storage">
+              <strong>RadixTreeCache.findPrefix()</strong>
+              <small>Find longest cached token prefix and return saved per-layer state + metadata.</small>
+            </div>
+          </div>
+
+          <div class="arrow down">↓</div>
+
+          <div class="flow-row">
+            <div class="node guard">
+              <strong>Restore Policy</strong>
+              <small>
+                Compute <code>effectiveCachedPrefix</code>. Apply safety bypasses for exact full replay on recurrent caches.
+              </small>
+            </div>
+            <div class="arrow">→</div>
+            <div class="node cache">
+              <strong>Restore Layer Caches</strong>
+              <small>
+                Rehydrate <code>state</code> and <code>metaState</code>, then trim restored layers down to the allowed prefix.
+              </small>
+            </div>
+            <div class="arrow">→</div>
+            <div class="node service">
+              <strong>Generate Suffix Only</strong>
+              <small>Build a suffix-only input and run MLX generation using the restored cache snapshot.</small>
+            </div>
+          </div>
+
+          <div class="arrow down">↓</div>
+
+          <div class="flow-row">
+            <div class="node service">
+              <strong>Emit Response</strong>
+              <small>Return content, usage, stream chunks, and cached-token accounting.</small>
+            </div>
+            <div class="arrow">→</div>
+            <div class="node storage">
+              <strong>RadixTreeCache.insert()</strong>
+              <small>Store the new prompt token sequence with fresh per-layer state + metadata.</small>
+            </div>
+            <div class="arrow">→</div>
+            <div class="node storage">
+              <strong>LRU-Bounded Prefix Store</strong>
+              <small>Up to 64 entries by default, evicting least-recently-used cache entries.</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>2A. Three Architectural Levels, Four Cache Families</h2>
+        <div class="grid-3">
+          <div class="card">
+            <h3>1. The Radix Cache</h3>
+            <p>
+              <code>RadixTreeCache</code> is the outer lookup structure. It is not the model's attention
+              cache itself. Its job is only to answer: “Have we seen this token prefix before?”
+            </p>
+          </div>
+          <div class="card">
+            <h3>2. The Live Request Cache</h3>
+            <p>
+              Every request gets a fresh runtime cache stack via
+              <code>context.model.newCache(parameters: ...)</code>. On a hit, AFM restores data into this
+              live cache and then continues generation from there.
+            </p>
+          </div>
+          <div class="card">
+            <h3>3. The Per-Layer Cache Classes</h3>
+            <p>
+              Inside the live cache stack, each layer may use a different implementation such as
+              <code>KVCacheSimple</code>, <code>RotatingKVCache</code>, or <code>ArraysCache</code>.
+              These are not separate top-level systems; they are layer-specific cache shapes.
+            </p>
+          </div>
+        </div>
+
+        <div class="flow" style="margin-top:18px;">
+          <div class="flow-row">
+            <div class="node storage">
+              <strong>RadixTreeCache</strong>
+              <small>Index by prompt-token prefix.</small>
+            </div>
+            <div class="arrow">→</div>
+            <div class="node service">
+              <strong>Live generationCache</strong>
+              <small>Fresh cache stack for the current request.</small>
+            </div>
+            <div class="arrow">→</div>
+            <div class="node cache">
+              <strong>Layer 0..N Cache Objects</strong>
+              <small>Each layer object can be a different cache class.</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="split">
+          <div class="card">
+            <h3>Short Version</h3>
+            <p>
+              There is one prefix-cache system. It has three architectural levels:
+              the radix index, the live request cache stack, and the per-layer cache objects.
+              Inside that third level, there are four main cache families.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Why the Distinction Matters</h3>
+            <p>
+              Bugs can happen at different levels: radix lookup bugs, restore bugs in the live stack,
+              or cache-family-specific restore bugs such as the rotating-cache issue fixed for GPT-OSS.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>1A. Quick Reference Table</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Architectural Levels</h3>
+            <table style="width:100%; border-collapse:collapse; margin-top:10px;">
+              <thead>
+                <tr style="text-align:left; border-bottom:1px solid var(--line);">
+                  <th style="padding:8px 6px;">Level</th>
+                  <th style="padding:8px 6px;">What It Does</th>
+                  <th style="padding:8px 6px;">Examples</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                  <td style="padding:8px 6px;"><strong>1. Prefix Index</strong></td>
+                  <td style="padding:8px 6px;">Looks up shared prompt-token prefixes.</td>
+                  <td style="padding:8px 6px;"><code>RadixTreeCache</code></td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                  <td style="padding:8px 6px;"><strong>2. Live Request Cache</strong></td>
+                  <td style="padding:8px 6px;">Fresh runtime cache stack for the current generation.</td>
+                  <td style="padding:8px 6px;"><code>generationCache</code>, batch prefill cache</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 6px;"><strong>3. Per-Layer Cache Objects</strong></td>
+                  <td style="padding:8px 6px;">Hold the actual model state for each cached layer.</td>
+                  <td style="padding:8px 6px;"><code>KVCacheSimple</code>, <code>RotatingKVCache</code>, <code>MambaCache</code>, <code>CacheList</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>Cache Families</h3>
+            <table style="width:100%; border-collapse:collapse; margin-top:10px;">
+              <thead>
+                <tr style="text-align:left; border-bottom:1px solid var(--line);">
+                  <th style="padding:8px 6px;">Family</th>
+                  <th style="padding:8px 6px;">Used For</th>
+                  <th style="padding:8px 6px;">Tensor Layout / Indexing</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                  <td style="padding:8px 6px;"><code>KVCacheSimple</code></td>
+                  <td style="padding:8px 6px;">Standard attention KV state.</td>
+                  <td style="padding:8px 6px;"><code>[batch, kv_heads, seq_len, head_dim]</code>; sequence grows on axis <code>2</code>.</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                  <td style="padding:8px 6px;"><code>RotatingKVCache</code></td>
+                  <td style="padding:8px 6px;">Sliding-window / ring-buffer attention.</td>
+                  <td style="padding:8px 6px;"><code>[batch, kv_heads, cache_slots, head_dim]</code>; logical time is tracked by <code>offset</code> and ring cursor <code>idx</code> on axis <code>2</code>.</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                  <td style="padding:8px 6px;"><code>ArraysCache</code> / <code>MambaCache</code></td>
+                  <td style="padding:8px 6px;">Recurrent or state-space layers.</td>
+                  <td style="padding:8px 6px;">No single universal 4D layout. Stores an array-list of tensors; shape is model-specific. <code>MambaCache</code> is a 2-slot <code>ArraysCache</code>.</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 6px;"><code>CacheList</code></td>
+                  <td style="padding:8px 6px;">Composite wrapper for multiple sub-caches in one logical layer.</td>
+                  <td style="padding:8px 6px;">No single tensor layout. Flattens and delegates indexing/shape semantics to child caches.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>2. Main Components</h2>
+        <div class="columns">
+          <div class="card">
+            <h3>Request-Side Services</h3>
+            <ul class="list">
+              <li><code>MLXModelService</code>: direct non-batched generation path.</li>
+              <li><code>BatchScheduler</code>: batched prefill and generation path.</li>
+              <li>Both own the runtime logic for cache lookup, restore, trim, suffix generation, and cache reinsertion.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Shared Prefix Store</h3>
+            <ul class="list">
+              <li><code>RadixTreeCache</code>: token-prefix tree.</li>
+              <li><code>RadixNode</code>: edge-labeled node with optional cache entry.</li>
+              <li><code>KVCacheEntry</code>: stores <code>tokens</code>, <code>layerStates</code>, and <code>layerMetaStates</code>.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>Per-Layer Cache Types</h3>
+            <span class="pill">KVCacheSimple</span>
+            <span class="pill">RotatingKVCache</span>
+            <span class="pill">ArraysCache</span>
+            <span class="pill">MambaCache</span>
+            <span class="pill">CacheList</span>
+            <p class="footer-note">
+              The prefix cache stores a full per-layer snapshot. Different layer classes require different restore semantics.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Observed Model Mappings</h3>
+            <ul class="list">
+              <li>Qwen3.5 A3B: recurrent layers via <code>MambaCache</code> / <code>ArraysCache</code>.</li>
+              <li>Nemotron Nano: mixed recurrent + regular KV layers.</li>
+              <li>GPT-OSS 20B: sliding-window attention via <code>RotatingKVCache</code>.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="diagram">
+        <h2>3. What the Radix Tree Actually Stores</h2>
+        <div class="split">
+          <div class="card">
+            <h3>Radix Key</h3>
+            <p class="mono">[token_0, token_1, token_2, ..., token_n]</p>
+            <p>
+              Each path in the tree is a token prefix. Matching is performed against prepared prompt tokens, not raw user text.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Radix Payload</h3>
+            <p class="mono">KVCacheEntry { tokens, layerStates, layerMetaStates }</p>
+            <p>
+              <code>layerStates</code> is the tensor payload from each layer cache.
+              <code>layerMetaStates</code> is the structural metadata required by cache classes such as
+              <code>RotatingKVCache</code>.
+            </p>
+          </div>
+        </div>
+
+        <div class="flow" style="margin-top:18px;">
+          <div class="flow-row">
+            <div class="node storage">
+              <strong>Prompt Tokens</strong>
+              <small>The exact model-facing tokenized prompt.</small>
+            </div>
+            <div class="arrow">→</div>
+            <div class="node storage">
+              <strong>Radix Path</strong>
+              <small>Shared prefixes collapse into common branches.</small>
+            </div>
+            <div class="arrow">→</div>
+            <div class="node cache">
+              <strong>Layer States</strong>
+              <small>Tensor arrays from <code>cache[i].state</code>.</small>
+            </div>
+            <div class="arrow">+</div>
+            <div class="node cache">
+              <strong>Layer Metadata</strong>
+              <small>Structural values from <code>cache[i].metaState</code>.</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>4. Restore Decision Logic</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Step A: Find a Prefix</h3>
+            <ul class="list">
+              <li><code>findPrefix(tokens)</code> returns the longest cached prefix.</li>
+              <li>The result includes the matched length and the cached layer payloads.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Step B: Compute a Safe Prefix</h3>
+            <ul class="list">
+              <li><code>effectiveCachedPrefix = min(prefixLen, inputCount - 16)</code></li>
+              <li>This leaves a suffix so the model reprocesses the prompt boundary.</li>
+              <li>For recurrent caches on an exact full replay, AFM bypasses restore entirely.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="flow" style="margin-top:18px;">
+          <div class="flow-row">
+            <div class="node service">
+              <strong>prefixLen == full input?</strong>
+              <small>Exact replay case.</small>
+            </div>
+            <div class="arrow">→</div>
+            <div class="node guard">
+              <strong>Recurrent Cache Check</strong>
+              <small><code>ArraysCache</code> / <code>CacheList</code> present?</small>
+            </div>
+            <div class="arrow">→</div>
+            <div class="node warn">
+              <strong>If Yes: exact-replay-bypass</strong>
+              <small>Force cold prefill instead of replaying a full recurrent snapshot.</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="diagram">
+        <h2>5. Restore Mechanics by Cache Type</h2>
+        <div class="grid-3">
+          <div class="card">
+            <h3>Family 1: KVCacheSimple</h3>
+            <ul class="list">
+              <li>Restore tensor state directly.</li>
+              <li>Trim excess tokens.</li>
+              <li>Physical truncation is safe.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Family 2: Recurrent Array Caches</h3>
+            <ul class="list">
+              <li><code>ArraysCache</code>, <code>MambaCache</code>, <code>CacheList</code>.</li>
+              <li>Partial restore is allowed.</li>
+              <li>Exact full replay is bypassed for correctness.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Family 3: RotatingKVCache</h3>
+            <ul class="list">
+              <li>Needs both tensor state and structural metadata.</li>
+              <li>Restore <code>keep</code>, <code>maxSize</code>, <code>step</code>.</li>
+              <li>Reset live <code>offset</code>/<code>idx</code> to restored state length.</li>
+              <li>Skip physical truncation round-trip.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:16px;">
+          <h3>Family 4: CacheList</h3>
+          <p>
+            <code>CacheList</code> is a composite wrapper around multiple sub-caches for a single logical layer.
+            It is its own cache family structurally, even though it may contain recurrent caches or standard KV caches inside.
+          </p>
+          <p>
+            If you want the simplest counting scheme, use this one:
+            <strong>3 architectural levels, 4 main cache families.</strong>
+          </p>
+        </div>
+
+        <div class="card" style="margin-top:16px;">
+          <h3>Dimension and Indexing Map</h3>
+          <table style="width:100%; border-collapse:collapse; margin-top:10px;">
+            <thead>
+              <tr style="text-align:left; border-bottom:1px solid var(--line);">
+                <th style="padding:8px 6px;">Family</th>
+                <th style="padding:8px 6px;">Dim 0</th>
+                <th style="padding:8px 6px;">Dim 1</th>
+                <th style="padding:8px 6px;">Dim 2</th>
+                <th style="padding:8px 6px;">Dim 3</th>
+                <th style="padding:8px 6px;">Indexing System</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>KVCacheSimple</code></td>
+                <td style="padding:8px 6px;">batch</td>
+                <td style="padding:8px 6px;">KV heads</td>
+                <td style="padding:8px 6px;">sequence length</td>
+                <td style="padding:8px 6px;">head dimension</td>
+                <td style="padding:8px 6px;">Linear append-only indexing on axis <code>2</code>; <code>offset</code> is current logical length.</td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>RotatingKVCache</code></td>
+                <td style="padding:8px 6px;">batch</td>
+                <td style="padding:8px 6px;">KV heads</td>
+                <td style="padding:8px 6px;">cache slots / time ring</td>
+                <td style="padding:8px 6px;">head dimension</td>
+                <td style="padding:8px 6px;">Ring-buffer indexing on axis <code>2</code>; <code>offset</code> is logical history length, <code>idx</code> is current write cursor, <code>keep</code> reserves sink tokens.</td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>ArraysCache</code></td>
+                <td style="padding:8px 6px;">model-specific</td>
+                <td style="padding:8px 6px;">model-specific</td>
+                <td style="padding:8px 6px;">model-specific</td>
+                <td style="padding:8px 6px;">model-specific</td>
+                <td style="padding:8px 6px;">List of tensors, not one canonical 4D KV layout. Interpretation belongs to the model layer implementation.</td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>MambaCache</code></td>
+                <td style="padding:8px 6px;">slot 0 tensor: model-specific</td>
+                <td style="padding:8px 6px;">slot 1 tensor: model-specific</td>
+                <td style="padding:8px 6px;">not fixed</td>
+                <td style="padding:8px 6px;">not fixed</td>
+                <td style="padding:8px 6px;">Two-tensor <code>ArraysCache</code>; used for state-space / Mamba-style layers.</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 6px;"><code>CacheList</code></td>
+                <td style="padding:8px 6px;">child 0</td>
+                <td style="padding:8px 6px;">child 1</td>
+                <td style="padding:8px 6px;">child-defined</td>
+                <td style="padding:8px 6px;">child-defined</td>
+                <td style="padding:8px 6px;">Composite index space; delegates actual dimensional meaning to sub-caches and flattens their state for storage.</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="footer-note">
+            Important distinction: only attention-style caches have a stable 4D interpretation. Array-based and composite caches are structurally different and should not be forced into the same dimensional model.
+          </p>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>5A. What Decides Which Cache Type Is Used?</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Primary Decider: The Model Architecture</h3>
+            <p>
+              AFM does not arbitrarily pick cache classes at runtime. The model implementation in
+              MLX defines what each layer needs when it builds caches inside
+              <code>newCache(...)</code> or the model's cache factory.
+            </p>
+            <ul class="list">
+              <li>Plain transformer attention layers usually use <code>KVCacheSimple</code>.</li>
+              <li>Sliding-window attention layers use <code>RotatingKVCache</code>.</li>
+              <li>Recurrent or state-space layers use <code>ArraysCache</code> / <code>MambaCache</code>.</li>
+              <li>Composite layers may wrap multiple sub-caches in <code>CacheList</code>.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Secondary Decider: Model Parameters</h3>
+            <p>
+              Some models also change cache shape based on configuration such as sliding-window size
+              or whether a layer is an attention layer versus a recurrent/state-space layer.
+            </p>
+            <p>
+              In practice, the decisive code lives in the vendor model definitions and cache helpers,
+              especially <code>vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift</code> and the
+              specific model file's <code>makeCache</code> / <code>newCache</code> logic.
+            </p>
+          </div>
+        </div>
+
+        <div class="flow" style="margin-top:18px;">
+          <div class="flow-row">
+            <div class="node service">
+              <strong>Model Definition</strong>
+              <small>Example: GPT-OSS, Qwen, Nemotron.</small>
+            </div>
+            <div class="arrow">→</div>
+            <div class="node service">
+              <strong>Layer Kind</strong>
+              <small>Attention, sliding-window attention, recurrent/state-space, composite.</small>
+            </div>
+            <div class="arrow">→</div>
+            <div class="node cache">
+              <strong>Cache Class</strong>
+              <small><code>KVCacheSimple</code>, <code>RotatingKVCache</code>, <code>ArraysCache</code>, <code>CacheList</code>.</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-3">
+          <div class="card">
+            <h3>Example: GPT-OSS 20B</h3>
+            <p>Sliding-window layers choose <code>RotatingKVCache</code>, which is why metadata restore matters there.</p>
+          </div>
+          <div class="card">
+            <h3>Example: Qwen3.5 A3B</h3>
+            <p>Recurrent/state-space layers use array-based caches, which is why exact full replay had to be bypassed.</p>
+          </div>
+          <div class="card">
+            <h3>Example: Standard Attention</h3>
+            <p>Normal transformer attention typically uses <code>KVCacheSimple</code>, the least complicated restore case.</p>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:16px;">
+          <h3>Model-to-Cache Mapping as Coded</h3>
+          <table style="width:100%; border-collapse:collapse; margin-top:10px;">
+            <thead>
+              <tr style="text-align:left; border-bottom:1px solid var(--line);">
+                <th style="padding:8px 6px;">Model File</th>
+                <th style="padding:8px 6px;">Decision Logic</th>
+                <th style="padding:8px 6px;">Cache Mapping</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>GPTOSS.swift</code></td>
+                <td style="padding:8px 6px;">Iterates <code>model.layerTypes</code></td>
+                <td style="padding:8px 6px;">
+                  <code>full_attention</code> → standard KV cache<br>
+                  anything else → <code>RotatingKVCache(maxSize: slidingWindow, keep: 0)</code>
+                </td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>Qwen3Next.swift</code></td>
+                <td style="padding:8px 6px;">Checks <code>layer.isLinear</code></td>
+                <td style="padding:8px 6px;">
+                  linear/state-space layer → <code>MambaCache()</code><br>
+                  attention layer → <code>KVCacheSimple()</code>
+                </td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>NemotronH.swift</code></td>
+                <td style="padding:8px 6px;">Uses <code>hybridOverridePattern</code> block type</td>
+                <td style="padding:8px 6px;">
+                  <code>.mamba</code> → <code>MambaCache()</code><br>
+                  <code>.attention</code> → <code>KVCacheSimple()</code><br>
+                  <code>.mlp</code> / <code>.moe</code> → no cache
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:8px 6px;"><code>BaichuanM1.swift</code>, <code>FalconH1.swift</code>, <code>GLM5MoeDsa.swift</code></td>
+                <td style="padding:8px 6px;">Composite layer implementations</td>
+                <td style="padding:8px 6px;">
+                  Use <code>CacheList(...)</code> to bundle multiple sub-caches for one layer.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="footer-note">
+            Important: AFM does not choose these classes by policy. The model implementation constructs
+            them in its <code>newCache(...)</code> logic, and AFM must then restore whatever the model created.
+          </p>
+        </div>
+
+        <div class="card" style="margin-top:16px;">
+          <h3>Full Portfolio Cache-Class Map</h3>
+          <table style="width:100%; border-collapse:collapse; margin-top:10px;">
+            <thead>
+              <tr style="text-align:left; border-bottom:1px solid var(--line);">
+                <th style="padding:8px 6px;">Model</th>
+                <th style="padding:8px 6px;">Cache Rule</th>
+                <th style="padding:8px 6px;">Family / Output</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>GPTOSS.swift</code></td>
+                <td style="padding:8px 6px;"><code>model.layerTypes</code>: <code>full_attention</code> vs other</td>
+                <td style="padding:8px 6px;"><code>StandardKVCache</code> or <code>RotatingKVCache</code></td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>Olmo3.swift</code></td>
+                <td style="padding:8px 6px;"><code>args.layerTypes</code>: <code>full_attention</code> vs other</td>
+                <td style="padding:8px 6px;"><code>KVCacheSimple</code> or <code>RotatingKVCache</code></td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>Mistral3Text.swift</code></td>
+                <td style="padding:8px 6px;"><code>layer.useSliding</code></td>
+                <td style="padding:8px 6px;"><code>KVCacheSimple</code> or <code>RotatingKVCache</code></td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>Gemma3Text.swift</code></td>
+                <td style="padding:8px 6px;">Global layer by <code>slidingWindowPattern</code> vs sliding layer</td>
+                <td style="padding:8px 6px;"><code>StandardKVCache</code> or <code>RotatingKVCache</code></td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>Gemma3nText.swift</code></td>
+                <td style="padding:8px 6px;"><code>layerTypes</code>: <code>full_attention</code> vs <code>sliding_attention</code></td>
+                <td style="padding:8px 6px;"><code>StandardKVCache</code> or <code>RotatingKVCache</code></td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>Exaone4.swift</code></td>
+                <td style="padding:8px 6px;"><code>layer.attention.isLocal</code></td>
+                <td style="padding:8px 6px;"><code>StandardKVCache</code> or <code>RotatingKVCache</code></td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>AfMoE.swift</code></td>
+                <td style="padding:8px 6px;"><code>layerUsesSliding</code></td>
+                <td style="padding:8px 6px;"><code>KVCacheSimple</code> or <code>RotatingKVCache</code></td>
+              </tr>
+
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>Qwen3Next.swift</code></td>
+                <td style="padding:8px 6px;"><code>layer.isLinear</code></td>
+                <td style="padding:8px 6px;"><code>MambaCache</code> or <code>KVCacheSimple</code></td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>Qwen3_5MoE.swift</code></td>
+                <td style="padding:8px 6px;"><code>fullAttentionInterval</code>: linear vs full-attention layer</td>
+                <td style="padding:8px 6px;"><code>MambaCache</code> or <code>KVCacheSimple</code></td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>Qwen3_5MoEVL.swift</code></td>
+                <td style="padding:8px 6px;">Same text backbone rule as <code>Qwen3_5MoE</code></td>
+                <td style="padding:8px 6px;"><code>MambaCache</code> or <code>KVCacheSimple</code></td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>Jamba.swift</code></td>
+                <td style="padding:8px 6px;"><code>layer.isAttn</code></td>
+                <td style="padding:8px 6px;"><code>KVCacheSimple</code> or <code>MambaCache</code></td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>GraniteMoeHybrid.swift</code></td>
+                <td style="padding:8px 6px;"><code>configuration.layerTypes == "mamba"</code></td>
+                <td style="padding:8px 6px;"><code>MambaCache</code> or <code>KVCacheSimple</code></td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>LFM2.swift</code></td>
+                <td style="padding:8px 6px;"><code>fullAttnIdxs.contains(layerIdx)</code></td>
+                <td style="padding:8px 6px;"><code>KVCacheSimple</code> or <code>MambaCache</code></td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>LFM2MoE.swift</code></td>
+                <td style="padding:8px 6px;"><code>fullAttnIdxs.contains(layerIdx)</code></td>
+                <td style="padding:8px 6px;"><code>KVCacheSimple</code> or <code>MambaCache</code></td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>LFM2VL.swift</code></td>
+                <td style="padding:8px 6px;">Text backbone uses <code>fullAttnIdxs.contains(layerIdx)</code></td>
+                <td style="padding:8px 6px;"><code>KVCacheSimple</code> or <code>MambaCache</code></td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>NemotronH.swift</code></td>
+                <td style="padding:8px 6px;"><code>hybridOverridePattern</code> block type</td>
+                <td style="padding:8px 6px;"><code>MambaCache</code>, <code>KVCacheSimple</code>, or no cache for <code>.mlp/.moe</code></td>
+              </tr>
+
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>FalconH1.swift</code></td>
+                <td style="padding:8px 6px;">Fixed composite per layer</td>
+                <td style="padding:8px 6px;"><code>CacheList(MambaCache(), KVCacheSimple())</code></td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>BaichuanM1.swift</code></td>
+                <td style="padding:8px 6px;">Fixed conv cache plus sliding-or-full attention cache</td>
+                <td style="padding:8px 6px;"><code>CacheList(MambaCache(), RotatingKVCache or KVCacheSimple)</code></td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>GLM5MoeDsa.swift</code></td>
+                <td style="padding:8px 6px;">Fixed composite per layer</td>
+                <td style="padding:8px 6px;"><code>CacheList(KVCacheSimple(), KVCacheSimple())</code></td>
+              </tr>
+
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>Gemma3.swift</code> (VLM)</td>
+                <td style="padding:8px 6px;">Delegates to text model with global-vs-sliding rule</td>
+                <td style="padding:8px 6px;"><code>StandardKVCache</code> or <code>RotatingKVCache</code></td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>Mistral3.swift</code> (VLM)</td>
+                <td style="padding:8px 6px;">Delegates to <code>Mistral3Text</code></td>
+                <td style="padding:8px 6px;"><code>KVCacheSimple</code> or <code>RotatingKVCache</code></td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(201,184,154,0.45);">
+                <td style="padding:8px 6px;"><code>Pixtral.swift</code> (VLM)</td>
+                <td style="padding:8px 6px;">Delegates to language model cache factory</td>
+                <td style="padding:8px 6px;">Depends on wrapped text model</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 6px;"><code>Gemma3nText.swift</code> wrapper <br><code>Gemma3.swift</code> wrapper paths</td>
+                <td style="padding:8px 6px;">Wrapper <code>newCache</code> just forwards to underlying language model</td>
+                <td style="padding:8px 6px;">Same cache family mapping as delegated text backbone</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="footer-note">
+            Reading rule: if a model uses a wrapper VLM class, the real cache-family decision is often in the underlying text backbone.
+            If a model uses <code>CacheList</code>, one logical layer may contain multiple cache families at once.
+          </p>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>6. Known Failure Modes and Why the Current Design Exists</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Qwen Exact-Replay Divergence</h3>
+            <p>
+              Recurrent cache layers could produce shortened completions when the cache restore covered
+              the entire prompt. AFM now treats that as unsafe and logs
+              <code>outcome=exact-replay-bypass</code>.
+            </p>
+          </div>
+          <div class="card">
+            <h3>GPT-OSS Rotating-Cache Crash</h3>
+            <p>
+              A rotating cache hit needed metadata restoration, but the original radix store only saved
+              tensor state. A naive metadata restore was also unsafe because ring-buffer cursor values
+              must stay coherent with restored state length. AFM now stores metadata, restores it
+              carefully, and skips unsafe physical truncation for rotating caches.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="diagram">
+        <h2>7. Logging and Observability</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>PrefixCache Logs</h3>
+            <ul class="list">
+              <li><code>outcome=miss</code></li>
+              <li><code>outcome=hit</code></li>
+              <li><code>outcome=exact-replay-bypass</code></li>
+              <li>Includes input tokens, cached tokens, suffix tokens, radix entry count, and timing breakdowns.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>ChunkStats Logs</h3>
+            <ul class="list">
+              <li>Preliminary stream usage chunk.</li>
+              <li>Final usage/timing chunk.</li>
+              <li>Used to verify cache-hit accounting in streaming mode.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="legend">
+        <h2>8. File Map</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Repo Files</h3>
+            <ul class="list">
+              <li><code>Sources/MacLocalAPI/Models/MLXModelService.swift</code></li>
+              <li><code>Sources/MacLocalAPI/Models/BatchScheduler.swift</code></li>
+              <li><code>Sources/MacLocalAPI/Models/RadixTreeCache.swift</code></li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Vendor Cache Types</h3>
+            <ul class="list">
+              <li><code>vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift</code></li>
+            </ul>
+          </div>
+        </div>
+
+        <p class="footer-note">
+          Mental model: the radix tree is a prompt-prefix index, but the payload is always a model-state snapshot.
+          The whole design is about restoring that snapshot safely for each cache class.
+        </p>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

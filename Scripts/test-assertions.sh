@@ -1108,13 +1108,13 @@ if should_run_section 6 && min_tier standard; then
   echo ""
   echo "💾 Section 6: Prompt Cache"
 
-  # Test: first request has cached_tokens=0
+  # Test: fresh unique prompt is not fully cached
   t0=$(now_ms)
-  # Use a unique prompt to ensure cache miss
-  unique_prompt="Tell me about the history of prompt caching in LLM servers $(date +%s%N)"
+  # Use a unique leading token so the request must retain an uncached suffix.
+  unique_prompt="UNIQUE-CACHE-MISS-$(date +%s%N): Tell me about the history of prompt caching in LLM servers."
   resp1=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$unique_prompt\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0}")
   dur=$(( $(now_ms) - t0 ))
-  cached1=$(echo "$resp1" | python3 -c "
+  cache_state1=$(echo "$resp1" | python3 -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
@@ -1122,21 +1122,30 @@ try:
     if ptd is None:
         print('NULL')
     else:
-        print(ptd.get('cached_tokens', 'MISSING'))
+        cached = ptd.get('cached_tokens', 'MISSING')
+        prompt = d.get('usage', {}).get('prompt_tokens', 'MISSING')
+        print(f'{cached}|{prompt}')
 except Exception as e:
     print(f'ERROR: {e}')
 " 2>/dev/null || echo "ERROR")
-  if [ "$cached1" = "0" ]; then
-    run_test "Cache" "First request: cached_tokens=0" "0" "PASS" "$dur"
-  elif [ "$cached1" = "NULL" ]; then
-    run_test "Cache" "First request: cached_tokens=0" "0" "FAIL: prompt_tokens_details is null (caching may be disabled)" "$dur"
+  if [ "$cache_state1" = "NULL" ]; then
+    run_test "Cache" "First unique request: uncached suffix remains" "cached_tokens < prompt_tokens" "FAIL: prompt_tokens_details is null (caching may be disabled)" "$dur"
   else
-    run_test "Cache" "First request: cached_tokens=0" "0" "FAIL: cached_tokens=$cached1" "$dur"
+    IFS='|' read -r cached1 prompt1 <<< "$cache_state1"
+    if [ "$cached1" != "MISSING" ] && [ "$prompt1" != "MISSING" ] && [ "$cached1" -lt "$prompt1" ] 2>/dev/null; then
+      run_test "Cache" "First unique request: uncached suffix remains" "cached_tokens < prompt_tokens" "PASS" "$dur"
+    else
+      run_test "Cache" "First unique request: uncached suffix remains" "cached_tokens < prompt_tokens" "FAIL: cached_tokens=$cached1 prompt_tokens=$prompt1" "$dur"
+    fi
   fi
 
-  # Test: second identical request has cached_tokens > 0
+  # Test: similar prompt with same unique prefix has cached_tokens > 0
+  partial_prefix_nonce="PARTIAL-REUSE-$(date +%s%N)"
+  partial_prompt1="Prefix cache partial reuse probe $partial_prefix_nonce: answer with one word only. alpha"
+  partial_prompt2="Prefix cache partial reuse probe $partial_prefix_nonce: answer with one word only. beta"
   t0=$(now_ms)
-  resp2=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$unique_prompt\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0}")
+  api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$partial_prompt1\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}" >/dev/null
+  resp2=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$partial_prompt2\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}")
   dur=$(( $(now_ms) - t0 ))
   cached2=$(echo "$resp2" | python3 -c "
 import sys, json
@@ -1151,16 +1160,21 @@ except Exception as e:
     print(f'ERROR: {e}')
 " 2>/dev/null || echo "ERROR")
   if [ "$cached2" != "NULL" ] && [ "$cached2" != "ERROR" ] && [ "$cached2" != "MISSING" ] && [ "$cached2" -gt 0 ] 2>/dev/null; then
-    run_test "Cache" "Second identical request: cached_tokens>0" ">0" "PASS" "$dur"
+    run_test "Cache" "Shared-prefix request: cached_tokens>0" ">0" "PASS" "$dur"
   else
-    run_test "Cache" "Second identical request: cached_tokens>0" ">0" "FAIL: cached_tokens=$cached2" "$dur"
+    run_test "Cache" "Shared-prefix request: cached_tokens>0" ">0" "FAIL: cached_tokens=$cached2" "$dur"
   fi
 
-  # Test: different prompt resets cache (cached_tokens=0)
+  # Test: deterministic exact replay should not change content on cache hit
+  replay_token="BASELINE-ALBATROSS"
+  replay_body="{\"messages\":[{\"role\":\"user\",\"content\":\"For a cache baseline test, reply with exactly $replay_token and nothing else.\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}"
   t0=$(now_ms)
-  resp3=$(api_call '{"messages":[{"role":"user","content":"This is a completely different prompt about quantum physics and black holes."}],"max_tokens":20,"stream":false,"temperature":0}')
+  replay_resp1=$(api_call "$replay_body")
+  replay_resp2=$(api_call "$replay_body")
   dur=$(( $(now_ms) - t0 ))
-  cached3=$(echo "$resp3" | python3 -c "
+  replay_content1=$(echo "$replay_resp1" | extract_content)
+  replay_content2=$(echo "$replay_resp2" | extract_content)
+  replay_cached2=$(echo "$replay_resp2" | python3 -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
@@ -1172,23 +1186,50 @@ try:
 except Exception as e:
     print(f'ERROR: {e}')
 " 2>/dev/null || echo "ERROR")
-  if [ "$cached3" = "0" ]; then
-    run_test "Cache" "Different prompt: cached_tokens=0" "0" "PASS" "$dur"
-  elif [ "$cached3" = "NULL" ]; then
-    run_test "Cache" "Different prompt: cached_tokens=0" "0" "FAIL: null (caching disabled)" "$dur"
+  if [ -n "$replay_content1" ] && [ "$replay_content1" = "$replay_content2" ]; then
+    run_test "Cache" "Exact replay: cached response matches cold response" "same content" "PASS" "$dur"
   else
-    run_test "Cache" "Different prompt: cached_tokens=0" "0" "FAIL: cached_tokens=$cached3" "$dur"
+    run_test "Cache" "Exact replay: cached response matches cold response" "same content" "FAIL: cold=[$replay_content1] cached=[$replay_content2] cached_tokens=$replay_cached2" "$dur"
   fi
 
-  # Test: streaming cached_tokens
-  # Use a fresh unique prompt (prior "different prompt" test evicted the cache)
-  stream_cache_prompt="stream cache test $(date +%s%N) unique"
+  # Test: unrelated unique prompt still leaves an uncached suffix
   t0=$(now_ms)
-  # First call to warm cache
-  api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$stream_cache_prompt\"}],\"max_tokens\":10,\"stream\":false,\"temperature\":0}" >/dev/null
+  different_prompt="DIFFERENT-CACHE-MISS-$(date +%s%N): This is a completely different prompt about quantum physics and black holes."
+  resp3=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$different_prompt\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0}")
+  dur=$(( $(now_ms) - t0 ))
+  cache_state3=$(echo "$resp3" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    ptd = d.get('usage', {}).get('prompt_tokens_details')
+    if ptd is None:
+        print('NULL')
+    else:
+        cached = ptd.get('cached_tokens', 'MISSING')
+        prompt = d.get('usage', {}).get('prompt_tokens', 'MISSING')
+        print(f'{cached}|{prompt}')
+except Exception as e:
+    print(f'ERROR: {e}')
+" 2>/dev/null || echo "ERROR")
+  if [ "$cache_state3" = "NULL" ]; then
+    run_test "Cache" "Different unique prompt: uncached suffix remains" "cached_tokens < prompt_tokens" "FAIL: null (caching disabled)" "$dur"
+  else
+    IFS='|' read -r cached3 prompt3 <<< "$cache_state3"
+    if [ "$cached3" != "MISSING" ] && [ "$prompt3" != "MISSING" ] && [ "$cached3" -lt "$prompt3" ] 2>/dev/null; then
+      run_test "Cache" "Different unique prompt: uncached suffix remains" "cached_tokens < prompt_tokens" "PASS" "$dur"
+    else
+      run_test "Cache" "Different unique prompt: uncached suffix remains" "cached_tokens < prompt_tokens" "FAIL: cached_tokens=$cached3 prompt_tokens=$prompt3" "$dur"
+    fi
+  fi
+
+  # Test: streaming shared-prefix request reports cached_tokens > 0
+  stream_partial_nonce="STREAM-PARTIAL-$(date +%s%N)"
+  stream_cache_prompt1="Prefix cache streaming reuse probe $stream_partial_nonce: answer with one word only. alpha"
+  stream_cache_prompt2="Prefix cache streaming reuse probe $stream_partial_nonce: answer with one word only. beta"
+  t0=$(now_ms)
+  api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$stream_cache_prompt1\"}],\"max_tokens\":10,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}" >/dev/null
   sleep 0.5
-  # Second call streaming — should hit cache (no intervening requests to evict)
-  stream_resp=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"$stream_cache_prompt\"}],\"max_tokens\":10,\"stream\":true,\"temperature\":0}")
+  stream_resp=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"$stream_cache_prompt2\"}],\"max_tokens\":10,\"stream\":true,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}")
   dur=$(( $(now_ms) - t0 ))
   stream_cached=$(echo "$stream_resp" | python3 -c "
 import sys, json
@@ -1209,9 +1250,43 @@ for line in sys.stdin:
 print('PASS' if found else 'FAIL: no cached_tokens>0 in stream usage')
 " 2>/dev/null || echo "FAIL: parse error")
   if [ "$stream_cached" = "PASS" ]; then
-    run_test "Cache" "Streaming: cached_tokens>0 in usage chunk" ">0" "PASS" "$dur"
+    run_test "Cache" "Streaming shared-prefix: cached_tokens>0 in usage chunk" ">0" "PASS" "$dur"
   else
-    run_test "Cache" "Streaming: cached_tokens>0 in usage chunk" ">0" "$stream_cached" "$dur"
+    run_test "Cache" "Streaming shared-prefix: cached_tokens>0 in usage chunk" ">0" "$stream_cached" "$dur"
+  fi
+
+  # Test: non-streaming warmup and streaming replay should produce identical content
+  stream_replay_token="STREAM-ECHO-OMEGA"
+  stream_warm_body="{\"messages\":[{\"role\":\"user\",\"content\":\"For a streaming crossover test, reply with exactly $stream_replay_token and nothing else.\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}"
+  stream_replay_body="{\"messages\":[{\"role\":\"user\",\"content\":\"For a streaming crossover test, reply with exactly $stream_replay_token and nothing else.\"}],\"max_tokens\":20,\"stream\":true,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}"
+  t0=$(now_ms)
+  stream_warm_resp=$(api_call "$stream_warm_body")
+  sleep 0.5
+  stream_replay_resp=$(api_stream "$stream_replay_body")
+  dur=$(( $(now_ms) - t0 ))
+  stream_warm_content=$(echo "$stream_warm_resp" | extract_content)
+  stream_replay_content=$(echo "$stream_replay_resp" | python3 -c "
+import sys, json
+parts = []
+for raw in sys.stdin:
+    line = raw.strip()
+    if not line.startswith('data: ') or line == 'data: [DONE]':
+        continue
+    try:
+        d = json.loads(line[6:])
+    except Exception:
+        continue
+    for choice in d.get('choices', []):
+        delta = choice.get('delta', {})
+        text = delta.get('content')
+        if text:
+            parts.append(text)
+print(''.join(parts))
+" 2>/dev/null || echo "")
+  if [ -n "$stream_warm_content" ] && [ "$stream_warm_content" = "$stream_replay_content" ]; then
+    run_test "Cache" "Streaming replay: content matches non-streaming warmup" "same content" "PASS" "$dur"
+  else
+    run_test "Cache" "Streaming replay: content matches non-streaming warmup" "same content" "FAIL: warm=[$stream_warm_content] stream=[$stream_replay_content]" "$dur"
   fi
 fi
 

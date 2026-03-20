@@ -121,6 +121,7 @@ final class MLXModelService: @unchecked Sendable {
     var enableGrammarConstraints: Bool = false { didSet { grammarConstraintsActive = enableGrammarConstraints } }
     var trace: Bool = false { didSet { traceLogging = trace } }
     var defaultChatTemplateKwargs: [String: Any]?
+    var cacheProfilePath: String?
     /// Detected think start/end tags from the tokenizer vocabulary (e.g., "<think>"/"</think>").
     /// Set after model load. nil if the model doesn't have think tokens.
     private(set) var thinkStartTag: String?
@@ -339,7 +340,8 @@ final class MLXModelService: @unchecked Sendable {
                 processor: context.processor,
                 configuration: context.configuration,
                 maxConcurrent: limit,
-                enablePrefixCaching: prefixCaching
+                enablePrefixCaching: prefixCaching,
+                cacheProfilePath: self.cacheProfilePath
             )
         }
         self.scheduler = sched
@@ -400,6 +402,15 @@ final class MLXModelService: @unchecked Sendable {
         var completionInfo: GenerateCompletionInfo? = nil
         var cachedTokenCount = 0
         var stoppedBySequence = false
+        var cacheOutcome = "disabled"
+        var cacheLookupTime: Double? = nil
+        var cacheRestoreTime: Double? = nil
+        var cacheTrimTime: Double? = nil
+        var cacheTruncateTime: Double? = nil
+        var cacheInputTokenCount = 0
+        var saveTrimTime: Double? = nil
+        var saveTruncateTime: Double? = nil
+        var saveInsertTime: Double? = nil
         let generated: String = try await container.perform { context in
             // Grammar constraint setup (needs tokenizer from context)
             let grammarProcessor: GrammarLogitProcessor?
@@ -472,13 +483,27 @@ final class MLXModelService: @unchecked Sendable {
                     print("[\(ts())] [PrefixCache] Input: \(inputTokens.count) tokens, first20=\(Array(inputTokens.prefix(20)))")
                 }
             }
-            var generationCache: [KVCache]
+            var generationCache = context.model.newCache(parameters: params)
             var generateInput: LMInput
 
+            cacheOutcome = useCache ? "disabled" : "multimodal-skip"
+            cacheLookupTime = nil
+            cacheRestoreTime = nil
+            cacheTrimTime = nil
+            cacheTruncateTime = nil
+            cacheInputTokenCount = inputTokens.count
+
             if useCache, let radix = self.radixCache {
-                let (prefixLen, layerStates) = radix.findPrefix(inputTokens)
-                let minSuffix = 16
-                let effectivePrefix = min(prefixLen, max(0, inputTokens.count - minSuffix))
+                let tLookup0 = Date.timeIntervalSinceReferenceDate
+                let (prefixLen, layerStates, layerMetaStates) = radix.findPrefix(inputTokens)
+                let tLookup1 = Date.timeIntervalSinceReferenceDate
+                cacheLookupTime = tLookup1 - tLookup0
+                let effectivePrefix = self.effectiveCachedPrefix(
+                    prefixLen: prefixLen,
+                    inputTokenCount: inputTokens.count,
+                    cache: generationCache
+                )
+                let bypassExactReplay = prefixLen == inputTokens.count && effectivePrefix == 0 && prefixLen > 0
 
                 if effectivePrefix > 0, let states = layerStates {
                     let tRestore0 = Date.timeIntervalSinceReferenceDate
@@ -490,9 +515,15 @@ final class MLXModelService: @unchecked Sendable {
                             print("[\(ts())] [PrefixCache] STORED layer[\(i)]: \(states[i].count) arrays, shapes=[\(shapes)]")
                         }
                     }
-                    generationCache = context.model.newCache(parameters: params)
                     for i in 0..<generationCache.count where i < states.count {
                         generationCache[i].state = states[i]
+                        let savedMetaState = layerMetaStates.flatMap { i < $0.count ? $0[i] : nil }
+                        if let adjustedMetaState = self.restoredMetaState(
+                            for: generationCache[i],
+                            savedMetaState: savedMetaState
+                        ) {
+                            generationCache[i].metaState = adjustedMetaState
+                        }
                     }
                     let tRestore1 = Date.timeIntervalSinceReferenceDate
                     if debugLogging {
@@ -515,7 +546,9 @@ final class MLXModelService: @unchecked Sendable {
                     let tTrim = Date.timeIntervalSinceReferenceDate
                     // Physically truncate trimmed cache arrays to eliminate stale data. (#47)
                     for i in 0..<generationCache.count {
-                        if generationCache[i].isTrimmable && generationCache[i].offset > 0 {
+                        if generationCache[i].isTrimmable && generationCache[i].offset > 0
+                            && self.supportsPhysicalTruncation(generationCache[i])
+                        {
                             generationCache[i].truncateToOffset()
                         }
                     }
@@ -523,20 +556,55 @@ final class MLXModelService: @unchecked Sendable {
                     let suffixTokens = Array(inputTokens[effectivePrefix...])
                     generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
                     cachedTokenCount = effectivePrefix
+                    cacheOutcome = "hit"
+                    cacheRestoreTime = tRestore1 - tRestore0
+                    cacheTrimTime = tTrim - tRestore1
+                    cacheTruncateTime = tRoundtrip - tTrim
+                    self.logCachePrefill(
+                        mode: "non-streaming",
+                        outcome: "hit",
+                        inputTokenCount: inputTokens.count,
+                        cachedTokenCount: effectivePrefix,
+                        suffixTokenCount: suffixTokens.count,
+                        radixEntryCount: radix.count,
+                        cache: generationCache,
+                        lookupTime: cacheLookupTime,
+                        restoreTime: tRestore1 - tRestore0,
+                        trimTime: tTrim - tRestore1,
+                        truncateTime: tRoundtrip - tTrim
+                    )
                     if debugLogging {
                         print("[\(ts())] [KVCache] Radix hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
                         print("[\(ts())] [PrefixCache] Timing: restore=\(String(format: "%.3f", tRestore1 - tRestore0))s trim=\(String(format: "%.3f", tTrim - tRestore1))s roundtrip=\(String(format: "%.3f", tRoundtrip - tTrim))s total=\(String(format: "%.3f", tRoundtrip - tRestore0))s")
                     }
                 } else {
-                    generationCache = context.model.newCache(parameters: params)
                     generateInput = input
+                    cacheOutcome = bypassExactReplay ? "exact-replay-bypass" : "miss"
+                    self.logCachePrefill(
+                        mode: "non-streaming",
+                        outcome: cacheOutcome,
+                        inputTokenCount: inputTokens.count,
+                        cachedTokenCount: 0,
+                        suffixTokenCount: inputTokens.count,
+                        radixEntryCount: radix.count,
+                        cache: generationCache,
+                        lookupTime: cacheLookupTime
+                    )
                     if debugLogging {
                         print("[\(ts())] [KVCache] Cache miss, full prefill for \(inputTokens.count) tokens")
                     }
                 }
             } else {
-                generationCache = context.model.newCache(parameters: params)
                 generateInput = input
+                self.logCachePrefill(
+                    mode: "non-streaming",
+                    outcome: cacheOutcome,
+                    inputTokenCount: inputTokens.count,
+                    cachedTokenCount: 0,
+                    suffixTokenCount: inputTokens.count,
+                    radixEntryCount: self.radixCache?.count,
+                    cache: generationCache
+                )
                 if debugLogging {
                     print("[\(ts())] [KVCache] Multimodal input, skipping cache")
                 }
@@ -628,6 +696,7 @@ final class MLXModelService: @unchecked Sendable {
             // Save prompt cache state into radix tree
             if useCache, let radix = self.radixCache, !inputTokens.isEmpty {
                 let promptLen = inputTokens.count
+                let tSave0 = Date.timeIntervalSinceReferenceDate
                 if debugLogging {
                     // Log KVCacheSimple layers (full attn at interval 4: indices 3,7,11,...) and MambaCache layers (0,1)
                     let diagLayers = [0, 1, 3, 7]  // 0,1=Mamba, 3,7=KVCacheSimple
@@ -643,12 +712,16 @@ final class MLXModelService: @unchecked Sendable {
                     let excess = layer.offset - promptLen
                     if excess > 0 { layer.trim(excess) }
                 }
+                let tSaveTrim = Date.timeIntervalSinceReferenceDate
                 // Physically truncate trimmed cache arrays to eliminate stale data. (#47)
                 for i in 0..<generationCache.count {
-                    if generationCache[i].isTrimmable && generationCache[i].offset > 0 {
+                    if generationCache[i].isTrimmable && generationCache[i].offset > 0
+                        && self.supportsPhysicalTruncation(generationCache[i])
+                    {
                         generationCache[i].truncateToOffset()
                     }
                 }
+                let tSaveTruncate = Date.timeIntervalSinceReferenceDate
                 if debugLogging {
                     let diagLayers = [0, 1, 3, 7]
                     for i in diagLayers where i < generationCache.count {
@@ -659,7 +732,16 @@ final class MLXModelService: @unchecked Sendable {
                     }
                 }
                 let layerStates = generationCache.map { $0.state }
-                radix.insert(tokens: inputTokens, layerStates: layerStates)
+                let layerMetaStates = generationCache.map { $0.metaState }
+                radix.insert(
+                    tokens: inputTokens,
+                    layerStates: layerStates,
+                    layerMetaStates: layerMetaStates
+                )
+                let tSaveInsert = Date.timeIntervalSinceReferenceDate
+                saveTrimTime = tSaveTrim - tSave0
+                saveTruncateTime = tSaveTruncate - tSaveTrim
+                saveInsertTime = tSaveInsert - tSaveTruncate
                 if debugLogging {
                     print("[\(ts())] [PrefixCache] Insert: \(inputTokens.count) tokens, \(generationCache.count) layers")
                     // Log stored state for KVCacheSimple layers
@@ -716,12 +798,35 @@ final class MLXModelService: @unchecked Sendable {
             return converted
         }
 
-        let promptTokens = completionInfo?.promptTokenCount ?? estimateTokens(promptText)
-        let completionTokens = completionInfo?.generationTokenCount ?? estimateTokens(generated)
-        let promptTime = completionInfo?.promptTime ?? 0
-        let generateTime = completionInfo?.generateTime ?? 0
-        return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount, promptTime, generateTime, stoppedBySequence)
-    }
+            let promptTokens = completionInfo?.promptTokenCount ?? estimateTokens(promptText)
+            let completionTokens = completionInfo?.generationTokenCount ?? estimateTokens(generated)
+            let promptTime = completionInfo?.promptTime ?? 0
+            let generateTime = completionInfo?.generateTime ?? 0
+            self.logCacheProfile(
+                phase: "restore",
+                mode: "non-streaming",
+                outcome: cacheOutcome,
+                inputTokenCount: cacheInputTokenCount,
+                cachedTokenCount: cachedTokenCount,
+                promptTime: promptTime,
+                lookupTime: cacheLookupTime,
+                restoreTime: cacheRestoreTime,
+                trimTime: cacheTrimTime,
+                truncateTime: cacheTruncateTime
+            )
+            self.logCacheProfile(
+                phase: "save",
+                mode: "non-streaming",
+                outcome: saveInsertTime != nil ? "save" : "skip",
+                inputTokenCount: cacheInputTokenCount,
+                cachedTokenCount: cachedTokenCount,
+                promptTime: promptTime,
+                trimTime: saveTrimTime,
+                truncateTime: saveTruncateTime,
+                insertTime: saveInsertTime
+            )
+            return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount, promptTime, generateTime, stoppedBySequence)
+        }
 
     func generateStreaming(
         model: String,
@@ -885,21 +990,42 @@ final class MLXModelService: @unchecked Sendable {
                                 print("[\(ts())] [PrefixCache] Input: \(inputTokens.count) tokens, first20=\(Array(inputTokens.prefix(20)))")
                             }
                         }
-                        var generationCache: [KVCache]
+                        var generationCache = context.model.newCache(parameters: params)
                         var generateInput: LMInput
                         var streamCachedTokens = 0
 
+                        var cacheOutcome = useCache ? "disabled" : "multimodal-skip"
+                        var cacheLookupTime: Double? = nil
+                        var cacheRestoreTime: Double? = nil
+                        var cacheTrimTime: Double? = nil
+                        var cacheTruncateTime: Double? = nil
+
                         if useCache, let radix = self.radixCache {
-                            let (prefixLen, layerStates) = radix.findPrefix(inputTokens)
-                            let minSuffix = 16
-                            let effectivePrefix = min(prefixLen, max(0, inputTokens.count - minSuffix))
+                            let tLookup0 = Date.timeIntervalSinceReferenceDate
+                            let (prefixLen, layerStates, layerMetaStates) = radix.findPrefix(inputTokens)
+                            let tLookup1 = Date.timeIntervalSinceReferenceDate
+                            cacheLookupTime = tLookup1 - tLookup0
+                            let effectivePrefix = self.effectiveCachedPrefix(
+                                prefixLen: prefixLen,
+                                inputTokenCount: inputTokens.count,
+                                cache: generationCache
+                            )
+                            let bypassExactReplay = prefixLen == inputTokens.count && effectivePrefix == 0 && prefixLen > 0
 
                             if effectivePrefix > 0, let states = layerStates {
                                 let tRestore0 = Date.timeIntervalSinceReferenceDate
                                 // Restore KV cache from radix tree state
-                                generationCache = context.model.newCache(parameters: params)
                                 for i in 0..<generationCache.count where i < states.count {
                                     generationCache[i].state = states[i]
+                                    let savedMetaState = layerMetaStates.flatMap {
+                                        i < $0.count ? $0[i] : nil
+                                    }
+                                    if let adjustedMetaState = self.restoredMetaState(
+                                        for: generationCache[i],
+                                        savedMetaState: savedMetaState
+                                    ) {
+                                        generationCache[i].metaState = adjustedMetaState
+                                    }
                                 }
                                 let tRestore1 = Date.timeIntervalSinceReferenceDate
                                 // Trim to effective prefix length
@@ -910,7 +1036,9 @@ final class MLXModelService: @unchecked Sendable {
                                 let tTrim = Date.timeIntervalSinceReferenceDate
                                 // Physically truncate trimmed cache arrays to eliminate stale data. (#47)
                                 for i in 0..<generationCache.count {
-                                    if generationCache[i].isTrimmable && generationCache[i].offset > 0 {
+                                    if generationCache[i].isTrimmable && generationCache[i].offset > 0
+                                        && self.supportsPhysicalTruncation(generationCache[i])
+                                    {
                                         generationCache[i].truncateToOffset()
                                     }
                                 }
@@ -918,20 +1046,55 @@ final class MLXModelService: @unchecked Sendable {
                                 let suffixTokens = Array(inputTokens[effectivePrefix...])
                                 generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
                                 streamCachedTokens = effectivePrefix
+                                cacheOutcome = "hit"
+                                cacheRestoreTime = tRestore1 - tRestore0
+                                cacheTrimTime = tTrim - tRestore1
+                                cacheTruncateTime = tRoundtrip - tTrim
+                                self.logCachePrefill(
+                                    mode: "streaming",
+                                    outcome: "hit",
+                                    inputTokenCount: inputTokens.count,
+                                    cachedTokenCount: effectivePrefix,
+                                    suffixTokenCount: suffixTokens.count,
+                                    radixEntryCount: radix.count,
+                                    cache: generationCache,
+                                    lookupTime: cacheLookupTime,
+                                    restoreTime: tRestore1 - tRestore0,
+                                    trimTime: tTrim - tRestore1,
+                                    truncateTime: tRoundtrip - tTrim
+                                )
                                 if debugLogging {
                                     print("[\(ts())] [KVCache] Radix hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
                                     print("[\(ts())] [PrefixCache] Timing: restore=\(String(format: "%.3f", tRestore1 - tRestore0))s trim=\(String(format: "%.3f", tTrim - tRestore1))s roundtrip=\(String(format: "%.3f", tRoundtrip - tTrim))s total=\(String(format: "%.3f", tRoundtrip - tRestore0))s")
                                 }
                             } else {
-                                generationCache = context.model.newCache(parameters: params)
                                 generateInput = input
+                                cacheOutcome = bypassExactReplay ? "exact-replay-bypass" : "miss"
+                                self.logCachePrefill(
+                                    mode: "streaming",
+                                    outcome: cacheOutcome,
+                                    inputTokenCount: inputTokens.count,
+                                    cachedTokenCount: 0,
+                                    suffixTokenCount: inputTokens.count,
+                                    radixEntryCount: radix.count,
+                                    cache: generationCache,
+                                    lookupTime: cacheLookupTime
+                                )
                                 if debugLogging {
                                     print("[\(ts())] [KVCache] Cache miss, full prefill for \(inputTokens.count) tokens")
                                 }
                             }
                         } else {
-                            generationCache = context.model.newCache(parameters: params)
                             generateInput = input
+                            self.logCachePrefill(
+                                mode: "streaming",
+                                outcome: useCache ? "disabled" : "multimodal-skip",
+                                inputTokenCount: inputTokens.count,
+                                cachedTokenCount: 0,
+                                suffixTokenCount: inputTokens.count,
+                                radixEntryCount: self.radixCache?.count,
+                                cache: generationCache
+                            )
                             if debugLogging {
                                 print("[\(ts())] [KVCache] Multimodal input, skipping cache")
                             }
@@ -939,6 +1102,7 @@ final class MLXModelService: @unchecked Sendable {
 
                         // Emit cached token count so the controller can include it in usage
                         continuation.yield(StreamChunk(text: "", cachedTokens: streamCachedTokens))
+                        self.logUsageChunk(stage: "preliminary", streaming: true, cachedTokens: streamCachedTokens)
 
                         let activeStops = stop?.filter { !$0.isEmpty } ?? []
                         // Buffer to handle stop strings that span chunk boundaries.
@@ -1027,6 +1191,27 @@ final class MLXModelService: @unchecked Sendable {
                                     continuation.yield(StreamChunk(text: "", toolCalls: [responseTC]))
                                 } else if case .info(let info) = piece {
                                     // Emit real token counts and timing as a final info chunk
+                                    self.logUsageChunk(
+                                        stage: "final",
+                                        streaming: true,
+                                        cachedTokens: streamCachedTokens,
+                                        promptTokens: info.promptTokenCount,
+                                        completionTokens: info.generationTokenCount,
+                                        promptTime: info.promptTime,
+                                        generateTime: info.generateTime
+                                    )
+                                    self.logCacheProfile(
+                                        phase: "restore",
+                                        mode: "streaming",
+                                        outcome: cacheOutcome,
+                                        inputTokenCount: inputTokens.count,
+                                        cachedTokenCount: streamCachedTokens,
+                                        promptTime: info.promptTime,
+                                        lookupTime: cacheLookupTime,
+                                        restoreTime: cacheRestoreTime,
+                                        trimTime: cacheTrimTime,
+                                        truncateTime: cacheTruncateTime
+                                    )
                                     continuation.yield(StreamChunk(text: "", promptTokens: info.promptTokenCount, completionTokens: info.generationTokenCount, promptTime: info.promptTime, generateTime: info.generateTime))
                                 }
                             }
@@ -1062,25 +1247,54 @@ final class MLXModelService: @unchecked Sendable {
                             print("[\(ts())] [KVCache] Timing: TTFT=\(String(format: "%.3f", ttft))s total=\(String(format: "%.3f", total))s (streaming)")
                         }
 
+                        var saveTrimTime: Double? = nil
+                        var saveTruncateTime: Double? = nil
+                        var saveInsertTime: Double? = nil
+
                         // Save prompt cache state into radix tree
                         if useCache, let radix = self.radixCache, !inputTokens.isEmpty, !Task.isCancelled {
                             let promptLen = inputTokens.count
+                            let tSave0 = Date.timeIntervalSinceReferenceDate
                             for layer in generationCache {
                                 let excess = layer.offset - promptLen
                                 if excess > 0 { layer.trim(excess) }
                             }
+                            let tSaveTrim = Date.timeIntervalSinceReferenceDate
                             // Physically truncate trimmed cache arrays to eliminate stale data. (#47)
                             for i in 0..<generationCache.count {
-                                if generationCache[i].isTrimmable && generationCache[i].offset > 0 {
+                                if generationCache[i].isTrimmable && generationCache[i].offset > 0
+                                    && self.supportsPhysicalTruncation(generationCache[i])
+                                {
                                     generationCache[i].truncateToOffset()
                                 }
                             }
+                            let tSaveTruncate = Date.timeIntervalSinceReferenceDate
                             let layerStates = generationCache.map { $0.state }
-                            radix.insert(tokens: inputTokens, layerStates: layerStates)
+                            let layerMetaStates = generationCache.map { $0.metaState }
+                            radix.insert(
+                                tokens: inputTokens,
+                                layerStates: layerStates,
+                                layerMetaStates: layerMetaStates
+                            )
+                            let tSaveInsert = Date.timeIntervalSinceReferenceDate
+                            saveTrimTime = tSaveTrim - tSave0
+                            saveTruncateTime = tSaveTruncate - tSaveTrim
+                            saveInsertTime = tSaveInsert - tSaveTruncate
                             if debugLogging {
                                 print("[\(ts())] [PrefixCache] Insert: \(inputTokens.count) tokens, \(generationCache.count) layers")
                             }
                         }
+                        self.logCacheProfile(
+                            phase: "save",
+                            mode: "streaming",
+                            outcome: useCache && !Task.isCancelled ? "save" : "skip",
+                            inputTokenCount: inputTokens.count,
+                            cachedTokenCount: streamCachedTokens,
+                            promptTime: 0,
+                            trimTime: saveTrimTime,
+                            truncateTime: saveTruncateTime,
+                            insertTime: saveInsertTime
+                        )
                     }
                     self.cleanupTempFiles(mediaTempFiles)
                     continuation.finish()
@@ -2553,6 +2767,203 @@ final class MLXModelService: @unchecked Sendable {
                 topTokens: topTokens
             )
         }
+    }
+
+    private func summarizeCacheState(_ cache: [KVCache], sampleLimit: Int = 4) -> String {
+        guard !cache.isEmpty else { return "layers=0" }
+
+        let activeLayers = cache.reduce(into: 0) { count, layer in
+            if layer.offset > 0 { count += 1 }
+        }
+        let maxOffset = cache.map(\.offset).max() ?? 0
+        let preferredSamples = [0, 1, 3, 7]
+        var sampleIndices = preferredSamples.filter { $0 < cache.count && cache[$0].offset > 0 }
+
+        if sampleIndices.count < sampleLimit {
+            for index in cache.indices where cache[index].offset > 0 && !sampleIndices.contains(index) {
+                sampleIndices.append(index)
+                if sampleIndices.count == sampleLimit { break }
+            }
+        }
+
+        if sampleIndices.isEmpty {
+            sampleIndices = Array(cache.indices.prefix(min(sampleLimit, cache.count)))
+        }
+
+        let sample = sampleIndices.map { index in
+            "\(index):\(type(of: cache[index]))@\(cache[index].offset)"
+        }.joined(separator: ", ")
+
+        return "layers=\(cache.count) active_layers=\(activeLayers) max_offset=\(maxOffset) sample=[\(sample)]"
+    }
+
+    private func formatCacheSeconds(_ value: Double?) -> String {
+        String(format: "%.6f", value ?? 0)
+    }
+
+    private func exportCacheProfile(_ record: [String: Any]) {
+        let environment = ProcessInfo.processInfo.environment
+        guard let path = cacheProfilePath ?? environment["MACAFM_CACHE_PROFILE_PATH"] ?? environment["AFM_CACHE_PROFILE_PATH"] else {
+            return
+        }
+
+        CacheProfileExporter.append(record: record, to: path)
+    }
+
+    private func logCachePrefill(
+        mode: String,
+        outcome: String,
+        inputTokenCount: Int,
+        cachedTokenCount: Int,
+        suffixTokenCount: Int,
+        radixEntryCount: Int?,
+        cache: [KVCache],
+        lookupTime: Double? = nil,
+        restoreTime: Double? = nil,
+        trimTime: Double? = nil,
+        truncateTime: Double? = nil
+    ) {
+        var parts = [
+            "mode=\(mode)",
+            "outcome=\(outcome)",
+            "input_tokens=\(inputTokenCount)",
+            "cached_tokens=\(cachedTokenCount)",
+            "suffix_tokens=\(suffixTokenCount)"
+        ]
+        if let radixEntryCount {
+            parts.append("radix_entries=\(radixEntryCount)")
+        }
+        if let lookupTime {
+            parts.append("lookup=\(formatCacheSeconds(lookupTime))s")
+        }
+        if let restoreTime {
+            parts.append("restore=\(formatCacheSeconds(restoreTime))s")
+        }
+        if let trimTime {
+            parts.append("trim=\(formatCacheSeconds(trimTime))s")
+        }
+        if let truncateTime {
+            parts.append("truncate=\(formatCacheSeconds(truncateTime))s")
+        }
+        parts.append(summarizeCacheState(cache))
+
+        print("[\(ts())] [PrefixCache] Prefill: \(parts.joined(separator: " | "))")
+    }
+
+    private func logCacheProfile(
+        phase: String,
+        mode: String,
+        outcome: String,
+        inputTokenCount: Int,
+        cachedTokenCount: Int,
+        promptTime: Double,
+        lookupTime: Double? = nil,
+        restoreTime: Double? = nil,
+        trimTime: Double? = nil,
+        truncateTime: Double? = nil,
+        insertTime: Double? = nil
+    ) {
+        let lookup = lookupTime ?? 0
+        let restore = restoreTime ?? 0
+        let trim = trimTime ?? 0
+        let truncate = truncateTime ?? 0
+        let insert = insertTime ?? 0
+        let cacheOverhead = lookup + restore + trim + truncate + insert
+        let reuseRatio = inputTokenCount > 0 ? Double(cachedTokenCount) / Double(inputTokenCount) : 0
+        let overheadShare = promptTime > 0 ? cacheOverhead / promptTime : 0
+
+        print(
+            "[\(ts())] [CacheProfile] phase=\(phase) | mode=\(mode) | outcome=\(outcome) | " +
+                "input_tokens=\(inputTokenCount) | cached_tokens=\(cachedTokenCount) | " +
+                "reuse_ratio=\(String(format: "%.3f", reuseRatio)) | " +
+                "lookup=\(formatCacheSeconds(lookupTime))s | " +
+                "restore=\(formatCacheSeconds(restoreTime))s | " +
+                "trim=\(formatCacheSeconds(trimTime))s | " +
+                "truncate=\(formatCacheSeconds(truncateTime))s | " +
+                "insert=\(formatCacheSeconds(insertTime))s | " +
+                "cache_overhead=\(formatCacheSeconds(cacheOverhead))s | " +
+                "prompt_time=\(String(format: "%.3f", promptTime))s | " +
+                "overhead_share=\(String(format: "%.6f", overheadShare))"
+        )
+
+        exportCacheProfile([
+            "timestamp": ts(),
+            "phase": phase,
+            "mode": mode,
+            "outcome": outcome,
+            "input_tokens": inputTokenCount,
+            "cached_tokens": cachedTokenCount,
+            "reuse_ratio": reuseRatio,
+            "lookup_s": lookup,
+            "restore_s": restore,
+            "trim_s": trim,
+            "truncate_s": truncate,
+            "insert_s": insert,
+            "cache_overhead_s": cacheOverhead,
+            "prompt_time_s": promptTime,
+            "overhead_share": overheadShare,
+        ])
+    }
+
+    private func logUsageChunk(
+        stage: String,
+        streaming: Bool,
+        cachedTokens: Int? = nil,
+        promptTokens: Int? = nil,
+        completionTokens: Int? = nil,
+        promptTime: Double? = nil,
+        generateTime: Double? = nil
+    ) {
+        func describe<T>(_ value: T?) -> String {
+            value.map { "\($0)" } ?? "pending"
+        }
+
+        let promptTimeValue = promptTime.map { String(format: "%.3f", $0) } ?? "pending"
+        let generateTimeValue = generateTime.map { String(format: "%.3f", $0) } ?? "pending"
+
+        print(
+            "[\(ts())] [ChunkStats] stage=\(stage) | stream=\(streaming) | " +
+                "cached_tokens=\(describe(cachedTokens)) | " +
+                "prompt_tokens=\(describe(promptTokens)) | " +
+                "completion_tokens=\(describe(completionTokens)) | " +
+                "prompt_time=\(promptTimeValue)s | " +
+                "generate_time=\(generateTimeValue)s"
+        )
+    }
+
+    private func hasRecurrentLayers(_ cache: [KVCache]) -> Bool {
+        cache.contains { $0 is ArraysCache || $0 is CacheList }
+    }
+
+    private func supportsPhysicalTruncation(_ cache: KVCache) -> Bool {
+        !(cache is RotatingKVCache)
+    }
+
+    private func restoredMetaState(for cache: KVCache, savedMetaState: [String]?) -> [String]? {
+        guard let savedMetaState else { return nil }
+        if cache is RotatingKVCache, savedMetaState.count >= 3 {
+            let restoredCount = cache.offset
+            return [
+                savedMetaState[0],
+                savedMetaState[1],
+                savedMetaState[2],
+                String(restoredCount),
+                String(restoredCount),
+            ]
+        }
+        return savedMetaState
+    }
+
+    private func effectiveCachedPrefix(prefixLen: Int, inputTokenCount: Int, cache: [KVCache]) -> Int {
+        // Hybrid recurrent layers (for example Mamba/GatedDeltaNet state in ArraysCache)
+        // are not replay-safe for exact full-prefix restores on Qwen3.5-35B-A3B. Falling
+        // back to a cold prefill preserves correctness for deterministic replays.
+        if prefixLen == inputTokenCount && hasRecurrentLayers(cache) {
+            return 0
+        }
+
+        let minSuffix = 16
+        return min(prefixLen, max(0, inputTokenCount - minSuffix))
     }
 
     // MARK: - Prompt cache helpers
