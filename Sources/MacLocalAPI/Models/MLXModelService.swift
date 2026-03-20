@@ -573,6 +573,12 @@ final class MLXModelService: @unchecked Sendable {
                         trimTime: tTrim - tRestore1,
                         truncateTime: tRoundtrip - tTrim
                     )
+                    self.logReplayBoundary(
+                        tokenizer: context.tokenizer,
+                        mode: "non-streaming",
+                        inputTokens: inputTokens,
+                        effectivePrefix: effectivePrefix
+                    )
                     if debugLogging {
                         print("[\(ts())] [KVCache] Radix hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
                         print("[\(ts())] [PrefixCache] Timing: restore=\(String(format: "%.3f", tRestore1 - tRestore0))s trim=\(String(format: "%.3f", tTrim - tRestore1))s roundtrip=\(String(format: "%.3f", tRoundtrip - tTrim))s total=\(String(format: "%.3f", tRoundtrip - tRestore0))s")
@@ -1075,6 +1081,12 @@ final class MLXModelService: @unchecked Sendable {
                                     restoreTime: tRestore1 - tRestore0,
                                     trimTime: tTrim - tRestore1,
                                     truncateTime: tRoundtrip - tTrim
+                                )
+                                self.logReplayBoundary(
+                                    tokenizer: context.tokenizer,
+                                    mode: "streaming",
+                                    inputTokens: inputTokens,
+                                    effectivePrefix: effectivePrefix
                                 )
                                 if debugLogging {
                                     print("[\(ts())] [KVCache] Radix hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
@@ -2983,14 +2995,54 @@ final class MLXModelService: @unchecked Sendable {
         )
     }
 
+    private func shouldTraceReplayBoundary() -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        let value = env["AFM_PREFIX_CACHE_TRACE_BOUNDARY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return value == "1" || value == "true" || value == "yes"
+    }
+
+    private func logReplayBoundary(
+        tokenizer: any Tokenizer,
+        mode: String,
+        inputTokens: [Int],
+        effectivePrefix: Int
+    ) {
+        guard shouldTraceReplayBoundary() else { return }
+
+        let split = max(0, min(effectivePrefix, inputTokens.count))
+        let prefixTail = Array(inputTokens[max(0, split - 8)..<split])
+        let suffixHead = Array(inputTokens[split..<min(inputTokens.count, split + 16)])
+        let prefixTailDecoded = prefixTail.isEmpty ? "" : tokenizer.decode(tokens: prefixTail)
+        let suffixHeadDecoded = suffixHead.isEmpty ? "" : tokenizer.decode(tokens: suffixHead)
+
+        print(
+            "[\(ts())] [PrefixCache] Boundary: mode=\(mode) | prefix_tokens=\(split) | " +
+                "suffix_tokens=\(inputTokens.count - split) | prefix_tail_ids=\(prefixTail) | " +
+                "suffix_head_ids=\(suffixHead) | prefix_tail_decoded=\(String(reflecting: prefixTailDecoded)) | " +
+                "suffix_head_decoded=\(String(reflecting: suffixHeadDecoded))"
+        )
+    }
+
     private func hasRecurrentLayers(_ cache: [KVCache]) -> Bool {
         cache.contains { $0 is ArraysCache || $0 is CacheList }
     }
 
-    private func allowUnsafeExactReplay() -> Bool {
+    private func unsafeExactReplaySuffix() -> Int? {
         let env = ProcessInfo.processInfo.environment
-        let value = env["AFM_PREFIX_CACHE_ALLOW_UNSAFE_EXACT_REPLAY"]?.lowercased()
-        return value == "1" || value == "true" || value == "yes"
+        guard let rawValue = env["AFM_PREFIX_CACHE_ALLOW_UNSAFE_EXACT_REPLAY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !rawValue.isEmpty else {
+            return nil
+        }
+        let value = rawValue.lowercased()
+        if value == "true" || value == "yes" {
+            return 1
+        }
+        if let suffix = Int(value), suffix >= 1 {
+            return suffix
+        }
+        return nil
     }
 
     private func supportsPhysicalTruncation(_ cache: KVCache) -> Bool {
@@ -3016,12 +3068,14 @@ final class MLXModelService: @unchecked Sendable {
         // Hybrid recurrent layers (for example Mamba/GatedDeltaNet state in ArraysCache)
         // are not replay-safe for exact full-prefix restores on Qwen3.5-35B-A3B. Falling
         // back to a cold prefill preserves correctness for deterministic replays.
-        if prefixLen == inputTokenCount && hasRecurrentLayers(cache) && !allowUnsafeExactReplay() {
+        let forcedSuffix = unsafeExactReplaySuffix()
+
+        if prefixLen == inputTokenCount && hasRecurrentLayers(cache) && forcedSuffix == nil {
             return 0
         }
 
-        if prefixLen == inputTokenCount && allowUnsafeExactReplay() {
-            return max(0, inputTokenCount - 1)
+        if prefixLen == inputTokenCount, let forcedSuffix {
+            return max(0, inputTokenCount - forcedSuffix)
         }
 
         let minSuffix = 16

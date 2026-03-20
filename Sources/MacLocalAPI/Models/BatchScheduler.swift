@@ -129,10 +129,20 @@ actor BatchScheduler {
         cache.contains { $0 is ArraysCache || $0 is CacheList }
     }
 
-    private func allowUnsafeExactReplay() -> Bool {
+    private func unsafeExactReplaySuffix() -> Int? {
         let env = ProcessInfo.processInfo.environment
-        let value = env["AFM_PREFIX_CACHE_ALLOW_UNSAFE_EXACT_REPLAY"]?.lowercased()
-        return value == "1" || value == "true" || value == "yes"
+        guard let rawValue = env["AFM_PREFIX_CACHE_ALLOW_UNSAFE_EXACT_REPLAY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !rawValue.isEmpty else {
+            return nil
+        }
+        let value = rawValue.lowercased()
+        if value == "true" || value == "yes" {
+            return 1
+        }
+        if let suffix = Int(value), suffix >= 1 {
+            return suffix
+        }
+        return nil
     }
 
     private func supportsPhysicalTruncation(_ cache: KVCache) -> Bool {
@@ -152,6 +162,31 @@ actor BatchScheduler {
             ]
         }
         return savedMetaState
+    }
+
+    private func shouldTraceReplayBoundary() -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        let value = env["AFM_PREFIX_CACHE_TRACE_BOUNDARY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return value == "1" || value == "true" || value == "yes"
+    }
+
+    private func logReplayBoundary(inputTokens: [Int], effectivePrefix: Int) {
+        guard shouldTraceReplayBoundary() else { return }
+
+        let split = max(0, min(effectivePrefix, inputTokens.count))
+        let prefixTail = Array(inputTokens[max(0, split - 8)..<split])
+        let suffixHead = Array(inputTokens[split..<min(inputTokens.count, split + 16)])
+        let prefixTailDecoded = prefixTail.isEmpty ? "" : tokenizer.decode(tokens: prefixTail)
+        let suffixHeadDecoded = suffixHead.isEmpty ? "" : tokenizer.decode(tokens: suffixHead)
+
+        print(
+            "[\(batchTs())] [PrefixCache] Boundary: mode=batch | prefix_tokens=\(split) | " +
+                "suffix_tokens=\(inputTokens.count - split) | prefix_tail_ids=\(prefixTail) | " +
+                "suffix_head_ids=\(suffixHead) | prefix_tail_decoded=\(String(reflecting: prefixTailDecoded)) | " +
+                "suffix_head_decoded=\(String(reflecting: suffixHeadDecoded))"
+        )
     }
 
     private func logCacheProfile(
@@ -588,14 +623,15 @@ actor BatchScheduler {
             let (prefixLen, layerStates, layerMetaStates) = radix.findPrefix(inputTokens)
             let tLookup1 = Date.timeIntervalSinceReferenceDate
             cacheLookupTime = tLookup1 - tLookup0
+            let forcedSuffix = unsafeExactReplaySuffix()
             let effectivePrefix: Int
-            if prefixLen == inputTokens.count && hasRecurrentLayers(cache) && !allowUnsafeExactReplay() {
+            if prefixLen == inputTokens.count && hasRecurrentLayers(cache) && forcedSuffix == nil {
                 effectivePrefix = 0
                 if prefixLen > 0 {
                     cacheOutcome = "exact-replay-bypass"
                 }
-            } else if prefixLen == inputTokens.count && allowUnsafeExactReplay() {
-                effectivePrefix = max(0, inputTokens.count - 1)
+            } else if prefixLen == inputTokens.count, let forcedSuffix {
+                effectivePrefix = max(0, inputTokens.count - forcedSuffix)
             } else {
                 let minSuffix = 16
                 effectivePrefix = min(prefixLen, max(0, inputTokens.count - minSuffix))
@@ -635,6 +671,7 @@ actor BatchScheduler {
                 cacheRestoreTime = tRestore1 - tRestore0
                 cacheTrimTime = tTrim - tRestore1
                 cacheTruncateTime = tRoundtrip - tTrim
+                logReplayBoundary(inputTokens: inputTokens, effectivePrefix: effectivePrefix)
                 DebugLogger.log("[BatchScheduler] Prefix cache hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
                 print("[\(batchTs())] [PrefixCache] Prefill: mode=batch | outcome=hit | input_tokens=\(inputTokens.count) | cached_tokens=\(effectivePrefix) | suffix_tokens=\(suffixTokens.count) | radix_entries=\(radix.count) | lookup=\(String(format: "%.6f", cacheLookupTime ?? 0))s | restore=\(String(format: "%.6f", cacheRestoreTime ?? 0))s | trim=\(String(format: "%.6f", cacheTrimTime ?? 0))s | truncate=\(String(format: "%.6f", cacheTruncateTime ?? 0))s")
             }
