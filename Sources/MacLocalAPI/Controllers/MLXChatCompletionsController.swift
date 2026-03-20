@@ -171,6 +171,12 @@ struct MLXChatCompletionsController: RouteCollection {
                 return try await createStreamingResponse(req: req, chatRequest: chatRequest, extractThinking: extractThinking)
             }
 
+            // In concurrent mode, non-streaming requests currently bypass the
+            // BatchScheduler decode loop, so the controller must release the
+            // reservation itself. Streaming requests are released by the
+            // scheduler when the stream finishes.
+            defer { service.releaseSlot() }
+
             let effectiveTemp = chatRequest.temperature ?? temperature
             let effectiveTopP = chatRequest.topP ?? topP
             let effectiveMaxTokens = normalizedMaxTokens(chatRequest.effectiveMaxTokens)
@@ -237,7 +243,10 @@ struct MLXChatCompletionsController: RouteCollection {
                     promptTime: promptTime,
                     timings: timings
                 )
-                let cacheInfo1 = result.cachedTokens > 0 ? " | cache: HIT \(result.cachedTokens)/\(result.cachedTokens + result.promptTokens) (\(Int(Double(result.cachedTokens)/Double(result.cachedTokens + result.promptTokens)*100))%)" : " | cache: MISS"
+                let cacheInfo1 = Self.cacheStatsSummary(
+                    cachedTokens: result.cachedTokens,
+                    totalPromptTokens: result.promptTokens
+                )
                 print("\(Self.orange)[\(Self.timestamp())] [STATS] pp: \(result.promptTokens) tok, \(String(format: "%.2f", promptTime))s (\(String(format: "%.1f", promptTokPerSec)) tok/s) | tg: \(completionTok) tok, \(String(format: "%.2f", generateTime))s (\(String(format: "%.1f", tokPerSec)) tok/s)\(cacheInfo1) stream=false\(Self.reset)")
                 let tcSummary = toolCalls.map { "\($0.function.name)(\(Self.argKeysPreview($0.function.arguments)))" }.joined(separator: ", ")
                 print("\(Self.gold)[\(Self.timestamp())] [TOOL_CALLS] \(toolCalls.count) call(s): \(tcSummary)\(Self.reset)")
@@ -289,7 +298,10 @@ struct MLXChatCompletionsController: RouteCollection {
                 promptTime: promptTime,
                 timings: timings
             )
-            let cacheInfo2 = result.cachedTokens > 0 ? " | cache: HIT \(result.cachedTokens)/\(result.cachedTokens + result.promptTokens) (\(Int(Double(result.cachedTokens)/Double(result.cachedTokens + result.promptTokens)*100))%)" : " | cache: MISS"
+            let cacheInfo2 = Self.cacheStatsSummary(
+                cachedTokens: result.cachedTokens,
+                totalPromptTokens: result.promptTokens
+            )
             print("\(Self.orange)[\(Self.timestamp())] [STATS] pp: \(result.promptTokens) tok, \(String(format: "%.2f", promptTime))s (\(String(format: "%.1f", promptTokPerSec)) tok/s) | tg: \(completionTok) tok, \(String(format: "%.2f", generateTime))s (\(String(format: "%.1f", tokPerSec)) tok/s)\(cacheInfo2) stream=false\(Self.reset)")
             fflush(stdout)
             if veryVerbose {
@@ -1049,8 +1061,10 @@ struct MLXChatCompletionsController: RouteCollection {
                 let sGenTime = realGenerateTime ?? generationDuration
                 let sGenTokPerSec = sGenTime > 0 ? Double(completionTokens) / sGenTime : 0
                 let sCached = realCachedTokens ?? 0
-                let sTotalPrompt = promptTokens + sCached
-                let sCacheInfo = sCached > 0 ? " | cache: HIT \(sCached)/\(sTotalPrompt) (\(Int(Double(sCached)/Double(sTotalPrompt)*100))%)" : " | cache: MISS"
+                let sCacheInfo = Self.cacheStatsSummary(
+                    cachedTokens: sCached,
+                    totalPromptTokens: promptTokens
+                )
                 print("\(Self.orange)[\(Self.timestamp())] [STATS] pp: \(promptTokens) tok, \(String(format: "%.2f", sPromptTime))s (\(String(format: "%.1f", sPromptTokPerSec)) tok/s) | tg: \(completionTokens) tok, \(String(format: "%.2f", sGenTime))s (\(String(format: "%.1f", sGenTokPerSec)) tok/s)\(sCacheInfo) stream=true\(Self.reset)")
                 if hasToolCalls && !collectedToolCalls.isEmpty {
                     let tcSummary = collectedToolCalls.map { "\($0.function.name)(\(Self.argKeysPreview($0.function.arguments)))" }.joined(separator: ", ")
@@ -1300,6 +1314,14 @@ struct MLXChatCompletionsController: RouteCollection {
             return json.count > 40 ? "\(json.prefix(40))..." : json
         }
         return dict.keys.sorted().joined(separator: ", ")
+    }
+
+    private static func cacheStatsSummary(cachedTokens: Int, totalPromptTokens: Int) -> String {
+        guard cachedTokens > 0 else { return " | cache: MISS" }
+        let total = max(totalPromptTokens, cachedTokens)
+        let suffix = max(0, total - cachedTokens)
+        let ratio = total > 0 ? Int(Double(cachedTokens) / Double(total) * 100) : 0
+        return " | cache: HIT \(cachedTokens)/\(total) (\(ratio)%) suffix=\(suffix)"
     }
 
     /// ANSI color codes

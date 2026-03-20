@@ -798,7 +798,9 @@ final class MLXModelService: @unchecked Sendable {
             return converted
         }
 
-            let promptTokens = completionInfo?.promptTokenCount ?? estimateTokens(promptText)
+            let promptTokens = cacheInputTokenCount > 0
+                ? cacheInputTokenCount
+                : (completionInfo?.promptTokenCount ?? estimateTokens(promptText))
             let completionTokens = completionInfo?.generationTokenCount ?? estimateTokens(generated)
             let promptTime = completionInfo?.promptTime ?? 0
             let generateTime = completionInfo?.generateTime ?? 0
@@ -897,10 +899,11 @@ final class MLXModelService: @unchecked Sendable {
         // --- Concurrent path: bypass container.perform lock, route through BatchScheduler ---
         if let scheduler = self.scheduler {
             let input = try await scheduler.prepareInput(userInput)
+            let preparedPromptTokens = input.text.tokens.reshaped(-1).asArray(Int.self).count
             let concurrentStream = await scheduler.submit(
                 input: input,
                 parameters: params,
-                promptTokens: promptTokens
+                promptTokens: preparedPromptTokens
             )
             self.cleanupTempFiles(mediaTempFiles)
 
@@ -924,7 +927,7 @@ final class MLXModelService: @unchecked Sendable {
             }
 
             endOperationOnExit = false
-            return (modelID, concurrentStream, promptTokens, toolTags?.start, toolTags?.end, self.thinkStartTag, self.thinkEndTag)
+            return (modelID, concurrentStream, preparedPromptTokens, toolTags?.start, toolTags?.end, self.thinkStartTag, self.thinkEndTag)
         }
 
         // --- Serial path: full-featured generation via container.perform lock ---
@@ -981,6 +984,7 @@ final class MLXModelService: @unchecked Sendable {
                         }
 
                         // Prompt caching: determine cache hit/miss
+                        let fullPromptTokenCount = input.text.tokens.reshaped(-1).asArray(Int.self).count
                         let useCache = !self.isMultimodalInput(input)
                         let inputTokens = useCache ? self.extractTokenArray(input) : []
                         if debugLogging {
@@ -1191,11 +1195,12 @@ final class MLXModelService: @unchecked Sendable {
                                     continuation.yield(StreamChunk(text: "", toolCalls: [responseTC]))
                                 } else if case .info(let info) = piece {
                                     // Emit real token counts and timing as a final info chunk
+                                    let finalPromptTokens = fullPromptTokenCount
                                     self.logUsageChunk(
                                         stage: "final",
                                         streaming: true,
                                         cachedTokens: streamCachedTokens,
-                                        promptTokens: info.promptTokenCount,
+                                        promptTokens: finalPromptTokens,
                                         completionTokens: info.generationTokenCount,
                                         promptTime: info.promptTime,
                                         generateTime: info.generateTime
@@ -1212,7 +1217,7 @@ final class MLXModelService: @unchecked Sendable {
                                         trimTime: cacheTrimTime,
                                         truncateTime: cacheTruncateTime
                                     )
-                                    continuation.yield(StreamChunk(text: "", promptTokens: info.promptTokenCount, completionTokens: info.generationTokenCount, promptTime: info.promptTime, generateTime: info.generateTime))
+                                    continuation.yield(StreamChunk(text: "", promptTokens: finalPromptTokens, completionTokens: info.generationTokenCount, promptTime: info.promptTime, generateTime: info.generateTime))
                                 }
                             }
                         } catch {
@@ -2935,6 +2940,12 @@ final class MLXModelService: @unchecked Sendable {
         cache.contains { $0 is ArraysCache || $0 is CacheList }
     }
 
+    private func allowUnsafeExactReplay() -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        let value = env["AFM_PREFIX_CACHE_ALLOW_UNSAFE_EXACT_REPLAY"]?.lowercased()
+        return value == "1" || value == "true" || value == "yes"
+    }
+
     private func supportsPhysicalTruncation(_ cache: KVCache) -> Bool {
         !(cache is RotatingKVCache)
     }
@@ -2958,8 +2969,12 @@ final class MLXModelService: @unchecked Sendable {
         // Hybrid recurrent layers (for example Mamba/GatedDeltaNet state in ArraysCache)
         // are not replay-safe for exact full-prefix restores on Qwen3.5-35B-A3B. Falling
         // back to a cold prefill preserves correctness for deterministic replays.
-        if prefixLen == inputTokenCount && hasRecurrentLayers(cache) {
+        if prefixLen == inputTokenCount && hasRecurrentLayers(cache) && !allowUnsafeExactReplay() {
             return 0
+        }
+
+        if prefixLen == inputTokenCount && allowUnsafeExactReplay() {
+            return max(0, inputTokenCount - 1)
         }
 
         let minSuffix = 16

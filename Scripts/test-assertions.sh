@@ -1288,6 +1288,102 @@ print(''.join(parts))
   else
     run_test "Cache" "Streaming replay: content matches non-streaming warmup" "same content" "FAIL: warm=[$stream_warm_content] stream=[$stream_replay_content]" "$dur"
   fi
+
+  # Test: 8 concurrent shared-prefix requests keep an uncached suffix and do not bleed across divergence.
+  # When the server is started with --enable-prefix-caching --concurrent 8, this exercises the batched path.
+  concurrent_nonce="CONCURRENT-CACHE-$(date +%s%N)"
+  concurrent_prefix="Shared cache branch probe $concurrent_nonce."
+  concurrent_schema='{"type":"object","properties":{"marker":{"type":"integer"}},"required":["marker"],"additionalProperties":false}'
+  concurrent_warmup="$concurrent_prefix Return JSON with marker 0."
+  api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$concurrent_warmup\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}" >/dev/null
+
+  t0=$(now_ms)
+  concurrent_tmpdir=$(mktemp -d)
+  concurrent_tokens=()
+  for i in 1 2 3 4 5 6 7 8; do
+    token="$i"
+    concurrent_tokens+=("$token")
+    prompt="$concurrent_prefix Return JSON with marker $token."
+    curl -s --max-time 60 "$BASE_URL/v1/chat/completions" \
+      -H 'Content-Type: application/json' \
+      -d "{\"messages\":[{\"role\":\"user\",\"content\":\"$prompt\"}],\"guided_json\":$concurrent_schema,\"max_tokens\":32,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}" \
+      -o "$concurrent_tmpdir/resp_$i.json" \
+      -w "%{http_code}" > "$concurrent_tmpdir/code_$i.txt" 2>/dev/null &
+  done
+  wait 2>/dev/null || true
+  dur=$(( $(now_ms) - t0 ))
+
+  concurrent_cache_state=$(python3 - "$concurrent_tmpdir" <<'PY'
+import json, os, sys
+
+root = sys.argv[1]
+failures = []
+for i in range(1, 9):
+    body_path = os.path.join(root, f"resp_{i}.json")
+    code_path = os.path.join(root, f"code_{i}.txt")
+    code = open(code_path, "r", encoding="utf-8").read().strip() if os.path.exists(code_path) else "NO_CODE"
+    if code != "200":
+        failures.append(f"{i}:http={code}")
+        continue
+    try:
+        with open(body_path, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        usage = d.get("usage", {})
+        ptd = usage.get("prompt_tokens_details")
+        if ptd is None:
+            failures.append(f"{i}:null")
+            continue
+        cached = ptd.get("cached_tokens", "MISSING")
+        prompt = usage.get("prompt_tokens", "MISSING")
+        if not isinstance(cached, int) or not isinstance(prompt, int) or cached <= 0 or cached >= prompt:
+            failures.append(f"{i}:{cached}/{prompt}")
+    except Exception as e:
+        failures.append(f"{i}:error={e}")
+
+if failures:
+    print("FAIL: " + ", ".join(failures))
+else:
+    print("PASS")
+PY
+)
+  if [ "$concurrent_cache_state" = "PASS" ]; then
+    run_test "Cache" "Concurrent x8 shared-prefix: uncached suffix remains on every branch" "0 < cached_tokens < prompt_tokens for all 8" "PASS" "$dur"
+  else
+    run_test "Cache" "Concurrent x8 shared-prefix: uncached suffix remains on every branch" "0 < cached_tokens < prompt_tokens for all 8" "$concurrent_cache_state" "$dur"
+  fi
+
+  concurrent_content_state=$(python3 - "$concurrent_tmpdir" "${concurrent_tokens[@]}" <<'PY'
+import json, os, sys
+
+root = sys.argv[1]
+tokens = sys.argv[2:]
+failures = []
+for i, token in enumerate(tokens, start=1):
+    body_path = os.path.join(root, f"resp_{i}.json")
+    try:
+        with open(body_path, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        content = (d.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
+        payload = json.loads(content)
+        marker = payload.get("marker")
+        if marker != int(token):
+            failures.append(f"{i}:marker={marker} expected={token} content=[{content}]")
+            continue
+    except Exception as e:
+        failures.append(f"{i}:error={e}")
+
+if failures:
+    print("FAIL: " + "; ".join(failures))
+else:
+    print("PASS")
+PY
+)
+  if [ "$concurrent_content_state" = "PASS" ]; then
+    run_test "Cache" "Concurrent x8 shared-prefix: divergent suffix responses stay isolated" "each of 8 responses keeps only its own marker" "PASS" "$dur"
+  else
+    run_test "Cache" "Concurrent x8 shared-prefix: divergent suffix responses stay isolated" "each of 8 responses keeps only its own marker" "$concurrent_content_state" "$dur"
+  fi
+  rm -rf "$concurrent_tmpdir"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════

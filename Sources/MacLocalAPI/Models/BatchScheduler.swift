@@ -129,6 +129,12 @@ actor BatchScheduler {
         cache.contains { $0 is ArraysCache || $0 is CacheList }
     }
 
+    private func allowUnsafeExactReplay() -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        let value = env["AFM_PREFIX_CACHE_ALLOW_UNSAFE_EXACT_REPLAY"]?.lowercased()
+        return value == "1" || value == "true" || value == "yes"
+    }
+
     private func supportsPhysicalTruncation(_ cache: KVCache) -> Bool {
         !(cache is RotatingKVCache)
     }
@@ -583,11 +589,13 @@ actor BatchScheduler {
             let tLookup1 = Date.timeIntervalSinceReferenceDate
             cacheLookupTime = tLookup1 - tLookup0
             let effectivePrefix: Int
-            if prefixLen == inputTokens.count && hasRecurrentLayers(cache) {
+            if prefixLen == inputTokens.count && hasRecurrentLayers(cache) && !allowUnsafeExactReplay() {
                 effectivePrefix = 0
                 if prefixLen > 0 {
                     cacheOutcome = "exact-replay-bypass"
                 }
+            } else if prefixLen == inputTokens.count && allowUnsafeExactReplay() {
+                effectivePrefix = max(0, inputTokens.count - 1)
             } else {
                 let minSuffix = 16
                 effectivePrefix = min(prefixLen, max(0, inputTokens.count - minSuffix))
@@ -665,7 +673,7 @@ actor BatchScheduler {
 
         let slot = SlotState(
             continuation: req.continuation,
-            promptTokenCount: req.promptTokens,
+            promptTokenCount: inputTokens.count,
             startTime: prefillStart,
             prefillTime: prefillTime,
             inputTokens: inputTokens,
