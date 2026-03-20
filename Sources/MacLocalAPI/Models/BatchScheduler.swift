@@ -171,16 +171,12 @@ actor BatchScheduler {
         self.configuration = configuration
         self.maxConcurrent = maxConcurrent
 
-        if enablePrefixCaching {
-            let debug = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
-            self.radixCache = RadixTreeCache(
-                modelID: configuration.name,
-                maxEntries: 64,
-                debugLogging: debug
-            )
-        } else {
-            self.radixCache = nil
-        }
+        let debug = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
+        self.radixCache = RadixTreeCache(
+            modelID: configuration.name,
+            maxEntries: 64,
+            debugLogging: debug
+        )
 
         var eos = configuration.eosTokenIds
         if let tokenizerEos = tokenizer.eosTokenId {
@@ -488,9 +484,10 @@ actor BatchScheduler {
                     let excess = cache[i].offset - effectivePrefix
                     if excess > 0 { cache[i].trim(excess) }
                 }
+                // Physically truncate trimmed cache arrays to eliminate stale data. (#47)
                 for i in 0..<cache.count {
                     if cache[i].isTrimmable && cache[i].offset > 0 {
-                        cache[i].state = cache[i].state
+                        cache[i].truncateToOffset()
                     }
                 }
                 let suffixTokens = Array(inputTokens[effectivePrefix...])
@@ -649,9 +646,10 @@ actor BatchScheduler {
                 let excess = layer.offset - promptLen
                 if excess > 0 { layer.trim(excess) }
             }
+            // Physically truncate trimmed cache arrays to eliminate stale data. (#47)
             for i in 0..<cache.count {
                 if cache[i].isTrimmable && cache[i].offset > 0 {
-                    cache[i].state = cache[i].state
+                    cache[i].truncateToOffset()
                 }
             }
             let layerStates = cache.map { $0.state }

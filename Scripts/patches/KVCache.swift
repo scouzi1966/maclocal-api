@@ -58,6 +58,9 @@ public protocol KVCache: Evaluatable, Updatable {
     @discardableResult
     func trim(_ n: Int) -> Int
 
+    /// Physically truncate internal arrays to match offset, eliminating stale data.
+    func truncateToOffset()
+
     /// Create an attention mask for this cache
     ///
     /// This method encapsulates cache-specific mask creation logic. Implementations should handle offset capping, window size logic,
@@ -152,6 +155,15 @@ open class BaseKVCache: KVCache {
 
     @discardableResult
     open func trim(_ n: Int) -> Int { 0 }
+
+    /// Physically truncate internal arrays to match offset.
+    /// Default implementation falls back to state round-trip.
+    /// Subclasses (KVCacheSimple) override with optimized version.
+    open func truncateToOffset() {
+        if !state.isEmpty {
+            state = state
+        }
+    }
 
     /// Default implementation for caches without special mask requirements
     open func makeMask(
@@ -430,6 +442,15 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
         let trimmed = min(offset, n)
         offset -= trimmed
         return trimmed
+    }
+
+    /// Physically truncate internal arrays to match offset.
+    /// Replaces the `state = state` round-trip pattern with a single
+    /// slice + assign. No-op if arrays are already aligned or cache is empty.
+    public override func truncateToOffset() {
+        guard let k = keys, let v = values, offset < k.dim(2) else { return }
+        keys = k[.ellipsis, ..<offset, 0...]
+        values = v[.ellipsis, ..<offset, 0...]
     }
 
     /// Convert to quantized cache for maximum efficiency

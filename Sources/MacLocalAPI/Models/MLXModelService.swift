@@ -309,16 +309,12 @@ final class MLXModelService: @unchecked Sendable {
                 }
             }
             self.radixCache?.invalidateAll()
-            if enablePrefixCaching {
-                self.radixCache = RadixTreeCache(
-                    modelID: modelID,
-                    maxEntries: 64,
-                    debugLogging: debugLogging
-                )
-                print("[\(ts())] [PrefixCache] Radix tree prefix caching active (64 entries max)")
-            } else {
-                self.radixCache = nil
-            }
+            self.radixCache = RadixTreeCache(
+                modelID: modelID,
+                maxEntries: 64,
+                debugLogging: debugLogging
+            )
+            print("[\(ts())] [PrefixCache] Radix tree prefix caching active (64 entries max)")
             try registry.registerModel(modelID)
             stage?(.ready)
             return modelID
@@ -517,13 +513,10 @@ final class MLXModelService: @unchecked Sendable {
                         if excess > 0 { generationCache[i].trim(excess) }
                     }
                     let tTrim = Date.timeIntervalSinceReferenceDate
-                    // Physically truncate trimmed cache arrays. trim() only decrements
-                    // offset — self.keys/values still hold full pre-trim arrays. Round-trip
-                    // through state getter (slices to offset) and setter (replaces arrays
-                    // and derives offset from shape) to eliminate stale data. (#47)
+                    // Physically truncate trimmed cache arrays to eliminate stale data. (#47)
                     for i in 0..<generationCache.count {
                         if generationCache[i].isTrimmable && generationCache[i].offset > 0 {
-                            generationCache[i].state = generationCache[i].state
+                            generationCache[i].truncateToOffset()
                         }
                     }
                     let tRoundtrip = Date.timeIntervalSinceReferenceDate
@@ -650,12 +643,10 @@ final class MLXModelService: @unchecked Sendable {
                     let excess = layer.offset - promptLen
                     if excess > 0 { layer.trim(excess) }
                 }
-                // Physically truncate trimmed cache arrays before saving.
-                // trim() only decrements offset — arrays still hold stale data.
-                // Round-trip through state getter/setter to eliminate stale slices. (#47)
+                // Physically truncate trimmed cache arrays to eliminate stale data. (#47)
                 for i in 0..<generationCache.count {
                     if generationCache[i].isTrimmable && generationCache[i].offset > 0 {
-                        generationCache[i].state = generationCache[i].state
+                        generationCache[i].truncateToOffset()
                     }
                 }
                 if debugLogging {
@@ -917,10 +908,10 @@ final class MLXModelService: @unchecked Sendable {
                                     if excess > 0 { generationCache[i].trim(excess) }
                                 }
                                 let tTrim = Date.timeIntervalSinceReferenceDate
-                                // Physically truncate trimmed cache arrays (#47)
+                                // Physically truncate trimmed cache arrays to eliminate stale data. (#47)
                                 for i in 0..<generationCache.count {
                                     if generationCache[i].isTrimmable && generationCache[i].offset > 0 {
-                                        generationCache[i].state = generationCache[i].state
+                                        generationCache[i].truncateToOffset()
                                     }
                                 }
                                 let tRoundtrip = Date.timeIntervalSinceReferenceDate
@@ -1078,12 +1069,10 @@ final class MLXModelService: @unchecked Sendable {
                                 let excess = layer.offset - promptLen
                                 if excess > 0 { layer.trim(excess) }
                             }
-                            // Physically truncate trimmed cache arrays before saving.
-                            // trim() only decrements offset — arrays still hold stale data.
-                            // Round-trip through state getter/setter to eliminate stale slices. (#47)
+                            // Physically truncate trimmed cache arrays to eliminate stale data. (#47)
                             for i in 0..<generationCache.count {
                                 if generationCache[i].isTrimmable && generationCache[i].offset > 0 {
-                                    generationCache[i].state = generationCache[i].state
+                                    generationCache[i].truncateToOffset()
                                 }
                             }
                             let layerStates = generationCache.map { $0.state }
