@@ -16,6 +16,7 @@ import asyncio, aiohttp, json, time, sys
 
 URL = "http://localhost:9999/v1/chat/completions"
 MODEL = "mlx-community/Qwen3.5-35B-A3B-4bit"
+REQUEST_TIMEOUT_S = 180
 
 # ─── Long system prompts (simulate agent instructions) ────────────────────────
 
@@ -233,6 +234,7 @@ async def send_request(session, messages, max_tokens=1024):
     start = time.monotonic()
 
     async with session.post(URL, json=payload) as resp:
+        resp.raise_for_status()
         async for line in resp.content:
             line = line.decode().strip()
             if not line.startswith("data: "):
@@ -295,7 +297,13 @@ async def run_conversation(session, conv):
 
     for i, turn in enumerate(conv["turns"]):
         messages.append({"role": "user", "content": turn["user"]})
-        r = await send_request(session, messages, turn.get("max_tokens", 1024))
+        try:
+            r = await asyncio.wait_for(
+                send_request(session, messages, turn.get("max_tokens", 1024)),
+                timeout=REQUEST_TIMEOUT_S
+            )
+        except Exception as exc:
+            raise RuntimeError(f"{conv['name']}/t{i+1}: {exc}") from exc
 
         check = check_response(r["text"], turn["expected"])
         r["turn"] = i + 1
@@ -317,7 +325,8 @@ async def run_batch(batch_size, conversations):
     failed = 0
     all_results = []
 
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_S + 30, sock_read=REQUEST_TIMEOUT_S)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         for batch_start in range(0, len(conversations), batch_size):
             batch = conversations[batch_start:batch_start + batch_size]
             tasks = [run_conversation(session, c) for c in batch]
@@ -378,7 +387,8 @@ async def main():
 
     # Warm up: first request primes the prefix cache
     print("Warming up prefix cache...")
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_S + 30, sock_read=REQUEST_TIMEOUT_S)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         await send_request(session, [
             {"role": "system", "content": CODING_AGENT_SYSTEM},
             {"role": "user", "content": "Say hello."}

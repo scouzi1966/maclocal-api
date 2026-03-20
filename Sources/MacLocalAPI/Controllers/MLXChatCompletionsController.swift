@@ -1317,9 +1317,9 @@ struct MLXChatCompletionsController: RouteCollection {
     }
 
     private static func cacheStatsSummary(cachedTokens: Int, totalPromptTokens: Int) -> String {
-        guard cachedTokens > 0 else { return " | cache: MISS" }
         let total = max(totalPromptTokens, cachedTokens)
         let suffix = max(0, total - cachedTokens)
+        guard cachedTokens > 0 else { return " | cache: MISS suffix=\(suffix)" }
         let ratio = total > 0 ? Int(Double(cachedTokens) / Double(total) * 100) : 0
         return " | cache: HIT \(cachedTokens)/\(total) (\(ratio)%) suffix=\(suffix)"
     }
