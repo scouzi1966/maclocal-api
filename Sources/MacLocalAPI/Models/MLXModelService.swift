@@ -742,6 +742,15 @@ final class MLXModelService: @unchecked Sendable {
                 saveTrimTime = tSaveTrim - tSave0
                 saveTruncateTime = tSaveTruncate - tSaveTrim
                 saveInsertTime = tSaveInsert - tSaveTruncate
+                self.logCacheSave(
+                    mode: "non-streaming",
+                    inputTokenCount: inputTokens.count,
+                    radixEntryCount: radix.count,
+                    cache: generationCache,
+                    trimTime: saveTrimTime,
+                    truncateTime: saveTruncateTime,
+                    insertTime: saveInsertTime
+                )
                 if debugLogging {
                     print("[\(ts())] [PrefixCache] Insert: \(inputTokens.count) tokens, \(generationCache.count) layers")
                     // Log stored state for KVCacheSimple layers
@@ -1285,6 +1294,15 @@ final class MLXModelService: @unchecked Sendable {
                             saveTrimTime = tSaveTrim - tSave0
                             saveTruncateTime = tSaveTruncate - tSaveTrim
                             saveInsertTime = tSaveInsert - tSaveTruncate
+                            self.logCacheSave(
+                                mode: "streaming",
+                                inputTokenCount: inputTokens.count,
+                                radixEntryCount: radix.count,
+                                cache: generationCache,
+                                trimTime: saveTrimTime,
+                                truncateTime: saveTruncateTime,
+                                insertTime: saveInsertTime
+                            )
                             if debugLogging {
                                 print("[\(ts())] [PrefixCache] Insert: \(inputTokens.count) tokens, \(generationCache.count) layers")
                             }
@@ -2853,6 +2871,35 @@ final class MLXModelService: @unchecked Sendable {
         parts.append(summarizeCacheState(cache))
 
         print("[\(ts())] [PrefixCache] Prefill: \(parts.joined(separator: " | "))")
+    }
+
+    private func logCacheSave(
+        mode: String,
+        inputTokenCount: Int,
+        radixEntryCount: Int?,
+        cache: [KVCache],
+        trimTime: Double? = nil,
+        truncateTime: Double? = nil,
+        insertTime: Double? = nil
+    ) {
+        var parts = [
+            "mode=\(mode)",
+            "stored_tokens=\(inputTokenCount)"
+        ]
+        if let radixEntryCount {
+            parts.append("radix_entries=\(radixEntryCount)")
+        }
+        if let trimTime {
+            parts.append("trim=\(formatCacheSeconds(trimTime))s")
+        }
+        if let truncateTime {
+            parts.append("truncate=\(formatCacheSeconds(truncateTime))s")
+        }
+        if let insertTime {
+            parts.append("insert=\(formatCacheSeconds(insertTime))s")
+        }
+        parts.append(summarizeCacheState(cache))
+        print("[\(ts())] [PrefixCache] Save complete: \(parts.joined(separator: " | "))")
     }
 
     private func logCacheProfile(

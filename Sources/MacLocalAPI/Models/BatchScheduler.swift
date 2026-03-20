@@ -829,6 +829,16 @@ actor BatchScheduler {
             saveTrimTime = tSaveTrim - tSave0
             saveTruncateTime = tSaveTruncate - tSaveTrim
             saveInsertTime = tSaveInsert - tSaveTruncate
+            let activeLayers = cache.reduce(into: 0) { count, layer in
+                if layer.offset > 0 { count += 1 }
+            }
+            let maxOffset = cache.map(\.offset).max() ?? 0
+            print(
+                "[\(batchTs())] [PrefixCache] Save complete: mode=batch | stored_tokens=\(slot.inputTokens.count) | " +
+                    "radix_entries=\(radix.count) | trim=\(String(format: "%.6f", saveTrimTime ?? 0))s | " +
+                    "truncate=\(String(format: "%.6f", saveTruncateTime ?? 0))s | insert=\(String(format: "%.6f", saveInsertTime ?? 0))s | " +
+                    "layers=\(cache.count) active_layers=\(activeLayers) max_offset=\(maxOffset)"
+            )
             DebugLogger.log("[BatchScheduler] Prefix cache save: \(slot.inputTokens.count) tokens")
         }
         logCacheProfile(
