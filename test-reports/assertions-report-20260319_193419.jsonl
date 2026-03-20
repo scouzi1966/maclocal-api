@@ -1,0 +1,237 @@
+{"index": 1, "group": "UnitTest", "name": "findPrefix: no child for next token \u2014 miss at root", "status": "PASS", "duration_ms": 2, "tier": "unit"}
+{"index": 2, "group": "UnitTest", "name": "Eviction with debugLogging", "status": "PASS", "duration_ms": 2, "tier": "unit"}
+{"index": 3, "group": "XMLParsing", "name": "findPrefix: empty cache \u2014 miss", "status": "PASS", "duration_ms": 2, "tier": "unit"}
+{"index": 4, "group": "UnitTest", "name": "findPrefix: query shorter than cached edge", "status": "PASS", "duration_ms": 3, "tier": "unit"}
+{"index": 5, "group": "UnitTest", "name": "Conversation fork: both branches survive and are findable", "status": "PASS", "duration_ms": 3, "tier": "unit"}
+{"index": 6, "group": "UnitTest", "name": "StreamChunk carries timing info", "status": "PASS", "duration_ms": 2, "tier": "unit"}
+{"index": 7, "group": "UnitTest", "name": "RequestSlot appendContent accumulates text", "status": "PASS", "duration_ms": 3, "tier": "unit"}
+{"index": 8, "group": "UnitTest", "name": "findPrefix: partial edge match divergence mid-edge \u2014 returns cached state", "status": "PASS", "duration_ms": 3, "tier": "unit"}
+{"index": 9, "group": "UnitTest", "name": "findPrefix: miss with matched > 0 and debugLogging", "status": "PASS", "duration_ms": 3, "tier": "unit"}
+{"index": 10, "group": "XMLParsing", "name": "insert: partial edge split with remaining tokens", "status": "PASS", "duration_ms": 3, "tier": "unit"}
+{"index": 11, "group": "UnitTest", "name": "insert: multiple inserts grow the tree (multi-turn)", "status": "PASS", "duration_ms": 3, "tier": "unit"}
+{"index": 12, "group": "UnitTest", "name": "findPrefix: exact match returns full prefix", "status": "PASS", "duration_ms": 3, "tier": "unit"}
+{"index": 13, "group": "UnitTest", "name": "RadixNode isLeaf and hasCachedState", "status": "PASS", "duration_ms": 3, "tier": "unit"}
+{"index": 14, "group": "UnitTest", "name": "findPrefix: deepest cached node wins over shallower", "status": "PASS", "duration_ms": 3, "tier": "unit"}
+{"index": 15, "group": "UnitTest", "name": "insert: partial edge split at exact split point", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 16, "group": "UnitTest", "name": "findPrefix: query longer than cached \u2014 partial prefix hit", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 17, "group": "UnitTest", "name": "LRU eviction at capacity evicts oldest", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 18, "group": "UnitTest", "name": "insert: new edge (no matching child)", "status": "PASS", "duration_ms": 3, "tier": "unit"}
+{"index": 19, "group": "UnitTest", "name": "Count tracks insertions, evictions, and invalidation", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 20, "group": "UnitTest", "name": "findPrefix: miss with matched == 0 and debugLogging", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 21, "group": "UnitTest", "name": "BaseKVCache truncateToOffset is safe no-op on MambaCache", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 22, "group": "UnitTest", "name": "KVCacheEntry stores tokens and layerStates", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 23, "group": "UnitTest", "name": "Multiple evictions on single insert (maxEntries=1)", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 24, "group": "UnitTest", "name": "invalidateAll clears everything", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 25, "group": "UnitTest", "name": "StreamChunk defaults: only text, everything else nil", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 26, "group": "UnitTest", "name": "findPrefix with debugLogging exercises all log branches", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 27, "group": "UnitTest", "name": "StreamChunk carries cached token count", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 28, "group": "UnitTest", "name": "BatchScheduler default max concurrent is 8", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 29, "group": "UnitTest", "name": "RequestSlot initializes with unique ID and zero content", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 30, "group": "UnitTest", "name": "returns unchanged when tools is nil", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 31, "group": "UnitTest", "name": "RequestSlot IDs are unique across instances", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 32, "group": "UnitTest", "name": "findPrefix: traverses nodes but no cached node found", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 33, "group": "UnitTest", "name": "insert: exact match \u2014 node had no prior cache", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 34, "group": "XMLParsing", "name": "insert: empty tokens is no-op", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 35, "group": "UnitTest", "name": "MLXServiceError.noModelLoaded has descriptive message", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 36, "group": "UnitTest", "name": "KVCacheEntry touch updates access time", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 37, "group": "UnitTest", "name": "insert with debugLogging exercises log branches", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 38, "group": "XMLParsing", "name": "decodeXMLEntities handles empty string", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 39, "group": "UnitTest", "name": "invalidateAll with debugLogging", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 40, "group": "XMLParsing", "name": "coerceStringValue returns nil for non-numeric string with integer type", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 41, "group": "XMLParsing", "name": "truncateToOffset on empty cache is no-op", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 42, "group": "XMLParsing", "name": "decodeJSONEscapes unescapes literal \\n and \\\" when no real newlines present", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 43, "group": "XMLParsing", "name": "does not coerce non-string values", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 44, "group": "UnitTest", "name": "MLXServiceError.serviceShuttingDown has descriptive message", "status": "PASS", "duration_ms": 6, "tier": "unit"}
+{"index": 45, "group": "XMLParsing", "name": "decodeJSONEscapes preserves values that already have real newlines", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 46, "group": "XMLParsing", "name": "coerces string to negative integer", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 47, "group": "XMLParsing", "name": "decodeXMLEntities passes through strings without entities", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 48, "group": "XMLParsing", "name": "coerceStringValue coerces '0' to Int 0 for integer type", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 49, "group": "XMLParsing", "name": "coerces whole-number string to Int for 'number' type", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 50, "group": "XMLParsing", "name": "coerceStringValue returns nil for unknown schema type", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 51, "group": "XMLParsing", "name": "decodeXMLEntities handles consecutive entities", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 52, "group": "NullableSchema", "name": "toJinjaCompatible() strips null elements from arrays", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 53, "group": "XMLParsing", "name": "decodeJSONEscapes handles only \\\" without \\n", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 54, "group": "XMLParsing", "name": "does NOT coerce 'yes'/'no'/'1'/'0' to boolean", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 55, "group": "XMLParsing", "name": "returns unchanged when arguments JSON is invalid", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 56, "group": "XMLParsing", "name": "decodeJSONEscapes handles \\t escapes", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 57, "group": "XMLParsing", "name": "returns unchanged when tools is empty", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 58, "group": "XMLParsing", "name": "empty <tool_call></tool_call> block returns no calls", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 59, "group": "XMLParsing", "name": "returns nil for content without <function=...> tag", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 60, "group": "XMLParsing", "name": "returns empty array and original text when no tool calls found", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 61, "group": "XMLParsing", "name": "does not coerce when property not in schema", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 62, "group": "XMLParsing", "name": "parses basic XML tool call", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 63, "group": "XMLParsing", "name": "JSON-in-XML with invalid JSON falls through", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 64, "group": "XMLParsing", "name": "multiple parameters with same non-empty value keeps first", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 65, "group": "XMLParsing", "name": "regex fallback handles bare < in parameter value", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 66, "group": "UnitTest", "name": "insert: exact match update \u2014 node already has cache", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 67, "group": "XMLParsing", "name": "coerceStringValue returns nil for invalid JSON with array type", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 68, "group": "UnitTest", "name": "Touch via findPrefix prevents eviction", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 69, "group": "XMLParsing", "name": "decodes XML entities in parameter values via XMLParser", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 70, "group": "NullableSchema", "name": "toJinjaCompatible() result survives ToolSpec \u2192 Jinja Value round-trip", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 71, "group": "XMLParsing", "name": "decodeXMLEntities handles multiple &lt; in Python code", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 72, "group": "XMLParsing", "name": "XMLParser path drops unclosed parameter (no bare < to trigger fallback)", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 73, "group": "XMLParsing", "name": "text content before and after tool call is preserved", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 74, "group": "XMLParsing", "name": "bash tool with JSON-escaped command gets decoded", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 75, "group": "XMLParsing", "name": "bare JSON that's not a tool call doesn't match", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 76, "group": "XMLParsing", "name": "JSON-in-XML with missing name returns no tool calls", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 77, "group": "XMLParsing", "name": "write tool with real newlines is NOT affected by decodeJSONEscapes", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 78, "group": "XMLParsing", "name": "handles multiple tool calls", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 79, "group": "XMLParsing", "name": "parses bare JSON tool call without wrapper tags", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 80, "group": "XMLParsing", "name": "coerceStringValue handles empty string for all types", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 81, "group": "XMLParsing", "name": "coerceStringValue returns nil for non-numeric string with number type", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 82, "group": "XMLParsing", "name": "mixed: write content has real newlines, edit oldString has escaped \u2014 both decoded correctly", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 83, "group": "XMLParsing", "name": "coerceStringValue handles negative numbers", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 84, "group": "XMLParsing", "name": "coerceStringValue returns nil for invalid JSON with object type", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 85, "group": "XMLParsing", "name": "skips empty parameter values", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 86, "group": "XMLParsing", "name": "decodeXMLEntities handles double-encoded entities: &amp;lt; \u2192 &lt;", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 87, "group": "XMLParsing", "name": "decodeJSONEscapes full edit oldString from real Qwen3-Coder output", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 88, "group": "UnitTest", "name": "leaves already-correct types alone (string stays string)", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 89, "group": "XMLParsing", "name": "decodeXMLEntities passes through bare & without entity suffix", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 90, "group": "NullableSchema", "name": "toAny() result in ToolSpec \u2014 Jinja throws (proves the bug)", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 91, "group": "XMLParsing", "name": "JSON-in-XML with no arguments key still parses name", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 92, "group": "XMLParsing", "name": "strips <think></think> tags from remaining text", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 93, "group": "NullableSchema", "name": "toAny() wraps null as NSNull \u2014 Jinja throws on it", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 94, "group": "NullableSchema", "name": "toJinjaCompatible() strips null keys from dicts \u2014 Jinja accepts it", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 95, "group": "XMLParsing", "name": "handles parameter values with special characters in Python code", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 96, "group": "XMLParsing", "name": "coerceStringValue returns nil for float string with integer type", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 97, "group": "XMLParsing", "name": "bare JSON with 'parameters' key instead of 'arguments'", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 98, "group": "UnitTest", "name": "compactUpward merges single-child node after sibling eviction", "status": "PASS", "duration_ms": 6, "tier": "unit"}
+{"index": 99, "group": "XMLParsing", "name": "decodeXMLEntities handles entities at string boundaries", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 100, "group": "XMLParsing", "name": "decodeJSONEscapes handles empty string", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 101, "group": "XMLParsing", "name": "coerces string to object", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 102, "group": "NullableSchema", "name": "toJinjaCompatible() preserves all non-null types", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 103, "group": "XMLParsing", "name": "parses Mistral [TOOL_CALLS] with multiple items in array", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 104, "group": "XMLParsing", "name": "write file with Python containing comparison operators (OpenCode pattern)", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 105, "group": "XMLParsing", "name": "coerces string to integer", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 106, "group": "XMLParsing", "name": "handles duplicate parameters (keeps first non-empty)", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 107, "group": "XMLParsing", "name": "parses JSON-in-XML format with 'arguments' key", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 108, "group": "XMLParsing", "name": "coerces string to array", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 109, "group": "XMLParsing", "name": "EBNF grammar handles tool with no required params", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 110, "group": "XMLParsing", "name": "coerceStringValue coerces '0.0' to Int 0 for number type (whole number)", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 111, "group": "XMLParsing", "name": "handles multiline parameter values", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 112, "group": "XMLParsing", "name": "decodeJSONEscapes passes through plain text without escapes", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 113, "group": "XMLParsing", "name": "bash tool with special characters", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 114, "group": "NullableSchema", "name": "toJinjaCompatible() deeply nested nulls \u2014 Jinja accepts them", "status": "PASS", "duration_ms": 3, "tier": "unit"}
+{"index": 115, "group": "UnitTest", "name": "returns unchanged when tool name not found in tools list", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 116, "group": "XMLParsing", "name": "handles multiple parameters with mixed string and JSON types", "status": "PASS", "duration_ms": 6, "tier": "unit"}
+{"index": 117, "group": "NullableSchema", "name": "toAny() dict with null value \u2014 Jinja throws", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 118, "group": "XMLParsing", "name": "EBNF grammar generates named required param rules for bash tool", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 119, "group": "XMLParsing", "name": "does not fill non-required missing params", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 120, "group": "XMLParsing", "name": "parses Mistral [TOOL_CALLS] func_name[ARGS]{...} format", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 121, "group": "XMLParsing", "name": "parses Mistral [TOOL_CALLS] JSON array format", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 122, "group": "XMLParsing", "name": "requiredParamNames preserves client schema order (not alphabetical)", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 123, "group": "XMLParsing", "name": "JSON format switch mid-conversation (Qwen3-Coder-Next common error)", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 124, "group": "XMLParsing", "name": "edit tool with JSON-escaped oldString gets decoded (model pre-escaping bug)", "status": "PASS", "duration_ms": 3, "tier": "unit"}
+{"index": 125, "group": "XMLParsing", "name": "requiredParamNames returns empty for tool with no required array", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 126, "group": "XMLParsing", "name": "regex fallback salvages unclosed parameter (max_tokens truncation)", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 127, "group": "XMLParsing", "name": "EBNF grammar allows extra optional params after required ones", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 128, "group": "XMLParsing", "name": "preserves JSON array parameter values", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 129, "group": "XMLParsing", "name": "EBNF grammar generates named required param rules for edit tool", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 130, "group": "XMLParsing", "name": "decodeJSONEscapes preserves real backslashes (\\\\n stays as \\n literal)", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 131, "group": "XMLParsing", "name": "coerces boolean case-insensitively (TRUE, True, FALSE)", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 132, "group": "XMLParsing", "name": "preserves content outside tool calls", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 133, "group": "XMLParsing", "name": "decodeXMLEntities decodes all 5 standard entities", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 134, "group": "XMLParsing", "name": "coerces string to number (float)", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 135, "group": "XMLParsing", "name": "preserves JSON object parameter values", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 136, "group": "XMLParsing", "name": "EBNF grammar param_value uses permissive pv_char rule", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 137, "group": "XMLParsing", "name": "question tool: array of objects with typed fields (OpenCode pattern)", "status": "PASS", "duration_ms": 6, "tier": "unit"}
+{"index": 138, "group": "XMLParsing", "name": "handles mixed XML and JSON in separate <tool_call> blocks", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 139, "group": "XMLParsing", "name": "parses JSON-in-XML format with 'parameters' key", "status": "PASS", "duration_ms": 4, "tier": "unit"}
+{"index": 140, "group": "XMLParsing", "name": "does NOT fill missing required string param (let client report missing)", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 141, "group": "XMLParsing", "name": "fills missing required integer param with 0", "status": "PASS", "duration_ms": 6, "tier": "unit"}
+{"index": 142, "group": "XMLParsing", "name": "coerces string to boolean true and false", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 143, "group": "XMLParsing", "name": "fills missing required boolean param with false", "status": "PASS", "duration_ms": 6, "tier": "unit"}
+{"index": 144, "group": "XMLParsing", "name": "mixed coercion: some params coerced, some left alone", "status": "PASS", "duration_ms": 5, "tier": "unit"}
+{"index": 145, "group": "XMLParsing", "name": "RequestSlot is thread-safe under concurrent writes", "status": "PASS", "duration_ms": 6, "tier": "unit"}
+{"index": 146, "group": "UnitTest", "name": "RequestSlot elapsedTime increases over time", "status": "PASS", "duration_ms": 57, "tier": "unit"}
+{"index": 147, "group": "Preflight", "name": "Binary exists at .build/release/afm", "status": "PASS", "duration_ms": 15, "tier": "unit"}
+{"index": 148, "group": "Preflight", "name": "Server reachable at http://127.0.0.1:9998", "status": "PASS", "duration_ms": 24, "tier": "unit"}
+{"index": 149, "group": "Lifecycle", "name": "/v1/models contains model ID", "status": "PASS", "duration_ms": 41, "tier": "unit"}
+{"index": 150, "group": "Lifecycle", "name": "Basic completion returns content", "status": "PASS", "duration_ms": 4678, "tier": "unit"}
+{"index": 151, "group": "Stop", "name": "Stop string '5' absent from output", "status": "PASS", "duration_ms": 1723, "tier": "unit"}
+{"index": 152, "group": "Stop", "name": "finish_reason is 'stop' with stop sequence", "status": "PASS", "duration_ms": 33, "tier": "unit"}
+{"index": 153, "group": "Stop", "name": "Multi-word stop 'and' truncates correctly", "status": "PASS", "duration_ms": 1713, "tier": "unit"}
+{"index": 154, "group": "Stop", "name": "Stop on newline produces single line", "status": "PASS", "duration_ms": 1649, "tier": "unit"}
+{"index": 155, "group": "Stop", "name": "Multiple stop sequences [7, 12]", "status": "PASS", "duration_ms": 1686, "tier": "unit"}
+{"index": 156, "group": "Stop", "name": "Empty stop array is no-op", "status": "PASS", "duration_ms": 2779, "tier": "unit"}
+{"index": 157, "group": "Stop", "name": "Streaming: stop string '5' absent", "status": "PASS", "duration_ms": 1701, "tier": "unit"}
+{"index": 158, "group": "Stop", "name": "Stop sequence '3.' truncates list", "status": "PASS", "duration_ms": 885, "tier": "standard"}
+{"index": 159, "group": "Stop", "name": "Stop 'stopped' doesn't fire on 'stopping'", "status": "PASS", "duration_ms": 1890, "tier": "standard"}
+{"index": 160, "group": "Stop", "name": "Stop 'llo' fires mid-word in 'hello'", "status": "PASS", "duration_ms": 2740, "tier": "standard"}
+{"index": 161, "group": "Logprobs", "name": "ChoiceLogprobs JSON schema valid", "status": "PASS", "duration_ms": 121, "tier": "smoke"}
+{"index": 162, "group": "Logprobs", "name": "top_logprobs count <= requested (5)", "status": "PASS", "duration_ms": 118, "tier": "smoke"}
+{"index": 163, "group": "Logprobs", "name": "logprobs=false returns null", "status": "PASS", "duration_ms": 94, "tier": "smoke"}
+{"index": 164, "group": "Logprobs", "name": "top_logprobs=99 returns 400", "status": "PASS", "duration_ms": 24, "tier": "smoke"}
+{"index": 165, "group": "Logprobs", "name": "Streaming logprobs present and valid", "status": "PASS", "duration_ms": 112, "tier": "standard"}
+{"index": 166, "group": "Logprobs", "name": "top_logprobs=0 returns empty arrays", "status": "PASS", "duration_ms": 105, "tier": "standard"}
+{"index": 167, "group": "Think", "name": "reasoning_content present in response", "status": "PASS", "duration_ms": 15, "tier": "smoke"}
+{"index": 168, "group": "Think", "name": "No <think> tags in content field", "status": "PASS", "duration_ms": 32, "tier": "smoke"}
+{"index": 169, "group": "Think", "name": "Streaming: reasoning_content in deltas", "status": "PASS", "duration_ms": 862, "tier": "smoke"}
+{"index": 170, "group": "Think", "name": "Stop sequence doesn't break think extraction", "status": "PASS", "duration_ms": 1647, "tier": "smoke"}
+{"index": 171, "group": "Think", "name": "reasoning_content has meaningful length (>5 chars)", "status": "PASS", "duration_ms": 32, "tier": "smoke"}
+{"index": 172, "group": "Tools", "name": "Basic tool call: finish_reason=tool_calls, valid args", "status": "PASS", "duration_ms": 759, "tier": "smoke"}
+{"index": 173, "group": "Tools", "name": "tool_choice=none suppresses tool calls", "status": "PASS", "duration_ms": 864, "tier": "smoke"}
+{"index": 174, "group": "Tools", "name": "Tool arguments are valid JSON dict", "status": "PASS", "duration_ms": 922, "tier": "standard"}
+{"index": 175, "group": "Tools", "name": "Streaming: tool calls with finish_reason", "status": "PASS", "duration_ms": 448, "tier": "standard"}
+{"index": 176, "group": "Tools", "name": "Multi-tool: at least 1 tool call with 2 tools", "status": "PASS", "duration_ms": 884, "tier": "standard"}
+{"index": 177, "group": "Tools", "name": "Array param: todos is JSON array (not string)", "status": "PASS", "duration_ms": 1196, "tier": "standard"}
+{"index": 178, "group": "Tools", "name": "Nullable param: anyOf [string, null] does not crash", "status": "PASS", "duration_ms": 575, "tier": "standard"}
+{"index": 179, "group": "Tools", "name": "Multi-turn: tool result produces valid follow-up", "status": "PASS", "duration_ms": 2066, "tier": "standard"}
+{"index": 180, "group": "Tools", "name": "Multi-turn nullable: full round-trip (anyOf params)", "status": "PASS", "duration_ms": 1118, "tier": "standard"}
+{"index": 181, "group": "Tools", "name": "No tools: normal text response", "status": "PASS", "duration_ms": 211, "tier": "standard"}
+{"index": 182, "group": "Cache", "name": "First request: cached_tokens=0", "status": "PASS", "duration_ms": 248, "tier": "standard"}
+{"index": 183, "group": "Cache", "name": "Second identical request: cached_tokens>0", "status": "PASS", "duration_ms": 211, "tier": "standard"}
+{"index": 184, "group": "Cache", "name": "Different prompt: cached_tokens=0", "status": "PASS", "duration_ms": 231, "tier": "standard"}
+{"index": 185, "group": "Cache", "name": "Streaming: cached_tokens>0 in usage chunk", "status": "PASS", "duration_ms": 802, "tier": "standard"}
+{"index": 186, "group": "Concurrent", "name": "Two simultaneous requests: both 200", "status": "PASS", "duration_ms": 176, "tier": "standard"}
+{"index": 187, "group": "Concurrent", "name": "Three simultaneous requests: all 200", "status": "PASS", "duration_ms": 245, "tier": "standard"}
+{"index": 188, "group": "Error", "name": "Empty messages \u2192 400", "status": "PASS", "duration_ms": 25, "tier": "smoke"}
+{"index": 189, "group": "Error", "name": "Malformed JSON \u2192 400", "status": "PASS", "duration_ms": 25, "tier": "smoke"}
+{"index": 190, "group": "Error", "name": "Missing messages field \u2192 400", "status": "PASS", "duration_ms": 25, "tier": "smoke"}
+{"index": 191, "group": "Error", "name": "response_format json_object returns valid JSON", "status": "PASS", "duration_ms": 175, "tier": "smoke"}
+{"index": 192, "group": "Error", "name": "max_tokens=5 is respected", "status": "PASS", "duration_ms": 99, "tier": "smoke"}
+{"index": 193, "group": "Error", "name": "OPTIONS /v1/chat/completions \u2192 200 (CORS)", "status": "PASS", "duration_ms": 24, "tier": "smoke"}
+{"index": 194, "group": "Error", "name": "developer role accepted (mapped to system)", "status": "PASS", "duration_ms": 4094, "tier": "smoke"}
+{"index": 195, "group": "Kwargs", "name": "enable_thinking=false disables thinking", "status": "PASS", "duration_ms": 89, "tier": "standard"}
+{"index": 196, "group": "Kwargs", "name": "Streaming: enable_thinking=false disables thinking", "status": "PASS", "duration_ms": 69, "tier": "standard"}
+{"index": 197, "group": "Kwargs", "name": "Default (no kwargs) retains thinking", "status": "PASS", "duration_ms": 2387, "tier": "standard"}
+{"index": 198, "group": "Kwargs", "name": "enable_thinking=false (2K tokens) returns content", "status": "PASS", "duration_ms": 69, "tier": "standard"}
+{"index": 199, "group": "Kwargs", "name": "enable_thinking=true explicitly keeps thinking", "status": "PASS", "duration_ms": 4072, "tier": "standard"}
+{"index": 200, "group": "Cache", "name": "Prefix cache reuse across requests", "status": "PASS", "duration_ms": 270, "tier": "standard"}
+{"index": 201, "group": "Cache", "name": "Issue #32: sequential guided-json \u2192 nullable tool (no crash)", "status": "PASS", "duration_ms": 2458, "tier": "standard"}
+{"index": 202, "group": "Cache", "name": "Sequential: 3 nullable tool calls (cache reuse)", "status": "PASS", "duration_ms": 2091, "tier": "standard"}
+{"index": 203, "group": "Cache", "name": "Multi-turn: 5-msg tool conversation with prefix cache", "status": "PASS", "duration_ms": 1097, "tier": "standard"}
+{"index": 204, "group": "Cache", "name": "Long system prompt: 3 sequential requests (prefix reuse)", "status": "PASS", "duration_ms": 5317, "tier": "standard"}
+{"index": 205, "group": "Cache", "name": "Sequential stress: 5 mixed requests (text/tool/json/stream/nullable)", "status": "PASS", "duration_ms": 2820, "tier": "standard"}
+{"index": 206, "group": "Cache", "name": "Multi-turn: 5-turn growing conversation (prefix reuse)", "status": "PASS", "duration_ms": 3846, "tier": "standard"}
+{"index": 207, "group": "Cache", "name": "Streaming + non-streaming sequential (shared prefix)", "status": "PASS", "duration_ms": 913, "tier": "standard"}
+{"index": 208, "group": "Cache", "name": "Issue #32 comprehensive: nullable tool + multi-turn + prefix", "status": "PASS", "duration_ms": 1424, "tier": "standard"}
+{"index": 209, "group": "Structured", "name": "json_schema produces valid schema-matching JSON", "status": "PASS", "duration_ms": 236, "tier": "standard"}
+{"index": 210, "group": "Perf", "name": "TTFT < 5s", "status": "PASS", "duration_ms": 478, "tier": "full"}
+{"index": 211, "group": "Perf", "name": "tok/s > 1 (111.1 tok/s)", "status": "PASS", "duration_ms": 450, "tier": "full"}
+{"index": 212, "group": "Perf", "name": "Long context (~2K tokens) no crash", "status": "PASS", "duration_ms": 4359, "tier": "full"}
+{"index": 213, "group": "Perf", "name": "Very long context (~4K tokens) no NaN/garbage", "status": "PASS", "duration_ms": 4899, "tier": "full"}
+{"index": 214, "group": "XMLTools", "name": "Function name correctly extracted", "status": "PASS", "duration_ms": 596, "tier": "standard"}
+{"index": 215, "group": "XMLTools", "name": "Parameter values are correct string types", "status": "PASS", "duration_ms": 744, "tier": "standard"}
+{"index": 216, "group": "XMLTools", "name": "Mixed-type params (string+bool+int) parse correctly", "status": "PASS", "duration_ms": 859, "tier": "standard"}
+{"index": 217, "group": "XMLTools", "name": "Nested object param survives XML parsing", "status": "PASS", "duration_ms": 855, "tier": "standard"}
+{"index": 218, "group": "XMLTools", "name": "tool_choice=required forces tool call", "status": "PASS", "duration_ms": 593, "tier": "standard"}
+{"index": 219, "group": "XMLTools", "name": "tool_choice={function: get_time} calls correct function", "status": "PASS", "duration_ms": 474, "tier": "standard"}
+{"index": 220, "group": "XMLTools", "name": "Tool call IDs are unique", "status": "PASS", "duration_ms": 888, "tier": "standard"}
+{"index": 221, "group": "XMLTools", "name": "Streaming: XML tool call assembles valid JSON args", "status": "PASS", "duration_ms": 582, "tier": "standard"}
+{"index": 222, "group": "XMLTools", "name": "Streaming: array param is JSON array (not string)", "status": "PASS", "duration_ms": 1166, "tier": "standard"}
+{"index": 223, "group": "XMLTools", "name": "Tool call matches OpenAI schema (id, type, function.name, function.arguments)", "status": "PASS", "duration_ms": 603, "tier": "standard"}
+{"index": 224, "group": "AdaptiveXML", "name": "Normal XML tool call works with afm_adaptive_xml", "status": "PASS", "duration_ms": 596, "tier": "standard"}
+{"index": 225, "group": "AdaptiveXML", "name": "Streaming tool call emits valid deltas", "status": "PASS", "duration_ms": 606, "tier": "standard"}
+{"index": 226, "group": "AdaptiveXML", "name": "Multi-turn: model responds after tool result", "status": "PASS", "duration_ms": 348, "tier": "standard"}
+{"index": 227, "group": "AdaptiveXML", "name": "tool_choice=none suppresses tool calls", "status": "PASS", "duration_ms": 1680, "tier": "standard"}
+{"index": 228, "group": "AdaptiveXML", "name": "Multiple tools: correct function selected", "status": "PASS", "duration_ms": 639, "tier": "standard"}
+{"index": 229, "group": "AdaptiveXML", "name": "Argument types coerced (string, bool, int)", "status": "PASS", "duration_ms": 845, "tier": "standard"}
+{"index": 230, "group": "AdaptiveXML", "name": "Tool call valid (with or without grammar constraints)", "status": "PASS", "duration_ms": 502, "tier": "standard"}
+{"index": 231, "group": "AdaptiveXML", "name": "Array of objects coercion (question tool pattern)", "status": "PASS", "duration_ms": 1230, "tier": "standard"}
+{"index": 232, "group": "AdaptiveXML", "name": "Number (float) and boolean coercion", "status": "PASS", "duration_ms": 752, "tier": "standard"}
+{"index": 233, "group": "AdaptiveXML", "name": "Nested object with typed fields coercion", "status": "PASS", "duration_ms": 908, "tier": "standard"}
+{"index": 234, "group": "AdaptiveXML", "name": "Streaming array coercion (incremental path)", "status": "PASS", "duration_ms": 1656, "tier": "standard"}
+{"index": 235, "group": "AdaptiveXML", "name": "XML entity decoding in tool call values", "status": "PASS", "duration_ms": 2873, "tier": "standard"}
+{"index": 236, "group": "AdaptiveXML", "name": "EBNF grammar enforces all required params present", "status": "PASS", "duration_ms": 885, "tier": "standard"}
+{"index": 237, "group": "AdaptiveXML", "name": "EBNF structured params: array gets json_array constraint", "status": "PASS", "duration_ms": 849, "tier": "standard"}
