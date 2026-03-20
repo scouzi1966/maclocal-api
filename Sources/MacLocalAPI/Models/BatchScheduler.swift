@@ -4,6 +4,15 @@ import MLXLMCommon
 import Tokenizers
 import os
 
+private let _batchTsFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+    f.locale = Locale(identifier: "en_US_POSIX")
+    return f
+}()
+
+private func batchTs() -> String { _batchTsFormatter.string(from: Date()) }
+
 /// Manages concurrent generation with dynamic slot allocation and request queuing.
 ///
 /// **Phase 2: Dense Batched Decoding**
@@ -26,6 +35,7 @@ actor BatchScheduler {
     private let tokenizer: Tokenizer
     private let processor: any UserInputProcessor
     private let configuration: ModelConfiguration
+    private let cacheProfilePath: String?
 
     /// EOS token IDs built once at init.
     private let eosTokenIds: Set<Int>
@@ -115,6 +125,133 @@ actor BatchScheduler {
     /// Total tokens generated across all slots (for periodic cache clearing).
     private var totalTokensGenerated = 0
 
+    private func hasRecurrentLayers(_ cache: [KVCache]) -> Bool {
+        cache.contains { $0 is ArraysCache || $0 is CacheList }
+    }
+
+    private func unsafeExactReplaySuffix() -> Int? {
+        let env = ProcessInfo.processInfo.environment
+        guard let rawValue = env["AFM_PREFIX_CACHE_ALLOW_UNSAFE_EXACT_REPLAY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !rawValue.isEmpty else {
+            return nil
+        }
+        let value = rawValue.lowercased()
+        if value == "true" || value == "yes" {
+            return 1
+        }
+        if let suffix = Int(value), suffix >= 1 {
+            return suffix
+        }
+        return nil
+    }
+
+    private func supportsPhysicalTruncation(_ cache: KVCache) -> Bool {
+        !(cache is RotatingKVCache)
+    }
+
+    private func restoredMetaState(for cache: KVCache, savedMetaState: [String]?) -> [String]? {
+        guard let savedMetaState else { return nil }
+        if cache is RotatingKVCache, savedMetaState.count >= 3 {
+            let restoredCount = cache.offset
+            return [
+                savedMetaState[0],
+                savedMetaState[1],
+                savedMetaState[2],
+                String(restoredCount),
+                String(restoredCount),
+            ]
+        }
+        return savedMetaState
+    }
+
+    private func shouldTraceReplayBoundary() -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        let value = env["AFM_PREFIX_CACHE_TRACE_BOUNDARY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return value == "1" || value == "true" || value == "yes"
+    }
+
+    private func logReplayBoundary(inputTokens: [Int], effectivePrefix: Int) {
+        guard shouldTraceReplayBoundary() else { return }
+
+        let split = max(0, min(effectivePrefix, inputTokens.count))
+        let prefixTail = Array(inputTokens[max(0, split - 8)..<split])
+        let suffixHead = Array(inputTokens[split..<min(inputTokens.count, split + 16)])
+        let prefixTailDecoded = prefixTail.isEmpty ? "" : tokenizer.decode(tokens: prefixTail)
+        let suffixHeadDecoded = suffixHead.isEmpty ? "" : tokenizer.decode(tokens: suffixHead)
+
+        print(
+            "[\(batchTs())] [PrefixCache] Boundary: mode=batch | prefix_tokens=\(split) | " +
+                "suffix_tokens=\(inputTokens.count - split) | prefix_tail_ids=\(prefixTail) | " +
+                "suffix_head_ids=\(suffixHead) | prefix_tail_decoded=\(String(reflecting: prefixTailDecoded)) | " +
+                "suffix_head_decoded=\(String(reflecting: suffixHeadDecoded))"
+        )
+    }
+
+    private func logCacheProfile(
+        phase: String,
+        mode: String,
+        outcome: String,
+        inputTokenCount: Int,
+        cachedTokenCount: Int,
+        promptTime: Double,
+        lookupTime: Double? = nil,
+        restoreTime: Double? = nil,
+        trimTime: Double? = nil,
+        truncateTime: Double? = nil,
+        insertTime: Double? = nil
+    ) {
+        let lookup = lookupTime ?? 0
+        let restore = restoreTime ?? 0
+        let trim = trimTime ?? 0
+        let truncate = truncateTime ?? 0
+        let insert = insertTime ?? 0
+        let cacheOverhead = lookup + restore + trim + truncate + insert
+        let reuseRatio = inputTokenCount > 0 ? Double(cachedTokenCount) / Double(inputTokenCount) : 0
+        let overheadShare = promptTime > 0 ? cacheOverhead / promptTime : 0
+        func formatCacheSeconds(_ value: Double?) -> String {
+            String(format: "%.6f", value ?? 0)
+        }
+
+        print(
+            "[\(batchTs())] [CacheProfile] phase=\(phase) | mode=\(mode) | outcome=\(outcome) | " +
+                "input_tokens=\(inputTokenCount) | cached_tokens=\(cachedTokenCount) | " +
+                "reuse_ratio=\(String(format: "%.3f", reuseRatio)) | " +
+                "lookup=\(formatCacheSeconds(lookupTime))s | " +
+                "restore=\(formatCacheSeconds(restoreTime))s | " +
+                "trim=\(formatCacheSeconds(trimTime))s | " +
+                "truncate=\(formatCacheSeconds(truncateTime))s | " +
+                "insert=\(formatCacheSeconds(insertTime))s | " +
+                "cache_overhead=\(formatCacheSeconds(cacheOverhead))s | " +
+                "prompt_time=\(String(format: "%.3f", promptTime))s | " +
+                "overhead_share=\(String(format: "%.6f", overheadShare))"
+        )
+
+        let environment = ProcessInfo.processInfo.environment
+        guard let path = cacheProfilePath ?? environment["MACAFM_CACHE_PROFILE_PATH"] ?? environment["AFM_CACHE_PROFILE_PATH"] else {
+            return
+        }
+
+        CacheProfileExporter.append(record: [
+            "timestamp": batchTs(),
+            "phase": phase,
+            "mode": mode,
+            "outcome": outcome,
+            "input_tokens": inputTokenCount,
+            "cached_tokens": cachedTokenCount,
+            "reuse_ratio": reuseRatio,
+            "lookup_s": lookup,
+            "restore_s": restore,
+            "trim_s": trim,
+            "truncate_s": truncate,
+            "insert_s": insert,
+            "cache_overhead_s": cacheOverhead,
+            "prompt_time_s": promptTime,
+            "overhead_share": overheadShare,
+        ], to: path)
+    }
+
     struct PendingRequest: @unchecked Sendable {
         let input: LMInput
         let parameters: GenerateParameters
@@ -163,13 +300,15 @@ actor BatchScheduler {
         processor: any UserInputProcessor,
         configuration: ModelConfiguration,
         maxConcurrent: Int = BatchScheduler.defaultMaxConcurrent,
-        enablePrefixCaching: Bool = false
+        enablePrefixCaching: Bool = false,
+        cacheProfilePath: String? = nil
     ) {
         self.model = model
         self.tokenizer = tokenizer
         self.processor = processor
         self.configuration = configuration
         self.maxConcurrent = maxConcurrent
+        self.cacheProfilePath = cacheProfilePath
 
         let debug = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
         self.radixCache = RadixTreeCache(
@@ -465,35 +604,76 @@ actor BatchScheduler {
         var cache = model.newCache(parameters: req.parameters)
         var generateInput = req.input
         var cachedTokens = 0
+        var cacheOutcome = "miss"
+        var cacheLookupTime: Double? = nil
+        var cacheRestoreTime: Double? = nil
+        var cacheTrimTime: Double? = nil
+        var cacheTruncateTime: Double? = nil
 
         // Extract token array for prefix cache lookup
         let inputTokens = req.input.text.tokens.reshaped(-1).asArray(Int.self)
         let isMultimodal = req.input.image != nil || req.input.video != nil
+        if isMultimodal {
+            cacheOutcome = "multimodal-skip"
+        }
 
         // Prefix cache: restore KV state if available
         if !isMultimodal, let radix = radixCache {
-            let (prefixLen, layerStates) = radix.findPrefix(inputTokens)
-            let minSuffix = 16
-            let effectivePrefix = min(prefixLen, max(0, inputTokens.count - minSuffix))
+            let tLookup0 = Date.timeIntervalSinceReferenceDate
+            let (prefixLen, layerStates, layerMetaStates) = radix.findPrefix(inputTokens)
+            let tLookup1 = Date.timeIntervalSinceReferenceDate
+            cacheLookupTime = tLookup1 - tLookup0
+            let forcedSuffix = unsafeExactReplaySuffix()
+            let effectivePrefix: Int
+            if prefixLen == inputTokens.count && hasRecurrentLayers(cache) && forcedSuffix == nil {
+                effectivePrefix = 0
+                if prefixLen > 0 {
+                    cacheOutcome = "exact-replay-bypass"
+                }
+            } else if prefixLen == inputTokens.count, let forcedSuffix {
+                effectivePrefix = max(0, inputTokens.count - forcedSuffix)
+            } else {
+                let minSuffix = 16
+                effectivePrefix = min(prefixLen, max(0, inputTokens.count - minSuffix))
+            }
 
             if effectivePrefix > 0, let states = layerStates {
+                let tRestore0 = Date.timeIntervalSinceReferenceDate
                 for i in 0..<cache.count where i < states.count {
                     cache[i].state = states[i]
+                    let savedMetaState = layerMetaStates.flatMap { i < $0.count ? $0[i] : nil }
+                    if let adjustedMetaState = restoredMetaState(
+                        for: cache[i],
+                        savedMetaState: savedMetaState
+                    ) {
+                        cache[i].metaState = adjustedMetaState
+                    }
                 }
+                let tRestore1 = Date.timeIntervalSinceReferenceDate
                 for i in 0..<cache.count {
                     let excess = cache[i].offset - effectivePrefix
                     if excess > 0 { cache[i].trim(excess) }
                 }
+                let tTrim = Date.timeIntervalSinceReferenceDate
                 // Physically truncate trimmed cache arrays to eliminate stale data. (#47)
                 for i in 0..<cache.count {
-                    if cache[i].isTrimmable && cache[i].offset > 0 {
+                    if cache[i].isTrimmable && cache[i].offset > 0
+                        && supportsPhysicalTruncation(cache[i])
+                    {
                         cache[i].truncateToOffset()
                     }
                 }
+                let tRoundtrip = Date.timeIntervalSinceReferenceDate
                 let suffixTokens = Array(inputTokens[effectivePrefix...])
                 generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
                 cachedTokens = effectivePrefix
+                cacheOutcome = "hit"
+                cacheRestoreTime = tRestore1 - tRestore0
+                cacheTrimTime = tTrim - tRestore1
+                cacheTruncateTime = tRoundtrip - tTrim
+                logReplayBoundary(inputTokens: inputTokens, effectivePrefix: effectivePrefix)
                 DebugLogger.log("[BatchScheduler] Prefix cache hit: \(effectivePrefix)/\(inputTokens.count) tokens cached, processing \(suffixTokens.count) suffix")
+                print("[\(batchTs())] [PrefixCache] Prefill: mode=batch | outcome=hit | input_tokens=\(inputTokens.count) | cached_tokens=\(effectivePrefix) | suffix_tokens=\(suffixTokens.count) | radix_entries=\(radix.count) | lookup=\(String(format: "%.6f", cacheLookupTime ?? 0))s | restore=\(String(format: "%.6f", cacheRestoreTime ?? 0))s | trim=\(String(format: "%.6f", cacheTrimTime ?? 0))s | truncate=\(String(format: "%.6f", cacheTruncateTime ?? 0))s")
             }
         }
 
@@ -530,7 +710,7 @@ actor BatchScheduler {
 
         let slot = SlotState(
             continuation: req.continuation,
-            promptTokenCount: req.promptTokens,
+            promptTokenCount: inputTokens.count,
             startTime: prefillStart,
             prefillTime: prefillTime,
             inputTokens: inputTokens,
@@ -548,6 +728,21 @@ actor BatchScheduler {
         if cachedTokens > 0 {
             req.continuation.yield(StreamChunk(text: "", cachedTokens: cachedTokens))
         }
+        let radixEntries = radixCache.map { String($0.count) } ?? "nil"
+        print("[\(batchTs())] [PrefixCache] Prefill complete: mode=batch | outcome=\(cacheOutcome) | input_tokens=\(inputTokens.count) | cached_tokens=\(cachedTokens) | suffix_tokens=\(inputTokens.count - cachedTokens) | radix_entries=\(radixEntries) | lookup=\(String(format: "%.6f", cacheLookupTime ?? 0))s | prefill=\(String(format: "%.3f", prefillTime))s")
+        logCacheProfile(
+            phase: "restore",
+            mode: "batch",
+            outcome: cacheOutcome,
+            inputTokenCount: inputTokens.count,
+            cachedTokenCount: cachedTokens,
+            promptTime: prefillTime,
+            lookupTime: cacheLookupTime,
+            restoreTime: cacheRestoreTime,
+            trimTime: cacheTrimTime,
+            truncateTime: cacheTruncateTime
+        )
+        print("[\(batchTs())] [ChunkStats] stage=preliminary | stream=true | cached_tokens=\(cachedTokens) | prompt_tokens=pending | completion_tokens=pending | prompt_time=pending | generate_time=pending")
 
         slots.append(slot)
         DebugLogger.log("[BatchScheduler] Prefilled slot \(slot.id.uuidString.prefix(8)) (B=\(slots.count), \(cachedTokens > 0 ? "cache hit \(cachedTokens) tokens" : "full prefill"), \(String(format: "%.0f", prefillTime * 1000))ms)")
@@ -639,23 +834,61 @@ actor BatchScheduler {
         // Save prompt KV state to prefix cache before removal.
         // Use the original per-layer prefill caches (retained on the slot).
         let cacheStart = debugTiming ? Date() : Date.distantPast
+        var saveTrimTime: Double? = nil
+        var saveTruncateTime: Double? = nil
+        var saveInsertTime: Double? = nil
         if let radix = radixCache, !slot.inputTokens.isEmpty {
             let promptLen = slot.inputTokens.count
-            var cache = slot.prefillCaches
+            let cache = slot.prefillCaches
+            let tSave0 = Date.timeIntervalSinceReferenceDate
             for layer in cache {
                 let excess = layer.offset - promptLen
                 if excess > 0 { layer.trim(excess) }
             }
+            let tSaveTrim = Date.timeIntervalSinceReferenceDate
             // Physically truncate trimmed cache arrays to eliminate stale data. (#47)
             for i in 0..<cache.count {
-                if cache[i].isTrimmable && cache[i].offset > 0 {
+                if cache[i].isTrimmable && cache[i].offset > 0
+                    && supportsPhysicalTruncation(cache[i])
+                {
                     cache[i].truncateToOffset()
                 }
             }
+            let tSaveTruncate = Date.timeIntervalSinceReferenceDate
             let layerStates = cache.map { $0.state }
-            radix.insert(tokens: slot.inputTokens, layerStates: layerStates)
+            let layerMetaStates = cache.map { $0.metaState }
+            radix.insert(
+                tokens: slot.inputTokens,
+                layerStates: layerStates,
+                layerMetaStates: layerMetaStates
+            )
+            let tSaveInsert = Date.timeIntervalSinceReferenceDate
+            saveTrimTime = tSaveTrim - tSave0
+            saveTruncateTime = tSaveTruncate - tSaveTrim
+            saveInsertTime = tSaveInsert - tSaveTruncate
+            let activeLayers = cache.reduce(into: 0) { count, layer in
+                if layer.offset > 0 { count += 1 }
+            }
+            let maxOffset = cache.map(\.offset).max() ?? 0
+            print(
+                "[\(batchTs())] [PrefixCache] Save complete: mode=batch | stored_tokens=\(slot.inputTokens.count) | " +
+                    "radix_entries=\(radix.count) | trim=\(String(format: "%.6f", saveTrimTime ?? 0))s | " +
+                    "truncate=\(String(format: "%.6f", saveTruncateTime ?? 0))s | insert=\(String(format: "%.6f", saveInsertTime ?? 0))s | " +
+                    "layers=\(cache.count) active_layers=\(activeLayers) max_offset=\(maxOffset)"
+            )
             DebugLogger.log("[BatchScheduler] Prefix cache save: \(slot.inputTokens.count) tokens")
         }
+        logCacheProfile(
+            phase: "save",
+            mode: "batch",
+            outcome: slot.inputTokens.isEmpty ? "skip" : "save",
+            inputTokenCount: slot.inputTokens.count,
+            cachedTokenCount: slot.cachedTokens,
+            promptTime: slot.prefillTime,
+            trimTime: saveTrimTime,
+            truncateTime: saveTruncateTime,
+            insertTime: saveInsertTime
+        )
 
         slot.continuation.yield(StreamChunk(
             text: "",
@@ -664,6 +897,7 @@ actor BatchScheduler {
             promptTime: slot.prefillTime,
             generateTime: generateTime
         ))
+        print("[\(batchTs())] [ChunkStats] stage=final | stream=true | cached_tokens=\(slot.cachedTokens) | prompt_tokens=\(slot.promptTokenCount) | completion_tokens=\(slot.tokenCount) | prompt_time=\(String(format: "%.3f", slot.prefillTime))s | generate_time=\(String(format: "%.3f", generateTime))s")
         slot.continuation.finish()
         _inFlightCount.withLock { $0 = max($0 - 1, 0) }
 

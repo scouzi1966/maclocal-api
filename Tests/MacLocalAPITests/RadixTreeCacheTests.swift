@@ -62,7 +62,7 @@ struct RadixTreeCacheTests {
     func findExact() {
         let cache = RadixTreeCache(modelID: "test", maxEntries: 64)
         cache.insert(tokens: [1, 2, 3, 4, 5], layerStates: fakeLayers(seqLen: 5))
-        let (prefixLen, states) = cache.findPrefix([1, 2, 3, 4, 5])
+        let (prefixLen, states, _) = cache.findPrefix([1, 2, 3, 4, 5])
         #expect(prefixLen == 5)
         #expect(states != nil)
         #expect(states!.count == 2)
@@ -72,7 +72,7 @@ struct RadixTreeCacheTests {
     func findPartialPrefix() {
         let cache = RadixTreeCache(modelID: "test", maxEntries: 64)
         cache.insert(tokens: [1, 2, 3], layerStates: fakeLayers(seqLen: 3))
-        let (prefixLen, states) = cache.findPrefix([1, 2, 3, 4, 5])
+        let (prefixLen, states, _) = cache.findPrefix([1, 2, 3, 4, 5])
         #expect(prefixLen == 3)
         #expect(states != nil)
     }
@@ -81,7 +81,7 @@ struct RadixTreeCacheTests {
     func findMissAtRoot() {
         let cache = RadixTreeCache(modelID: "test", maxEntries: 64)
         cache.insert(tokens: [1, 2, 3], layerStates: fakeLayers(seqLen: 3))
-        let (prefixLen, states) = cache.findPrefix([9, 8, 7])
+        let (prefixLen, states, _) = cache.findPrefix([9, 8, 7])
         #expect(prefixLen == 0)
         #expect(states == nil)
     }
@@ -89,7 +89,7 @@ struct RadixTreeCacheTests {
     @Test("findPrefix: empty cache — miss")
     func findMissEmptyCache() {
         let cache = RadixTreeCache(modelID: "test", maxEntries: 64)
-        let (prefixLen, states) = cache.findPrefix([1, 2, 3])
+        let (prefixLen, states, _) = cache.findPrefix([1, 2, 3])
         #expect(prefixLen == 0)
         #expect(states == nil)
     }
@@ -98,7 +98,7 @@ struct RadixTreeCacheTests {
     func findPartialEdgeDivergence() {
         let cache = RadixTreeCache(modelID: "test", maxEntries: 64)
         cache.insert(tokens: [1, 2, 3, 4, 5], layerStates: fakeLayers(seqLen: 5))
-        let (prefixLen, states) = cache.findPrefix([1, 2, 3, 9, 9])
+        let (prefixLen, states, _) = cache.findPrefix([1, 2, 3, 9, 9])
         #expect(prefixLen == 3)
         #expect(states != nil)
     }
@@ -108,7 +108,7 @@ struct RadixTreeCacheTests {
         let cache = RadixTreeCache(modelID: "test", maxEntries: 64)
         cache.insert(tokens: [1, 2, 3, 4, 5], layerStates: fakeLayers(seqLen: 5))
         cache.insert(tokens: [1, 2, 3, 9, 8], layerStates: fakeLayers(seqLen: 5))
-        let (prefixLen, states) = cache.findPrefix([1, 2, 3, 7, 7])
+        let (prefixLen, states, _) = cache.findPrefix([1, 2, 3, 7, 7])
         #expect(prefixLen == 0)
         #expect(states == nil)
     }
@@ -117,7 +117,7 @@ struct RadixTreeCacheTests {
     func findQueryShorterThanEdge() {
         let cache = RadixTreeCache(modelID: "test", maxEntries: 64)
         cache.insert(tokens: [1, 2, 3, 4, 5], layerStates: fakeLayers(seqLen: 5))
-        let (prefixLen, states) = cache.findPrefix([1, 2])
+        let (prefixLen, states, _) = cache.findPrefix([1, 2])
         #expect(prefixLen == 2)
         #expect(states != nil)
     }
@@ -127,7 +127,7 @@ struct RadixTreeCacheTests {
         let cache = RadixTreeCache(modelID: "test", maxEntries: 64)
         cache.insert(tokens: [1, 2, 3], layerStates: fakeLayers(seqLen: 3))
         cache.insert(tokens: [1, 2, 3, 4, 5], layerStates: fakeLayers(seqLen: 5))
-        let (prefixLen, _) = cache.findPrefix([1, 2, 3, 4, 5, 6])
+        let (prefixLen, _, _) = cache.findPrefix([1, 2, 3, 4, 5, 6])
         #expect(prefixLen == 5)
     }
 
@@ -176,7 +176,7 @@ struct RadixTreeCacheTests {
         let cache = RadixTreeCache(modelID: "test", maxEntries: 64)
         cache.insert(tokens: [1, 2, 3], layerStates: fakeLayers(seqLen: 3))
         #expect(cache.count == 1)
-        let (len, _) = cache.findPrefix([1, 2, 3])
+        let (len, _, _) = cache.findPrefix([1, 2, 3])
         #expect(len == 3)
     }
 
@@ -186,9 +186,9 @@ struct RadixTreeCacheTests {
         cache.insert(tokens: [1, 2, 3, 4, 5], layerStates: fakeLayers(seqLen: 5))
         cache.insert(tokens: [1, 2, 3, 9, 8], layerStates: fakeLayers(seqLen: 5))
         #expect(cache.count == 2)
-        let (len1, _) = cache.findPrefix([1, 2, 3, 4, 5])
+        let (len1, _, _) = cache.findPrefix([1, 2, 3, 4, 5])
         #expect(len1 == 5)
-        let (len2, _) = cache.findPrefix([1, 2, 3, 9, 8])
+        let (len2, _, _) = cache.findPrefix([1, 2, 3, 9, 8])
         #expect(len2 == 5)
     }
 
@@ -198,9 +198,9 @@ struct RadixTreeCacheTests {
         cache.insert(tokens: [1, 2, 3, 4, 5], layerStates: fakeLayers(seqLen: 5))
         cache.insert(tokens: [1, 2, 3], layerStates: fakeLayers(seqLen: 3))
         #expect(cache.count == 2)
-        let (len1, _) = cache.findPrefix([1, 2, 3])
+        let (len1, _, _) = cache.findPrefix([1, 2, 3])
         #expect(len1 == 3)
-        let (len2, _) = cache.findPrefix([1, 2, 3, 4, 5])
+        let (len2, _, _) = cache.findPrefix([1, 2, 3, 4, 5])
         #expect(len2 == 5)
     }
 
@@ -229,7 +229,7 @@ struct RadixTreeCacheTests {
         cache.insert(tokens: [1, 2, 3], layerStates: fakeLayers(seqLen: 3))
         cache.insert(tokens: [1, 2, 3, 4, 5], layerStates: fakeLayers(seqLen: 5))
         cache.insert(tokens: [1, 2, 3, 4, 5, 6, 7], layerStates: fakeLayers(seqLen: 7))
-        let (len, _) = cache.findPrefix([1, 2, 3, 4, 5, 6, 7, 8, 9])
+        let (len, _, _) = cache.findPrefix([1, 2, 3, 4, 5, 6, 7, 8, 9])
         #expect(len == 7)
         #expect(cache.count == 3)
     }
@@ -256,9 +256,9 @@ struct RadixTreeCacheTests {
         #expect(cache.count == 3)
         cache.insert(tokens: [4], layerStates: fakeLayers(seqLen: 1))
         #expect(cache.count == 3)
-        let (len1, _) = cache.findPrefix([1])
+        let (len1, _, _) = cache.findPrefix([1])
         #expect(len1 == 0)
-        let (len4, s4) = cache.findPrefix([4])
+        let (len4, s4, _) = cache.findPrefix([4])
         #expect(len4 == 1)
         #expect(s4 != nil)
     }
@@ -271,10 +271,10 @@ struct RadixTreeCacheTests {
         cache.insert(tokens: [3], layerStates: fakeLayers(seqLen: 1))
         let _ = cache.findPrefix([1])
         cache.insert(tokens: [4], layerStates: fakeLayers(seqLen: 1))
-        let (len1, s1) = cache.findPrefix([1])
+        let (len1, s1, _) = cache.findPrefix([1])
         #expect(len1 == 1)
         #expect(s1 != nil)
-        let (len2, _) = cache.findPrefix([2])
+        let (len2, _, _) = cache.findPrefix([2])
         #expect(len2 == 0)
     }
 
@@ -285,9 +285,9 @@ struct RadixTreeCacheTests {
         #expect(cache.count == 1)
         cache.insert(tokens: [2], layerStates: fakeLayers(seqLen: 1))
         #expect(cache.count == 1)
-        let (len1, _) = cache.findPrefix([1])
+        let (len1, _, _) = cache.findPrefix([1])
         #expect(len1 == 0)
-        let (len2, _) = cache.findPrefix([2])
+        let (len2, _, _) = cache.findPrefix([2])
         #expect(len2 == 1)
     }
 
@@ -325,7 +325,7 @@ struct RadixTreeCacheTests {
         #expect(cache.count == 2)
         cache.invalidateAll()
         #expect(cache.count == 0)
-        let (len, _) = cache.findPrefix([1, 2])
+        let (len, _, _) = cache.findPrefix([1, 2])
         #expect(len == 0)
     }
 
@@ -362,11 +362,11 @@ struct RadixTreeCacheTests {
                      layerStates: fakeLayers(seqLen: 10))
         cache.insert(tokens: [1, 2, 3, 4, 5, 20, 21, 22],
                      layerStates: fakeLayers(seqLen: 8))
-        let (lenA, _) = cache.findPrefix([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+        let (lenA, _, _) = cache.findPrefix([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
         #expect(lenA == 10)
-        let (lenB, _) = cache.findPrefix([1, 2, 3, 4, 5, 20, 21, 22])
+        let (lenB, _, _) = cache.findPrefix([1, 2, 3, 4, 5, 20, 21, 22])
         #expect(lenB == 8)
-        let (lenC, _) = cache.findPrefix([1, 2, 3, 4, 5, 99])
+        let (lenC, _, _) = cache.findPrefix([1, 2, 3, 4, 5, 99])
         #expect(lenC == 0)
     }
 }
