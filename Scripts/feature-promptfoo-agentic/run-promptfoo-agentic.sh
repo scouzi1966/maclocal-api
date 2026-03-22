@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-set -euo pipefail
+set -uo pipefail
 
 script_dir="${0:A:h}"
 repo_root="${script_dir:h:h}"
@@ -12,6 +12,7 @@ out_dir="${AFM_PROMPTFOO_OUT_DIR:-test-reports/promptfoo-agentic}"
 mode="${1:-all}"
 port="${AFM_PROMPTFOO_PORT:-9999}"
 server_pid=""
+overall_status=0
 
 mkdir -p "$out_dir"
 
@@ -90,6 +91,9 @@ run_structured() {
       -c Scripts/feature-promptfoo-agentic/promptfooconfig.structured.yaml \
       -j 1 \
       -o "$output"
+  local status=$?
+  (( overall_status |= status ))
+  return $status
 }
 
 run_structured_stress() {
@@ -103,6 +107,9 @@ run_structured_stress() {
       -c Scripts/feature-promptfoo-agentic/promptfooconfig.structured-stress.yaml \
       -j 1 \
       -o "$output"
+  local status=$?
+  (( overall_status |= status ))
+  return $status
 }
 
 run_toolcall_profile() {
@@ -121,6 +128,9 @@ run_toolcall_profile() {
       -j 1 \
       --filter-targets "$filter_regex" \
       -o "$output"
+  local status=$?
+  (( overall_status |= status ))
+  return $status
 }
 
 run_toolcall_all() {
@@ -145,6 +155,9 @@ run_toolcall_quality_profile() {
       -j 1 \
       --filter-targets "$filter_regex" \
       -o "$output"
+  local status=$?
+  (( overall_status |= status ))
+  return $status
 }
 
 run_toolcall_quality_all() {
@@ -169,6 +182,9 @@ run_agentic_profile() {
       -j 1 \
       --filter-targets "$filter_regex" \
       -o "$output"
+  local status=$?
+  (( overall_status |= status ))
+  return $status
 }
 
 run_agentic_all() {
@@ -193,6 +209,9 @@ run_frameworks_profile() {
       -j 1 \
       --filter-targets "$filter_regex" \
       -o "$output"
+  local status=$?
+  (( overall_status |= status ))
+  return $status
 }
 
 run_frameworks_all() {
@@ -217,6 +236,9 @@ run_opencode_profile() {
       -j 1 \
       --filter-targets "$filter_regex" \
       -o "$output"
+  local status=$?
+  (( overall_status |= status ))
+  return $status
 }
 
 run_opencode_all() {
@@ -270,3 +292,5 @@ case "$mode" in
     exit 1
     ;;
 esac
+
+exit "$overall_status"
