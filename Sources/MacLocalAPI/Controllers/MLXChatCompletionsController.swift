@@ -94,6 +94,11 @@ struct MLXChatCompletionsController: RouteCollection {
                     print("\(Self.red)[\(Self.timestamp())] RECV MLX user prompt:\n  \(truncated)\(Self.reset)"); fflush(stdout)
                 }
             }
+            // Detect strict-mode downgrade: user requested grammar enforcement but admin didn't enable the engine
+            let strictRequested = chatRequest.responseFormat?.jsonSchema?.strict == true
+                || (chatRequest.tools?.contains { $0.function.strict == true } ?? false)
+            let grammarDowngraded = strictRequested && !service.enableGrammarConstraints
+
             guard !chatRequest.messages.isEmpty else {
                 return try await createErrorResponse(req: req, error: OpenAIError(message: "At least one message is required"), status: .badRequest)
             }
@@ -168,7 +173,7 @@ struct MLXChatCompletionsController: RouteCollection {
             let extractThinking = !rawOutput || isWebUI
 
             if chatRequest.stream == true && streamingEnabled {
-                return try await createStreamingResponse(req: req, chatRequest: chatRequest, extractThinking: extractThinking)
+                return try await createStreamingResponse(req: req, chatRequest: chatRequest, extractThinking: extractThinking, grammarDowngraded: grammarDowngraded)
             }
 
             // In concurrent mode, non-streaming requests currently bypass the
@@ -261,7 +266,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     }
                     fflush(stdout)
                 }
-                return try await createSuccessResponse(req: req, response: response)
+                return try await createSuccessResponse(req: req, response: response, grammarDowngraded: grammarDowngraded)
             }
 
             let stopReason = result.stoppedBySequence ? "stop" : (completionTok >= effectiveMaxTokens ? "length" : "stop")
@@ -307,14 +312,14 @@ struct MLXChatCompletionsController: RouteCollection {
             if veryVerbose {
                 print("\(Self.teal)[\(Self.timestamp())] SEND full response:\n\(encodeJSON(response))\(Self.reset)"); fflush(stdout)
             }
-            return try await createSuccessResponse(req: req, response: response)
+            return try await createSuccessResponse(req: req, response: response, grammarDowngraded: grammarDowngraded)
         } catch {
             req.logger.error("[\(Self.timestamp())] MLX completions error: \(error)")
             return try await createErrorResponse(req: req, error: OpenAIError(message: error.localizedDescription, type: "mlx_error"), status: .badRequest)
         }
     }
 
-    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, extractThinking: Bool) async throws -> Response {
+    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, extractThinking: Bool, grammarDowngraded: Bool = false) async throws -> Response {
         let httpResponse = Response(status: .ok)
         httpResponse.headers.add(name: .contentType, value: "text/event-stream")
         httpResponse.headers.add(name: .cacheControl, value: "no-cache")
@@ -322,6 +327,9 @@ struct MLXChatCompletionsController: RouteCollection {
         httpResponse.headers.add(name: "Access-Control-Allow-Origin", value: "*")
         httpResponse.headers.add(name: "Access-Control-Allow-Headers", value: "Content-Type")
         httpResponse.headers.add(name: "X-Accel-Buffering", value: "no")
+        if grammarDowngraded {
+            httpResponse.headers.add(name: "X-Grammar-Constraints", value: "downgraded")
+        }
 
         let streamId = UUID().uuidString
 
@@ -1242,10 +1250,13 @@ struct MLXChatCompletionsController: RouteCollection {
         return String(cleaned[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func createSuccessResponse(req: Request, response: ChatCompletionResponse) async throws -> Response {
+    private func createSuccessResponse(req: Request, response: ChatCompletionResponse, grammarDowngraded: Bool = false) async throws -> Response {
         let httpResponse = Response(status: .ok)
         httpResponse.headers.add(name: .contentType, value: "application/json")
         httpResponse.headers.add(name: .accessControlAllowOrigin, value: "*")
+        if grammarDowngraded {
+            httpResponse.headers.add(name: "X-Grammar-Constraints", value: "downgraded")
+        }
         try httpResponse.content.encode(response)
         return httpResponse
     }

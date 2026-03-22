@@ -89,6 +89,7 @@ struct RequestToolFunction: Content {
     let name: String
     let description: String?
     let parameters: AnyCodable?
+    let strict: Bool?
 }
 
 enum ToolChoice: Codable {

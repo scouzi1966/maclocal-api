@@ -194,7 +194,7 @@ struct MlxCommand: ParsableCommand {
           --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
           --tool-call-parser: Override tool call format (afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml)
           --fix-tool-args: Post-process tool call arg names to match original tool schema
-          --enable-grammar-constraints: EBNF grammar-constrained decoding for tool calls (requires --tool-call-parser afm_adaptive_xml). Forces valid XML structure at generation time — prevents JSON-inside-XML and missing required parameters. Improves tool call success from ~60% to 100% on realistic workloads.
+          --enable-grammar-constraints: Enable grammar-constrained decoding engine. When active, API requests with strict: true on tools or response_format.json_schema use xgrammar for token-level enforcement. Without this flag, strict: true is silently downgraded to best-effort.
           --no-think: Disable thinking/reasoning (sets enable_thinking=false)
           --default-chat-template-kwargs: JSON object merged into chat template context
           --openclaw-config: Print OpenClaw provider config JSON and exit
@@ -218,7 +218,7 @@ struct MlxCommand: ParsableCommand {
         tool_calling:
           auto_detection: Tool call format is auto-detected from model_type in config.json. Most models work without --tool-call-parser.
           parser_overrides:
-            afm_adaptive_xml: Adaptive XML parser with JSON-in-XML fallback, type coercion, and EBNF grammar-constrained decoding (with --enable-grammar-constraints). Best for Qwen3+ models. Recommended combo: --tool-call-parser afm_adaptive_xml --enable-grammar-constraints
+            afm_adaptive_xml: Adaptive XML parser with JSON-in-XML fallback and type coercion. Best for Qwen3+ models.
             hermes: JSON format with Hermes chat template (Llama, Qwen, most models)
             llama3_json: JSON format with Llama-3 chat template
             mistral: JSON format with Mistral chat template
@@ -391,7 +391,7 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Write cache timing profile records as JSONL to this file")
     var cacheProfilePath: String?
 
-    @Flag(name: .long, help: "Enable EBNF grammar-constrained decoding for tool calls (requires --tool-call-parser afm_adaptive_xml). Forces valid XML tool call structure at generation time, preventing JSON-inside-XML and missing parameters.")
+    @Flag(name: .long, help: "Enable grammar-constrained decoding engine. When active, API requests with strict: true on tools or response_format.json_schema use xgrammar for token-level enforcement. Without this flag, strict: true is silently downgraded to best-effort.")
     var enableGrammarConstraints: Bool = false
 
     @Flag(name: .long, help: "Disable thinking/reasoning (sets enable_thinking=false in chat template)")
