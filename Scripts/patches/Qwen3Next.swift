@@ -424,6 +424,7 @@ class Qwen3NextGatedDeltaNet: Module {
         // Recurrent state
         let state: MLXArray? = cache?[1]
 
+        // Use external GatedDelta.swift with Metal kernel for recurrence
         let (out, newState) = gatedDeltaUpdate(
             q: qConv, k: kConv, v: vConv,
             a: a, b: b,

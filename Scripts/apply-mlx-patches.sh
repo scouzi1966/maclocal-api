@@ -28,7 +28,11 @@ NEW_FILES=("Qwen3Next.swift" "GatedDelta.swift" "Qwen3_5MoE.swift" "MiniMaxM2.sw
 # These fix dependency version pins that can't be handled by file-copy patches.
 MLX_PACKAGE_SWIFT="$MLX_LM_DIR/Package.swift"
 PACKAGE_PINS=(
-  '.upToNextMinor(from: "0.30.3")|exact: "0.30.3"'
+)
+
+# --- Files to delete from upstream (naming conflicts with our patches) ---
+DELETE_UPSTREAM=(
+  "Libraries/MLXLLM/Models/GLM4MOELite.swift"
 )
 
 is_new_file() {
@@ -236,6 +240,15 @@ main() {
       log_info "Files reverted. Clean build required."
       ;;
     apply)
+      # Delete upstream files that conflict with our patches
+      for del_path in "${DELETE_UPSTREAM[@]}"; do
+        local del_file="$MLX_LM_DIR/$del_path"
+        if [ -f "$del_file" ]; then
+          rm "$del_file"
+          log_info "Deleted conflicting upstream file: $(basename "$del_path")"
+        fi
+      done
+
       for i in "${!PATCH_FILES[@]}"; do
         local patch_name="${PATCH_FILES[$i]}"
         local patch_file="$PATCHES_DIR/$patch_name"

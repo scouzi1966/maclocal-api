@@ -39,6 +39,7 @@ public enum LLMTypeRegistry {
         "qwen3_next": create(Qwen3NextConfiguration.self, Qwen3NextModel.init),
         "qwen3_5": create(Qwen3_5MoEConfiguration.self, Qwen3_5MoEModel.init),
         "qwen3_5_moe": create(Qwen3_5MoEConfiguration.self, Qwen3_5MoEModel.init),
+        "minicpm": create(MiniCPMConfiguration.self, MiniCPMModel.init),
         "starcoder2": create(Starcoder2Configuration.self, Starcoder2Model.init),
         "cohere": create(CohereConfiguration.self, CohereModel.init),
         "openelm": create(OpenElmConfiguration.self, OpenELMModel.init),
@@ -47,11 +48,12 @@ public enum LLMTypeRegistry {
         "kimi_k2": create(DeepseekV3Configuration.self, DeepseekV3Model.init),
         "kimi_k25": create(KimiK25Configuration.self, KimiK25Model.init),
         "joyai_llm_flash": create(DeepseekV3Configuration.self, DeepseekV3Model.init),
-        "nemotron_h": create(NemotronHConfiguration.self, NemotronHModel.init),
         "granite": create(GraniteConfiguration.self, GraniteModel.init),
         "granitemoehybrid": create(
             GraniteMoeHybridConfiguration.self, GraniteMoeHybridModel.init),
         "mimo": create(MiMoConfiguration.self, MiMoModel.init),
+        "mimo_v2_flash": create(MiMoV2FlashConfiguration.self, MiMoV2FlashModel.init),
+        "minimax": create(MiniMaxConfiguration.self, MiniMaxModel.init),
         "glm4": create(GLM4Configuration.self, GLM4Model.init),
         "glm4_moe": create(GLM4MoEConfiguration.self, GLM4MoEModel.init),
         "glm4_moe_lite": create(GLM4MoeLiteConfiguration.self, GLM4MoeLiteModel.init),
@@ -72,6 +74,7 @@ public enum LLMTypeRegistry {
         "bailing_moe": create(BailingMoeConfiguration.self, BailingMoeModel.init),
         "lfm2_moe": create(LFM2MoEConfiguration.self, LFM2MoEModel.init),
         "nanochat": create(NanoChatConfiguration.self, NanoChatModel.init),
+        "nemotron_h": create(NemotronHConfiguration.self, NemotronHModel.init),
         "afmoe": create(AfMoEConfiguration.self, AfMoEModel.init),
         "jamba_3b": create(JambaConfiguration.self, JambaModel.init),
         "mistral3": create(Mistral3TextConfiguration.self, Mistral3TextModel.init),
@@ -277,7 +280,8 @@ public class LLMRegistry: AbstractModelRegistry, @unchecked Sendable {
 
     static public let glm4_9b_4bit = ModelConfiguration(
         id: "mlx-community/GLM-4-9B-0414-4bit",
-        defaultPrompt: "Why is the sky blue?"
+        defaultPrompt: "Why is the sky blue?",
+        toolCallFormat: .glm4
     )
 
     static public let acereason_7b_4bit = ModelConfiguration(
@@ -307,7 +311,8 @@ public class LLMRegistry: AbstractModelRegistry, @unchecked Sendable {
 
     static public let lfm2_1_2b_4bit = ModelConfiguration(
         id: "mlx-community/LFM2-1.2B-4bit",
-        defaultPrompt: "Why is the sky blue?"
+        defaultPrompt: "Why is the sky blue?",
+        toolCallFormat: .lfm2
     )
 
     static public let exaone_4_0_1_2b_4bit = ModelConfiguration(
@@ -342,7 +347,8 @@ public class LLMRegistry: AbstractModelRegistry, @unchecked Sendable {
 
     static public let lfm2_8b_a1b_3bit_mlx = ModelConfiguration(
         id: "mlx-community/LFM2-8B-A1B-3bit-MLX",
-        defaultPrompt: ""
+        defaultPrompt: "",
+        toolCallFormat: .lfm2
     )
 
     static public let nanochat_d20_mlx = ModelConfiguration(
@@ -546,6 +552,11 @@ public final class LLMModelFactory: ModelFactory {
         // Create mutable configuration with loaded EOS token IDs
         var mutableConfiguration = configuration
         mutableConfiguration.eosTokenIds = eosTokenIds
+
+        // Auto-detect tool call format from model type if not explicitly set
+        if mutableConfiguration.toolCallFormat == nil {
+            mutableConfiguration.toolCallFormat = ToolCallFormat.infer(from: baseConfig.modelType)
+        }
 
         // Load tokenizer and weights in parallel using async let.
         async let tokenizerTask = loadTokenizer(configuration: configuration, hub: hub)

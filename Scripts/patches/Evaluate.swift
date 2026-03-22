@@ -535,7 +535,6 @@ public struct TokenIterator: Sequence, IteratorProtocol {
     let quantizedKVStart: Int
     let shouldQuantizeCache: Bool
 
-
     // Internal metrics
     var promptPrefillTime: TimeInterval = 0.0
 
@@ -948,6 +947,98 @@ public enum GenerateDisposition: Sendable {
     case stop
 }
 
+private struct SynchronousGenerationLoopResult {
+    let generatedTokens: [Int]
+    let promptTime: TimeInterval
+    let generateTime: TimeInterval
+    let promptPrefillTime: TimeInterval
+    let stopReason: GenerateStopReason
+}
+
+private func buildStopTokenIDs(
+    modelConfiguration: ModelConfiguration,
+    tokenizer: Tokenizer
+) -> Set<Int> {
+    // Build complete EOS token set from all sources.
+    var stopTokenIDs = modelConfiguration.eosTokenIds
+    if let tokenizerEOS = tokenizer.eosTokenId {
+        stopTokenIDs.insert(tokenizerEOS)
+    }
+    for token in modelConfiguration.extraEOSTokens {
+        if let id = tokenizer.convertTokenToId(token) {
+            stopTokenIDs.insert(id)
+        }
+    }
+    return stopTokenIDs
+}
+
+private func runSynchronousGenerationLoop(
+    modelConfiguration: ModelConfiguration,
+    tokenizer: Tokenizer,
+    iterator: TokenIterator,
+    didGenerate: (_ token: Int, _ generatedTokens: [Int]) -> GenerateDisposition
+) -> SynchronousGenerationLoopResult {
+    var start = Date.timeIntervalSinceReferenceDate
+    var promptTime: TimeInterval = 0
+
+    let stopTokenIDs = buildStopTokenIDs(
+        modelConfiguration: modelConfiguration,
+        tokenizer: tokenizer
+    )
+
+    var generatedTokens = [Int]()
+    var iterator = iterator
+    var stopReason: GenerateStopReason?
+
+    while let token = iterator.next() {
+        // Compute the timing for the prompt.
+        if promptTime == 0 {
+            let now = Date.timeIntervalSinceReferenceDate
+            promptTime = now - start
+            start = now
+        }
+
+        // Check for end-of-sequence tokens.
+        if token == tokenizer.unknownTokenId || stopTokenIDs.contains(token) {
+            stopReason = .stop
+            break
+        }
+
+        generatedTokens.append(token)
+
+        if didGenerate(token, generatedTokens) == .stop {
+            stopReason = .cancelled
+            break
+        }
+    }
+
+    // If the iterator ends naturally, the max-token limit was reached.
+    if stopReason == nil {
+        if let maxTokens = iterator.maxTokens, iterator.tokenCount >= maxTokens {
+            stopReason = .length
+        } else {
+            stopReason = .cancelled
+        }
+    }
+
+    let now = Date.timeIntervalSinceReferenceDate
+    let generateTime = now - start
+
+    // TokenIterator uses `asyncEval()` to keep the pipeline full. If the caller
+    // exits the program right away, those tasks will still be executing and will
+    // hit assertions as the mlx scheduler is torn down. Synchronize with the stream
+    // to make sure it is complete.
+    Stream().synchronize()
+
+    return SynchronousGenerationLoopResult(
+        generatedTokens: generatedTokens,
+        promptTime: promptTime,
+        generateTime: generateTime,
+        promptPrefillTime: iterator.promptPrefillTime,
+        stopReason: stopReason ?? .cancelled
+    )
+}
+
 /// Given prompt tokens generate text using the given model and parameters.
 ///
 /// ``generate(input:cache:parameters:context:)`` returning `AsyncStream<Generation>` is the preferred call.
@@ -983,7 +1074,8 @@ public func generate(
         tokenizer: tokenizer)
 
     return generate(
-        input: input, context: context, iterator: iterator, didGenerate: didGenerate)
+        input: input, context: context, iterator: iterator,
+        didGenerate: didGenerate)
 }
 
 /// Generate tokens from an ``LMInput`` and a ``ModelContext``.
@@ -1008,7 +1100,8 @@ public func generate(
     let iterator = try TokenIterator(
         input: input, model: context.model, parameters: parameters)
     return generate(
-        input: input, context: context, iterator: iterator, didGenerate: didGenerate)
+        input: input, context: context, iterator: iterator,
+        didGenerate: didGenerate)
 }
 
 /// Low-level token generation using a ``TokenIterator``.
@@ -1031,54 +1124,19 @@ public func generate(
     iterator: TokenIterator,
     didGenerate: ([Int]) -> GenerateDisposition
 ) -> GenerateResult {
-    var start = Date.timeIntervalSinceReferenceDate
-    var promptTime: TimeInterval = 0
-
-    // Build complete EOS token set from all sources
-    var eosTokenIds = context.configuration.eosTokenIds
-    if let tokenizerEos = context.tokenizer.eosTokenId {
-        eosTokenIds.insert(tokenizerEos)
+    let result = runSynchronousGenerationLoop(
+        modelConfiguration: context.configuration,
+        tokenizer: context.tokenizer,
+        iterator: iterator
+    ) { _, generatedTokens in
+        didGenerate(generatedTokens)
     }
-    for token in context.configuration.extraEOSTokens {
-        if let id = context.tokenizer.convertTokenToId(token) {
-            eosTokenIds.insert(id)
-        }
-    }
-
-    var tokens = [Int]()
-
-    for token in iterator {
-        // compute the timing for the prompt
-        if tokens.isEmpty {
-            let now = Date.timeIntervalSinceReferenceDate
-            promptTime = now - start
-            start = now
-        }
-
-        if token == context.tokenizer.unknownTokenId || eosTokenIds.contains(token) {
-            break
-        }
-        tokens.append(token)
-
-        if didGenerate(tokens) == .stop {
-            break
-        }
-    }
-
-    let now = Date.timeIntervalSinceReferenceDate
-    let generateTime = now - start
-
-    // TokenIterator uses `asyncEval()` to keep the pipeline full. If the caller
-    // exits the program right away, those tasks will still be executing and will
-    // hit assertions as the mlx scheduler is torn down. Synchronize with the stream
-    // to make sure it is complete.
-    Stream().synchronize()
 
     return GenerateResult(
-        inputText: input.text, tokens: tokens,
-        output: context.tokenizer.decode(tokens: tokens),
-        promptTime: promptTime + iterator.promptPrefillTime,
-        generateTime: generateTime
+        inputText: input.text, tokens: result.generatedTokens,
+        output: context.tokenizer.decode(tokens: result.generatedTokens),
+        promptTime: result.promptTime + result.promptPrefillTime,
+        generateTime: result.generateTime
     )
 }
 
@@ -1104,7 +1162,8 @@ public func generate(
     let iterator = try TokenIterator(
         input: input, model: context.model, parameters: parameters)
     return generate(
-        input: input, context: context, iterator: iterator, didGenerate: didGenerate)
+        input: input, context: context, iterator: iterator,
+        didGenerate: didGenerate)
 }
 
 /// Low-level token generation using a ``TokenIterator``.
@@ -1127,54 +1186,20 @@ public func generate(
     iterator: TokenIterator,
     didGenerate: (Int) -> GenerateDisposition
 ) -> GenerateCompletionInfo {
-    var start = Date.timeIntervalSinceReferenceDate
-    var promptTime: TimeInterval = 0
-
-    // Build complete EOS token set from all sources
-    var eosTokenIds = context.configuration.eosTokenIds
-    if let tokenizerEos = context.tokenizer.eosTokenId {
-        eosTokenIds.insert(tokenizerEos)
+    let result = runSynchronousGenerationLoop(
+        modelConfiguration: context.configuration,
+        tokenizer: context.tokenizer,
+        iterator: iterator
+    ) { token, _ in
+        didGenerate(token)
     }
-    for token in context.configuration.extraEOSTokens {
-        if let id = context.tokenizer.convertTokenToId(token) {
-            eosTokenIds.insert(id)
-        }
-    }
-
-    var tokenCount = 0
-
-    for token in iterator {
-        // Compute the timing for the prompt
-        if promptTime == 0 {
-            let now = Date.timeIntervalSinceReferenceDate
-            promptTime = now - start
-            start = now
-        }
-
-        // Check for end-of-sequence tokens
-        if token == context.tokenizer.unknownTokenId || eosTokenIds.contains(token) {
-            break
-        }
-
-        tokenCount += 1
-
-        // Invoke the callback with the current token
-        if didGenerate(token) == .stop {
-            break
-        }
-    }
-
-    let now = Date.timeIntervalSinceReferenceDate
-    let generateTime = now - start
-
-    // Synchronize with the stream to ensure tasks are completed
-    Stream().synchronize()
 
     return GenerateCompletionInfo(
         promptTokenCount: input.text.tokens.size,
-        generationTokenCount: tokenCount,
-        promptTime: promptTime + iterator.promptPrefillTime,
-        generationTime: generateTime
+        generationTokenCount: result.generatedTokens.count,
+        promptTime: result.promptTime + result.promptPrefillTime,
+        generationTime: result.generateTime,
+        stopReason: result.stopReason
     )
 }
 
@@ -1188,7 +1213,7 @@ public func generate(
 /// * Important: if the stream is terminated early (e.g. break from the loop) computation will continue
 /// using the model, parameters, KVCache, etc. for some time (typically a few ms).  This is typically OK for
 /// one-shot calls, but for "chat session" type calls consider using
-/// ``generateTask(promptTokenCount:context:iterator:)``
+/// ``generateTask(promptTokenCount:modelConfiguration:tokenizer:iterator:)``
 /// so that the end of the generation task can be observed.
 ///
 /// - Parameters:
@@ -1196,6 +1221,9 @@ public func generate(
 ///   - cache: optional ``KVCache``
 ///   - parameters: The configuration options for token generation.
 ///   - context: The model context, including the model itself and associated tokenizer.
+///   - wiredMemoryTicket: Optional wired memory ticket for policy-based coordination across
+///     concurrent tasks. This is opt-in and only applied on GPU devices that support wired
+///     memory control (macOS 15 / iOS 18 / tvOS 18 or newer).
 /// - Returns: An `AsyncStream` that emits `Generation` values, including generated text chunks (`.chunk`),
 ///   tool calls (`.toolCall`), and completion information (`.info`).
 /// - Throws: An error if the `TokenIterator` initialization fails due to invalid input or model configuration.
@@ -1225,7 +1253,8 @@ public func generate(
 /// }
 /// ```
 public func generate(
-    input: LMInput, cache: [KVCache]? = nil, parameters: GenerateParameters, context: ModelContext
+    input: LMInput, cache: [KVCache]? = nil, parameters: GenerateParameters, context: ModelContext,
+    wiredMemoryTicket: WiredMemoryTicket? = nil
 ) throws -> AsyncStream<Generation> {
     let iterator = try TokenIterator(
         input: input, model: context.model, cache: cache, parameters: parameters)
@@ -1233,7 +1262,8 @@ public func generate(
         promptTokenCount: input.text.tokens.size,
         modelConfiguration: context.configuration,
         tokenizer: context.tokenizer,
-        iterator: iterator)
+        iterator: iterator,
+        wiredMemoryTicket: wiredMemoryTicket)
     return stream
 }
 
@@ -1243,13 +1273,15 @@ public func generate(
 )
 public func generate(
     input: LMInput, context: ModelContext,
-    iterator: TokenIterator
+    iterator: TokenIterator,
+    wiredMemoryTicket: WiredMemoryTicket? = nil
 ) -> AsyncStream<Generation> {
     let (stream, _) = generateTask(
         promptTokenCount: input.text.tokens.size,
         modelConfiguration: context.configuration,
         tokenizer: context.tokenizer,
-        iterator: iterator)
+        iterator: iterator,
+        wiredMemoryTicket: wiredMemoryTicket)
     return stream
 }
 
@@ -1262,145 +1294,280 @@ public func generate(
 ///
 /// - Parameters:
 ///   - promptTokenCount: number of tokens in the prompt
-///   - context: model context (model and tokenizer)
+///   - modelConfiguration: model configuration (for EOS/extra EOS tokens and tool-call format)
+///   - tokenizer: tokenizer (for EOS id, unknown token id, and detokenization)
 ///   - iterator: token iterator
+///   - wiredMemoryTicket: Optional wired memory ticket for policy-based coordination.
 /// - Returns: An `AsyncStream` that emits `Generation` values and a `Task`
 public func generateTask(
     promptTokenCount: Int,
     modelConfiguration: ModelConfiguration,
     tokenizer: Tokenizer,
-    iterator: consuming TokenIterator
+    iterator: consuming TokenIterator,
+    wiredMemoryTicket: WiredMemoryTicket? = nil
 ) -> (AsyncStream<Generation>, Task<Void, Never>) {
+    generateLoopTask(
+        promptTokenCount: promptTokenCount,
+        modelConfiguration: modelConfiguration,
+        tokenizer: tokenizer,
+        iterator: iterator,
+        wiredMemoryTicket: wiredMemoryTicket,
+        handler: TextToolTokenLoopHandler(
+            tokenizer: tokenizer,
+            format: modelConfiguration.toolCallFormat ?? .json
+        )
+    )
+}
 
-    let (stream, continuation) = AsyncStream<Generation>.makeStream()
+/// Generates raw token IDs asynchronously using the provided language model input, parameters, and context.
+///
+/// This is similar to `generate(input:cache:parameters:context:)`, but yields raw token IDs instead of decoded text/tool calls.
+/// This is useful for downstream parsers that need access to token IDs directly (e.g. Harmony parsing).
+///
+/// - Parameters:
+///   - input: The input for the language model.
+///   - cache: optional ``KVCache``
+///   - parameters: The configuration options for token generation.
+///   - context: The model context, including the model itself and associated tokenizer.
+///   - includeStopToken: when true, the terminating EOS/unknown token is yielded before finishing
+/// - Returns: An `AsyncStream` that emits `TokenGeneration` values.
+public func generateTokens(
+    input: LMInput,
+    cache: [KVCache]? = nil,
+    parameters: GenerateParameters,
+    context: ModelContext,
+    includeStopToken: Bool = false
+) throws -> AsyncStream<TokenGeneration> {
+    let iterator = try TokenIterator(
+        input: input, model: context.model, cache: cache, parameters: parameters)
+    let (stream, _) = generateTokenTask(
+        promptTokenCount: input.text.tokens.size,
+        modelConfiguration: context.configuration,
+        tokenizer: context.tokenizer,
+        iterator: iterator,
+        includeStopToken: includeStopToken
+    )
+    return stream
+}
+
+/// Generates raw token IDs asynchronously and returns the stream plus a `Task`.
+///
+/// Prefer this overload if you want to be able to observe when the underlying generation work is finished
+/// (especially if the consumer terminates the stream early).
+///
+/// - Returns: An `AsyncStream` that emits `TokenGeneration` values and a `Task`.
+public func generateTokensTask(
+    input: LMInput,
+    cache: [KVCache]? = nil,
+    parameters: GenerateParameters,
+    context: ModelContext,
+    includeStopToken: Bool = false
+) throws -> (AsyncStream<TokenGeneration>, Task<Void, Never>) {
+    let iterator = try TokenIterator(
+        input: input, model: context.model, cache: cache, parameters: parameters)
+    return generateTokenTask(
+        promptTokenCount: input.text.tokens.size,
+        modelConfiguration: context.configuration,
+        tokenizer: context.tokenizer,
+        iterator: iterator,
+        includeStopToken: includeStopToken
+    )
+}
+
+/// Low-level raw token generation using a `TokenIterator`, returning an
+/// `AsyncStream<TokenGeneration>` and a `Task`.
+///
+/// This is useful for parsers that need access to the token IDs directly (e.g. Harmony parsing)
+/// without detokenization or tool-call parsing.
+///
+/// - Parameters:
+///   - promptTokenCount: number of tokens in the prompt
+///   - modelConfiguration: model configuration (for EOS/extra EOS tokens)
+///   - tokenizer: tokenizer (for EOS id and unknown token id)
+///   - iterator: token iterator
+///   - includeStopToken: when true, the terminating EOS/unknown token is yielded before finishing
+/// - Returns: An `AsyncStream` that emits token IDs and a final `.info`, plus a `Task`.
+public func generateTokenTask(
+    promptTokenCount: Int,
+    modelConfiguration: ModelConfiguration,
+    tokenizer: Tokenizer,
+    iterator: consuming TokenIterator,
+    includeStopToken: Bool = false
+) -> (AsyncStream<TokenGeneration>, Task<Void, Never>) {
+    generateLoopTask(
+        promptTokenCount: promptTokenCount,
+        modelConfiguration: modelConfiguration,
+        tokenizer: tokenizer,
+        iterator: iterator,
+        includeStopToken: includeStopToken,
+        handler: RawTokenLoopHandler()
+    )
+}
+
+private func generateLoopTask<Handler: TokenLoopHandler>(
+    promptTokenCount: Int,
+    modelConfiguration: ModelConfiguration,
+    tokenizer: Tokenizer,
+    iterator: consuming TokenIterator,
+    wiredMemoryTicket: WiredMemoryTicket? = nil,
+    includeStopToken: Bool = false,
+    handler: consuming Handler
+) -> (AsyncStream<Handler.Output>, Task<Void, Never>) {
+
+    let (stream, continuation) = AsyncStream<Handler.Output>.makeStream()
 
     let iterator = SendableBox(iterator)
+    let handler = SendableBox(handler)
 
     // Launch a Task to perform iteration asynchronously.
     let task = Task {
-        var iterator = iterator.consume()
+        let performIteration = {
+            var iterator = iterator.consume()
+            var handler = handler.consume()
 
-        var start = Date.timeIntervalSinceReferenceDate
-        var promptTime: TimeInterval = 0
+            var start = Date.timeIntervalSinceReferenceDate
+            var promptTime: TimeInterval = 0
+            var tokenCount = 0
+            var stopReason: GenerateStopReason?
 
-        // Build complete EOS token set from all sources
-        var eosTokenIds = modelConfiguration.eosTokenIds
-        if let tokenizerEos = tokenizer.eosTokenId {
-            eosTokenIds.insert(tokenizerEos)
-        }
-        for token in modelConfiguration.extraEOSTokens {
-            if let id = tokenizer.convertTokenToId(token) {
-                eosTokenIds.insert(id)
-            }
-        }
+            let stopTokenIDs = buildStopTokenIDs(
+                modelConfiguration: modelConfiguration,
+                tokenizer: tokenizer
+            )
 
-        var tokenCount = 0
-        var detokenizer = NaiveStreamingDetokenizer(tokenizer: tokenizer)
-        let toolCallProcessor = ToolCallProcessor(
-            format: modelConfiguration.toolCallFormat ?? .json
-        )
-        var pendingLogprobs = [TokenLogprobData]()
-        let perfEnabled = TokenIterator.perfEnabled
-        var perfDetokNs: UInt64 = 0
-        var perfLoopOverheadNs: UInt64 = 0
+            let perfEnabled = TokenIterator.perfEnabled
+            var perfDetokNs: UInt64 = 0
+            var perfLoopOverheadNs: UInt64 = 0
 
-        while true {
-            let tLoopTop: UInt64 = perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
+            while true {
+                let tLoopTop: UInt64 = perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
 
-            guard let token = iterator.next() else { break }
+                guard let token = iterator.next() else { break }
 
-            let tAfterNext: UInt64 = perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
+                let tAfterNext: UInt64 = perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
 
-            // Check for cancellation on every loop iteration.
-            if Task.isCancelled {
-                break
-            }
+                // Check for cancellation on every loop iteration.
+                if Task.isCancelled {
+                    stopReason = .cancelled
+                    break
+                }
 
-            if promptTime == 0 {
-                let now = Date.timeIntervalSinceReferenceDate
-                promptTime = now - start
-                start = now
-            }
+                if promptTime == 0 {
+                    let now = Date.timeIntervalSinceReferenceDate
+                    promptTime = now - start
+                    start = now
+                }
 
-            if token == tokenizer.unknownTokenId || eosTokenIds.contains(token) {
-                break
-            }
+                // Check for end-of-sequence tokens
+                if token == tokenizer.unknownTokenId || stopTokenIDs.contains(token) {
+                    if includeStopToken {
+                        tokenCount += 1
+                        if !handler.onStopToken(token, emit: continuation.yield) {
+                            stopReason = .cancelled
+                            break
+                        }
+                    }
+                    stopReason = .stop
+                    break
+                }
 
-            // Buffer logprob data for this token
-            if let lpInfo = iterator.lastLogprobInfo {
-                pendingLogprobs.append(lpInfo)
-            }
-
-            let tDetok0: UInt64 = perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
-            detokenizer.append(token: token)
-            var didYield = false
-            if let chunk = detokenizer.next() {
                 tokenCount += 1
 
-                // Process chunk through the tool call processor
-                if let textToYield = toolCallProcessor.processChunk(chunk) {
-                    // Yield buffered logprobs before the chunk they belong to
-                    if !pendingLogprobs.isEmpty {
-                        continuation.yield(.tokenLogprobs(pendingLogprobs))
-                        pendingLogprobs = []
-                    }
-                    if case .terminated = continuation.yield(.chunk(textToYield)) {
-                        break
-                    }
-                    didYield = true
-                }
+                // Collect logprob data from the iterator if available
+                let logprobData = iterator.lastLogprobInfo
 
-                // Check if we have a complete tool call
-                if let toolCall = toolCallProcessor.toolCalls.popLast() {
-                    if case .terminated = continuation.yield(.toolCall(toolCall)) {
-                        break
-                    }
+                let tDetok0: UInt64 = perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
+                if !handler.onToken(token, logprobData: logprobData, emit: continuation.yield) {
+                    stopReason = .cancelled
+                    break
+                }
+                if perfEnabled {
+                    let tDetok1 = DispatchTime.now().uptimeNanoseconds
+                    perfDetokNs += (tDetok1 - tDetok0)
+                    perfLoopOverheadNs += (tAfterNext - tLoopTop)
                 }
             }
-            if perfEnabled {
-                let tDetok1 = DispatchTime.now().uptimeNanoseconds
-                perfDetokNs += (tDetok1 - tDetok0)
-                perfLoopOverheadNs += (tAfterNext - tLoopTop)
+
+            if stopReason == nil {
+                if Task.isCancelled {
+                    stopReason = .cancelled
+                } else if let maxTokens = iterator.maxTokens, iterator.tokenCount >= maxTokens {
+                    stopReason = .length
+                } else {
+                    stopReason = .cancelled
+                }
             }
+
+            // Print performance breakdown if AFM_PERF=1
+            if perfEnabled, iterator.perfTokenCount > 0 {
+                let toMs = { (ns: UInt64) -> Double in Double(ns) / 1_000_000.0 }
+                let detokMs = toMs(perfDetokNs)
+                print("[PERF] Loop overhead: detokenize+yield=\(String(format: "%.1f", detokMs))ms (\(String(format: "%.2f", detokMs / Double(iterator.perfTokenCount)))ms/tok)")
+            }
+            iterator.printPerfSummary()
+
+            // Explicitly release iterator-held GPU arrays (cache, last token, state)
+            // before synchronizing. This ensures no stale references survive into
+            // the next request's generation pass.
+            iterator.teardown()
+
+            let now = Date.timeIntervalSinceReferenceDate
+            let generateTime = now - start
+
+            let info = GenerateCompletionInfo(
+                promptTokenCount: promptTokenCount,
+                generationTokenCount: tokenCount,
+                promptTime: promptTime + iterator.promptPrefillTime,
+                generationTime: generateTime,
+                stopReason: stopReason ?? .cancelled
+            )
+            _ = continuation.yield(handler.infoEvent(info))
+
+            // Synchronize with the stream to ensure tasks are completed
+            Stream().synchronize()
+
+            // Finalize the stream
+            continuation.finish()
         }
 
-        // Print performance breakdown if AFM_PERF=1
-        if perfEnabled, iterator.perfTokenCount > 0 {
-            let toMs = { (ns: UInt64) -> Double in Double(ns) / 1_000_000.0 }
-            let detokMs = toMs(perfDetokNs)
-            print("[PERF] Loop overhead: detokenize+yield=\(String(format: "%.1f", detokMs))ms (\(String(format: "%.2f", detokMs / Double(iterator.perfTokenCount)))ms/tok)")
+        if let ticket = wiredMemoryTicket {
+            await WiredMemoryTicket.withWiredLimit(ticket) {
+                performIteration()
+            }
+        } else {
+            performIteration()
         }
-        iterator.printPerfSummary()
-
-        // Explicitly release iterator-held GPU arrays (cache, last token, state)
-        // before synchronizing. This ensures no stale references survive into
-        // the next request's generation pass.
-        iterator.teardown()
-
-        let now = Date.timeIntervalSinceReferenceDate
-        let generateTime = now - start
-
-        let info = GenerateCompletionInfo(
-            promptTokenCount: promptTokenCount,
-            generationTokenCount: tokenCount,
-            promptTime: promptTime + iterator.promptPrefillTime,
-            generationTime: generateTime
-        )
-        continuation.yield(.info(info))
-
-        // Synchronize with the stream to ensure tasks are completed
-        Stream().synchronize()
-
-        // Finalize the stream
-        continuation.finish()
     }
 
     // When the consumer cancels (or ends) the stream, cancel our underlying task.
-    continuation.onTermination = { _ in
-        task.cancel()
+    continuation.onTermination = { termination in
+        if case .cancelled = termination {
+            task.cancel()
+        }
     }
 
     return (stream, task)
+}
+
+/// Measures the execution time of a closure.
+private func measure(_ closure: () throws -> Void) rethrows -> TimeInterval {
+    let start = Date.timeIntervalSinceReferenceDate
+    try closure()
+    return Date.timeIntervalSinceReferenceDate - start
+}
+
+// MARK: - Generation structs
+
+/// Reason why token generation stopped.
+public enum GenerateStopReason: Sendable {
+    /// Generation stopped because an EOS/unknown stop token was encountered.
+    case stop
+
+    /// Generation stopped because the configured max token limit was reached.
+    case length
+
+    /// Generation stopped due to explicit task cancellation or early stream termination.
+    case cancelled
 }
 
 /// Represents metadata and statistics related to token generation.
@@ -1419,6 +1586,9 @@ public struct GenerateCompletionInfo: Sendable {
     /// The time interval (in seconds) taken to generate the output tokens.
     public let generateTime: TimeInterval
 
+    /// Reason generation stopped.
+    public let stopReason: GenerateStopReason
+
     /// The number of tokens processed per second during the prompt phase.
     public var promptTokensPerSecond: Double {
         Double(promptTokenCount) / promptTime
@@ -1433,12 +1603,14 @@ public struct GenerateCompletionInfo: Sendable {
         promptTokenCount: Int,
         generationTokenCount: Int,
         promptTime: TimeInterval,
-        generationTime: TimeInterval
+        generationTime: TimeInterval,
+        stopReason: GenerateStopReason = .stop
     ) {
         self.promptTokenCount = promptTokenCount
         self.generationTokenCount = generationTokenCount
         self.promptTime = promptTime
         self.generateTime = generationTime
+        self.stopReason = stopReason
     }
 
     public func summary() -> String {
@@ -1505,9 +1677,146 @@ public enum Generation: Sendable {
     }
 }
 
-/// Measures the execution time of a closure.
-private func measure(_ closure: () throws -> Void) rethrows -> TimeInterval {
-    let start = Date.timeIntervalSinceReferenceDate
-    try closure()
-    return Date.timeIntervalSinceReferenceDate - start
+/// Represents the different stages or outputs of raw-token generation.
+///
+/// This mirrors `Generation`, but yields raw token IDs instead of decoded text/tool calls.
+public enum TokenGeneration: Sendable {
+    /// A generated token ID.
+    case token(Int)
+
+    /// Completion information summarizing token counts and performance metrics.
+    case info(GenerateCompletionInfo)
+
+    /// Token ID or nil
+    public var token: Int? {
+        switch self {
+        case .token(let token): token
+        case .info: nil
+        }
+    }
+
+    /// Completion info or nil
+    public var info: GenerateCompletionInfo? {
+        switch self {
+        case .token: nil
+        case .info(let info): info
+        }
+    }
+
+    /// Reducer that can be used with `throttle()` to gather elements into a batch
+    @Sendable
+    public static func collect(_ batch: [TokenGeneration]?, _ element: TokenGeneration)
+        -> [TokenGeneration]
+    {
+        (batch ?? []) + [element]
+    }
+}
+
+// MARK: - TokenLoopHandlers
+
+private protocol TokenLoopHandler: Sendable {
+    associatedtype Output
+
+    /// Return false to stop the loop early.
+    mutating func onToken(
+        _ token: Int,
+        logprobData: TokenLogprobData?,
+        emit: (sending Output) -> AsyncStream<Output>.Continuation.YieldResult
+    ) -> Bool
+
+    /// Called only when includeStopToken == true and a stop token was hit.
+    mutating func onStopToken(
+        _ token: Int,
+        emit: (sending Output) -> AsyncStream<Output>.Continuation.YieldResult
+    ) -> Bool
+
+    func infoEvent(_ info: GenerateCompletionInfo) -> Output
+}
+
+private struct TextToolTokenLoopHandler: TokenLoopHandler, @unchecked Sendable {
+    typealias Output = Generation
+
+    var detokenizer: NaiveStreamingDetokenizer
+    let toolCallProcessor: ToolCallProcessor
+    var pendingLogprobs = [TokenLogprobData]()
+
+    init(tokenizer: Tokenizer, format: ToolCallFormat) {
+        detokenizer = NaiveStreamingDetokenizer(tokenizer: tokenizer)
+        toolCallProcessor = ToolCallProcessor(format: format)
+    }
+
+    mutating func onToken(
+        _ token: Int,
+        logprobData: TokenLogprobData?,
+        emit: (sending Generation) -> AsyncStream<Generation>.Continuation.YieldResult
+    ) -> Bool {
+        // Buffer logprob data for this token
+        if let lpInfo = logprobData {
+            pendingLogprobs.append(lpInfo)
+        }
+
+        detokenizer.append(token: token)
+        if let chunk = detokenizer.next() {
+            // Process chunk through the tool call processor.
+            if let textToYield = toolCallProcessor.processChunk(chunk) {
+                // Yield buffered logprobs before the chunk they belong to
+                if !pendingLogprobs.isEmpty {
+                    _ = emit(.tokenLogprobs(pendingLogprobs))
+                    pendingLogprobs = []
+                }
+                if case .terminated = emit(.chunk(textToYield)) {
+                    return false
+                }
+            }
+
+            // Check if we have a complete tool call.
+            if let toolCall = toolCallProcessor.toolCalls.popLast() {
+                if case .terminated = emit(.toolCall(toolCall)) {
+                    return false
+                }
+            }
+        }
+
+        return true
+    }
+
+    mutating func onStopToken(
+        _ token: Int,
+        emit: (sending Generation) -> AsyncStream<Generation>.Continuation.YieldResult
+    ) -> Bool {
+        true
+    }
+
+    func infoEvent(_ info: GenerateCompletionInfo) -> Generation {
+        .info(info)
+    }
+}
+
+private struct RawTokenLoopHandler: TokenLoopHandler {
+    typealias Output = TokenGeneration
+
+    mutating func onToken(
+        _ token: Int,
+        logprobData: TokenLogprobData?,
+        emit: (sending TokenGeneration) -> AsyncStream<TokenGeneration>.Continuation.YieldResult
+    ) -> Bool {
+        if case .terminated = emit(.token(token)) {
+            return false
+        }
+        return true
+    }
+
+    mutating func onStopToken(
+        _ token: Int,
+        emit: (sending TokenGeneration) -> AsyncStream<TokenGeneration>.Continuation.YieldResult
+    ) -> Bool {
+        if case .terminated = emit(.token(token)) {
+            return false
+        }
+        return true
+    }
+
+    func infoEvent(_ info: GenerateCompletionInfo) -> TokenGeneration {
+        .info(info)
+    }
 }
