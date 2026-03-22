@@ -1,0 +1,2369 @@
+{
+  "evalId": "eval-f4p-2026-03-21T18:44:27",
+  "results": {
+    "version": 3,
+    "timestamp": "2026-03-21T18:44:27.998Z",
+    "prompts": [
+      {
+        "id": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "raw": "{{prompt}}",
+        "label": "{{prompt}}",
+        "provider": "afm-api-json-schema",
+        "metrics": {
+          "score": 6,
+          "testPassCount": 6,
+          "testFailCount": 0,
+          "testErrorCount": 0,
+          "assertPassCount": 13,
+          "assertFailCount": 0,
+          "totalLatencyMs": 7179,
+          "tokenUsage": {
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "total": 0,
+            "numRequests": 6,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0
+            },
+            "assertions": {
+              "total": 0,
+              "prompt": 0,
+              "completion": 0,
+              "cached": 0,
+              "numRequests": 0,
+              "completionDetails": {
+                "reasoning": 0,
+                "acceptedPrediction": 0,
+                "rejectedPrediction": 0
+              }
+            }
+          },
+          "namedScores": {},
+          "namedScoresCount": {},
+          "cost": 0
+        }
+      }
+    ],
+    "results": [
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"name\""
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"occupation\""
+              }
+            }
+          ]
+        },
+        "id": "67815636-6041-4a31-9dae-46962a9bbd2c",
+        "latencyMs": 1077,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Return a person record for Ada Lovelace, age 36, occupation mathematician.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-api-json-schema"
+        },
+        "response": {
+          "output": "{\"age\":36,\"occupation\":\"mathematician\",\"name\":\"Ada Lovelace\"}",
+          "latencyMs": 1077,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Return a person record for Ada Lovelace, age 36, occupation mathematician."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                  "name": "person_record",
+                  "strict": true,
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "age": {
+                        "type": "integer"
+                      },
+                      "occupation": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "age",
+                      "occupation"
+                    ]
+                  }
+                }
+              }
+            },
+            "responseBody": {
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "created": 1774118669,
+              "id": "chatcmpl-00B0EE0A",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "object": "chat.completion",
+              "usage": {
+                "completion_time": 0.2,
+                "prompt_tokens_per_second": 201.02,
+                "completion_tokens": 19,
+                "completion_tokens_per_second": 96.82,
+                "prompt_tokens": 116,
+                "total_time": 0.77,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_tokens": 135,
+                "prompt_time": 0.58
+              },
+              "choices": [
+                {
+                  "finish_reason": "stop",
+                  "index": 0,
+                  "message": {
+                    "content": "{\"age\":36,\"occupation\":\"mathematician\",\"name\":\"Ada Lovelace\"}",
+                    "role": "assistant"
+                  }
+                }
+              ],
+              "timings": {
+                "prompt_n": 116,
+                "prompt_ms": 577.0539045333862,
+                "predicted_n": 19,
+                "predicted_ms": 196.24793529510498
+              }
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "schema/person_basic via API json_schema",
+          "vars": {
+            "prompt": "Return a person record for Ada Lovelace, age 36, occupation mathematician.",
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "person_record",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "age": {
+                      "type": "integer"
+                    },
+                    "occupation": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "age",
+                    "occupation"
+                  ]
+                }
+              }
+            }
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"name\""
+            },
+            {
+              "type": "contains",
+              "value": "\"occupation\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 0,
+        "vars": {
+          "prompt": "Return a person record for Ada Lovelace, age 36, occupation mathematician.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "person_record",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "age": {
+                    "type": "integer"
+                  },
+                  "occupation": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "age",
+                  "occupation"
+                ]
+              }
+            }
+          }
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Return a person record for Ada Lovelace, age 36, occupation mathematician."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "person_record",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "age": {
+                      "type": "integer"
+                    },
+                    "occupation": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "age",
+                    "occupation"
+                  ]
+                }
+              }
+            }
+          },
+          "responseBody": {
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "created": 1774118669,
+            "id": "chatcmpl-00B0EE0A",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "object": "chat.completion",
+            "usage": {
+              "completion_time": 0.2,
+              "prompt_tokens_per_second": 201.02,
+              "completion_tokens": 19,
+              "completion_tokens_per_second": 96.82,
+              "prompt_tokens": 116,
+              "total_time": 0.77,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 135,
+              "prompt_time": 0.58
+            },
+            "choices": [
+              {
+                "finish_reason": "stop",
+                "index": 0,
+                "message": {
+                  "content": "{\"age\":36,\"occupation\":\"mathematician\",\"name\":\"Ada Lovelace\"}",
+                  "role": "assistant"
+                }
+              }
+            ],
+            "timings": {
+              "prompt_n": 116,
+              "prompt_ms": 577.0539045333862,
+              "predicted_n": 19,
+              "predicted_ms": 196.24793529510498
+            }
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"items\""
+              }
+            }
+          ]
+        },
+        "id": "5c72ad1c-fe4d-498a-be55-67fdb0bc694d",
+        "latencyMs": 1312,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Extract action items from this meeting note. Transcript: Sarah will draft the customer email by Friday. Ben owns the dashboard fix and will deploy on Tuesday. Priya needs to confirm pricing with finance this afternoon.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-api-json-schema"
+        },
+        "response": {
+          "output": "{\n  \"items\": [\n    {\n      \"task\": \"draft the customer email\",\n      \"owner\": \"Sarah\",\n      \"due_date\": \"Friday\"\n    },\n    {\n      \"task\": \"deploy the dashboard fix\",\n      \"owner\": \"Ben\",\n      \"due_date\": \"Tuesday\"\n    },\n    {\n      \"task\": \"confirm pricing with finance\",\n      \"owner\": \"Priya\",\n      \"due_date\": \"this afternoon\"\n    }\n  ]\n}",
+          "latencyMs": 1312,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Extract action items from this meeting note. Transcript: Sarah will draft the customer email by Friday. Ben owns the dashboard fix and will deploy on Tuesday. Priya needs to confirm pricing with finance this afternoon."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                  "name": "meeting_action_items",
+                  "strict": true,
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "owner": {
+                              "type": "string"
+                            },
+                            "task": {
+                              "type": "string"
+                            },
+                            "due_date": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "owner",
+                            "task",
+                            "due_date"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "items"
+                    ]
+                  }
+                }
+              }
+            },
+            "responseBody": {
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "created": 1774118670,
+              "id": "chatcmpl-F63E1C0E",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "usage": {
+                "completion_time": 1.18,
+                "prompt_tokens_per_second": 1533.99,
+                "completion_tokens": 116,
+                "completion_tokens_per_second": 97.98,
+                "prompt_tokens": 165,
+                "total_time": 1.29,
+                "prompt_tokens_details": {
+                  "cached_tokens": 44
+                },
+                "total_tokens": 281,
+                "prompt_time": 0.11
+              },
+              "object": "chat.completion",
+              "choices": [
+                {
+                  "finish_reason": "stop",
+                  "index": 0,
+                  "message": {
+                    "role": "assistant",
+                    "content": "{\n  \"items\": [\n    {\n      \"task\": \"draft the customer email\",\n      \"owner\": \"Sarah\",\n      \"due_date\": \"Friday\"\n    },\n    {\n      \"task\": \"deploy the dashboard fix\",\n      \"owner\": \"Ben\",\n      \"due_date\": \"Tuesday\"\n    },\n    {\n      \"task\": \"confirm pricing with finance\",\n      \"owner\": \"Priya\",\n      \"due_date\": \"this afternoon\"\n    }\n  ]\n}"
+                  }
+                }
+              ],
+              "timings": {
+                "prompt_ms": 107.56289958953857,
+                "prompt_n": 165,
+                "predicted_ms": 1183.874011039734,
+                "predicted_n": 116
+              }
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "schema/meeting_action_items via API json_schema",
+          "vars": {
+            "prompt": "Extract action items from this meeting note. Transcript: Sarah will draft the customer email by Friday. Ben owns the dashboard fix and will deploy on Tuesday. Priya needs to confirm pricing with finance this afternoon.",
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "meeting_action_items",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "owner": {
+                            "type": "string"
+                          },
+                          "task": {
+                            "type": "string"
+                          },
+                          "due_date": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "owner",
+                          "task",
+                          "due_date"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"items\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 1,
+        "vars": {
+          "prompt": "Extract action items from this meeting note. Transcript: Sarah will draft the customer email by Friday. Ben owns the dashboard fix and will deploy on Tuesday. Priya needs to confirm pricing with finance this afternoon.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "meeting_action_items",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "owner": {
+                          "type": "string"
+                        },
+                        "task": {
+                          "type": "string"
+                        },
+                        "due_date": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "owner",
+                        "task",
+                        "due_date"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "items"
+                ]
+              }
+            }
+          }
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Extract action items from this meeting note. Transcript: Sarah will draft the customer email by Friday. Ben owns the dashboard fix and will deploy on Tuesday. Priya needs to confirm pricing with finance this afternoon."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "meeting_action_items",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "owner": {
+                            "type": "string"
+                          },
+                          "task": {
+                            "type": "string"
+                          },
+                          "due_date": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "owner",
+                          "task",
+                          "due_date"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "responseBody": {
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "created": 1774118670,
+            "id": "chatcmpl-F63E1C0E",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "usage": {
+              "completion_time": 1.18,
+              "prompt_tokens_per_second": 1533.99,
+              "completion_tokens": 116,
+              "completion_tokens_per_second": 97.98,
+              "prompt_tokens": 165,
+              "total_time": 1.29,
+              "prompt_tokens_details": {
+                "cached_tokens": 44
+              },
+              "total_tokens": 281,
+              "prompt_time": 0.11
+            },
+            "object": "chat.completion",
+            "choices": [
+              {
+                "finish_reason": "stop",
+                "index": 0,
+                "message": {
+                  "role": "assistant",
+                  "content": "{\n  \"items\": [\n    {\n      \"task\": \"draft the customer email\",\n      \"owner\": \"Sarah\",\n      \"due_date\": \"Friday\"\n    },\n    {\n      \"task\": \"deploy the dashboard fix\",\n      \"owner\": \"Ben\",\n      \"due_date\": \"Tuesday\"\n    },\n    {\n      \"task\": \"confirm pricing with finance\",\n      \"owner\": \"Priya\",\n      \"due_date\": \"this afternoon\"\n    }\n  ]\n}"
+                }
+              }
+            ],
+            "timings": {
+              "prompt_ms": 107.56289958953857,
+              "prompt_n": 165,
+              "predicted_ms": 1183.874011039734,
+              "predicted_n": 116
+            }
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"attributes\""
+              }
+            }
+          ]
+        },
+        "id": "27f411f0-2f0d-464a-baa1-1fd139f425de",
+        "latencyMs": 1931,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Normalize this product listing: TrailPro 18L commuter backpack. Water-resistant recycled nylon shell, laptop sleeve for 16 inch devices, color midnight blue, retail price 89 dollars, weight 0.9 kg, suitable for commuting and short hikes.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-api-json-schema"
+        },
+        "response": {
+          "output": "{\n  \"price_usd\": 89,\n  \"attributes\": [\n    {\n      \"name\": \"material\",\n      \"value\": \"water-resistant recycled nylon\"\n    },\n    {\n      \"name\": \"laptop_sleeve_capacity\",\n      \"value\": \"16 inch\"\n    },\n    {\n      \"name\": \"color\",\n      \"value\": \"midnight blue\"\n    },\n    {\n      \"name\": \"weight\",\n      \"value\": \"0.9 kg\"\n    }\n  ],\n  \"category\": \"backpack\",\n  \"use_cases\": [\n    \"commuting\",\n    \"short hikes\"\n  ],\n  \"product_name\": \"TrailPro 18L commuter backpack\"\n}",
+          "latencyMs": 1931,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Normalize this product listing: TrailPro 18L commuter backpack. Water-resistant recycled nylon shell, laptop sleeve for 16 inch devices, color midnight blue, retail price 89 dollars, weight 0.9 kg, suitable for commuting and short hikes."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                  "name": "catalog_normalization",
+                  "strict": true,
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "product_name": {
+                        "type": "string"
+                      },
+                      "category": {
+                        "type": "string",
+                        "enum": [
+                          "backpack",
+                          "shoes",
+                          "jacket",
+                          "accessory"
+                        ]
+                      },
+                      "price_usd": {
+                        "type": "number"
+                      },
+                      "attributes": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "value": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "value"
+                          ]
+                        }
+                      },
+                      "use_cases": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "product_name",
+                      "category",
+                      "price_usd",
+                      "attributes",
+                      "use_cases"
+                    ]
+                  }
+                }
+              }
+            },
+            "responseBody": {
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "created": 1774118672,
+              "id": "chatcmpl-DAFB42D7",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "object": "chat.completion",
+              "usage": {
+                "completion_time": 1.75,
+                "prompt_tokens_per_second": 1464.26,
+                "completion_tokens": 173,
+                "completion_tokens_per_second": 98.63,
+                "prompt_tokens": 228,
+                "total_time": 1.91,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_tokens": 401,
+                "prompt_time": 0.16
+              },
+              "choices": [
+                {
+                  "index": 0,
+                  "finish_reason": "stop",
+                  "message": {
+                    "role": "assistant",
+                    "content": "{\n  \"price_usd\": 89,\n  \"attributes\": [\n    {\n      \"name\": \"material\",\n      \"value\": \"water-resistant recycled nylon\"\n    },\n    {\n      \"name\": \"laptop_sleeve_capacity\",\n      \"value\": \"16 inch\"\n    },\n    {\n      \"name\": \"color\",\n      \"value\": \"midnight blue\"\n    },\n    {\n      \"name\": \"weight\",\n      \"value\": \"0.9 kg\"\n    }\n  ],\n  \"category\": \"backpack\",\n  \"use_cases\": [\n    \"commuting\",\n    \"short hikes\"\n  ],\n  \"product_name\": \"TrailPro 18L commuter backpack\"\n}"
+                  }
+                }
+              ],
+              "timings": {
+                "predicted_n": 173,
+                "prompt_n": 228,
+                "prompt_ms": 155.7101011276245,
+                "predicted_ms": 1754.0879249572754
+              }
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "schema/catalog_normalization refs via API json_schema",
+          "vars": {
+            "prompt": "Normalize this product listing: TrailPro 18L commuter backpack. Water-resistant recycled nylon shell, laptop sleeve for 16 inch devices, color midnight blue, retail price 89 dollars, weight 0.9 kg, suitable for commuting and short hikes.",
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "catalog_normalization",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "product_name": {
+                      "type": "string"
+                    },
+                    "category": {
+                      "type": "string",
+                      "enum": [
+                        "backpack",
+                        "shoes",
+                        "jacket",
+                        "accessory"
+                      ]
+                    },
+                    "price_usd": {
+                      "type": "number"
+                    },
+                    "attributes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "value": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "value"
+                        ]
+                      }
+                    },
+                    "use_cases": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "product_name",
+                    "category",
+                    "price_usd",
+                    "attributes",
+                    "use_cases"
+                  ]
+                }
+              }
+            }
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"attributes\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 2,
+        "vars": {
+          "prompt": "Normalize this product listing: TrailPro 18L commuter backpack. Water-resistant recycled nylon shell, laptop sleeve for 16 inch devices, color midnight blue, retail price 89 dollars, weight 0.9 kg, suitable for commuting and short hikes.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "catalog_normalization",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "product_name": {
+                    "type": "string"
+                  },
+                  "category": {
+                    "type": "string",
+                    "enum": [
+                      "backpack",
+                      "shoes",
+                      "jacket",
+                      "accessory"
+                    ]
+                  },
+                  "price_usd": {
+                    "type": "number"
+                  },
+                  "attributes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "value": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "value"
+                      ]
+                    }
+                  },
+                  "use_cases": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "product_name",
+                  "category",
+                  "price_usd",
+                  "attributes",
+                  "use_cases"
+                ]
+              }
+            }
+          }
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Normalize this product listing: TrailPro 18L commuter backpack. Water-resistant recycled nylon shell, laptop sleeve for 16 inch devices, color midnight blue, retail price 89 dollars, weight 0.9 kg, suitable for commuting and short hikes."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "catalog_normalization",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "product_name": {
+                      "type": "string"
+                    },
+                    "category": {
+                      "type": "string",
+                      "enum": [
+                        "backpack",
+                        "shoes",
+                        "jacket",
+                        "accessory"
+                      ]
+                    },
+                    "price_usd": {
+                      "type": "number"
+                    },
+                    "attributes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "value": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "value"
+                        ]
+                      }
+                    },
+                    "use_cases": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "product_name",
+                    "category",
+                    "price_usd",
+                    "attributes",
+                    "use_cases"
+                  ]
+                }
+              }
+            }
+          },
+          "responseBody": {
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "created": 1774118672,
+            "id": "chatcmpl-DAFB42D7",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "object": "chat.completion",
+            "usage": {
+              "completion_time": 1.75,
+              "prompt_tokens_per_second": 1464.26,
+              "completion_tokens": 173,
+              "completion_tokens_per_second": 98.63,
+              "prompt_tokens": 228,
+              "total_time": 1.91,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 401,
+              "prompt_time": 0.16
+            },
+            "choices": [
+              {
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {
+                  "role": "assistant",
+                  "content": "{\n  \"price_usd\": 89,\n  \"attributes\": [\n    {\n      \"name\": \"material\",\n      \"value\": \"water-resistant recycled nylon\"\n    },\n    {\n      \"name\": \"laptop_sleeve_capacity\",\n      \"value\": \"16 inch\"\n    },\n    {\n      \"name\": \"color\",\n      \"value\": \"midnight blue\"\n    },\n    {\n      \"name\": \"weight\",\n      \"value\": \"0.9 kg\"\n    }\n  ],\n  \"category\": \"backpack\",\n  \"use_cases\": [\n    \"commuting\",\n    \"short hikes\"\n  ],\n  \"product_name\": \"TrailPro 18L commuter backpack\"\n}"
+                }
+              }
+            ],
+            "timings": {
+              "predicted_n": 173,
+              "prompt_n": 228,
+              "prompt_ms": 155.7101011276245,
+              "predicted_ms": 1754.0879249572754
+            }
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"phone\""
+              }
+            }
+          ]
+        },
+        "id": "238adc72-24e8-44f2-b9fe-afc9f69352c1",
+        "latencyMs": 352,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Return a CRM lead record for customer Jordan Lee at Acme Labs. Jordan does not have a phone number on file and prefers email.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-api-json-schema"
+        },
+        "response": {
+          "output": "{\"company\":\"Acme Labs\",\"name\":\"Jordan Lee\",\"phone\":null,\"preferred_channel\":\"email\"}",
+          "latencyMs": 352,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Return a CRM lead record for customer Jordan Lee at Acme Labs. Jordan does not have a phone number on file and prefers email."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                  "name": "crm_lead_nullable",
+                  "strict": true,
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "company": {
+                        "type": "string"
+                      },
+                      "preferred_channel": {
+                        "type": "string",
+                        "enum": [
+                          "email",
+                          "phone",
+                          "sms"
+                        ]
+                      },
+                      "phone": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "company",
+                      "preferred_channel",
+                      "phone"
+                    ]
+                  }
+                }
+              }
+            },
+            "responseBody": {
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "created": 1774118672,
+              "id": "chatcmpl-F988962F",
+              "usage": {
+                "completion_time": 0.21,
+                "prompt_tokens_per_second": 1212.33,
+                "completion_tokens": 21,
+                "completion_tokens_per_second": 99.01,
+                "prompt_tokens": 147,
+                "total_time": 0.33,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_tokens": 168,
+                "prompt_time": 0.12
+              },
+              "object": "chat.completion",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "choices": [
+                {
+                  "finish_reason": "stop",
+                  "index": 0,
+                  "message": {
+                    "content": "{\"company\":\"Acme Labs\",\"name\":\"Jordan Lee\",\"phone\":null,\"preferred_channel\":\"email\"}",
+                    "role": "assistant"
+                  }
+                }
+              ],
+              "timings": {
+                "predicted_ms": 212.10801601409912,
+                "prompt_n": 147,
+                "predicted_n": 21,
+                "prompt_ms": 121.25396728515625
+              }
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "edge/nullable field via API json_schema",
+          "vars": {
+            "prompt": "Return a CRM lead record for customer Jordan Lee at Acme Labs. Jordan does not have a phone number on file and prefers email.",
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "crm_lead_nullable",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "company": {
+                      "type": "string"
+                    },
+                    "preferred_channel": {
+                      "type": "string",
+                      "enum": [
+                        "email",
+                        "phone",
+                        "sms"
+                      ]
+                    },
+                    "phone": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "company",
+                    "preferred_channel",
+                    "phone"
+                  ]
+                }
+              }
+            }
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"phone\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 3,
+        "vars": {
+          "prompt": "Return a CRM lead record for customer Jordan Lee at Acme Labs. Jordan does not have a phone number on file and prefers email.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "crm_lead_nullable",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "company": {
+                    "type": "string"
+                  },
+                  "preferred_channel": {
+                    "type": "string",
+                    "enum": [
+                      "email",
+                      "phone",
+                      "sms"
+                    ]
+                  },
+                  "phone": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "company",
+                  "preferred_channel",
+                  "phone"
+                ]
+              }
+            }
+          }
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Return a CRM lead record for customer Jordan Lee at Acme Labs. Jordan does not have a phone number on file and prefers email."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "crm_lead_nullable",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "company": {
+                      "type": "string"
+                    },
+                    "preferred_channel": {
+                      "type": "string",
+                      "enum": [
+                        "email",
+                        "phone",
+                        "sms"
+                      ]
+                    },
+                    "phone": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "company",
+                    "preferred_channel",
+                    "phone"
+                  ]
+                }
+              }
+            }
+          },
+          "responseBody": {
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "created": 1774118672,
+            "id": "chatcmpl-F988962F",
+            "usage": {
+              "completion_time": 0.21,
+              "prompt_tokens_per_second": 1212.33,
+              "completion_tokens": 21,
+              "completion_tokens_per_second": 99.01,
+              "prompt_tokens": 147,
+              "total_time": 0.33,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 168,
+              "prompt_time": 0.12
+            },
+            "object": "chat.completion",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "choices": [
+              {
+                "finish_reason": "stop",
+                "index": 0,
+                "message": {
+                  "content": "{\"company\":\"Acme Labs\",\"name\":\"Jordan Lee\",\"phone\":null,\"preferred_channel\":\"email\"}",
+                  "role": "assistant"
+                }
+              }
+            ],
+            "timings": {
+              "predicted_ms": 212.10801601409912,
+              "prompt_n": 147,
+              "predicted_n": 21,
+              "prompt_ms": 121.25396728515625
+            }
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"priority\""
+              }
+            }
+          ]
+        },
+        "id": "6b94c4e1-09c4-4143-8d7f-65e4321c1e9b",
+        "latencyMs": 365,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Return a triage object for this issue: production payments are failing and executives are asking for updates every hour.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-api-json-schema"
+        },
+        "response": {
+          "output": "{\"summary\":\"Production payments are failing, causing executive-level urgency with hourly update requests.\",\"priority\":\"p1\"}",
+          "latencyMs": 365,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Return a triage object for this issue: production payments are failing and executives are asking for updates every hour."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                  "name": "triage_anyof",
+                  "strict": true,
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "priority": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "enum": [
+                              1,
+                              2,
+                              3
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "p1",
+                              "p2",
+                              "p3"
+                            ]
+                          }
+                        ]
+                      },
+                      "summary": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "priority",
+                      "summary"
+                    ]
+                  }
+                }
+              }
+            },
+            "responseBody": {
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "created": 1774118673,
+              "id": "chatcmpl-CAD04B3B",
+              "usage": {
+                "completion_time": 0.22,
+                "prompt_tokens_per_second": 1155.61,
+                "completion_tokens": 22,
+                "completion_tokens_per_second": 98.28,
+                "prompt_tokens": 141,
+                "total_time": 0.35,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_tokens": 163,
+                "prompt_time": 0.12
+              },
+              "object": "chat.completion",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "choices": [
+                {
+                  "index": 0,
+                  "finish_reason": "stop",
+                  "message": {
+                    "role": "assistant",
+                    "content": "{\"summary\":\"Production payments are failing, causing executive-level urgency with hourly update requests.\",\"priority\":\"p1\"}"
+                  }
+                }
+              ],
+              "timings": {
+                "prompt_ms": 122.01309204101562,
+                "predicted_n": 22,
+                "predicted_ms": 223.85692596435547,
+                "prompt_n": 141
+              }
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "edge/anyOf priority via API json_schema",
+          "vars": {
+            "prompt": "Return a triage object for this issue: production payments are failing and executives are asking for updates every hour.",
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "triage_anyof",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "priority": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "enum": [
+                            1,
+                            2,
+                            3
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "p1",
+                            "p2",
+                            "p3"
+                          ]
+                        }
+                      ]
+                    },
+                    "summary": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "priority",
+                    "summary"
+                  ]
+                }
+              }
+            }
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"priority\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 4,
+        "vars": {
+          "prompt": "Return a triage object for this issue: production payments are failing and executives are asking for updates every hour.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "triage_anyof",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "priority": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "enum": [
+                          1,
+                          2,
+                          3
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "p1",
+                          "p2",
+                          "p3"
+                        ]
+                      }
+                    ]
+                  },
+                  "summary": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "priority",
+                  "summary"
+                ]
+              }
+            }
+          }
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Return a triage object for this issue: production payments are failing and executives are asking for updates every hour."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "triage_anyof",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "priority": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "enum": [
+                            1,
+                            2,
+                            3
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "p1",
+                            "p2",
+                            "p3"
+                          ]
+                        }
+                      ]
+                    },
+                    "summary": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "priority",
+                    "summary"
+                  ]
+                }
+              }
+            }
+          },
+          "responseBody": {
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "created": 1774118673,
+            "id": "chatcmpl-CAD04B3B",
+            "usage": {
+              "completion_time": 0.22,
+              "prompt_tokens_per_second": 1155.61,
+              "completion_tokens": 22,
+              "completion_tokens_per_second": 98.28,
+              "prompt_tokens": 141,
+              "total_time": 0.35,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 163,
+              "prompt_time": 0.12
+            },
+            "object": "chat.completion",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "choices": [
+              {
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {
+                  "role": "assistant",
+                  "content": "{\"summary\":\"Production payments are failing, causing executive-level urgency with hourly update requests.\",\"priority\":\"p1\"}"
+                }
+              }
+            ],
+            "timings": {
+              "prompt_ms": 122.01309204101562,
+              "predicted_n": 22,
+              "predicted_ms": 223.85692596435547,
+              "prompt_n": 141
+            }
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"name\""
+              }
+            }
+          ]
+        },
+        "id": "3476a030-98a1-403c-bec2-787489c8ad85",
+        "latencyMs": 2142,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Return a person record for Grace Hopper, age 45, occupation computer scientist.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-api-json-schema"
+        },
+        "response": {
+          "output": "{\n  \"name\": \"Grace Hopper\",\n  \"occupation\": \"computer scientist\",\n  \"age\": 45\n}",
+          "latencyMs": 2142,
+          "metadata": {
+            "stderr": "MLX model: mlx-community/Qwen3.5-35B-A3B-4bit\nLoading MLX model: mlx-community/Qwen3.5-35B-A3B-4bit\n\r[/                       ]   --.-% checking cache | mem 0.02 GB | 0.0s[2026-03-21 14:44:33.153] MLX GPU: cache=1024MB wired=427622MB (system 512GB)\n\r[-                       ]   --.-% loading model | mem 1.69 GB | 0.2s\r[\\                       ]   --.-% loading model | mem 7.94 GB | 0.4s\r[|                       ]   --.-% loading model | mem 14.09 GB | 0.6s\r[/                       ]   --.-% loading model | mem 18.41 GB | 0.8s[2026-03-21 14:44:34.014] [PrefixCache] Radix tree prefix caching active (64 entries max)\n\r[done] ready | mem 18.35 GB | 0.9s\n[2026-03-21 14:44:34.014] [StructuredOutput] Disabling thinking for guided JSON on reasoning-capable model\n[2026-03-21 14:44:34.198] [PrefixCache] Prefill: mode=non-streaming | outcome=miss | input_tokens=113 | cached_tokens=0 | suffix_tokens=113 | radix_entries=0 | lookup=0.000000s | layers=40 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]\n[2026-03-21 14:44:35.075] [PrefixCache] Save complete: mode=non-streaming | stored_tokens=113 | radix_entries=1 | trim=0.000002s | truncate=0.000026s | insert=0.000029s | layers=40 active_layers=10 max_offset=113 sample=[3:KVCacheSimple@113, 7:KVCacheSimple@113, 11:KVCacheSimple@113, 15:KVCacheSimple@113]\n[2026-03-21 14:44:35.075] [CacheProfile] phase=restore | mode=non-streaming | outcome=miss | input_tokens=113 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=0.569s | overhead_share=0.000000\n[2026-03-21 14:44:35.075] [CacheProfile] phase=save | mode=non-streaming | outcome=save | input_tokens=113 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000002s | truncate=0.000026s | insert=0.000029s | cache_overhead=0.000057s | prompt_time=0.569s | overhead_share=0.000100\n",
+            "transport": "cli-guided-json",
+            "binary": ".build/arm64-apple-macosx/release/afm",
+            "args": [
+              "mlx",
+              "-m",
+              "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "-s",
+              "Return a person record for Grace Hopper, age 45, occupation computer scientist.",
+              "--guided-json",
+              "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"name\":{\"type\":\"string\"},\"age\":{\"type\":\"integer\"},\"occupation\":{\"type\":\"string\"}},\"required\":[\"name\",\"age\",\"occupation\"]}",
+              "--max-tokens",
+              "400",
+              "--temperature",
+              "0"
+            ]
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "cli guided-json basic person",
+          "provider": {
+            "id": "../providers/afm_provider.mjs",
+            "label": "afm-cli-guided-json",
+            "config": {
+              "transport": "cli-guided-json",
+              "binaryEnv": "AFM_BINARY",
+              "modelEnv": "AFM_MODEL",
+              "modelCacheEnv": "MACAFM_MLX_MODEL_CACHE",
+              "basePath": "/Volumes/edata/codex/dev/git/maclocal-api/NEXT/maclocal-api/Scripts/feature-promptfoo-agentic/datasets"
+            }
+          },
+          "vars": {
+            "prompt": "Return a person record for Grace Hopper, age 45, occupation computer scientist.",
+            "guided_json": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "age": {
+                  "type": "integer"
+                },
+                "occupation": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "age",
+                "occupation"
+              ]
+            }
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"name\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 5,
+        "vars": {
+          "prompt": "Return a person record for Grace Hopper, age 45, occupation computer scientist.",
+          "guided_json": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "age": {
+                "type": "integer"
+              },
+              "occupation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "age",
+              "occupation"
+            ]
+          }
+        },
+        "metadata": {
+          "stderr": "MLX model: mlx-community/Qwen3.5-35B-A3B-4bit\nLoading MLX model: mlx-community/Qwen3.5-35B-A3B-4bit\n\r[/                       ]   --.-% checking cache | mem 0.02 GB | 0.0s[2026-03-21 14:44:33.153] MLX GPU: cache=1024MB wired=427622MB (system 512GB)\n\r[-                       ]   --.-% loading model | mem 1.69 GB | 0.2s\r[\\                       ]   --.-% loading model | mem 7.94 GB | 0.4s\r[|                       ]   --.-% loading model | mem 14.09 GB | 0.6s\r[/                       ]   --.-% loading model | mem 18.41 GB | 0.8s[2026-03-21 14:44:34.014] [PrefixCache] Radix tree prefix caching active (64 entries max)\n\r[done] ready | mem 18.35 GB | 0.9s\n[2026-03-21 14:44:34.014] [StructuredOutput] Disabling thinking for guided JSON on reasoning-capable model\n[2026-03-21 14:44:34.198] [PrefixCache] Prefill: mode=non-streaming | outcome=miss | input_tokens=113 | cached_tokens=0 | suffix_tokens=113 | radix_entries=0 | lookup=0.000000s | layers=40 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]\n[2026-03-21 14:44:35.075] [PrefixCache] Save complete: mode=non-streaming | stored_tokens=113 | radix_entries=1 | trim=0.000002s | truncate=0.000026s | insert=0.000029s | layers=40 active_layers=10 max_offset=113 sample=[3:KVCacheSimple@113, 7:KVCacheSimple@113, 11:KVCacheSimple@113, 15:KVCacheSimple@113]\n[2026-03-21 14:44:35.075] [CacheProfile] phase=restore | mode=non-streaming | outcome=miss | input_tokens=113 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=0.569s | overhead_share=0.000000\n[2026-03-21 14:44:35.075] [CacheProfile] phase=save | mode=non-streaming | outcome=save | input_tokens=113 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000002s | truncate=0.000026s | insert=0.000029s | cache_overhead=0.000057s | prompt_time=0.569s | overhead_share=0.000100\n",
+          "transport": "cli-guided-json",
+          "binary": ".build/arm64-apple-macosx/release/afm",
+          "args": [
+            "mlx",
+            "-m",
+            "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "-s",
+            "Return a person record for Grace Hopper, age 45, occupation computer scientist.",
+            "--guided-json",
+            "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"name\":{\"type\":\"string\"},\"age\":{\"type\":\"integer\"},\"occupation\":{\"type\":\"string\"}},\"required\":[\"name\",\"age\",\"occupation\"]}",
+            "--max-tokens",
+            "400",
+            "--temperature",
+            "0"
+          ],
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      }
+    ],
+    "stats": {
+      "successes": 6,
+      "failures": 0,
+      "errors": 0,
+      "tokenUsage": {
+        "prompt": 0,
+        "completion": 0,
+        "cached": 0,
+        "total": 0,
+        "numRequests": 6,
+        "completionDetails": {
+          "reasoning": 0,
+          "acceptedPrediction": 0,
+          "rejectedPrediction": 0
+        },
+        "assertions": {
+          "total": 0,
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "numRequests": 0,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0
+          }
+        }
+      },
+      "durationMs": 7205,
+      "evaluationDurationMs": 7205
+    }
+  },
+  "config": {
+    "tags": {},
+    "description": "AFM structured-output suite",
+    "prompts": [
+      "{{prompt}}"
+    ],
+    "providers": [
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-api-json-schema",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_DEFAULT",
+          "modelEnv": "AFM_MODEL",
+          "extract": "content"
+        }
+      }
+    ],
+    "tests": [
+      {
+        "description": "schema/person_basic via API json_schema",
+        "vars": {
+          "prompt": "Return a person record for Ada Lovelace, age 36, occupation mathematician.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "person_record",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "age": {
+                    "type": "integer"
+                  },
+                  "occupation": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "age",
+                  "occupation"
+                ]
+              }
+            }
+          }
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"name\""
+          },
+          {
+            "type": "contains",
+            "value": "\"occupation\""
+          }
+        ]
+      },
+      {
+        "description": "schema/meeting_action_items via API json_schema",
+        "vars": {
+          "prompt": "Extract action items from this meeting note. Transcript: Sarah will draft the customer email by Friday. Ben owns the dashboard fix and will deploy on Tuesday. Priya needs to confirm pricing with finance this afternoon.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "meeting_action_items",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "owner": {
+                          "type": "string"
+                        },
+                        "task": {
+                          "type": "string"
+                        },
+                        "due_date": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "owner",
+                        "task",
+                        "due_date"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "items"
+                ]
+              }
+            }
+          }
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"items\""
+          }
+        ]
+      },
+      {
+        "description": "schema/catalog_normalization refs via API json_schema",
+        "vars": {
+          "prompt": "Normalize this product listing: TrailPro 18L commuter backpack. Water-resistant recycled nylon shell, laptop sleeve for 16 inch devices, color midnight blue, retail price 89 dollars, weight 0.9 kg, suitable for commuting and short hikes.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "catalog_normalization",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "product_name": {
+                    "type": "string"
+                  },
+                  "category": {
+                    "type": "string",
+                    "enum": [
+                      "backpack",
+                      "shoes",
+                      "jacket",
+                      "accessory"
+                    ]
+                  },
+                  "price_usd": {
+                    "type": "number"
+                  },
+                  "attributes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "value": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "value"
+                      ]
+                    }
+                  },
+                  "use_cases": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "product_name",
+                  "category",
+                  "price_usd",
+                  "attributes",
+                  "use_cases"
+                ]
+              }
+            }
+          }
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"attributes\""
+          }
+        ]
+      },
+      {
+        "description": "edge/nullable field via API json_schema",
+        "vars": {
+          "prompt": "Return a CRM lead record for customer Jordan Lee at Acme Labs. Jordan does not have a phone number on file and prefers email.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "crm_lead_nullable",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "company": {
+                    "type": "string"
+                  },
+                  "preferred_channel": {
+                    "type": "string",
+                    "enum": [
+                      "email",
+                      "phone",
+                      "sms"
+                    ]
+                  },
+                  "phone": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "company",
+                  "preferred_channel",
+                  "phone"
+                ]
+              }
+            }
+          }
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"phone\""
+          }
+        ]
+      },
+      {
+        "description": "edge/anyOf priority via API json_schema",
+        "vars": {
+          "prompt": "Return a triage object for this issue: production payments are failing and executives are asking for updates every hour.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "triage_anyof",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "priority": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "enum": [
+                          1,
+                          2,
+                          3
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "p1",
+                          "p2",
+                          "p3"
+                        ]
+                      }
+                    ]
+                  },
+                  "summary": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "priority",
+                  "summary"
+                ]
+              }
+            }
+          }
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"priority\""
+          }
+        ]
+      },
+      {
+        "description": "cli guided-json basic person",
+        "provider": {
+          "options": {
+            "id": "../providers/afm_provider.mjs",
+            "config": {
+              "transport": "cli-guided-json",
+              "binaryEnv": "AFM_BINARY",
+              "modelEnv": "AFM_MODEL",
+              "modelCacheEnv": "MACAFM_MLX_MODEL_CACHE",
+              "basePath": "/Volumes/edata/codex/dev/git/maclocal-api/NEXT/maclocal-api/Scripts/feature-promptfoo-agentic/datasets"
+            }
+          },
+          "config": {
+            "transport": "cli-guided-json",
+            "binaryEnv": "AFM_BINARY",
+            "modelEnv": "AFM_MODEL",
+            "modelCacheEnv": "MACAFM_MLX_MODEL_CACHE",
+            "basePath": "/Volumes/edata/codex/dev/git/maclocal-api/NEXT/maclocal-api/Scripts/feature-promptfoo-agentic/datasets"
+          },
+          "label": "afm-cli-guided-json"
+        },
+        "vars": {
+          "prompt": "Return a person record for Grace Hopper, age 45, occupation computer scientist.",
+          "guided_json": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "age": {
+                "type": "integer"
+              },
+              "occupation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "age",
+              "occupation"
+            ]
+          }
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"name\""
+          }
+        ]
+      }
+    ],
+    "scenarios": [],
+    "env": {},
+    "outputPath": [
+      "test-reports/promptfoo-agentic/structured-mlx-community_Qwen3.5-35B-A3B-4bit.json"
+    ],
+    "extensions": [],
+    "metadata": {},
+    "evaluateOptions": {}
+  },
+  "shareableUrl": null,
+  "metadata": {
+    "promptfooVersion": "0.120.26",
+    "nodeVersion": "v25.8.1",
+    "platform": "darwin",
+    "arch": "arm64",
+    "exportedAt": "2026-03-21T18:44:35.348Z",
+    "evaluationCreatedAt": "2026-03-21T18:44:27.998Z"
+  }
+}
