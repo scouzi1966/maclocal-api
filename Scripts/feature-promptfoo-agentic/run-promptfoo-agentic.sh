@@ -8,7 +8,7 @@ cd "$repo_root"
 
 model="${AFM_MODEL:-mlx-community/Qwen3.5-35B-A3B-4bit}"
 afm_binary="${AFM_BINARY:-.build/arm64-apple-macosx/release/afm}"
-out_dir="${AFM_PROMPTFOO_OUT_DIR:-test-reports/promptfoo-agentic}"
+out_dir="${AFM_PROMPTFOO_OUT_DIR:-/Volumes/edata/promptfoo/data/maclocal-api/current}"
 mode="${1:-all}"
 port="${AFM_PROMPTFOO_PORT:-9999}"
 server_pid=""

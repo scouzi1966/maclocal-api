@@ -137,6 +137,17 @@ MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache \
   Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh
 ```
 
+By default, the wrapper writes reports to:
+
+`/Volumes/edata/promptfoo/data/maclocal-api/current`
+
+Override that location with:
+
+```bash
+AFM_PROMPTFOO_OUT_DIR=/your/custom/output/path \
+  Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh
+```
+
 That wrapper:
 - runs the structured core suite once against the default AFM profile
 - runs the structured stress suite once against the default AFM profile
@@ -151,7 +162,7 @@ That wrapper:
 - runs the Pi primary-source suite three times
 - runs the OpenClaw primary-source suite three times
 - runs the Hermes primary-source suite three times
-- writes JSON reports under `test-reports/promptfoo-agentic/`
+- writes JSON reports under `/Volumes/edata/promptfoo/data/maclocal-api/current`
 - starts and stops one AFM server at a time
 
 Useful variants:
@@ -253,7 +264,7 @@ Run it from the repo root after a Promptfoo eval:
 AFM_JUDGE_MODEL=mlx-community/Qwen3.5-35B-A3B-4bit \
 AFM_JUDGE_BASE_URL=http://127.0.0.1:9999/v1 \
 node Scripts/feature-promptfoo-agentic/judges/classify-failures.mjs \
-  test-reports/promptfoo-agentic/toolcall-default-mlx-community_Qwen3.5-35B-A3B-4bit.json
+  /Volumes/edata/promptfoo/data/maclocal-api/current/toolcall-default-mlx-community_Qwen3.5-35B-A3B-4bit.json
 ```
 
 That writes:
