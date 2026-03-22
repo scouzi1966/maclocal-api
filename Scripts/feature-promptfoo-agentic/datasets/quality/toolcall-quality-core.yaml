@@ -1,0 +1,49 @@
+- description: "quality: required weather call"
+  metadata:
+    suite: quality
+    classification: not_yet_classified
+    use_case: general_tool_use
+  vars:
+    prompt: "What is the weather in Berlin?"
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: "Get weather for a location"
+          parameters:
+            type: object
+            properties:
+              location:
+                type: string
+            required: [location]
+    tool_choice: required
+  assert:
+    - type: is-json
+    - type: contains
+      value: "\"get_weather\""
+    - type: contains
+      value: "\"Berlin\""
+
+- description: "quality: tool none respected"
+  metadata:
+    suite: quality
+    classification: not_yet_classified
+    use_case: tool_suppression
+  vars:
+    prompt: "What is the weather in Sydney?"
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: "Get weather for a location"
+          parameters:
+            type: object
+            properties:
+              location:
+                type: string
+            required: [location]
+    tool_choice: none
+  assert:
+    - type: equals
+      value: "[]"
+

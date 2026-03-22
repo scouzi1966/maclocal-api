@@ -1,0 +1,370 @@
+- description: "opencode: use grep before reading whole files"
+  metadata:
+    suite: framework_schemas
+    classification: not_yet_classified
+    source: opencode
+    framework: OpenCode
+  vars:
+    prompt: "Find where PrefixCache Save complete is logged in the codebase."
+    system_prompt: "You are a coding agent using OpenCode-style tools. Prefer targeted search before opening files."
+    tools:
+      - type: function
+        function:
+          name: grep
+          description: "Search file contents"
+          parameters:
+            type: object
+            properties:
+              pattern:
+                type: string
+              path:
+                type: string
+              include:
+                type: string
+              literal_text:
+                type: boolean
+            required: [pattern]
+      - type: function
+        function:
+          name: view
+          description: "View file contents"
+          parameters:
+            type: object
+            properties:
+              file_path:
+                type: string
+              offset:
+                type: integer
+              limit:
+                type: integer
+            required: [file_path]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'grep' &&
+          /PrefixCache Save complete/i.test(String(parsed.tool_calls[0].function.arguments.pattern || ''));
+
+- description: "opencode: use view to inspect a specific file"
+  metadata:
+    suite: framework_schemas
+    classification: not_yet_classified
+    source: opencode
+    framework: OpenCode
+  vars:
+    prompt: "Open Sources/MacLocalAPI/Models/MLXModelService.swift and inspect the restore path near the middle of the file."
+    system_prompt: "You are a coding agent using OpenCode-style tools."
+    tools:
+      - type: function
+        function:
+          name: view
+          description: "View file contents"
+          parameters:
+            type: object
+            properties:
+              file_path:
+                type: string
+              offset:
+                type: integer
+              limit:
+                type: integer
+            required: [file_path]
+      - type: function
+        function:
+          name: grep
+          description: "Search file contents"
+          parameters:
+            type: object
+            properties:
+              pattern:
+                type: string
+              path:
+                type: string
+            required: [pattern]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const call = parsed.tool_calls[0];
+        return parsed.tool_calls.length === 1 &&
+          call.function.name === 'view' &&
+          /MLXModelService\.swift$/.test(String(call.function.arguments.file_path || ''));
+
+- description: "opencode: prefer diagnostics after code edit"
+  metadata:
+    suite: framework_schemas
+    classification: not_yet_classified
+    source: opencode
+    framework: OpenCode
+  vars:
+    prompt: "What should you do next?"
+    messages:
+      - role: system
+        content: "You are a coding agent using OpenCode-style tools. After edits, prefer diagnostics before broader commands."
+      - role: user
+        content: "Update the controller to add index to non-streaming tool calls."
+      - role: assistant
+        tool_calls:
+          - id: call_patch_1
+            type: function
+            function:
+              name: patch
+              arguments: "{\"file_path\":\"Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift\",\"diff\":\"...\"}"
+      - role: tool
+        tool_call_id: call_patch_1
+        content: "Patch applied successfully"
+      - role: user
+        content: "What should you do next?"
+    tools:
+      - type: function
+        function:
+          name: diagnostics
+          description: "Get diagnostics information"
+          parameters:
+            type: object
+            properties:
+              file_path:
+                type: string
+      - type: function
+        function:
+          name: bash
+          description: "Execute shell commands"
+          parameters:
+            type: object
+            properties:
+              command:
+                type: string
+              timeout:
+                type: integer
+            required: [command]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'diagnostics';
+
+- description: "pi: prefer read before edit for existing file changes"
+  metadata:
+    suite: framework_schemas
+    classification: not_yet_classified
+    source: pi
+    framework: Pi
+  vars:
+    prompt: "Change the README to document the new promptfoo toolcall-quality suite."
+    system_prompt: "You are a Pi-style coding agent with only read, write, edit, and bash. Inspect before editing."
+    tools:
+      - type: function
+        function:
+          name: read
+          description: "Read file contents"
+          parameters:
+            type: object
+            properties:
+              filePath:
+                type: string
+              offset:
+                type: integer
+              limit:
+                type: integer
+            required: [filePath]
+      - type: function
+        function:
+          name: edit
+          description: "Replace exact text in a file"
+          parameters:
+            type: object
+            properties:
+              filePath:
+                type: string
+              oldText:
+                type: string
+              newText:
+                type: string
+            required: [filePath, oldText, newText]
+      - type: function
+        function:
+          name: write
+          description: "Write a whole file"
+          parameters:
+            type: object
+            properties:
+              filePath:
+                type: string
+              content:
+                type: string
+            required: [filePath, content]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'read';
+
+- description: "pi: use edit or ask for file path on surgical replacement"
+  metadata:
+    suite: framework_schemas
+    classification: not_yet_classified
+    source: pi
+    framework: Pi
+  vars:
+    prompt: "Replace the phrase 'cache: MISS' with 'cache: MISS suffix=41' in the existing controller log line."
+    system_prompt: "You are a Pi-style coding agent. Use edit for precise replacements in existing files."
+    tools:
+      - type: function
+        function:
+          name: edit
+          description: "Replace exact text in a file"
+          parameters:
+            type: object
+            properties:
+              filePath:
+                type: string
+              oldText:
+                type: string
+              newText:
+                type: string
+            required: [filePath, oldText, newText]
+      - type: function
+        function:
+          name: write
+          description: "Write a whole file"
+          parameters:
+            type: object
+            properties:
+              filePath:
+                type: string
+              content:
+                type: string
+            required: [filePath, content]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        if (parsed.tool_calls.length === 1) {
+          return parsed.tool_calls[0].function.name === 'edit';
+        }
+        return parsed.tool_calls.length === 0 &&
+          /which file|file path|specify the file/i.test(parsed.content);
+
+- description: "openclaw: choose session search for prior context recall"
+  metadata:
+    suite: framework_schemas
+    classification: not_yet_classified
+    source: openclaw
+    framework: OpenClaw
+  vars:
+    prompt: "What did we conclude last time about exact replay on recurrent-cache models?"
+    system_prompt: "You are an OpenClaw-style agent with session persistence and memory."
+    tools:
+      - type: function
+        function:
+          name: session_search
+          description: "Search prior conversation history and saved sessions"
+          parameters:
+            type: object
+            properties:
+              query:
+                type: string
+            required: [query]
+      - type: function
+        function:
+          name: send_message
+          description: "Send a message to a chat channel"
+          parameters:
+            type: object
+            properties:
+              channel:
+                type: string
+              text:
+                type: string
+            required: [channel, text]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'session_search';
+
+- description: "hermes: use clarify when key booking details are missing"
+  metadata:
+    suite: framework_schemas
+    classification: not_yet_classified
+    source: hermes
+    framework: Hermes Agent
+  vars:
+    prompt: "Book me a flight to Tokyo next month."
+    system_prompt: "You are a Hermes-style agent with clarify and delegation tools."
+    tools:
+      - type: function
+        function:
+          name: clarify
+          description: "Ask a structured clarification question before acting"
+          parameters:
+            type: object
+            properties:
+              question:
+                type: string
+              fields:
+                type: array
+                items:
+                  type: string
+            required: [question]
+      - type: function
+        function:
+          name: delegate_task
+          description: "Delegate a task to a subagent"
+          parameters:
+            type: object
+            properties:
+              goal:
+                type: string
+            required: [goal]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'clarify';
+
+- description: "hermes: use todo to plan a multi-step migration"
+  metadata:
+    suite: framework_schemas
+    classification: not_yet_classified
+    source: hermes
+    framework: Hermes Agent
+  vars:
+    prompt: "Plan the work to migrate our Promptfoo harness to nightly CI with classification and reporting."
+    system_prompt: "You are a Hermes-style agent. Use a todo/planning tool for multi-step execution plans."
+    tools:
+      - type: function
+        function:
+          name: todo
+          description: "Manage a structured task list"
+          parameters:
+            type: object
+            properties:
+              action:
+                type: string
+              items:
+                type: array
+                items:
+                  type: string
+            required: [action]
+      - type: function
+        function:
+          name: terminal
+          description: "Run a shell command"
+          parameters:
+            type: object
+            properties:
+              command:
+                type: string
+            required: [command]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'todo';
