@@ -5,7 +5,7 @@ import MLXLMCommon
 struct MLXChatCompletionsController: RouteCollection {
     private let streamingEnabled: Bool
     private let modelID: String
-    private let service: MLXModelService
+    private let service: any MLXChatServing
     private let temperature: Double?
     private let topP: Double?
     private let maxTokens: Int?
@@ -23,7 +23,7 @@ struct MLXChatCompletionsController: RouteCollection {
     init(
         streamingEnabled: Bool = true,
         modelID: String,
-        service: MLXModelService,
+        service: any MLXChatServing,
         temperature: Double?,
         topP: Double? = nil,
         maxTokens: Int? = nil,
@@ -404,37 +404,19 @@ struct MLXChatCompletionsController: RouteCollection {
                 let toolCallEndTag = res.toolCallEndTag
                 let thinkStartTag = res.thinkStartTag
                 let thinkEndTag = res.thinkEndTag
-                var inToolCall = false
-                var madeToolCall = false
-                var currentToolText = ""
-
-                // Incremental tool call streaming state (OpenAI-compatible).
-                // Emits function name and argument fragments as XML tags complete,
-                // rather than waiting for the entire tool call body.
-                var incrementalEmittedFirst = false
-                var incrementalCallId = ""
-                var incrementalToolIndex = 0
-                var incrementalParamCount = 0
-                var incrementalEmittedKeys = Set<String>()
-
-                // Build parameter name mapping from tool schemas.
-                // When --fix-tool-args is enabled, we build a comprehensive mapping
-                // that handles case-insensitive, snake↔camel, and suffix matches.
-                // Otherwise, just the basic snake_case → camelCase mapping for Qwen3-Coder.
-                var paramNameMapping = [String: String]()  // model-emitted-key → original
-                if let tools = chatRequest.tools {
-                    for tool in tools {
-                        if let paramsAny = tool.function.parameters?.toSendable() as? [String: Any],
-                           let props = paramsAny["properties"] as? [String: Any] {
-                            for key in props.keys {
-                                let snaked = Self.toSnakeCase(key)
-                                if snaked != key {
-                                    paramNameMapping[snaked] = key
-                                }
-                            }
-                        }
+                let toolRuntime = (toolCallStartTag != nil && toolCallEndTag != nil) ? ToolCallStreamingRuntime(
+                    toolCallStartTag: toolCallStartTag!,
+                    toolCallEndTag: toolCallEndTag!,
+                    toolCallParser: self.service.toolCallParser,
+                    tools: chatRequest.tools,
+                    applyFixToolArgs: { rtc in
+                        return self.applyFixToolArgs(rtc, tools: chatRequest.tools)
+                    },
+                    remapSingleKey: { key, toolName in
+                        return self.remapSingleKey(key, toolName: toolName, tools: chatRequest.tools)
                     }
-                }
+                ) : nil
+                let fallbackParamNameMapping = toolRuntime?.paramNameMapping ?? [:]
 
                 var pendingRawTag: String? = nil
                 for try await streamChunk in res.stream {
@@ -448,10 +430,23 @@ struct MLXChatCompletionsController: RouteCollection {
                     if let pt = streamChunk.promptTime { realPromptTime = pt }
                     if let gt = streamChunk.generateTime { realGenerateTime = gt }
 
+                    if let deltas = streamChunk.toolCallDeltas, !deltas.isEmpty {
+                        hasToolCalls = true
+                        let tcChunk = ChatCompletionStreamResponse(
+                            id: streamId,
+                            model: res.modelID,
+                            toolCalls: deltas
+                        )
+                        let tcData = try encoder.encode(tcChunk)
+                        if let jsonString = String(data: tcData, encoding: .utf8) {
+                            try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                        }
+                        continue
+                    }
+
                     // Handle tool call chunks from the vendor parser
                     if let tcs = streamChunk.toolCalls, !tcs.isEmpty {
                         hasToolCalls = true
-                        madeToolCall = true
                         for tc in tcs {
                             collectedToolCalls.append(tc)
                             if self.veryVerbose {
@@ -480,199 +475,54 @@ struct MLXChatCompletionsController: RouteCollection {
                         continue
                     }
 
-                    // Token-level tool call tag detection (before think extraction).
-                    // Uses contains() for robustness: detokenizer may merge tokens
-                    // or add whitespace around special tokens.
-                    if let startTag = toolCallStartTag, !inToolCall, piece.contains(startTag) {
-                        inToolCall = true
-                        madeToolCall = true
+                    if let toolRuntime {
                         fullContent += piece
-                        // Flush any remaining thinkBuffer content BEFORE tool call deltas,
-                        // so clients receive text content before tool_calls (correct ordering).
-                        if extractThinking && !thinkBuffer.isEmpty {
-                            let flushed: String?
-                            let flushedReasoning: String?
-                            if insideThinkBlock {
-                                flushedReasoning = thinkBuffer
-                                flushed = nil
-                            } else {
-                                flushed = thinkBuffer
-                                flushedReasoning = nil
-                            }
-                            thinkBuffer = ""
-                            if flushed != nil || flushedReasoning != nil {
-                                let flushChunk = ChatCompletionStreamResponse(
-                                    id: streamId,
-                                    model: res.modelID,
-                                    content: flushed ?? "",
-                                    reasoningContent: flushedReasoning,
-                                    isFirst: false
-                                )
-                                if let flushData = try? encoder.encode(flushChunk),
-                                   let jsonString = String(data: flushData, encoding: .utf8) {
-                                    try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                        let runtimeOutput = toolRuntime.process(piece: piece)
+                        if runtimeOutput.handled {
+                            if runtimeOutput.events.contains(where: {
+                                if case .started = $0 { return true }
+                                return false
+                            }), extractThinking && !thinkBuffer.isEmpty {
+                                let flushed: String?
+                                let flushedReasoning: String?
+                                if insideThinkBlock {
+                                    flushedReasoning = thinkBuffer
+                                    flushed = nil
+                                } else {
+                                    flushed = thinkBuffer
+                                    flushedReasoning = nil
                                 }
-                            }
-                        }
-                        // Any text after the start tag begins the tool call body
-                        if let range = piece.range(of: startTag) {
-                            let after = String(piece[range.upperBound...])
-                            if !after.isEmpty { currentToolText += after }
-                        }
-                        if self.veryVerbose {
-                            print("\(Self.gold)[\(Self.timestamp())] RECV <tool_call> start tag\(Self.reset)")
-                            fflush(stdout)
-                        }
-                        continue
-                    }
-                    if inToolCall {
-                        fullContent += piece
-                        if let endTag = toolCallEndTag, piece.contains(endTag) {
-                            // Text before end tag is part of tool call body
-                            if let range = piece.range(of: endTag) {
-                                let before = String(piece[..<range.lowerBound])
-                                if !before.isEmpty { currentToolText += before }
-                            }
-                            if self.veryVerbose {
-                                let bodyPreviewForLog = currentToolText.count > 500
-                                    ? "\(currentToolText.prefix(250))...\(currentToolText.suffix(250))"
-                                    : currentToolText
-                                print("\(Self.gold)[\(Self.timestamp())] RECV </tool_call> end tag\n  body=\(currentToolText.count) chars\n  raw=\(bodyPreviewForLog)\(Self.reset)")
-                                fflush(stdout)
-                            }
-                            // -VV: Full verbatim body from model (no truncation)
-                            if self.trace {
-                                print("\(Self.cyan)[\(Self.timestamp())] [VV] RECV←MODEL tool_call body verbatim (\(currentToolText.count) chars):\n\(currentToolText)\(Self.reset)")
-                                fflush(stdout)
-                            }
-
-                            if incrementalEmittedFirst {
-                                // Run fallback parser on complete tool body — this does
-                                // cross-param dedup, key remapping, and type coercion.
-                                // Emit the CLEAN args via SSE (deferred from midstream).
-                                let wrapped = "\(toolCallStartTag!)\(currentToolText)\(toolCallEndTag!)"
-                                let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
-                                for tc in parsed {
-                                    hasToolCalls = true
-                                    let rtc = MLXModelService.coerceArgumentTypes(self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: incrementalToolIndex, paramNameMapping: paramNameMapping), tools: chatRequest.tools), tools: chatRequest.tools)
-                                    // Replace the placeholder we added earlier
-                                    if incrementalToolIndex < collectedToolCalls.count {
-                                        collectedToolCalls[incrementalToolIndex] = rtc
-                                    } else {
-                                        collectedToolCalls.append(rtc)
-                                    }
-
-                                    // Emit clean args as single SSE chunk
-                                    let argsJson = rtc.function.arguments
-                                    let argsDelta = StreamDeltaToolCall(
-                                        index: incrementalToolIndex,
-                                        id: nil, type: nil,
-                                        function: StreamDeltaFunction(name: nil, arguments: argsJson)
+                                thinkBuffer = ""
+                                if flushed != nil || flushedReasoning != nil {
+                                    let flushChunk = ChatCompletionStreamResponse(
+                                        id: streamId,
+                                        model: res.modelID,
+                                        content: flushed ?? "",
+                                        reasoningContent: flushedReasoning,
+                                        isFirst: false
                                     )
-                                    let argsChunk = ChatCompletionStreamResponse(
-                                        id: streamId, model: res.modelID, toolCalls: [argsDelta]
-                                    )
-                                    let argsData = try encoder.encode(argsChunk)
-                                    if let jsonString = String(data: argsData, encoding: .utf8) {
-                                        if self.trace {
-                                            print("\(Self.cyan)[\(Self.timestamp())] [SSE] endtag deferred args: \(argsJson.prefix(200))\(Self.reset)")
-                                            fflush(stdout)
-                                        }
+                                    if let flushData = try? encoder.encode(flushChunk),
+                                       let jsonString = String(data: flushData, encoding: .utf8) {
                                         try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                                     }
-
-                                    if self.veryVerbose {
-                                        print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (incremental): \(rtc.function.name)\n  id=\(rtc.id)\n  args=\(rtc.function.arguments)\(Self.reset)")
-                                        fflush(stdout)
-                                    }
                                 }
-                            } else {
-                                // Incremental parsing never kicked in (non-XML format).
-                                // Fall back to single-chunk emission.
-                                var parsed: [ToolCall] = []
+                            }
 
-                                // afm_adaptive_xml: try direct JSON parse first (handles model format-switching)
-                                if self.service.toolCallParser == "afm_adaptive_xml" {
-                                    let trimmedBody = currentToolText.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    if trimmedBody.hasPrefix("{"),
-                                       let data = trimmedBody.data(using: .utf8),
-                                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                                       let name = json["name"] as? String {
-                                        var arguments: [String: any Sendable] = [:]
-                                        if let args = (json["arguments"] as? [String: Any]) ?? (json["parameters"] as? [String: Any]) {
-                                            for (k, v) in args { arguments[k] = v as Sendable }
-                                        }
-                                        // Validate tool name against request schema; fuzzy-match if hallucinated
-                                        let validNames = effectiveTools?.map { $0.function.name } ?? []
-                                        let resolvedName: String
-                                        if validNames.contains(name) {
-                                            resolvedName = name
-                                        } else if let match = Self.fuzzyMatchToolName(name, candidates: validNames) {
-                                            resolvedName = match
-                                            if self.veryVerbose {
-                                                print("\(Self.gold)[\(Self.timestamp())] afm_adaptive_xml: corrected hallucinated tool '\(name)' → '\(match)'\(Self.reset)")
-                                                fflush(stdout)
-                                            }
-                                        } else {
-                                            resolvedName = name  // pass through, let client report the error
-                                        }
-                                        parsed = [ToolCall(function: .init(name: resolvedName, arguments: arguments))]
-                                        if self.veryVerbose {
-                                            print("\(Self.gold)[\(Self.timestamp())] afm_adaptive_xml: JSON-in-XML fallback parsed '\(resolvedName)' with \(arguments.count) args\(Self.reset)")
-                                            fflush(stdout)
-                                        }
-                                    }
-                                }
-
-                                // Fall back to regex extraction (existing behavior)
-                                if parsed.isEmpty {
-                                    let wrapped = "\(toolCallStartTag!)\(currentToolText)\(toolCallEndTag!)"
-                                    let (regexParsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
-                                    parsed = regexParsed
-                                }
-
-                                // Validate/correct tool names against request schema
-                                if self.service.toolCallParser == "afm_adaptive_xml" {
-                                    let validNames = effectiveTools?.map { $0.function.name } ?? []
-                                    if !validNames.isEmpty {
-                                        parsed = parsed.map { tc in
-                                            if validNames.contains(tc.function.name) { return tc }
-                                            if let match = Self.fuzzyMatchToolName(tc.function.name, candidates: validNames) {
-                                                if self.veryVerbose {
-                                                    print("\(Self.gold)[\(Self.timestamp())] afm_adaptive_xml: corrected hallucinated tool '\(tc.function.name)' → '\(match)'\(Self.reset)")
-                                                    fflush(stdout)
-                                                }
-                                                return ToolCall(function: .init(name: match, arguments: tc.function.arguments))
-                                            }
-                                            return tc
-                                        }
-                                    }
-                                }
-
-                                if parsed.isEmpty {
-                                    if self.veryVerbose {
-                                        let bodyPreview = currentToolText.count > 200 ? "\(currentToolText.prefix(100))...\(currentToolText.suffix(100))" : currentToolText
-                                        print("\(Self.gold)[\(Self.timestamp())] SEND tool_call fallback: found 0 tool calls\n  body=\(bodyPreview)\(Self.reset)")
-                                        fflush(stdout)
-                                    }
-                                }
-                                for tc in parsed {
+                            for event in runtimeOutput.events {
+                                switch event {
+                                case .started:
+                                    break
+                                case .appendCollected(let toolCall):
                                     hasToolCalls = true
-                                    let rtc = MLXModelService.coerceArgumentTypes(self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools), tools: chatRequest.tools)
-                                    collectedToolCalls.append(rtc)
-                                    if self.veryVerbose {
-                                        print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (fallback): \(rtc.function.name)\n  id=\(rtc.id)\n  args=\(rtc.function.arguments)\(Self.reset)")
-                                        fflush(stdout)
+                                    collectedToolCalls.append(toolCall)
+                                case .replaceCollected(let index, let toolCall):
+                                    hasToolCalls = true
+                                    if index < collectedToolCalls.count {
+                                        collectedToolCalls[index] = toolCall
+                                    } else {
+                                        collectedToolCalls.append(toolCall)
                                     }
-                                    let delta = StreamDeltaToolCall(
-                                        index: collectedToolCalls.count - 1,
-                                        id: rtc.id,
-                                        type: rtc.type,
-                                        function: StreamDeltaFunction(
-                                            name: rtc.function.name,
-                                            arguments: rtc.function.arguments
-                                        )
-                                    )
+                                case .delta(let delta):
                                     let tcChunk = ChatCompletionStreamResponse(
                                         id: streamId,
                                         model: res.modelID,
@@ -680,102 +530,13 @@ struct MLXChatCompletionsController: RouteCollection {
                                     )
                                     let tcData = try encoder.encode(tcChunk)
                                     if let jsonString = String(data: tcData, encoding: .utf8) {
-                                        // -VV: Log SSE chunk sent to client
-                                        if self.trace {
-                                            print("\(Self.cyan)[\(Self.timestamp())] [VV] SEND→CLIENT SSE tool_call:\n  data: \(jsonString)\(Self.reset)")
-                                            fflush(stdout)
-                                        }
                                         try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                                     }
                                 }
                             }
-                            // Reset state for next tool call
-                            currentToolText = ""
-                            inToolCall = false
-                            incrementalEmittedFirst = false
-                            incrementalCallId = ""
-                            incrementalParamCount = 0
-                            incrementalEmittedKeys = Set<String>()
-                        } else {
-                            currentToolText += piece
-
-                            // --- Incremental XML tag scanning ---
-                            // Try to detect <function=NAME> and complete <parameter=KEY>...</parameter> pairs
-                            // in the accumulated currentToolText and emit JSON argument fragments.
-
-                            // 1. Detect <function=NAME> — emit first delta with name
-                            if !incrementalEmittedFirst,
-                               let funcRange = currentToolText.range(of: #"<function=([^>]+)>"#, options: .regularExpression) {
-                                let matchStr = String(currentToolText[funcRange])
-                                // Extract function name from <function=NAME>
-                                if let nameRange = matchStr.range(of: "="),
-                                   let closeRange = matchStr.range(of: ">", options: .backwards) {
-                                    let funcName = String(matchStr[nameRange.upperBound..<closeRange.lowerBound])
-                                    // If funcName looks like JSON (contains " or {), the model emitted
-                                    // JSON inside XML tags. Skip incremental emission — the end-tag
-                                    // handler will try JSON fallback parsing instead.
-                                    if funcName.contains("\"") || funcName.contains("{") {
-                                        if self.veryVerbose {
-                                            print("\(Self.gold)[\(Self.timestamp())] Skipping incremental emit: funcName looks like JSON: \(funcName.prefix(60))\(Self.reset)")
-                                            fflush(stdout)
-                                        }
-                                    } else {
-                                    incrementalCallId = "call_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(24))"
-                                    incrementalToolIndex = collectedToolCalls.count
-                                    // Add a placeholder to collectedToolCalls
-                                    let placeholder = ResponseToolCall(
-                                        index: incrementalToolIndex,
-                                        id: incrementalCallId,
-                                        type: "function",
-                                        function: ResponseToolCallFunction(name: funcName, arguments: "")
-                                    )
-                                    collectedToolCalls.append(placeholder)
-                                    hasToolCalls = true
-                                    incrementalEmittedFirst = true
-
-                                    // Emit first delta: id, type, name, empty arguments
-                                    let firstDelta = StreamDeltaToolCall(
-                                        index: incrementalToolIndex,
-                                        id: incrementalCallId,
-                                        type: "function",
-                                        function: StreamDeltaFunction(name: funcName, arguments: "")
-                                    )
-                                    let firstChunk = ChatCompletionStreamResponse(
-                                        id: streamId,
-                                        model: res.modelID,
-                                        toolCalls: [firstDelta]
-                                    )
-                                    let firstData = try encoder.encode(firstChunk)
-                                    if let jsonString = String(data: firstData, encoding: .utf8) {
-                                        try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
-                                    }
-                                    if self.veryVerbose {
-                                        print("\(Self.gold)[\(Self.timestamp())] SEND tool_call name: \(funcName)\n  id=\(incrementalCallId)\(Self.reset)")
-                                        fflush(stdout)
-                                    }
-                                    } // else (funcName is not JSON)
-                                }
-                            }
-
-                            // 2. Detect complete <parameter=KEY>VALUE</parameter> pairs — track but DON'T emit yet.
-                            // SSE emission is deferred until </tool_call> so cross-param dedup can clean
-                            // leaked JSON fragments before anything goes over the wire.
-                            if incrementalEmittedFirst {
-                                let paramPattern = #"<parameter=([^>]+)>([\s\S]*?)</parameter>"#
-                                if let paramRegex = try? NSRegularExpression(pattern: paramPattern, options: [.dotMatchesLineSeparators]) {
-                                    let nsText = currentToolText as NSString
-                                    let matches = paramRegex.matches(in: currentToolText, range: NSRange(location: 0, length: nsText.length))
-                                    for match in matches {
-                                        guard match.numberOfRanges >= 3,
-                                              let keyRange = Range(match.range(at: 1), in: currentToolText),
-                                              let _ = Range(match.range(at: 2), in: currentToolText) else { continue }
-                                        let rawKey = String(currentToolText[keyRange])
-                                        incrementalEmittedKeys.insert(rawKey)
-                                    }
-                                }
-                            }
+                            hasToolCalls = hasToolCalls || toolRuntime.hasToolCalls
+                            continue
                         }
-                        continue
                     }
 
                     if let lps = streamChunk.logprobs {
@@ -871,110 +632,23 @@ struct MLXChatCompletionsController: RouteCollection {
                 }
 
                 // Handle incomplete tool call (model hit max tokens mid-tool-call)
-                if inToolCall && !currentToolText.isEmpty {
-                    if incrementalEmittedFirst {
-                        // Salvage unclosed parameter (e.g. model hit max_tokens mid-content).
-                        // Look for <parameter=KEY>VALUE... without a closing </parameter>.
-                        let unclosedPattern = #"<parameter=([^>]+)>([\s\S]+)$"#
-                        if let unclosedRegex = try? NSRegularExpression(pattern: unclosedPattern, options: []),
-                           let unclosedMatch = unclosedRegex.firstMatch(in: currentToolText, range: NSRange(currentToolText.startIndex..., in: currentToolText)),
-                           let keyRange = Range(unclosedMatch.range(at: 1), in: currentToolText),
-                           let valRange = Range(unclosedMatch.range(at: 2), in: currentToolText) {
-                            let rawKey = String(currentToolText[keyRange])
-                            if !incrementalEmittedKeys.contains(rawKey) {
-                                var value = String(currentToolText[valRange])
-                                if value.hasPrefix("\n") { value = String(value.dropFirst()) }
-                                if value.hasSuffix("\n") { value = String(value.dropLast()) }
-                                value = MLXModelService.decodeJSONEscapes(MLXModelService.decodeXMLEntities(value))
-                                if !value.isEmpty {
-                                    incrementalEmittedKeys.insert(rawKey)
-                                    var emitKey = paramNameMapping[rawKey] ?? rawKey
-                                    if emitKey == rawKey {
-                                        let funcName = incrementalToolIndex < collectedToolCalls.count ? collectedToolCalls[incrementalToolIndex].function.name : ""
-                                        emitKey = self.remapSingleKey(rawKey, toolName: funcName, tools: chatRequest.tools)
-                                    }
-                                    let jsonValue = Self.jsonEncodeString(value)
-                                    let fragment: String
-                                    if incrementalParamCount == 0 {
-                                        fragment = "{\"\(Self.jsonEscapeKey(emitKey))\":\(jsonValue)"
-                                    } else {
-                                        fragment = ",\"\(Self.jsonEscapeKey(emitKey))\":\(jsonValue)"
-                                    }
-                                    incrementalParamCount += 1
-                                    let paramDelta = StreamDeltaToolCall(
-                                        index: incrementalToolIndex,
-                                        id: nil, type: nil,
-                                        function: StreamDeltaFunction(name: nil, arguments: fragment)
-                                    )
-                                    let paramChunk = ChatCompletionStreamResponse(
-                                        id: streamId, model: res.modelID, toolCalls: [paramDelta]
-                                    )
-                                    let paramData = try encoder.encode(paramChunk)
-                                    if let jsonString = String(data: paramData, encoding: .utf8) {
-                                        if self.trace {
-                                            print("\(Self.cyan)[\(Self.timestamp())] [SSE] salvage arg fragment: \(fragment)\(Self.reset)")
-                                            fflush(stdout)
-                                        }
-                                        try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
-                                    }
-                                    if self.veryVerbose {
-                                        print("\(Self.gold)[\(Self.timestamp())] SEND salvaged unclosed param '\(rawKey)' (\(value.count) chars)\(Self.reset)")
-                                        fflush(stdout)
-                                    }
-                                }
-                            }
-                        }
-
-                        // Close the JSON arguments object we started incrementally.
-                        // If no parameters were emitted, send "{}" as a complete object.
-                        let incCloseArgs = incrementalParamCount == 0 ? "{}" : "}"
-                        let closeDelta = StreamDeltaToolCall(
-                            index: incrementalToolIndex,
-                            id: nil,
-                            type: nil,
-                            function: StreamDeltaFunction(name: nil, arguments: incCloseArgs)
-                        )
-                        let closeChunk = ChatCompletionStreamResponse(
-                            id: streamId,
-                            model: res.modelID,
-                            toolCalls: [closeDelta]
-                        )
-                        let closeData = try encoder.encode(closeChunk)
-                        if let jsonString = String(data: closeData, encoding: .utf8) {
-                            if self.trace {
-                                print("\(Self.cyan)[\(Self.timestamp())] [SSE] salvage arg close: \(incCloseArgs)\(Self.reset)")
-                                fflush(stdout)
-                            }
-                            try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
-                        }
-                        // Update the placeholder with final parsed data
-                        let wrapped = "\(toolCallStartTag!)\(currentToolText)\(toolCallEndTag!)"
-                        let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
-                        for tc in parsed {
+                if let toolRuntime {
+                    let trailingEvents = toolRuntime.finishIncompleteToolCall()
+                    for event in trailingEvents {
+                        switch event {
+                        case .started:
+                            break
+                        case .appendCollected(let toolCall):
                             hasToolCalls = true
-                            let rtc = MLXModelService.coerceArgumentTypes(self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: incrementalToolIndex, paramNameMapping: paramNameMapping), tools: chatRequest.tools), tools: chatRequest.tools)
-                            if incrementalToolIndex < collectedToolCalls.count {
-                                collectedToolCalls[incrementalToolIndex] = rtc
+                            collectedToolCalls.append(toolCall)
+                        case .replaceCollected(let index, let toolCall):
+                            hasToolCalls = true
+                            if index < collectedToolCalls.count {
+                                collectedToolCalls[index] = toolCall
                             } else {
-                                collectedToolCalls.append(rtc)
+                                collectedToolCalls.append(toolCall)
                             }
-                        }
-                    } else {
-                        let wrapped = "\(toolCallStartTag!)\(currentToolText)\(toolCallEndTag!)"
-                        let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
-                        for tc in parsed {
-                            hasToolCalls = true
-                            let rtc = MLXModelService.coerceArgumentTypes(self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools), tools: chatRequest.tools)
-                            collectedToolCalls.append(rtc)
-                            let delta = StreamDeltaToolCall(
-                                index: collectedToolCalls.count - 1,
-                                id: rtc.id,
-                                type: rtc.type,
-                                function: StreamDeltaFunction(
-                                    name: rtc.function.name,
-                                    arguments: rtc.function.arguments
-                                )
-                            )
+                        case .delta(let delta):
                             let tcChunk = ChatCompletionStreamResponse(
                                 id: streamId,
                                 model: res.modelID,
@@ -986,8 +660,9 @@ struct MLXChatCompletionsController: RouteCollection {
                             }
                         }
                     }
+                    hasToolCalls = hasToolCalls || toolRuntime.hasToolCalls
                 }
-                if madeToolCall { hasToolCalls = true }
+                if toolRuntime?.madeToolCall == true { hasToolCalls = true }
 
                 // Post-loop fallback: if tools were present but no tool calls detected
                 // by token-level matching, try full-content regex parsing.
@@ -1007,7 +682,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     if !parsed.isEmpty {
                         hasToolCalls = true
                         for tc in parsed {
-                            let rtc = MLXModelService.coerceArgumentTypes(self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: paramNameMapping), tools: chatRequest.tools), tools: chatRequest.tools)
+                            let rtc = MLXModelService.coerceArgumentTypes(self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: fallbackParamNameMapping), tools: chatRequest.tools), tools: chatRequest.tools)
                             collectedToolCalls.append(rtc)
                             let delta = StreamDeltaToolCall(
                                 index: collectedToolCalls.count - 1,

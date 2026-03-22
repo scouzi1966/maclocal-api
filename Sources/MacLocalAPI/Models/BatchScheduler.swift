@@ -26,6 +26,12 @@ private func batchTs() -> String { _batchTsFormatter.string(from: Date()) }
 /// are merged into `BatchKVCacheSimple` for batched decode. Dynamic slot
 /// add/remove uses `extend()` and `filter()` on the batch cache.
 actor BatchScheduler {
+    struct ToolCallRuntimeConfiguration: @unchecked Sendable {
+        let startTag: String
+        let endTag: String
+        let parser: String?
+        let tools: [RequestTool]?
+    }
 
     /// Default maximum concurrent generations.
     static let defaultMaxConcurrent = 8
@@ -73,6 +79,7 @@ actor BatchScheduler {
         var processor: LogitProcessor?
         var detokenizer: NaiveStreamingDetokenizer
         let maxTokens: Int?
+        let toolRuntime: ToolCallStreamingRuntime?
 
         /// Lazy token array from the previous decode step (for deferred dispatch).
         /// Set after asyncEval; materialized via .item() after the NEXT model call.
@@ -91,7 +98,8 @@ actor BatchScheduler {
             sampler: LogitSampler,
             processor: LogitProcessor?,
             detokenizer: NaiveStreamingDetokenizer,
-            maxTokens: Int?
+            maxTokens: Int?,
+            toolRuntime: ToolCallStreamingRuntime?
         ) {
             self.id = UUID()
             self.continuation = continuation
@@ -107,6 +115,7 @@ actor BatchScheduler {
             self.processor = processor
             self.detokenizer = detokenizer
             self.maxTokens = maxTokens
+            self.toolRuntime = toolRuntime
         }
     }
 
@@ -256,6 +265,7 @@ actor BatchScheduler {
         let input: LMInput
         let parameters: GenerateParameters
         let promptTokens: Int
+        let toolCallRuntimeConfig: ToolCallRuntimeConfiguration?
         let continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation
     }
 
@@ -342,7 +352,8 @@ actor BatchScheduler {
     nonisolated func submit(
         input: LMInput,
         parameters: GenerateParameters,
-        promptTokens: Int
+        promptTokens: Int,
+        toolCallRuntimeConfig: ToolCallRuntimeConfiguration? = nil
     ) -> AsyncThrowingStream<StreamChunk, Error> {
         if _isShutdown.withLock({ $0 }) {
             return AsyncThrowingStream { $0.finish(throwing: MLXServiceError.serviceShuttingDown) }
@@ -356,6 +367,7 @@ actor BatchScheduler {
                 input: input,
                 parameters: parameters,
                 promptTokens: promptTokens,
+                toolCallRuntimeConfig: toolCallRuntimeConfig,
                 continuation: continuation
             ))
         }
@@ -534,7 +546,7 @@ actor BatchScheduler {
                     slot.detokenizer.append(token: token)
                     if let chunk = slot.detokenizer.next() {
                         slot.tokenCount += 1
-                        slot.continuation.yield(StreamChunk(text: chunk))
+                        yieldTextChunk(chunk, for: slot)
                     }
                 }
 
@@ -589,7 +601,7 @@ actor BatchScheduler {
                 slot.detokenizer.append(token: token)
                 if let chunk = slot.detokenizer.next() {
                     slot.tokenCount += 1
-                    slot.continuation.yield(StreamChunk(text: chunk))
+                    yieldTextChunk(chunk, for: slot)
                 }
             }
         }
@@ -721,8 +733,22 @@ actor BatchScheduler {
             sampler: logitSampler,
             processor: logitProcessor,
             detokenizer: NaiveStreamingDetokenizer(tokenizer: tokenizer),
-            maxTokens: req.parameters.maxTokens
-        )
+            maxTokens: req.parameters.maxTokens,
+                    toolRuntime: req.toolCallRuntimeConfig.map { config in
+                        ToolCallStreamingRuntime(
+                            toolCallStartTag: config.startTag,
+                            toolCallEndTag: config.endTag,
+                            toolCallParser: config.parser,
+                            tools: config.tools,
+                            applyFixToolArgs: { rtc in
+                                Self.applyFixToolArgs(rtc, tools: config.tools)
+                            },
+                            remapSingleKey: { key, toolName in
+                                Self.remapSingleKey(key, toolName: toolName, tools: config.tools)
+                            }
+                        )
+                    }
+                )
 
         // Emit cached token count so the controller can include it in usage
         if cachedTokens > 0 {
@@ -830,6 +856,10 @@ actor BatchScheduler {
         let slot = slots[index]
         let elapsed = Date().timeIntervalSince(slot.startTime)
         let generateTime = elapsed - slot.prefillTime
+
+        if let trailingEvents = slot.toolRuntime?.finishIncompleteToolCall(), !trailingEvents.isEmpty {
+            yieldToolRuntimeEvents(trailingEvents, to: slot)
+        }
 
         // Save prompt KV state to prefix cache before removal.
         // Use the original per-layer prefill caches (retained on the slot).
@@ -951,6 +981,87 @@ actor BatchScheduler {
             tokenId: data.tokenId,
             logprob: data.logprob,
             topTokens: topTokens
+        )
+    }
+
+    private func yieldTextChunk(_ chunk: String, for slot: SlotState) {
+        if let toolRuntime = slot.toolRuntime {
+            let output = toolRuntime.process(piece: chunk)
+            if output.handled {
+                yieldToolRuntimeEvents(output.events, to: slot)
+                return
+            }
+        }
+        slot.continuation.yield(StreamChunk(text: chunk))
+    }
+
+    private func yieldToolRuntimeEvents(_ events: [ToolCallStreamingEvent], to slot: SlotState) {
+        for chunk in Self.streamChunksToEmit(from: events) {
+            slot.continuation.yield(chunk)
+        }
+    }
+
+    static func streamChunksToEmit(from events: [ToolCallStreamingEvent]) -> [StreamChunk] {
+        var chunks = [StreamChunk]()
+        let deltas = deltaToolCallsToEmit(from: events)
+        if !deltas.isEmpty {
+            chunks.append(StreamChunk(text: "", toolCallDeltas: deltas))
+        }
+        for toolCall in completedToolCallsToEmit(from: events) {
+            chunks.append(StreamChunk(text: "", toolCalls: [toolCall]))
+        }
+        return chunks
+    }
+
+    static func deltaToolCallsToEmit(from events: [ToolCallStreamingEvent]) -> [StreamDeltaToolCall] {
+        var emitted = [StreamDeltaToolCall]()
+        for event in events {
+            if case .delta(let delta) = event {
+                emitted.append(delta)
+            }
+        }
+        return emitted
+    }
+
+    static func completedToolCallsToEmit(from events: [ToolCallStreamingEvent]) -> [ResponseToolCall] {
+        var emitted = [ResponseToolCall]()
+        for event in events {
+            switch event {
+            case .started, .delta:
+                continue
+            case .appendCollected(let toolCall):
+                if !toolCall.function.arguments.isEmpty {
+                    emitted.append(toolCall)
+                }
+            case .replaceCollected(_, let toolCall):
+                emitted.append(toolCall)
+            }
+        }
+        return emitted
+    }
+
+    private static func remapSingleKey(_ key: String, toolName: String, tools: [RequestTool]?) -> String {
+        guard let tools, !tools.isEmpty else { return key }
+        let dummy: [String: any Sendable] = [key: ""]
+        let remapped = MLXModelService.remapArgumentKeys(dummy, toolName: toolName, tools: tools)
+        return remapped.keys.first ?? key
+    }
+
+    private static func applyFixToolArgs(_ rtc: ResponseToolCall, tools: [RequestTool]?) -> ResponseToolCall {
+        guard let tools, !tools.isEmpty else { return rtc }
+        guard let data = rtc.function.arguments.data(using: .utf8),
+              let argsDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return rtc }
+        var sendableArgs = [String: any Sendable]()
+        for (key, value) in argsDict { sendableArgs[key] = value }
+        let remapped = MLXModelService.remapArgumentKeys(sendableArgs, toolName: rtc.function.name, tools: tools)
+        let remappedAny = remapped.mapValues { $0 as Any }
+        guard let newData = try? JSONSerialization.data(withJSONObject: remappedAny, options: [.sortedKeys]),
+              let newString = String(data: newData, encoding: .utf8) else { return rtc }
+        return ResponseToolCall(
+            index: rtc.index,
+            id: rtc.id,
+            type: rtc.type,
+            function: ResponseToolCallFunction(name: rtc.function.name, arguments: newString)
         )
     }
 }

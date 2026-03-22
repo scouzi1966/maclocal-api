@@ -6,6 +6,9 @@ import Testing
 @testable import MacLocalAPI
 
 struct KVCacheTruncateTests {
+    init() throws {
+        try MLXMetalLibrary.ensureAvailable(verbose: false)
+    }
 
     @Test("truncateToOffset physically shrinks arrays to offset")
     func truncateShrinksArrays() {

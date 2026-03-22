@@ -91,7 +91,8 @@ let package = Package(
             name: "MacLocalAPITests",
             dependencies: [
                 "MacLocalAPI",
-                .product(name: "Jinja", package: "swift-jinja")
+                .product(name: "Jinja", package: "swift-jinja"),
+                .product(name: "XCTVapor", package: "vapor")
             ]
         )
     ],

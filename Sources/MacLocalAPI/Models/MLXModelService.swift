@@ -21,6 +21,7 @@ struct StreamChunk: Sendable {
     let text: String
     let logprobs: [ResolvedLogprob]?
     let toolCalls: [ResponseToolCall]?
+    let toolCallDeltas: [StreamDeltaToolCall]?
     let promptTokens: Int?
     let completionTokens: Int?
     let cachedTokens: Int?
@@ -28,10 +29,11 @@ struct StreamChunk: Sendable {
     let generateTime: Double?
     let stoppedBySequence: Bool?
 
-    init(text: String, logprobs: [ResolvedLogprob]? = nil, toolCalls: [ResponseToolCall]? = nil, promptTokens: Int? = nil, completionTokens: Int? = nil, cachedTokens: Int? = nil, promptTime: Double? = nil, generateTime: Double? = nil, stoppedBySequence: Bool? = nil) {
+    init(text: String, logprobs: [ResolvedLogprob]? = nil, toolCalls: [ResponseToolCall]? = nil, toolCallDeltas: [StreamDeltaToolCall]? = nil, promptTokens: Int? = nil, completionTokens: Int? = nil, cachedTokens: Int? = nil, promptTime: Double? = nil, generateTime: Double? = nil, stoppedBySequence: Bool? = nil) {
         self.text = text
         self.logprobs = logprobs
         self.toolCalls = toolCalls
+        self.toolCallDeltas = toolCallDeltas
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
         self.cachedTokens = cachedTokens
@@ -914,36 +916,54 @@ final class MLXModelService: @unchecked Sendable {
 
         // --- Concurrent path: bypass container.perform lock, route through BatchScheduler ---
         if let scheduler = self.scheduler {
-            let input = try await scheduler.prepareInput(userInput)
-            let preparedPromptTokens = input.text.tokens.reshaped(-1).asArray(Int.self).count
-            let concurrentStream = await scheduler.submit(
-                input: input,
-                parameters: params,
-                promptTokens: preparedPromptTokens
-            )
-            self.cleanupTempFiles(mediaTempFiles)
-
-            // Derive tool call tags (same logic as serial path, below)
-            let toolTags: (start: String, end: String)?
+            let toolRuntimeConfig: BatchScheduler.ToolCallRuntimeConfiguration?
             if let tools, !tools.isEmpty {
                 let format = withStateLock({ currentToolCallFormat })
                 if let format {
                     switch format {
                     case .xmlFunction:
-                        toolTags = ("<tool_call>", "</tool_call>")
+                        toolRuntimeConfig = .init(
+                            startTag: "<tool_call>",
+                            endTag: "</tool_call>",
+                            parser: self.toolCallParser,
+                            tools: tools
+                        )
                     default:
                         let parser = format.createParser()
-                        toolTags = (parser.startTag ?? "<tool_call>", parser.endTag ?? "</tool_call>")
+                        toolRuntimeConfig = .init(
+                            startTag: parser.startTag ?? "<tool_call>",
+                            endTag: parser.endTag ?? "</tool_call>",
+                            parser: self.toolCallParser,
+                            tools: tools
+                        )
                     }
                 } else {
-                    toolTags = ("<tool_call>", "</tool_call>")
+                    toolRuntimeConfig = .init(
+                        startTag: "<tool_call>",
+                        endTag: "</tool_call>",
+                        parser: self.toolCallParser,
+                        tools: tools
+                    )
                 }
             } else {
-                toolTags = nil
+                toolRuntimeConfig = nil
             }
 
+            let input = try await scheduler.prepareInput(userInput)
+            let preparedPromptTokens = input.text.tokens.reshaped(-1).asArray(Int.self).count
+            let concurrentStream = await scheduler.submit(
+                input: input,
+                parameters: params,
+                promptTokens: preparedPromptTokens,
+                toolCallRuntimeConfig: toolRuntimeConfig
+            )
+            self.cleanupTempFiles(mediaTempFiles)
+
+            // Derive tool call tags (same logic as serial path, below)
+            let toolTags = toolRuntimeConfig.map { ($0.startTag, $0.endTag) }
+
             endOperationOnExit = false
-            return (modelID, concurrentStream, preparedPromptTokens, toolTags?.start, toolTags?.end, self.thinkStartTag, self.thinkEndTag)
+            return (modelID, concurrentStream, preparedPromptTokens, toolTags?.0, toolTags?.1, self.thinkStartTag, self.thinkEndTag)
         }
 
         // --- Serial path: full-featured generation via container.perform lock ---
