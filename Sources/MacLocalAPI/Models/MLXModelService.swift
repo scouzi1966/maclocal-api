@@ -120,6 +120,15 @@ final class MLXModelService: @unchecked Sendable {
     var enablePrefixCaching: Bool = false
     var enableGrammarConstraints: Bool = false { didSet { grammarConstraintsActive = enableGrammarConstraints } }
     var trace: Bool = false { didSet { traceLogging = trace } }
+    /// Path to write a Metal GPU trace (.gputrace) — captures the first request only, then resets to nil.
+    /// Auto-limits max tokens to 5 to keep trace size manageable.
+    var gpuCapturePath: String?
+    /// Duration in seconds for xctrace Metal System Trace recording. nil = disabled.
+    var gpuTraceDuration: Int?
+    /// Print per-request GPU profiling stats (device info, memory snapshots, bandwidth estimates).
+    var gpuProfile: Bool = false
+    /// Also sample DRAM bandwidth via mactop (adds ~5s). Requires `brew install mactop`.
+    var gpuProfileBandwidth: Bool = false
     var defaultChatTemplateKwargs: [String: Any]?
     var cacheProfilePath: String?
     /// Detected think start/end tags from the tokenizer vocabulary (e.g., "<think>"/"</think>").
@@ -163,6 +172,308 @@ final class MLXModelService: @unchecked Sendable {
         mlx_set_wired_limit(&previousWired, size_t(wiredLimitBytes))
 
         print("[\(ts())] MLX GPU: cache=\(cacheMB)MB wired=\(wiredLimitBytes / (1024*1024))MB (system \(totalMemoryGB)GB)")
+    }
+
+    // MARK: - GPU Capture & Profiling
+
+    /// Begin GPU capture if a capture path is set. Returns true if capture was started.
+    /// Consumes the capture path (sets to nil) so only the first request is captured.
+    private func beginGPUCaptureIfNeeded() -> Bool {
+        guard let path = gpuCapturePath else { return false }
+        gpuCapturePath = nil  // capture first request only
+        let url = URL(fileURLWithPath: path)
+        GPU.startCapture(url: url)
+        print("[\(ts())] [GPU-CAPTURE] Started → \(path)")
+        return true
+    }
+
+    /// Stop GPU capture.
+    private func endGPUCapture(path: String) {
+        let url = URL(fileURLWithPath: path)
+        GPU.stopCapture(url: url)
+        print("[\(ts())] [GPU-CAPTURE] Stopped → \(path)")
+        print("[\(ts())] [GPU-CAPTURE] Open in Xcode: open \(path)")
+    }
+
+    /// Max tokens override when GPU capture is active (keeps trace files small).
+    private static let gpuCaptureMaxTokens = 5
+
+    /// Apply token cap for GPU capture mode. Returns capped value.
+    private func capMaxTokensForCapture(_ maxTokens: Int) -> Int {
+        if gpuCapturePath != nil {
+            let capped = Swift.min(maxTokens, Self.gpuCaptureMaxTokens)
+            if capped < maxTokens {
+                print("[\(ts())] [GPU-CAPTURE] Capping max_tokens: \(maxTokens) → \(capped) (full trace overhead)")
+            }
+            return capped
+        }
+        return maxTokens
+    }
+
+    /// Active xctrace Process (launched by beginGPUTrace, stopped by endGPUTrace).
+    private var xctraceProcess: Process?
+    private var xctraceOutputPath: String?
+
+    /// Launch xctrace Metal System Trace in background, attaching to our PID.
+    /// Returns true if xctrace was launched.
+    private func beginGPUTraceIfNeeded() -> Bool {
+        guard let duration = gpuTraceDuration else { return false }
+        gpuTraceDuration = nil  // trace first request only
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let outputPath = "/tmp/afm-metal.trace"
+        // Remove existing trace
+        try? FileManager.default.removeItem(atPath: outputPath)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = [
+            "xctrace", "record",
+            "--template", "Metal System Trace",
+            "--attach", "\(pid)",
+            "--time-limit", "\(duration)s",
+            "--output", outputPath
+        ]
+        // Suppress xctrace stdout/stderr noise
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            xctraceProcess = process
+            xctraceOutputPath = outputPath
+            print("[\(ts())] [GPU-TRACE] Recording Metal System Trace for \(duration)s (PID \(pid))")
+            print("[\(ts())] [GPU-TRACE] Output: \(outputPath)")
+            // Give xctrace time to attach before we start inference
+            Thread.sleep(forTimeInterval: 1.5)
+            return true
+        } catch {
+            print("[\(ts())] [GPU-TRACE] Failed to launch xctrace: \(error.localizedDescription)")
+            print("[\(ts())] [GPU-TRACE] Make sure Xcode Command Line Tools are installed")
+            return false
+        }
+    }
+
+    /// Stop xctrace recording (sends SIGINT for graceful stop, then waits).
+    private func endGPUTrace() {
+        guard let process = xctraceProcess else { return }
+        let outputPath = xctraceOutputPath ?? "/tmp/afm-metal.trace"
+        if process.isRunning {
+            process.interrupt()  // SIGINT = graceful stop
+            process.waitUntilExit()
+        }
+        xctraceProcess = nil
+        xctraceOutputPath = nil
+        let fm = FileManager.default
+        if fm.fileExists(atPath: outputPath) {
+            print("[\(ts())] [GPU-TRACE] Trace saved: \(outputPath)")
+            print("[\(ts())] [GPU-TRACE] Open in Instruments: open \(outputPath)")
+            print("[\(ts())] [GPU-TRACE] Look at: Shader Timeline, GPU Counters, Performance Limiters")
+        } else {
+            print("[\(ts())] [GPU-TRACE] Warning: trace file not found at \(outputPath)")
+            print("[\(ts())] [GPU-TRACE] xctrace may require running without sandbox or with elevated privileges")
+        }
+    }
+
+    // MARK: - mactop Bandwidth Monitor
+
+    /// Collected bandwidth samples from mactop during inference.
+    private struct BandwidthSample {
+        let readGBs: Double
+        let writeGBs: Double
+        let combinedGBs: Double
+    }
+
+    /// Collect bandwidth samples from mactop synchronously (blocks for ~1s).
+    /// mactop doesn't flush pipe/file output on kill, so we must let it run to completion.
+    /// Uses --count 3 at 300ms = ~0.9s total wait.
+    private func collectBandwidthViaMactop() -> [BandwidthSample] {
+        let mactopPath = "/opt/homebrew/bin/mactop"
+        guard FileManager.default.fileExists(atPath: mactopPath) else { return [] }
+        let pipe = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: mactopPath)
+        process.arguments = ["--headless", "--format", "json", "-i", "300", "--count", "3"]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()  // blocks ~0.9s
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return [] }
+            return parseMactopOutput(text)
+        } catch {
+            return []
+        }
+    }
+
+    /// Parse mactop JSON output (array or line-delimited) into bandwidth samples.
+    private func parseMactopOutput(_ text: String) -> [BandwidthSample] {
+        var samples: [BandwidthSample] = []
+        // Try parsing as a complete JSON array
+        if let arrayData = text.data(using: .utf8),
+           let array = try? JSONSerialization.jsonObject(with: arrayData) as? [[String: Any]] {
+            for obj in array {
+                if let sample = extractBandwidth(from: obj) { samples.append(sample) }
+            }
+            return samples
+        }
+        // Fallback: line-by-line parsing (strip JSON array delimiters)
+        for line in text.split(separator: "\n") {
+            var cleaned = line.trimmingCharacters(in: .whitespaces)
+            if cleaned.hasPrefix("[") { cleaned = String(cleaned.dropFirst()) }
+            if cleaned.hasPrefix(",") { cleaned = String(cleaned.dropFirst()) }
+            if cleaned.hasSuffix(",") { cleaned = String(cleaned.dropLast()) }
+            if cleaned == "]" || cleaned.isEmpty { continue }
+            if let d = cleaned.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+               let sample = extractBandwidth(from: obj) {
+                samples.append(sample)
+            }
+        }
+        return samples
+    }
+
+    /// Extract bandwidth fields from a single mactop JSON object.
+    private func extractBandwidth(from json: [String: Any]) -> BandwidthSample? {
+        guard let soc = json["soc_metrics"] as? [String: Any] else { return nil }
+        let read = soc["dram_read_bw_gbs"] as? Double ?? 0
+        let write = soc["dram_write_bw_gbs"] as? Double ?? 0
+        let combined = soc["dram_bw_combined_gbs"] as? Double ?? 0
+        guard combined > 0 else { return nil }
+        return BandwidthSample(readGBs: read, writeGBs: write, combinedGBs: combined)
+    }
+
+    // MARK: - GPU Profile Reporting
+
+    /// Pre-inference active memory snapshot — set by printGPUProfileHeader, read by footer.
+    /// This approximates model weight size (before KV cache allocation).
+    private var gpuProfileModelWeightBytes: Int = 0
+
+    /// Print GPU profiling header: device info, current memory state.
+    /// Records pre-inference active memory as the model weight size estimate.
+    private func printGPUProfileHeader() {
+        let info = GPU.deviceInfo()
+        let snap = Memory.snapshot()
+        gpuProfileModelWeightBytes = snap.activeMemory
+        GPU.resetPeakMemory()
+        print("[\(ts())] [GPU-PROFILE] ─── Device ───")
+        print("[\(ts())] [GPU-PROFILE]   Architecture: \(info.architecture)")
+        print("[\(ts())] [GPU-PROFILE]   Memory: \(info.memorySize / (1024*1024*1024)) GB")
+        print("[\(ts())] [GPU-PROFILE]   Max buffer: \(info.maxBufferSize / (1024*1024)) MB")
+        print("[\(ts())] [GPU-PROFILE]   Max working set: \(info.maxRecommendedWorkingSetSize / (1024*1024*1024)) GB")
+        print("[\(ts())] [GPU-PROFILE] ─── Pre-inference Memory ───")
+        print("[\(ts())] [GPU-PROFILE]   Active (model weights): \(snap.activeMemory / (1024*1024)) MB")
+        print("[\(ts())] [GPU-PROFILE]   Cache: \(snap.cacheMemory / (1024*1024)) MB")
+        print("[\(ts())] [GPU-PROFILE]   Peak (reset): 0 MB")
+    }
+
+    /// Estimate theoretical memory bandwidth (GB/s) from Apple Silicon architecture string.
+    ///
+    /// Architecture strings: applegpu_g13x (M1), g14x (M2), g15x (M3), g16x (M4).
+    /// Suffix: p=Pro, g=Max, d=Ultra (dual-die), s=standard.
+    private static func estimateTheoreticalBandwidth(architecture: String, memoryGB: Int) -> (bandwidth: Double, chipName: String) {
+        let arch = architecture.lowercased()
+        // Parse generation from "applegpu_gNNx" pattern
+        let generation: Int
+        if arch.contains("g16") { generation = 4 }       // M4
+        else if arch.contains("g15") { generation = 3 }   // M3
+        else if arch.contains("g14") { generation = 2 }   // M2
+        else if arch.contains("g13") { generation = 1 }   // M1
+        else { generation = 0 }
+        // Parse die variant
+        let isUltra = arch.hasSuffix("d")
+        let isMax = arch.hasSuffix("g")
+        let isPro = arch.hasSuffix("p")
+        // Also infer from memory: >192GB is almost certainly Ultra
+        let likelyUltra = isUltra || memoryGB > 192
+        let likelyMax = isMax || (!likelyUltra && memoryGB > 36)
+
+        switch (generation, likelyUltra, likelyMax, isPro) {
+        case (4, true, _, _):  return (819.2, "M4 Ultra")   // 2x M4 Max
+        case (4, _, true, _):  return (546.0, "M4 Max")
+        case (4, _, _, true):  return (273.0, "M4 Pro")
+        case (4, _, _, _):     return (120.0, "M4")
+        case (3, true, _, _):  return (800.0, "M3 Ultra")
+        case (3, _, true, _):  return (400.0, "M3 Max")
+        case (3, _, _, true):  return (150.0, "M3 Pro")
+        case (3, _, _, _):     return (100.0, "M3")
+        case (2, true, _, _):  return (800.0, "M2 Ultra")
+        case (2, _, true, _):  return (400.0, "M2 Max")
+        case (2, _, _, true):  return (200.0, "M2 Pro")
+        case (2, _, _, _):     return (100.0, "M2")
+        case (1, true, _, _):  return (800.0, "M1 Ultra")
+        case (1, _, true, _):  return (400.0, "M1 Max")
+        case (1, _, _, true):  return (200.0, "M1 Pro")
+        case (1, _, _, _):     return (68.25, "M1")
+        default:               return (400.0, "Unknown (\(architecture))")
+        }
+    }
+
+    /// Print GPU profiling footer: post-inference memory, timing, bandwidth (measured + estimated).
+    private func printGPUProfileFooter(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) {
+        // Collect bandwidth from mactop if --gpu-profile-bw was specified.
+        // mactop has ~5s startup overhead, so bandwidth sampling is opt-in.
+        let bwSamples: [BandwidthSample]
+        if gpuProfileBandwidth {
+            print("[\(ts())] [GPU-PROFILE] Sampling DRAM bandwidth via mactop (~5s)...")
+            bwSamples = collectBandwidthViaMactop()
+        } else {
+            bwSamples = []
+        }
+
+        let snap = Memory.snapshot()
+        let info = GPU.deviceInfo()
+        let modelWeightsMB = gpuProfileModelWeightBytes / (1024 * 1024)
+        let modelWeightsGB = Double(gpuProfileModelWeightBytes) / (1024.0 * 1024.0 * 1024.0)
+        let kvCacheMB = (snap.activeMemory - gpuProfileModelWeightBytes) / (1024 * 1024)
+        print("[\(ts())] [GPU-PROFILE] ─── Post-inference Memory ───")
+        print("[\(ts())] [GPU-PROFILE]   Active: \(snap.activeMemory / (1024*1024)) MB (weights: \(modelWeightsMB) MB + KV/runtime: \(Swift.max(0, kvCacheMB)) MB)")
+        print("[\(ts())] [GPU-PROFILE]   Cache: \(snap.cacheMemory / (1024*1024)) MB")
+        print("[\(ts())] [GPU-PROFILE]   Peak: \(snap.peakMemory / (1024*1024)) MB")
+        print("[\(ts())] [GPU-PROFILE] ─── Timing ───")
+        let prefillTokS = promptTime > 0 ? String(format: "%.1f", Double(promptTokens) / promptTime) : "n/a"
+        let decodeTokS = generateTime > 0 ? String(format: "%.1f", Double(completionTokens) / generateTime) : "n/a"
+        print("[\(ts())] [GPU-PROFILE]   Prefill: \(String(format: "%.3f", promptTime))s (\(promptTokens) tokens, \(prefillTokS) tok/s)")
+        print("[\(ts())] [GPU-PROFILE]   Decode: \(String(format: "%.3f", generateTime))s (\(completionTokens) tokens, \(decodeTokS) tok/s)")
+
+        let memGB = info.memorySize / (1024 * 1024 * 1024)
+        let (theoreticalBW, chipName) = Self.estimateTheoreticalBandwidth(architecture: info.architecture, memoryGB: memGB)
+
+        // Measured bandwidth from mactop (if available)
+        if !bwSamples.isEmpty {
+            let peakBW = bwSamples.map(\.combinedGBs).max() ?? 0
+            let avgBW = bwSamples.map(\.combinedGBs).reduce(0, +) / Double(bwSamples.count)
+            let peakRead = bwSamples.map(\.readGBs).max() ?? 0
+            let peakWrite = bwSamples.map(\.writeGBs).max() ?? 0
+            let measuredUtil = (peakBW / theoreticalBW) * 100
+            print("[\(ts())] [GPU-PROFILE] ─── DRAM Bandwidth (mactop, \(bwSamples.count) samples, post-inference) ───")
+            print("[\(ts())] [GPU-PROFILE]   Peak:  \(String(format: "%.1f", peakBW)) GB/s (read: \(String(format: "%.1f", peakRead)) + write: \(String(format: "%.1f", peakWrite)))")
+            print("[\(ts())] [GPU-PROFILE]   Avg:   \(String(format: "%.1f", avgBW)) GB/s")
+            print("[\(ts())] [GPU-PROFILE]   Chip:  \(chipName) (~\(Int(theoreticalBW)) GB/s theoretical)")
+            print("[\(ts())] [GPU-PROFILE]   Utilization: \(String(format: "%.1f", measuredUtil))% of theoretical")
+            if measuredUtil > 80 {
+                print("[\(ts())] [GPU-PROFILE]   Bandwidth-saturated — kernel optimization won't help. Consider speculative decoding or smaller model.")
+            } else if measuredUtil < 30 {
+                print("[\(ts())] [GPU-PROFILE]   Low utilization — check for CPU-GPU bubbles (--gpu-trace)")
+            }
+        } else {
+            // Fallback: calculated estimate (no mactop)
+            if generateTime > 0 && completionTokens > 0 && modelWeightsGB > 0 {
+                let tokPerSec = Double(completionTokens) / generateTime
+                let bwGBs = modelWeightsGB * tokPerSec
+                let utilPct = (bwGBs / theoreticalBW) * 100
+                print("[\(ts())] [GPU-PROFILE] ─── Bandwidth Estimate (no mactop — calculated) ───")
+                print("[\(ts())] [GPU-PROFILE]   Model weights: \(modelWeightsMB) MB")
+                print("[\(ts())] [GPU-PROFILE]   Est. bandwidth: \(String(format: "%.1f", bwGBs)) GB/s (weights × tok/s)")
+                print("[\(ts())] [GPU-PROFILE]   Chip: \(chipName) (~\(Int(theoreticalBW)) GB/s theoretical)")
+                print("[\(ts())] [GPU-PROFILE]   Est. utilization: \(String(format: "%.1f", utilPct))%")
+                if utilPct > 100 {
+                    print("[\(ts())] [GPU-PROFILE]   Note: >100% likely means MoE model (only active expert weights read per token)")
+                }
+                print("[\(ts())] [GPU-PROFILE]   Measured bandwidth: --gpu-profile-bw (requires: brew install mactop)")
+            }
+        }
+        print("[\(ts())] [GPU-PROFILE] ─── For deeper analysis ───")
+        print("[\(ts())] [GPU-PROFILE]   Metal trace: afm mlx -m <model> --gpu-trace 10 -s \"prompt\"")
+        print("[\(ts())] [GPU-PROFILE]   GPU capture: afm mlx -m <small-model> --gpu-capture /tmp/afm-trace.gputrace")
     }
 
     /// Apply StreamingLLM eviction to the given KV cache layers.
@@ -377,9 +688,10 @@ final class MLXModelService: @unchecked Sendable {
         let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat, chatTemplateKwargs: chatTemplateKwargs)
         defer { cleanupTempFiles(mediaTempFiles) }
         let wantLogprobs = logprobs == true
+        let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
 
         var params = GenerateParameters(
-            maxTokens: maxTokens ?? 2000,
+            maxTokens: effectiveMaxTokens,
             kvBits: self.kvBits,
             kvGroupSize: 64,
             quantizedKVStart: 0,
@@ -411,6 +723,11 @@ final class MLXModelService: @unchecked Sendable {
         var saveTrimTime: Double? = nil
         var saveTruncateTime: Double? = nil
         var saveInsertTime: Double? = nil
+        // GPU capture/trace/profile: start before inference
+        let capturePath = gpuCapturePath
+        let capturing = beginGPUCaptureIfNeeded()
+        let tracing = beginGPUTraceIfNeeded()
+        if gpuProfile { printGPUProfileHeader() }
         let generated: String = try await container.perform { context in
             // Grammar constraint setup (needs tokenizer from context)
             let grammarProcessor: GrammarLogitProcessor?
@@ -774,6 +1091,21 @@ final class MLXModelService: @unchecked Sendable {
             return out
         }
 
+        // GPU capture/trace/profile: end after GPU sync completes inside container.perform
+        if capturing, let path = capturePath {
+            endGPUCapture(path: path)
+        }
+        if tracing {
+            endGPUTrace()
+        }
+        if gpuProfile {
+            let pTok = completionInfo?.promptTokenCount ?? estimateTokens(promptText)
+            let cTok = completionInfo?.generationTokenCount ?? estimateTokens(generated)
+            let pTime = completionInfo?.promptTime ?? 0
+            let gTime = completionInfo?.generateTime ?? 0
+            printGPUProfileFooter(promptTokens: pTok, completionTokens: cTok, promptTime: pTime, generateTime: gTime)
+        }
+
         // If the vendor ToolCallProcessor didn't detect tool calls, try fallback parsing.
         // Qwen3-Coder outputs <tool_call><function=name>...</function></tool_call> which
         // the vendor's XMLFunctionParser misses (regex doesn't match multiline content).
@@ -893,9 +1225,10 @@ final class MLXModelService: @unchecked Sendable {
         let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat, chatTemplateKwargs: chatTemplateKwargs)
         let promptTokens = estimateTokens(promptText)
         let wantLogprobs = logprobs == true
+        let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
 
         var params = GenerateParameters(
-            maxTokens: maxTokens ?? 2000,
+            maxTokens: effectiveMaxTokens,
             kvBits: self.kvBits,
             kvGroupSize: 64,
             quantizedKVStart: 0,
@@ -947,6 +1280,12 @@ final class MLXModelService: @unchecked Sendable {
         }
 
         // --- Serial path: full-featured generation via container.perform lock ---
+        // GPU capture/trace/profile: snapshot state before the async Task
+        let streamCapturePath = gpuCapturePath
+        let streamCapturing = beginGPUCaptureIfNeeded()
+        let streamTracing = beginGPUTraceIfNeeded()
+        let streamGpuProfile = gpuProfile
+        if streamGpuProfile { printGPUProfileHeader() }
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             let task = Task {
                 defer { self.endOperation() }
@@ -1240,6 +1579,10 @@ final class MLXModelService: @unchecked Sendable {
                                         truncateTime: cacheTruncateTime
                                     )
                                     continuation.yield(StreamChunk(text: "", promptTokens: finalPromptTokens, completionTokens: info.generationTokenCount, promptTime: info.promptTime, generateTime: info.generateTime))
+                                    // GPU profile: emit footer with real token counts
+                                    if streamGpuProfile {
+                                        self.printGPUProfileFooter(promptTokens: finalPromptTokens, completionTokens: info.generationTokenCount, promptTime: info.promptTime, generateTime: info.generateTime)
+                                    }
                                 }
                             }
                         } catch {
@@ -1257,6 +1600,13 @@ final class MLXModelService: @unchecked Sendable {
                         }
                         // Synchronize GPU after generation completes (or breaks early).
                         Stream.gpu.synchronize()
+                        // GPU capture/trace: stop after GPU sync
+                        if streamCapturing, let path = streamCapturePath {
+                            self.endGPUCapture(path: path)
+                        }
+                        if streamTracing {
+                            self.endGPUTrace()
+                        }
                         // Optional per-request GPU memory cleanup (gated to avoid throughput hit).
                         if clearGPUCachePerRequest {
                             Memory.clearCache()

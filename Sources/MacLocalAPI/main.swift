@@ -197,6 +197,9 @@ struct MlxCommand: ParsableCommand {
           --enable-grammar-constraints: EBNF grammar-constrained decoding for tool calls (requires --tool-call-parser afm_adaptive_xml). Forces valid XML structure at generation time — prevents JSON-inside-XML and missing required parameters. Improves tool call success from ~60% to 100% on realistic workloads.
           --no-think: Disable thinking/reasoning (sets enable_thinking=false)
           --default-chat-template-kwargs: JSON object merged into chat template context
+          --gpu-capture <path>: Capture Metal GPU trace to .gputrace file for Xcode analysis (auto-limits to 5 tokens)
+          --gpu-trace <seconds>: Record Metal System Trace via xctrace for N seconds (lightweight per-kernel timing)
+          --gpu-profile: Print per-request GPU profiling stats (device info, memory, bandwidth estimates)
           --openclaw-config: Print OpenClaw provider config JSON and exit
           --help-json: Print machine-readable JSON capability card for AI agents and exit
         sampling_parameters: [temperature, top_p, top_k, min_p, presence_penalty, repetition_penalty, seed, max_tokens, logprobs, top_logprobs]
@@ -400,6 +403,18 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Max concurrent requests (enables batch mode; 0 or 1 reverts to serial)")
     var concurrent: Int?
 
+    @Option(name: .long, help: "Capture a Metal GPU trace to the given path (e.g. /tmp/afm-trace.gputrace). Opens in Xcode for per-kernel analysis. Auto-limits to 5 tokens to keep trace small.")
+    var gpuCapture: String?
+
+    @Option(name: .long, help: "Record a Metal System Trace for N seconds using Instruments xctrace (e.g. --gpu-trace 10). Lightweight per-kernel GPU timing without massive trace files. Output: /tmp/afm-metal.trace")
+    var gpuTrace: Int?
+
+    @Flag(name: .long, help: "Print per-request GPU profiling stats: device info, memory snapshots, bandwidth estimates, peak memory")
+    var gpuProfile: Bool = false
+
+    @Flag(name: .long, help: "Also sample DRAM bandwidth via mactop after inference (adds ~5s). Implies --gpu-profile. Requires: brew install mactop")
+    var gpuProfileBw: Bool = false
+
     @Flag(name: .long, help: "Print OpenClaw provider config JSON and exit")
     var openclawConfig: Bool = false
 
@@ -414,6 +429,25 @@ struct MlxCommand: ParsableCommand {
 
         if gateway {
             print("Error: -g/--gateway is not supported in 'afm mlx' mode.")
+            throw ExitCode.failure
+        }
+
+        // GPU capture: set MTL_CAPTURE_ENABLED before Metal device is created
+        if let capturePath = gpuCapture {
+            setenv("MTL_CAPTURE_ENABLED", "1", 1)
+            // Remove existing .gputrace at path (Metal requires it not to exist)
+            let fm = FileManager.default
+            if fm.fileExists(atPath: capturePath) {
+                try? fm.removeItem(atPath: capturePath)
+            }
+            print("GPU capture enabled → \(capturePath)")
+            print("  Auto-limiting to 5 tokens (full capture records every Metal dispatch)")
+            print("  Open in Xcode after completion: open \(capturePath)")
+        }
+
+        // GPU trace: validate duration
+        if let traceSec = gpuTrace, traceSec < 1 {
+            print("Error: --gpu-trace duration must be >= 1 second")
             throw ExitCode.failure
         }
 
@@ -439,6 +473,10 @@ struct MlxCommand: ParsableCommand {
         let maxConcurrent = concurrent ?? 0
         service.maxConcurrent = (maxConcurrent >= 2) ? maxConcurrent : 0
         service.trace = vv
+        service.gpuCapturePath = gpuCapture
+        service.gpuTraceDuration = gpuTrace
+        service.gpuProfile = gpuProfile || gpuProfileBw
+        service.gpuProfileBandwidth = gpuProfileBw
 
         // Parse --default-chat-template-kwargs and --no-think into defaultChatTemplateKwargs
         var parsedKwargs: [String: Any] = [:]

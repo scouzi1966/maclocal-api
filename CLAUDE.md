@@ -66,6 +66,37 @@ AFM_DEBUG=1 MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache afm ml
 
 Debug logging shows `[KVCache]` hit/miss stats, tool call detection, and timing info.
 
+### GPU Shader Profiling
+
+Three profiling modes, from lightweight to deep:
+
+```bash
+# 1. Per-request stats: device info, memory breakdown, bandwidth estimate (no overhead)
+afm mlx -m <model> --gpu-profile -s "Hello"
+
+# 2. xctrace Metal System Trace: command-buffer timing, GPU scheduling, pipeline bubbles (~100 MB)
+afm mlx -m <model> --gpu-trace 10 -s "Hello"
+# Then: open /tmp/afm-metal.trace  (opens in Instruments)
+
+# 3. Full Metal GPU capture: per-kernel shader analysis in Xcode (WARNING: multi-GB traces, use small models)
+afm mlx -m <small-model> --gpu-capture /tmp/afm-trace.gputrace -s "Hello"
+# Auto-limits to 5 tokens. Then: open /tmp/afm-trace.gputrace  (opens in Xcode Metal Debugger)
+```
+
+Bandwidth monitoring (run in separate terminal during inference):
+```bash
+sudo powermetrics --samplers gpu_power,bandwidth -i 200
+```
+
+Helper script: `./Scripts/gpu-profile.sh` wraps all of the above.
+
+**Tradeoffs:**
+- `--gpu-profile`: Zero overhead, runs at full speed. Good for iterative measurement.
+- `--gpu-trace N`: Lightweight (~100 MB for 15s). Shows command-buffer scheduling and GPU utilization. No per-kernel shader names (Metal System Trace doesn't include Shader Timeline by default).
+- `--gpu-capture`: Per-kernel shader names and costs in Xcode Dependencies view. But traces are multi-GB even at 5 tokens — only practical for small models (<3B params).
+
+**Key bottlenecks:** `affine_qmv_fast` (quantized MatVec) dominates decode (~80-90%, memory-bandwidth-bound). `steel_gemm_fused` dominates prefill (compute-bound).
+
 ## Key Features
 
 ### Sampling Parameters
