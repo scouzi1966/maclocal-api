@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+
+description: "AFM Pi primary-source tool suite"
+
+prompts:
+  - "{{prompt}}"
+
+providers:
+  - id: providers/afm_provider.mjs
+    label: afm-default-pi
+    config:
+      transport: api
+      baseUrlEnv: AFM_BASE_URL_DEFAULT
+      modelEnv: AFM_MODEL
+      extract: normalized_message
+
+  - id: providers/afm_provider.mjs
+    label: afm-adaptive-xml-pi
+    config:
+      transport: api
+      baseUrlEnv: AFM_BASE_URL_ADAPTIVE_XML
+      modelEnv: AFM_MODEL
+      extract: normalized_message
+
+  - id: providers/afm_provider.mjs
+    label: afm-adaptive-xml-grammar-pi
+    config:
+      transport: api
+      baseUrlEnv: AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR
+      modelEnv: AFM_MODEL
+      extract: normalized_message
+
+tests: file://datasets/agentic/pi-primary-tools.yaml

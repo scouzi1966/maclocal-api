@@ -1,0 +1,631 @@
+- description: "pi/bash check repo status"
+  metadata: &pi_meta
+    suite: pi_primary
+    source_type: primary_source
+    source_urls:
+      - "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/README.md"
+      - "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/core/tools/index.ts"
+      - "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/core/tools/bash.ts"
+    framework: Pi
+    classification: not_yet_classified
+  vars:
+    prompt: "Check whether the repository has uncommitted changes."
+    system_prompt: "You are a coding agent using only Pi built-in tools."
+    tools:
+      - type: function
+        function:
+          name: bash
+          description: "Execute a bash command"
+          parameters:
+            type: object
+            properties:
+              command:
+                type: string
+              timeout:
+                type: number
+            required: [command]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'bash' &&
+          /git status/.test(String(parsed.tool_calls[0].function.arguments.command || ''));
+
+- description: "pi/bash run release build"
+  metadata:
+    <<: *pi_meta
+  vars:
+    prompt: "Build the Swift package in release mode."
+    tools:
+      - type: function
+        function:
+          name: bash
+          description: "Execute a bash command"
+          parameters:
+            type: object
+            properties:
+              command:
+                type: string
+              timeout:
+                type: number
+            required: [command]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'bash' &&
+          /(swift build -c release|make build)/.test(String(parsed.tool_calls[0].function.arguments.command || ''));
+
+- description: "pi/bash include timeout for long-running command"
+  metadata:
+    <<: *pi_meta
+  vars:
+    prompt: "Tail the default AFM server log for a few seconds and then stop."
+    tools:
+      - type: function
+        function:
+          name: bash
+          description: "Execute a bash command"
+          parameters:
+            type: object
+            properties:
+              command:
+                type: string
+              timeout:
+                type: number
+            required: [command]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'bash' &&
+          /tail/.test(String(args.command || '')) &&
+          args.timeout !== undefined;
+
+- description: "pi/read inspect known source file"
+  metadata:
+    <<: *pi_meta
+    source_urls:
+      - "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/README.md"
+      - "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/core/tools/index.ts"
+      - "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/core/tools/read.ts"
+  vars:
+    prompt: "Read Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift."
+    tools:
+      - type: function
+        function:
+          name: read
+          description: "Read a file"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              offset:
+                type: number
+              limit:
+                type: number
+            required: [path]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'read' &&
+          /MLXChatCompletionsController\.swift$/.test(String(parsed.tool_calls[0].function.arguments.path || ''));
+
+- description: "pi/read inspect file with line window"
+  metadata:
+    <<: *pi_meta
+  vars:
+    prompt: "Open Sources/MacLocalAPI/Models/MLXModelService.swift around line 400."
+    tools:
+      - type: function
+        function:
+          name: read
+          description: "Read a file"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              offset:
+                type: number
+              limit:
+                type: number
+            required: [path]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'read' &&
+          /MLXModelService\.swift$/.test(String(args.path || '')) &&
+          (args.offset !== undefined || args.limit !== undefined);
+
+- description: "pi/read inspect repo instructions"
+  metadata:
+    <<: *pi_meta
+  vars:
+    prompt: "Read AGENTS.md from the repository root."
+    tools:
+      - type: function
+        function:
+          name: read
+          description: "Read a file"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+            required: [path]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'read' &&
+          /AGENTS\.md$/.test(String(parsed.tool_calls[0].function.arguments.path || ''));
+
+- description: "pi/write create markdown report"
+  metadata:
+    <<: *pi_meta
+    source_urls:
+      - "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/README.md"
+      - "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/core/tools/index.ts"
+      - "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/core/tools/write.ts"
+  vars:
+    prompt: "Create docs/status.md with a short markdown status report."
+    tools:
+      - type: function
+        function:
+          name: write
+          description: "Write a file"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              content:
+                type: string
+            required: [path, content]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'write' &&
+          /docs\/status\.md$/.test(String(args.path || '')) &&
+          /#|status/i.test(String(args.content || ''));
+
+- description: "pi/write create settings JSON"
+  metadata:
+    <<: *pi_meta
+  vars:
+    prompt: "Write .pi/settings.json with a JSON object that enables skill commands."
+    tools:
+      - type: function
+        function:
+          name: write
+          description: "Write a file"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              content:
+                type: string
+            required: [path, content]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'write' &&
+          /\.pi\/settings\.json$/.test(String(args.path || '')) &&
+          /enableSkillCommands/.test(String(args.content || ''));
+
+- description: "pi/edit exact replacement"
+  metadata:
+    <<: *pi_meta
+    source_urls:
+      - "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/README.md"
+      - "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/core/tools/index.ts"
+      - "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/core/tools/edit.ts"
+  vars:
+    prompt: "In README.md replace the exact text 'Promptfoo results pending.' with 'Promptfoo results recorded.'"
+    tools:
+      - type: function
+        function:
+          name: edit
+          description: "Edit a file by replacing exact text"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              oldText:
+                type: string
+              newText:
+                type: string
+            required: [path, oldText, newText]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'edit' &&
+          /README\.md$/.test(String(args.path || '')) &&
+          /Promptfoo results pending\./.test(String(args.oldText || '')) &&
+          /Promptfoo results recorded\./.test(String(args.newText || ''));
+
+- description: "pi/edit surgical cache logging change"
+  metadata:
+    <<: *pi_meta
+  vars:
+    prompt: "In Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift replace the exact text 'cache: MISS' with 'cache: MISS suffix=\\(suffixTokens)' using the edit tool."
+    tools:
+      - type: function
+        function:
+          name: edit
+          description: "Edit a file by replacing exact text"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              oldText:
+                type: string
+              newText:
+                type: string
+            required: [path, oldText, newText]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'edit' &&
+          /MLXChatCompletionsController\.swift$/.test(String(args.path || '')) &&
+          /cache: MISS/.test(String(args.oldText || '')) &&
+          /cache: MISS suffix=\\\(suffixTokens\)/.test(String(args.newText || ''));
+
+- description: "pi/grep literal cache save log text"
+  metadata:
+    <<: *pi_meta
+    source_urls:
+      - "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/core/tools/index.ts"
+      - "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/core/tools/grep.ts"
+  vars:
+    prompt: "Search the repository for the exact text PrefixCache Save complete."
+    tools:
+      - type: function
+        function:
+          name: grep
+          description: "Search files by regex or literal string"
+          parameters:
+            type: object
+            properties:
+              pattern:
+                type: string
+              path:
+                type: string
+              glob:
+                type: string
+              ignoreCase:
+                type: boolean
+              literal:
+                type: boolean
+              context:
+                type: number
+            required: [pattern]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'grep' &&
+          /PrefixCache Save complete/.test(String(args.pattern || ''));
+
+- description: "pi/grep regex symbol search"
+  metadata:
+    <<: *pi_meta
+  vars:
+    prompt: "Find all references to ChunkStats in the Swift sources."
+    tools:
+      - type: function
+        function:
+          name: grep
+          description: "Search files by regex or literal string"
+          parameters:
+            type: object
+            properties:
+              pattern:
+                type: string
+              path:
+                type: string
+              glob:
+                type: string
+              ignoreCase:
+                type: boolean
+              literal:
+                type: boolean
+              context:
+                type: number
+            required: [pattern]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'grep' &&
+          /ChunkStats/.test(String(args.pattern || ''));
+
+- description: "pi/grep scoped to docs"
+  metadata:
+    <<: *pi_meta
+  vars:
+    prompt: "Search under docs for the word speculative."
+    tools:
+      - type: function
+        function:
+          name: grep
+          description: "Search files by regex or literal string"
+          parameters:
+            type: object
+            properties:
+              pattern:
+                type: string
+              path:
+                type: string
+              glob:
+                type: string
+              ignoreCase:
+                type: boolean
+              literal:
+                type: boolean
+              context:
+                type: number
+            required: [pattern]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'grep' &&
+          /docs/.test(String(args.path || ''));
+
+- description: "pi/find swift tests"
+  metadata:
+    <<: *pi_meta
+    source_urls:
+      - "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/core/tools/index.ts"
+      - "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/core/tools/find.ts"
+  vars:
+    prompt: "Find all Swift test files under Tests."
+    tools:
+      - type: function
+        function:
+          name: find
+          description: "Find files by glob pattern"
+          parameters:
+            type: object
+            properties:
+              pattern:
+                type: string
+              path:
+                type: string
+              limit:
+                type: number
+            required: [pattern]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'find' &&
+          /\.swift/.test(String(args.pattern || ''));
+
+- description: "pi/find markdown docs"
+  metadata:
+    <<: *pi_meta
+  vars:
+    prompt: "Find all markdown files under docs."
+    tools:
+      - type: function
+        function:
+          name: find
+          description: "Find files by glob pattern"
+          parameters:
+            type: object
+            properties:
+              pattern:
+                type: string
+              path:
+                type: string
+              limit:
+                type: number
+            required: [pattern]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'find' &&
+          /docs/.test(String(args.path || '')) &&
+          /\.md/.test(String(args.pattern || ''));
+
+- description: "pi/find limit large result set"
+  metadata:
+    <<: *pi_meta
+  vars:
+    prompt: "Find JSON files under the repository, but cap the result set."
+    tools:
+      - type: function
+        function:
+          name: find
+          description: "Find files by glob pattern"
+          parameters:
+            type: object
+            properties:
+              pattern:
+                type: string
+              path:
+                type: string
+              limit:
+                type: number
+            required: [pattern]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'find' &&
+          args.limit !== undefined;
+
+- description: "pi/ls list repository root"
+  metadata:
+    <<: *pi_meta
+    source_urls:
+      - "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/core/tools/index.ts"
+      - "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/core/tools/ls.ts"
+  vars:
+    prompt: "List the contents of the repository root."
+    tools:
+      - type: function
+        function:
+          name: ls
+          description: "List directory contents"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              limit:
+                type: number
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'ls';
+
+- description: "pi/ls list docs roadmap"
+  metadata:
+    <<: *pi_meta
+  vars:
+    prompt: "List what is under docs/roadmap."
+    tools:
+      - type: function
+        function:
+          name: ls
+          description: "List directory contents"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              limit:
+                type: number
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'ls' &&
+          /docs\/roadmap/.test(String(args.path || ''));
+
+- description: "pi/read before edit when only read and edit are available"
+  metadata:
+    <<: *pi_meta
+  vars:
+    prompt: "Before changing README.md to mention Promptfoo, inspect the file first."
+    tools:
+      - type: function
+        function:
+          name: read
+          description: "Read a file"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+            required: [path]
+      - type: function
+        function:
+          name: edit
+          description: "Edit a file by replacing exact text"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              oldText:
+                type: string
+              newText:
+                type: string
+            required: [path, oldText, newText]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'read';
+
+- description: "pi/read-only search prefers grep over bash"
+  metadata:
+    <<: *pi_meta
+  vars:
+    prompt: "Search for PrefixCache in Swift files."
+    tools:
+      - type: function
+        function:
+          name: grep
+          description: "Search files by regex or literal string"
+          parameters:
+            type: object
+            properties:
+              pattern:
+                type: string
+              path:
+                type: string
+              glob:
+                type: string
+              ignoreCase:
+                type: boolean
+              literal:
+                type: boolean
+              context:
+                type: number
+            required: [pattern]
+      - type: function
+        function:
+          name: bash
+          description: "Execute a bash command"
+          parameters:
+            type: object
+            properties:
+              command:
+                type: string
+            required: [command]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'grep';

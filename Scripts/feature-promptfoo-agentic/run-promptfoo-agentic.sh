@@ -91,9 +91,9 @@ run_structured() {
       -c Scripts/feature-promptfoo-agentic/promptfooconfig.structured.yaml \
       -j 1 \
       -o "$output"
-  local status=$?
-  (( overall_status |= status ))
-  return $status
+  local exit_code=$?
+  (( overall_status |= exit_code ))
+  return $exit_code
 }
 
 run_structured_stress() {
@@ -107,9 +107,9 @@ run_structured_stress() {
       -c Scripts/feature-promptfoo-agentic/promptfooconfig.structured-stress.yaml \
       -j 1 \
       -o "$output"
-  local status=$?
-  (( overall_status |= status ))
-  return $status
+  local exit_code=$?
+  (( overall_status |= exit_code ))
+  return $exit_code
 }
 
 run_toolcall_profile() {
@@ -128,9 +128,9 @@ run_toolcall_profile() {
       -j 1 \
       --filter-targets "$filter_regex" \
       -o "$output"
-  local status=$?
-  (( overall_status |= status ))
-  return $status
+  local exit_code=$?
+  (( overall_status |= exit_code ))
+  return $exit_code
 }
 
 run_toolcall_all() {
@@ -155,9 +155,9 @@ run_toolcall_quality_profile() {
       -j 1 \
       --filter-targets "$filter_regex" \
       -o "$output"
-  local status=$?
-  (( overall_status |= status ))
-  return $status
+  local exit_code=$?
+  (( overall_status |= exit_code ))
+  return $exit_code
 }
 
 run_toolcall_quality_all() {
@@ -182,9 +182,9 @@ run_agentic_profile() {
       -j 1 \
       --filter-targets "$filter_regex" \
       -o "$output"
-  local status=$?
-  (( overall_status |= status ))
-  return $status
+  local exit_code=$?
+  (( overall_status |= exit_code ))
+  return $exit_code
 }
 
 run_agentic_all() {
@@ -209,9 +209,9 @@ run_frameworks_profile() {
       -j 1 \
       --filter-targets "$filter_regex" \
       -o "$output"
-  local status=$?
-  (( overall_status |= status ))
-  return $status
+  local exit_code=$?
+  (( overall_status |= exit_code ))
+  return $exit_code
 }
 
 run_frameworks_all() {
@@ -236,15 +236,96 @@ run_opencode_profile() {
       -j 1 \
       --filter-targets "$filter_regex" \
       -o "$output"
-  local status=$?
-  (( overall_status |= status ))
-  return $status
+  local exit_code=$?
+  (( overall_status |= exit_code ))
+  return $exit_code
 }
 
 run_opencode_all() {
   run_opencode_profile default '^afm-default-opencode$' AFM_BASE_URL_DEFAULT
   run_opencode_profile adaptive-xml '^afm-adaptive-xml-opencode$' AFM_BASE_URL_ADAPTIVE_XML
   run_opencode_profile adaptive-xml-grammar '^afm-adaptive-xml-grammar-opencode$' AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR
+}
+
+run_pi_profile() {
+  local profile="$1"
+  local filter_regex="$2"
+  local env_name="$3"
+  local output="${out_dir}/pi-${profile}-$(print -r -- "$model" | tr '/:' '__').json"
+  local base_url="http://127.0.0.1:${port}/v1"
+
+  start_server "$profile"
+  env \
+    AFM_MODEL="$model" \
+    "$env_name=$base_url" \
+    promptfoo eval \
+      -c Scripts/feature-promptfoo-agentic/promptfooconfig.pi.yaml \
+      -j 1 \
+      --filter-targets "$filter_regex" \
+      -o "$output"
+  local exit_code=$?
+  (( overall_status |= exit_code ))
+  return $exit_code
+}
+
+run_pi_all() {
+  run_pi_profile default '^afm-default-pi$' AFM_BASE_URL_DEFAULT
+  run_pi_profile adaptive-xml '^afm-adaptive-xml-pi$' AFM_BASE_URL_ADAPTIVE_XML
+  run_pi_profile adaptive-xml-grammar '^afm-adaptive-xml-grammar-pi$' AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR
+}
+
+run_openclaw_profile() {
+  local profile="$1"
+  local filter_regex="$2"
+  local env_name="$3"
+  local output="${out_dir}/openclaw-${profile}-$(print -r -- "$model" | tr '/:' '__').json"
+  local base_url="http://127.0.0.1:${port}/v1"
+
+  start_server "$profile"
+  env \
+    AFM_MODEL="$model" \
+    "$env_name=$base_url" \
+    promptfoo eval \
+      -c Scripts/feature-promptfoo-agentic/promptfooconfig.openclaw.yaml \
+      -j 1 \
+      --filter-targets "$filter_regex" \
+      -o "$output"
+  local exit_code=$?
+  (( overall_status |= exit_code ))
+  return $exit_code
+}
+
+run_openclaw_all() {
+  run_openclaw_profile default '^afm-default-openclaw$' AFM_BASE_URL_DEFAULT
+  run_openclaw_profile adaptive-xml '^afm-adaptive-xml-openclaw$' AFM_BASE_URL_ADAPTIVE_XML
+  run_openclaw_profile adaptive-xml-grammar '^afm-adaptive-xml-grammar-openclaw$' AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR
+}
+
+run_hermes_profile() {
+  local profile="$1"
+  local filter_regex="$2"
+  local env_name="$3"
+  local output="${out_dir}/hermes-${profile}-$(print -r -- "$model" | tr '/:' '__').json"
+  local base_url="http://127.0.0.1:${port}/v1"
+
+  start_server "$profile"
+  env \
+    AFM_MODEL="$model" \
+    "$env_name=$base_url" \
+    promptfoo eval \
+      -c Scripts/feature-promptfoo-agentic/promptfooconfig.hermes.yaml \
+      -j 1 \
+      --filter-targets "$filter_regex" \
+      -o "$output"
+  local exit_code=$?
+  (( overall_status |= exit_code ))
+  return $exit_code
+}
+
+run_hermes_all() {
+  run_hermes_profile default '^afm-default-hermes$' AFM_BASE_URL_DEFAULT
+  run_hermes_profile adaptive-xml '^afm-adaptive-xml-hermes$' AFM_BASE_URL_ADAPTIVE_XML
+  run_hermes_profile adaptive-xml-grammar '^afm-adaptive-xml-grammar-hermes$' AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR
 }
 
 case "$mode" in
@@ -256,6 +337,9 @@ case "$mode" in
     run_agentic_all
     run_frameworks_all
     run_opencode_all
+    run_pi_all
+    run_openclaw_all
+    run_hermes_all
     ;;
   structured)
     run_structured
@@ -278,6 +362,15 @@ case "$mode" in
   opencode)
     run_opencode_all
     ;;
+  pi)
+    run_pi_all
+    ;;
+  openclaw)
+    run_openclaw_all
+    ;;
+  hermes)
+    run_hermes_all
+    ;;
   default)
     run_toolcall_profile default '^afm-default$' AFM_BASE_URL_DEFAULT
     ;;
@@ -288,7 +381,7 @@ case "$mode" in
     run_toolcall_profile adaptive-xml-grammar '^afm-adaptive-xml-grammar$' AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR
     ;;
   *)
-    echo "Usage: Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh [all|structured|structured-stress|toolcall|toolcall-quality|agentic|frameworks|opencode|default|adaptive-xml|adaptive-xml-grammar]" >&2
+    echo "Usage: Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh [all|structured|structured-stress|toolcall|toolcall-quality|agentic|frameworks|opencode|pi|openclaw|hermes|default|adaptive-xml|adaptive-xml-grammar]" >&2
     exit 1
     ;;
 esac

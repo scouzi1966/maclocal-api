@@ -33,6 +33,14 @@ Goals:
 - `promptfooconfig.opencode.yaml`
   Primary-source-derived OpenCode suite based directly on the official built-in
   tools documentation.
+- `promptfooconfig.pi.yaml`
+  Primary-source-derived Pi suite based on the public coding-agent README and
+  built-in tool implementations.
+- `promptfooconfig.openclaw.yaml`
+  Primary-source-derived OpenClaw suite based on public OpenClaw tool docs.
+- `promptfooconfig.hermes.yaml`
+  Primary-source-derived Hermes suite based on public Hermes repo docs and
+  tool registrations.
 - `providers/afm_provider.mjs`
   Custom Promptfoo provider for AFM. Supports:
   - HTTP OpenAI-style chat completions
@@ -52,6 +60,12 @@ Goals:
   Agent-framework-specific tool schema cases.
 - `datasets/agentic/opencode-primary-tools.yaml`
   OpenCode cases with explicit primary-source provenance.
+- `datasets/agentic/pi-primary-tools.yaml`
+  Pi cases with explicit primary-source provenance.
+- `datasets/agentic/openclaw-primary-tools.yaml`
+  OpenClaw cases with explicit primary-source provenance.
+- `datasets/agentic/hermes-primary-tools.yaml`
+  Hermes cases with explicit primary-source provenance.
 
 ## Environment
 
@@ -134,6 +148,9 @@ That wrapper:
 - runs the multi-turn coding-agent suite three times
 - runs the framework-schema suite three times
 - runs the OpenCode primary-source suite three times
+- runs the Pi primary-source suite three times
+- runs the OpenClaw primary-source suite three times
+- runs the Hermes primary-source suite three times
 - writes JSON reports under `test-reports/promptfoo-agentic/`
 - starts and stops one AFM server at a time
 
@@ -147,6 +164,9 @@ Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh toolcall-quality
 Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh agentic
 Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh frameworks
 Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh opencode
+Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh pi
+Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh openclaw
+Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh hermes
 Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh default
 Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh adaptive-xml
 Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh adaptive-xml-grammar
@@ -180,6 +200,9 @@ promptfoo validate config -c Scripts/feature-promptfoo-agentic/promptfooconfig.t
 promptfoo validate config -c Scripts/feature-promptfoo-agentic/promptfooconfig.agentic.yaml
 promptfoo validate config -c Scripts/feature-promptfoo-agentic/promptfooconfig.agentic-frameworks.yaml
 promptfoo validate config -c Scripts/feature-promptfoo-agentic/promptfooconfig.opencode.yaml
+promptfoo validate config -c Scripts/feature-promptfoo-agentic/promptfooconfig.pi.yaml
+promptfoo validate config -c Scripts/feature-promptfoo-agentic/promptfooconfig.openclaw.yaml
+promptfoo validate config -c Scripts/feature-promptfoo-agentic/promptfooconfig.hermes.yaml
 ```
 
 ## Current scope
@@ -196,6 +219,9 @@ Current expansions include:
 - multi-turn coding-agent chains inspired by OpenCode, OpenHands, and Hermes
 - framework-specific tool schemas inspired by OpenCode, Pi, OpenClaw, and Hermes
 - primary-source-derived OpenCode built-in tool coverage
+- primary-source-derived Pi built-in tool coverage
+- primary-source-derived OpenClaw tool coverage
+- primary-source-derived Hermes tool coverage
 
 Still missing:
 - streaming transcript assertions
