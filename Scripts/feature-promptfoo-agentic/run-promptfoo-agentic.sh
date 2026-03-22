@@ -1,0 +1,272 @@
+#!/bin/zsh
+
+set -euo pipefail
+
+script_dir="${0:A:h}"
+repo_root="${script_dir:h:h}"
+cd "$repo_root"
+
+model="${AFM_MODEL:-mlx-community/Qwen3.5-35B-A3B-4bit}"
+afm_binary="${AFM_BINARY:-.build/arm64-apple-macosx/release/afm}"
+out_dir="${AFM_PROMPTFOO_OUT_DIR:-test-reports/promptfoo-agentic}"
+mode="${1:-all}"
+port="${AFM_PROMPTFOO_PORT:-9999}"
+server_pid=""
+
+mkdir -p "$out_dir"
+
+if ! command -v promptfoo >/dev/null 2>&1; then
+  echo "promptfoo is not installed or not on PATH" >&2
+  exit 1
+fi
+
+if [[ ! -x "$afm_binary" ]]; then
+  echo "AFM binary not found or not executable: $afm_binary" >&2
+  exit 1
+fi
+
+cleanup() {
+  if [[ -n "$server_pid" ]]; then
+    kill "$server_pid" >/dev/null 2>&1 || true
+    wait "$server_pid" 2>/dev/null || true
+    server_pid=""
+  fi
+}
+
+trap cleanup EXIT INT TERM
+
+wait_for_health() {
+  local attempts=60
+  local health_url="http://127.0.0.1:${port}/health"
+  local i
+
+  for (( i = 1; i <= attempts; i++ )); do
+    if curl -sf "$health_url" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "AFM server did not become healthy on :${port}" >&2
+  return 1
+}
+
+start_server() {
+  local profile="$1"
+  local -a extra_args=()
+  local log_file="${out_dir}/server-${profile}.log"
+
+  case "$profile" in
+    default)
+      ;;
+    adaptive-xml)
+      extra_args+=(--tool-call-parser afm_adaptive_xml)
+      ;;
+    adaptive-xml-grammar)
+      extra_args+=(--tool-call-parser afm_adaptive_xml --enable-grammar-constraints)
+      ;;
+    *)
+      echo "Unknown AFM profile: $profile" >&2
+      exit 1
+      ;;
+  esac
+
+  cleanup
+  : > "$log_file"
+  MACAFM_MLX_MODEL_CACHE="${MACAFM_MLX_MODEL_CACHE:-}" \
+    "$afm_binary" mlx -m "$model" --port "$port" "${extra_args[@]}" >"$log_file" 2>&1 &
+  server_pid="$!"
+  wait_for_health
+}
+
+run_structured() {
+  local output="${out_dir}/structured-$(print -r -- "$model" | tr '/:' '__').json"
+  start_server default
+  AFM_MODEL="$model" \
+  AFM_BASE_URL_DEFAULT="http://127.0.0.1:${port}/v1" \
+  AFM_BINARY="$afm_binary" \
+  MACAFM_MLX_MODEL_CACHE="${MACAFM_MLX_MODEL_CACHE:-}" \
+    promptfoo eval \
+      -c Scripts/feature-promptfoo-agentic/promptfooconfig.structured.yaml \
+      -j 1 \
+      -o "$output"
+}
+
+run_structured_stress() {
+  local output="${out_dir}/structured-stress-$(print -r -- "$model" | tr '/:' '__').json"
+  start_server default
+  AFM_MODEL="$model" \
+  AFM_BASE_URL_DEFAULT="http://127.0.0.1:${port}/v1" \
+  AFM_BINARY="$afm_binary" \
+  MACAFM_MLX_MODEL_CACHE="${MACAFM_MLX_MODEL_CACHE:-}" \
+    promptfoo eval \
+      -c Scripts/feature-promptfoo-agentic/promptfooconfig.structured-stress.yaml \
+      -j 1 \
+      -o "$output"
+}
+
+run_toolcall_profile() {
+  local profile="$1"
+  local filter_regex="$2"
+  local env_name="$3"
+  local output="${out_dir}/toolcall-${profile}-$(print -r -- "$model" | tr '/:' '__').json"
+  local base_url="http://127.0.0.1:${port}/v1"
+
+  start_server "$profile"
+  env \
+    AFM_MODEL="$model" \
+    "$env_name=$base_url" \
+    promptfoo eval \
+      -c Scripts/feature-promptfoo-agentic/promptfooconfig.toolcall.yaml \
+      -j 1 \
+      --filter-targets "$filter_regex" \
+      -o "$output"
+}
+
+run_toolcall_all() {
+  run_toolcall_profile default '^afm-default$' AFM_BASE_URL_DEFAULT
+  run_toolcall_profile adaptive-xml '^afm-adaptive-xml$' AFM_BASE_URL_ADAPTIVE_XML
+  run_toolcall_profile adaptive-xml-grammar '^afm-adaptive-xml-grammar$' AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR
+}
+
+run_toolcall_quality_profile() {
+  local profile="$1"
+  local filter_regex="$2"
+  local env_name="$3"
+  local output="${out_dir}/toolcall-quality-${profile}-$(print -r -- "$model" | tr '/:' '__').json"
+  local base_url="http://127.0.0.1:${port}/v1"
+
+  start_server "$profile"
+  env \
+    AFM_MODEL="$model" \
+    "$env_name=$base_url" \
+    promptfoo eval \
+      -c Scripts/feature-promptfoo-agentic/promptfooconfig.toolcall-quality.yaml \
+      -j 1 \
+      --filter-targets "$filter_regex" \
+      -o "$output"
+}
+
+run_toolcall_quality_all() {
+  run_toolcall_quality_profile default '^afm-default-quality$' AFM_BASE_URL_DEFAULT
+  run_toolcall_quality_profile adaptive-xml '^afm-adaptive-xml-quality$' AFM_BASE_URL_ADAPTIVE_XML
+  run_toolcall_quality_profile adaptive-xml-grammar '^afm-adaptive-xml-grammar-quality$' AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR
+}
+
+run_agentic_profile() {
+  local profile="$1"
+  local filter_regex="$2"
+  local env_name="$3"
+  local output="${out_dir}/agentic-${profile}-$(print -r -- "$model" | tr '/:' '__').json"
+  local base_url="http://127.0.0.1:${port}/v1"
+
+  start_server "$profile"
+  env \
+    AFM_MODEL="$model" \
+    "$env_name=$base_url" \
+    promptfoo eval \
+      -c Scripts/feature-promptfoo-agentic/promptfooconfig.agentic.yaml \
+      -j 1 \
+      --filter-targets "$filter_regex" \
+      -o "$output"
+}
+
+run_agentic_all() {
+  run_agentic_profile default '^afm-default-agentic$' AFM_BASE_URL_DEFAULT
+  run_agentic_profile adaptive-xml '^afm-adaptive-xml-agentic$' AFM_BASE_URL_ADAPTIVE_XML
+  run_agentic_profile adaptive-xml-grammar '^afm-adaptive-xml-grammar-agentic$' AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR
+}
+
+run_frameworks_profile() {
+  local profile="$1"
+  local filter_regex="$2"
+  local env_name="$3"
+  local output="${out_dir}/frameworks-${profile}-$(print -r -- "$model" | tr '/:' '__').json"
+  local base_url="http://127.0.0.1:${port}/v1"
+
+  start_server "$profile"
+  env \
+    AFM_MODEL="$model" \
+    "$env_name=$base_url" \
+    promptfoo eval \
+      -c Scripts/feature-promptfoo-agentic/promptfooconfig.agentic-frameworks.yaml \
+      -j 1 \
+      --filter-targets "$filter_regex" \
+      -o "$output"
+}
+
+run_frameworks_all() {
+  run_frameworks_profile default '^afm-default-frameworks$' AFM_BASE_URL_DEFAULT
+  run_frameworks_profile adaptive-xml '^afm-adaptive-xml-frameworks$' AFM_BASE_URL_ADAPTIVE_XML
+  run_frameworks_profile adaptive-xml-grammar '^afm-adaptive-xml-grammar-frameworks$' AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR
+}
+
+run_opencode_profile() {
+  local profile="$1"
+  local filter_regex="$2"
+  local env_name="$3"
+  local output="${out_dir}/opencode-${profile}-$(print -r -- "$model" | tr '/:' '__').json"
+  local base_url="http://127.0.0.1:${port}/v1"
+
+  start_server "$profile"
+  env \
+    AFM_MODEL="$model" \
+    "$env_name=$base_url" \
+    promptfoo eval \
+      -c Scripts/feature-promptfoo-agentic/promptfooconfig.opencode.yaml \
+      -j 1 \
+      --filter-targets "$filter_regex" \
+      -o "$output"
+}
+
+run_opencode_all() {
+  run_opencode_profile default '^afm-default-opencode$' AFM_BASE_URL_DEFAULT
+  run_opencode_profile adaptive-xml '^afm-adaptive-xml-opencode$' AFM_BASE_URL_ADAPTIVE_XML
+  run_opencode_profile adaptive-xml-grammar '^afm-adaptive-xml-grammar-opencode$' AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR
+}
+
+case "$mode" in
+  all)
+    run_structured
+    run_structured_stress
+    run_toolcall_all
+    run_toolcall_quality_all
+    run_agentic_all
+    run_frameworks_all
+    run_opencode_all
+    ;;
+  structured)
+    run_structured
+    ;;
+  structured-stress)
+    run_structured_stress
+    ;;
+  toolcall)
+    run_toolcall_all
+    ;;
+  toolcall-quality)
+    run_toolcall_quality_all
+    ;;
+  agentic)
+    run_agentic_all
+    ;;
+  frameworks)
+    run_frameworks_all
+    ;;
+  opencode)
+    run_opencode_all
+    ;;
+  default)
+    run_toolcall_profile default '^afm-default$' AFM_BASE_URL_DEFAULT
+    ;;
+  adaptive-xml)
+    run_toolcall_profile adaptive-xml '^afm-adaptive-xml$' AFM_BASE_URL_ADAPTIVE_XML
+    ;;
+  adaptive-xml-grammar)
+    run_toolcall_profile adaptive-xml-grammar '^afm-adaptive-xml-grammar$' AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR
+    ;;
+  *)
+    echo "Usage: Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh [all|structured|structured-stress|toolcall|toolcall-quality|agentic|frameworks|opencode|default|adaptive-xml|adaptive-xml-grammar]" >&2
+    exit 1
+    ;;
+esac

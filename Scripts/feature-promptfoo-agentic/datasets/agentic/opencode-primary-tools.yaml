@@ -1,0 +1,1139 @@
+- description: "opencode/bash run git status"
+  metadata: &opencode_meta
+    suite: opencode_primary
+    source_type: primary_source
+    source_url: "https://opencode.ai/docs/tools/"
+    framework: OpenCode
+    classification: not_yet_classified
+  vars:
+    prompt: "Check whether the repository has uncommitted changes."
+    system_prompt: "You are a coding agent using only OpenCode built-in tools."
+    tools:
+      - type: function
+        function:
+          name: bash
+          description: "Execute shell commands in the project environment"
+          parameters:
+            type: object
+            properties:
+              command:
+                type: string
+            required: [command]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'bash' &&
+          /git status/.test(String(parsed.tool_calls[0].function.arguments.command || ''));
+
+- description: "opencode/bash run targeted build"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Build the Swift package in release mode."
+    tools:
+      - type: function
+        function:
+          name: bash
+          description: "Execute shell commands in the project environment"
+          parameters:
+            type: object
+            properties:
+              command:
+                type: string
+            required: [command]
+      - type: function
+        function:
+          name: read
+          description: "Read file contents"
+          parameters:
+            type: object
+            properties:
+              file_path:
+                type: string
+            required: [file_path]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'bash' &&
+          /(swift build -c release|make build)/.test(String(parsed.tool_calls[0].function.arguments.command || ''));
+
+- description: "opencode/read inspect known file"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Read Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift."
+    tools:
+      - type: function
+        function:
+          name: read
+          description: "Read file contents from the codebase"
+          parameters:
+            type: object
+            properties:
+              file_path:
+                type: string
+              start_line:
+                type: integer
+              end_line:
+                type: integer
+            required: [file_path]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'read' &&
+          /MLXChatCompletionsController\.swift$/.test(String(parsed.tool_calls[0].function.arguments.file_path || ''));
+
+- description: "opencode/read inspect line range"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Open the middle of Sources/MacLocalAPI/Models/MLXModelService.swift around line 400."
+    tools:
+      - type: function
+        function:
+          name: read
+          description: "Read file contents from the codebase"
+          parameters:
+            type: object
+            properties:
+              file_path:
+                type: string
+              start_line:
+                type: integer
+              end_line:
+                type: integer
+            required: [file_path]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'read' &&
+          /MLXModelService\.swift$/.test(String(args.file_path || '')) &&
+          (args.start_line !== undefined || args.end_line !== undefined);
+
+- description: "opencode/grep search literal string in repo"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Search the repo for the exact text PrefixCache Save complete."
+    tools:
+      - type: function
+        function:
+          name: grep
+          description: "Search file contents using regular expressions"
+          parameters:
+            type: object
+            properties:
+              pattern:
+                type: string
+              path:
+                type: string
+              include:
+                type: string
+              literal_text:
+                type: boolean
+            required: [pattern]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'grep' &&
+          /PrefixCache Save complete/.test(String(args.pattern || ''));
+
+- description: "opencode/grep search symbol by regex"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Find all references to ChunkStats in the Swift sources."
+    tools:
+      - type: function
+        function:
+          name: grep
+          description: "Search file contents using regular expressions"
+          parameters:
+            type: object
+            properties:
+              pattern:
+                type: string
+              path:
+                type: string
+              include:
+                type: string
+            required: [pattern]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'grep' &&
+          /ChunkStats/.test(String(args.pattern || ''));
+
+- description: "opencode/glob find swift tests"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Find all Swift test files under Tests."
+    tools:
+      - type: function
+        function:
+          name: glob
+          description: "Find files by pattern matching"
+          parameters:
+            type: object
+            properties:
+              pattern:
+                type: string
+            required: [pattern]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'glob' &&
+          /Tests.*\*.*\.swift|\*\*\/\*\.swift/.test(String(parsed.tool_calls[0].function.arguments.pattern || ''));
+
+- description: "opencode/glob find markdown docs"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Find all markdown files under docs."
+    tools:
+      - type: function
+        function:
+          name: glob
+          description: "Find files by pattern matching"
+          parameters:
+            type: object
+            properties:
+              pattern:
+                type: string
+            required: [pattern]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'glob';
+
+- description: "opencode/list list top-level sources directory"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "List the contents of Sources/MacLocalAPI."
+    tools:
+      - type: function
+        function:
+          name: list
+          description: "List files and directories in a path"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              pattern:
+                type: string
+            required: [path]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'list' &&
+          /Sources\/MacLocalAPI$/.test(String(parsed.tool_calls[0].function.arguments.path || ''));
+
+- description: "opencode/list list docs subtree"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Show me what is under docs/roadmap."
+    tools:
+      - type: function
+        function:
+          name: list
+          description: "List files and directories in a path"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              pattern:
+                type: string
+            required: [path]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'list' &&
+          /docs\/roadmap$/.test(String(parsed.tool_calls[0].function.arguments.path || ''));
+
+- description: "opencode/edit exact replacement in existing file"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "In the existing controller file, replace cache: MISS with cache: MISS suffix=41."
+    tools:
+      - type: function
+        function:
+          name: edit
+          description: "Modify existing files using exact string replacements"
+          parameters:
+            type: object
+            properties:
+              file_path:
+                type: string
+              old_string:
+                type: string
+              new_string:
+                type: string
+            required: [file_path, old_string, new_string]
+      - type: function
+        function:
+          name: write
+          description: "Create new files or overwrite existing ones"
+          parameters:
+            type: object
+            properties:
+              file_path:
+                type: string
+              content:
+                type: string
+            required: [file_path, content]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'edit' &&
+          /cache: MISS/.test(String(args.old_string || '')) &&
+          /suffix=41/.test(String(args.new_string || ''));
+
+- description: "opencode/edit avoid write for surgical change"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Update one sentence in README.md to mention promptfoo."
+    tools:
+      - type: function
+        function:
+          name: edit
+          description: "Modify existing files using exact string replacements"
+          parameters:
+            type: object
+            properties:
+              file_path:
+                type: string
+              old_string:
+                type: string
+              new_string:
+                type: string
+            required: [file_path, old_string, new_string]
+      - type: function
+        function:
+          name: write
+          description: "Create new files or overwrite existing ones"
+          parameters:
+            type: object
+            properties:
+              file_path:
+                type: string
+              content:
+                type: string
+            required: [file_path, content]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        if (parsed.tool_calls.length === 1) {
+          return parsed.tool_calls[0].function.name === 'edit';
+        }
+        return parsed.tool_calls.length === 0 &&
+          /show me the file|need the current readme|which sentence/i.test(parsed.content);
+
+- description: "opencode/write create new markdown report"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Create a new markdown file docs/report.md with a short heading and placeholder body."
+    tools:
+      - type: function
+        function:
+          name: write
+          description: "Create new files or overwrite existing ones"
+          parameters:
+            type: object
+            properties:
+              file_path:
+                type: string
+              content:
+                type: string
+            required: [file_path, content]
+      - type: function
+        function:
+          name: edit
+          description: "Modify existing files using exact string replacements"
+          parameters:
+            type: object
+            properties:
+              file_path:
+                type: string
+              old_string:
+                type: string
+              new_string:
+                type: string
+            required: [file_path, old_string, new_string]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'write' &&
+          /docs\/report\.md$/.test(String(parsed.tool_calls[0].function.arguments.file_path || ''));
+
+- description: "opencode/write overwrite generated file"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Rewrite generated/output.json from scratch with valid JSON."
+    tools:
+      - type: function
+        function:
+          name: write
+          description: "Create new files or overwrite existing ones"
+          parameters:
+            type: object
+            properties:
+              file_path:
+                type: string
+              content:
+                type: string
+            required: [file_path, content]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'write';
+
+- description: "opencode/patch apply diff patch"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Apply this unified diff patch to the controller file."
+    tools:
+      - type: function
+        function:
+          name: patch
+          description: "Apply patches to files"
+          parameters:
+            type: object
+            properties:
+              diff:
+                type: string
+            required: [diff]
+      - type: function
+        function:
+          name: edit
+          description: "Modify existing files using exact string replacements"
+          parameters:
+            type: object
+            properties:
+              file_path:
+                type: string
+              old_string:
+                type: string
+              new_string:
+                type: string
+            required: [file_path, old_string, new_string]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'patch';
+
+- description: "opencode/patch after receiving diff artifact"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    messages:
+      - role: user
+        content: "Here is the diff to apply."
+      - role: assistant
+        content: "Please provide the diff."
+      - role: user
+        content: "--- a/file\n+++ b/file\n@@\n-old\n+new"
+    prompt: "Apply the diff."
+    tools:
+      - type: function
+        function:
+          name: patch
+          description: "Apply patches to files"
+          parameters:
+            type: object
+            properties:
+              diff:
+                type: string
+            required: [diff]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'patch';
+
+- description: "opencode/skill load test skill instructions"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Load the test-afm skill instructions before proceeding."
+    tools:
+      - type: function
+        function:
+          name: skill
+          description: "Load a skill and return its content in the conversation"
+          parameters:
+            type: object
+            properties:
+              name:
+                type: string
+            required: [name]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'skill' &&
+          /test-afm/.test(String(parsed.tool_calls[0].function.arguments.name || ''));
+
+- description: "opencode/skill load build skill"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Before rebuilding, load the build-afm skill."
+    tools:
+      - type: function
+        function:
+          name: skill
+          description: "Load a skill and return its content in the conversation"
+          parameters:
+            type: object
+            properties:
+              name:
+                type: string
+            required: [name]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'skill' &&
+          /build-afm/.test(String(parsed.tool_calls[0].function.arguments.name || ''));
+
+- description: "opencode/todowrite create plan for multi-step task"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Plan the work to expand the Promptfoo harness across all parser profiles."
+    tools:
+      - type: function
+        function:
+          name: todowrite
+          description: "Create and update task lists"
+          parameters:
+            type: object
+            properties:
+              items:
+                type: array
+                items:
+                  type: string
+            required: [items]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'todowrite';
+
+- description: "opencode/todoread inspect existing todo list"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Check what tasks are already pending before adding new ones."
+    tools:
+      - type: function
+        function:
+          name: todoread
+          description: "Read the current todo list"
+          parameters:
+            type: object
+            properties: {}
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'todoread';
+
+- description: "opencode/webfetch fetch known documentation URL"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Fetch the OpenCode tools documentation page."
+    tools:
+      - type: function
+        function:
+          name: webfetch
+          description: "Fetch web content from a specific URL"
+          parameters:
+            type: object
+            properties:
+              url:
+                type: string
+            required: [url]
+      - type: function
+        function:
+          name: websearch
+          description: "Search the web for information"
+          parameters:
+            type: object
+            properties:
+              query:
+                type: string
+            required: [query]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'webfetch' &&
+          /opencode\.ai\/docs\/tools/.test(String(args.url || ''));
+
+- description: "opencode/websearch research current promptfoo docs"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Search the web for promptfoo documentation on custom JavaScript assertions."
+    tools:
+      - type: function
+        function:
+          name: websearch
+          description: "Search the web for information"
+          parameters:
+            type: object
+            properties:
+              query:
+                type: string
+            required: [query]
+      - type: function
+        function:
+          name: webfetch
+          description: "Fetch web content from a specific URL"
+          parameters:
+            type: object
+            properties:
+              url:
+                type: string
+            required: [url]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'websearch' &&
+          /promptfoo/i.test(String(args.query || ''));
+
+- description: "opencode/question ask clarification with options"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Implement the cache fix whichever way you think is best."
+    system_prompt: "Use the question tool when the user needs to choose between implementation directions."
+    tools:
+      - type: function
+        function:
+          name: question
+          description: "Ask the user questions during execution"
+          parameters:
+            type: object
+            properties:
+              header:
+                type: string
+              question:
+                type: string
+              options:
+                type: array
+                items:
+                  type: string
+            required: [header, question, options]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'question' &&
+          Array.isArray(args.options);
+
+- description: "opencode/question ask for ambiguous preference"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Pick a format for the final report, I don't care."
+    system_prompt: "Use the question tool when user preference changes the output format."
+    tools:
+      - type: function
+        function:
+          name: question
+          description: "Ask the user questions during execution"
+          parameters:
+            type: object
+            properties:
+              header:
+                type: string
+              question:
+                type: string
+              options:
+                type: array
+                items:
+                  type: string
+            required: [header, question, options]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'question';
+
+- description: "opencode/lsp go to definition request"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Use LSP to jump to the definition of ChunkStats."
+    tools:
+      - type: function
+        function:
+          name: lsp
+          description: "Interact with configured LSP servers"
+          parameters:
+            type: object
+            properties:
+              operation:
+                type: string
+              symbol:
+                type: string
+              file_path:
+                type: string
+            required: [operation]
+      - type: function
+        function:
+          name: grep
+          description: "Search file contents using regular expressions"
+          parameters:
+            type: object
+            properties:
+              pattern:
+                type: string
+            required: [pattern]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        if (parsed.tool_calls.length === 1) {
+          const call = parsed.tool_calls[0];
+          return call.function.name === 'lsp' &&
+            /definition|goToDefinition/i.test(String(call.function.arguments.operation || ''));
+        }
+        return false;
+
+- description: "opencode/lsp find references request"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Use LSP to find references to PrefixCacheMetrics."
+    tools:
+      - type: function
+        function:
+          name: lsp
+          description: "Interact with configured LSP servers"
+          parameters:
+            type: object
+            properties:
+              operation:
+                type: string
+              symbol:
+                type: string
+            required: [operation]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const call = parsed.tool_calls[0];
+        return parsed.tool_calls.length === 1 &&
+          call.function.name === 'lsp' &&
+          /references|findReferences/i.test(String(call.function.arguments.operation || ''));
+
+- description: "opencode/lsp hover request"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Use LSP hover to inspect the symbol BatchScheduler."
+    tools:
+      - type: function
+        function:
+          name: lsp
+          description: "Interact with configured LSP servers"
+          parameters:
+            type: object
+            properties:
+              operation:
+                type: string
+              symbol:
+                type: string
+            required: [operation]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const call = parsed.tool_calls[0];
+        return parsed.tool_calls.length === 1 &&
+          call.function.name === 'lsp' &&
+          /hover/i.test(String(call.function.arguments.operation || ''));
+
+- description: "opencode/lsp workspace symbol request"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Use LSP workspace symbol search for PrefixCache."
+    tools:
+      - type: function
+        function:
+          name: lsp
+          description: "Interact with configured LSP servers"
+          parameters:
+            type: object
+            properties:
+              operation:
+                type: string
+              query:
+                type: string
+            required: [operation]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const call = parsed.tool_calls[0];
+        return parsed.tool_calls.length === 1 &&
+          call.function.name === 'lsp' &&
+          /workspaceSymbol/i.test(String(call.function.arguments.operation || ''));
+
+- description: "opencode/search before read on unknown symbol"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Find where MLXChatCompletionsController logs STATS."
+    tools:
+      - type: function
+        function:
+          name: grep
+          description: "Search file contents using regular expressions"
+          parameters:
+            type: object
+            properties:
+              pattern:
+                type: string
+              path:
+                type: string
+            required: [pattern]
+      - type: function
+        function:
+          name: read
+          description: "Read file contents from the codebase"
+          parameters:
+            type: object
+            properties:
+              file_path:
+                type: string
+            required: [file_path]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'grep';
+
+- description: "opencode/read after explicit file path should not grep"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Read the file Scripts/feature-promptfoo-agentic/README.md."
+    tools:
+      - type: function
+        function:
+          name: read
+          description: "Read file contents from the codebase"
+          parameters:
+            type: object
+            properties:
+              file_path:
+                type: string
+            required: [file_path]
+      - type: function
+        function:
+          name: grep
+          description: "Search file contents using regular expressions"
+          parameters:
+            type: object
+            properties:
+              pattern:
+                type: string
+            required: [pattern]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'read';
+
+- description: "opencode/list before glob for top-level exploration"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Explore the repository root and tell me what kind of project this is."
+    tools:
+      - type: function
+        function:
+          name: list
+          description: "List files and directories in a path"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+            required: [path]
+      - type: function
+        function:
+          name: glob
+          description: "Find files by pattern matching"
+          parameters:
+            type: object
+            properties:
+              pattern:
+                type: string
+            required: [pattern]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'list';
+
+- description: "opencode/todowrite for explicit multi-step coding task"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "We need to add tests, update docs, and patch the provider. Start by organizing the work."
+    tools:
+      - type: function
+        function:
+          name: todowrite
+          description: "Create and update task lists"
+          parameters:
+            type: object
+            properties:
+              items:
+                type: array
+                items:
+                  type: string
+            required: [items]
+      - type: function
+        function:
+          name: bash
+          description: "Execute shell commands"
+          parameters:
+            type: object
+            properties:
+              command:
+                type: string
+            required: [command]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'todowrite';
+
+- description: "opencode/todoread before appending more tasks"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Before you add more tasks, check the current todo list."
+    tools:
+      - type: function
+        function:
+          name: todoread
+          description: "Read the current todo list"
+          parameters:
+            type: object
+            properties: {}
+      - type: function
+        function:
+          name: todowrite
+          description: "Create and update task lists"
+          parameters:
+            type: object
+            properties:
+              items:
+                type: array
+                items:
+                  type: string
+            required: [items]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'todoread';
+
+- description: "opencode/websearch for unknown external fact"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Find current documentation on Promptfoo custom JavaScript assertions."
+    tools:
+      - type: function
+        function:
+          name: websearch
+          description: "Search the web for information"
+          parameters:
+            type: object
+            properties:
+              query:
+                type: string
+            required: [query]
+      - type: function
+        function:
+          name: webfetch
+          description: "Fetch web content from a specific URL"
+          parameters:
+            type: object
+            properties:
+              url:
+                type: string
+            required: [url]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'websearch';
+
+- description: "opencode/webfetch once URL is known"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Fetch https://opencode.ai/docs/tools/ and inspect the page."
+    tools:
+      - type: function
+        function:
+          name: webfetch
+          description: "Fetch web content from a specific URL"
+          parameters:
+            type: object
+            properties:
+              url:
+                type: string
+            required: [url]
+      - type: function
+        function:
+          name: websearch
+          description: "Search the web for information"
+          parameters:
+            type: object
+            properties:
+              query:
+                type: string
+            required: [query]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'webfetch' &&
+          /opencode\.ai\/docs\/tools/.test(String(args.url || ''));
+
+- description: "opencode/question for implementation choice"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Should we add a new config file or extend the wrapper script? Ask me to choose."
+    tools:
+      - type: function
+        function:
+          name: question
+          description: "Ask the user questions during execution"
+          parameters:
+            type: object
+            properties:
+              header:
+                type: string
+              question:
+                type: string
+              options:
+                type: array
+                items:
+                  type: string
+            required: [header, question, options]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'question' &&
+          Array.isArray(args.options) &&
+          args.options.length >= 2;
+
+- description: "opencode/question for ambiguous requirements"
+  metadata:
+    <<: *opencode_meta
+  vars:
+    prompt: "Implement whichever of two possible output formats you think is okay."
+    tools:
+      - type: function
+        function:
+          name: question
+          description: "Ask the user questions during execution"
+          parameters:
+            type: object
+            properties:
+              header:
+                type: string
+              question:
+                type: string
+              options:
+                type: array
+                items:
+                  type: string
+            required: [header, question, options]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'question';

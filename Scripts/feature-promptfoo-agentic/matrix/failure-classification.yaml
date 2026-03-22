@@ -1,0 +1,33 @@
+classification:
+  default: not_yet_classified
+  allowed:
+    - not_yet_classified
+    - afm_bug
+    - model_quality
+    - harness_bug
+
+rules:
+  afm_bug:
+    - malformed_json
+    - malformed_sse
+    - invalid_tool_call_envelope
+    - broken_tool_choice_semantics
+    - grammar_violation
+    - stream_nonstream_mismatch
+    - parser_regression
+    - timeout_or_crash
+    - truncation_or_duplicate_emission
+
+  model_quality:
+    - wrong_tool
+    - missing_tool_call
+    - unnecessary_tool_call
+    - wrong_arguments
+    - poor_refusal
+    - weak_multiturn_use
+
+  harness_bug:
+    - assertion_false_negative
+    - provider_normalization_bug
+    - promptfoo_config_mismatch
+    - judge_pipeline_bug

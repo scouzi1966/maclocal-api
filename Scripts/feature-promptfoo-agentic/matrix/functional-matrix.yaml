@@ -1,0 +1,39 @@
+- id: plain-control
+  purpose: afm_functional
+  dimensions:
+    stream: [false, true]
+    concurrent: [1, 8]
+    prefix_caching: [off, on]
+
+- id: guided-json
+  purpose: afm_functional
+  dimensions:
+    guided_json: [on]
+    no_think: [off, on]
+    stream: [false, true]
+    concurrent: [1]
+
+- id: tool-default
+  purpose: afm_functional
+  dimensions:
+    tool_call_parser: [default]
+    stream: [false, true]
+    concurrent: [1, 8]
+
+- id: tool-adaptive
+  purpose: afm_functional
+  dimensions:
+    tool_call_parser: [afm_adaptive_xml]
+    fix_tool_args: [off, on]
+    stream: [false, true]
+    concurrent: [1, 8]
+
+- id: tool-adaptive-grammar
+  purpose: afm_functional
+  dimensions:
+    tool_call_parser: [afm_adaptive_xml]
+    grammar_constraints: [on]
+    fix_tool_args: [off, on]
+    stream: [false, true]
+    concurrent: [1, 8]
+

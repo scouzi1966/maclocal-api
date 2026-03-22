@@ -724,6 +724,7 @@ struct MLXChatCompletionsController: RouteCollection {
                                     incrementalToolIndex = collectedToolCalls.count
                                     // Add a placeholder to collectedToolCalls
                                     let placeholder = ResponseToolCall(
+                                        index: incrementalToolIndex,
                                         id: incrementalCallId,
                                         type: "function",
                                         function: ResponseToolCallFunction(name: funcName, arguments: "")
@@ -1206,6 +1207,7 @@ struct MLXChatCompletionsController: RouteCollection {
         guard let newData = try? JSONSerialization.data(withJSONObject: remappedAny, options: [.sortedKeys]),
               let newStr = String(data: newData, encoding: .utf8) else { return rtc }
         return ResponseToolCall(
+            index: rtc.index,
             id: rtc.id,
             type: rtc.type,
             function: ResponseToolCallFunction(name: rtc.function.name, arguments: newStr)

@@ -803,6 +803,7 @@ final class MLXModelService: @unchecked Sendable {
                     if let newData = try? JSONSerialization.data(withJSONObject: remappedAny, options: [.sortedKeys]),
                        let newStr = String(data: newData, encoding: .utf8) {
                         converted = ResponseToolCall(
+                            index: converted.index,
                             id: converted.id,
                             type: converted.type,
                             function: ResponseToolCallFunction(name: converted.function.name, arguments: newStr)
@@ -1463,6 +1464,7 @@ final class MLXModelService: @unchecked Sendable {
             fflush(stdout)
         }
         return ResponseToolCall(
+            index: index,
             id: "call_\(generateCallID())",
             type: "function",
             function: ResponseToolCallFunction(
@@ -1609,6 +1611,7 @@ final class MLXModelService: @unchecked Sendable {
             fflush(stdout)
         }
         return ResponseToolCall(
+            index: rtc.index,
             id: rtc.id, type: rtc.type,
             function: ResponseToolCallFunction(name: rtc.function.name, arguments: newStr)
         )

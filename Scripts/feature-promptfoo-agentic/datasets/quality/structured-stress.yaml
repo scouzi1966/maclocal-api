@@ -1,0 +1,171 @@
+- description: "stress/schema invoice extraction with nested arrays"
+  metadata:
+    suite: structured_stress
+    classification: not_yet_classified
+    source: structeval_inspired
+  vars:
+    prompt: "Extract an invoice from this note. Vendor Northwind Labs. Invoice INV-2049 dated 2026-03-15. Items: 2 ethernet adapters at 29.99 each, 1 docking station at 189.50. Tax 19.04. Total 268.52."
+    response_format:
+      type: json_schema
+      json_schema:
+        name: invoice_extract
+        strict: true
+        schema:
+          type: object
+          additionalProperties: false
+          properties:
+            vendor:
+              type: string
+            invoice_number:
+              type: string
+            invoice_date:
+              type: string
+            line_items:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                properties:
+                  description:
+                    type: string
+                  quantity:
+                    type: integer
+                  unit_price:
+                    type: number
+                required: [description, quantity, unit_price]
+            tax:
+              type: number
+            total:
+              type: number
+          required: [vendor, invoice_number, invoice_date, line_items, tax, total]
+  assert:
+    - type: is-json
+      value:
+        type: object
+        required: [vendor, invoice_number, invoice_date, line_items, tax, total]
+    - type: contains-json
+      value:
+        type: object
+        properties:
+          line_items:
+            type: array
+            minItems: 2
+
+- description: "stress/schema incident triage with enums nullable and arrays"
+  metadata:
+    suite: structured_stress
+    classification: not_yet_classified
+    source: structeval_inspired
+  vars:
+    prompt: "Return an incident object for this alert: checkout latency spiked to 12 seconds in us-east-1. Suspected culprit is payments-db connection pool exhaustion. Customer impact is severe. No mitigation yet."
+    response_format:
+      type: json_schema
+      json_schema:
+        name: incident_triage
+        strict: true
+        schema:
+          type: object
+          additionalProperties: false
+          properties:
+            severity:
+              type: string
+              enum: [sev0, sev1, sev2, sev3]
+            region:
+              type: string
+            suspected_cause:
+              type: string
+            mitigation:
+              type: [string, "null"]
+            impacted_systems:
+              type: array
+              items:
+                type: string
+          required: [severity, region, suspected_cause, mitigation, impacted_systems]
+  assert:
+    - type: is-json
+      value:
+        type: object
+        properties:
+          severity:
+            enum: [sev0, sev1, sev2, sev3]
+          mitigation:
+            type: [string, "null"]
+
+- description: "stress/schema refs and defs for support ticket"
+  metadata:
+    suite: structured_stress
+    classification: not_yet_classified
+    source: structeval_inspired
+  vars:
+    prompt: "Normalize this support request. Customer Emma Reed from Contoso reports they cannot export CSV reports after upgrading to version 4.2. Priority high. Reproduce by opening analytics, selecting last quarter, then export CSV."
+    response_format:
+      type: json_schema
+      json_schema:
+        name: support_ticket
+        strict: true
+        schema:
+          type: object
+          additionalProperties: false
+          properties:
+            customer:
+              type: string
+            organization:
+              type: string
+            priority:
+              type: string
+              enum: [low, medium, high, urgent]
+            issue:
+              type: string
+            reproduction_steps:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                properties:
+                  order:
+                    type: integer
+                  instruction:
+                    type: string
+                required: [order, instruction]
+          required: [customer, organization, priority, issue, reproduction_steps]
+  assert:
+    - type: is-json
+      value:
+        type: object
+        required: [customer, organization, priority, issue, reproduction_steps]
+
+- description: "stress/cli guided-json nested release checklist"
+  provider:
+    id: ../../providers/afm_provider.mjs
+    label: afm-cli-guided-json-stress
+    config:
+      transport: cli-guided-json
+      binaryEnv: AFM_BINARY
+      modelEnv: AFM_MODEL
+      modelCacheEnv: MACAFM_MLX_MODEL_CACHE
+  metadata:
+    suite: structured_stress
+    classification: not_yet_classified
+    source: structeval_inspired
+  vars:
+    prompt: "Return a release checklist for version 1.4. Include engineering tasks build release binary and run regression tests, and launch tasks publish notes and notify support."
+    guided_json:
+      type: object
+      additionalProperties: false
+      properties:
+        version:
+          type: string
+        engineering:
+          type: array
+          items:
+            type: string
+        launch:
+          type: array
+          items:
+            type: string
+      required: [version, engineering, launch]
+  assert:
+    - type: is-json
+      value:
+        type: object
+        required: [version, engineering, launch]

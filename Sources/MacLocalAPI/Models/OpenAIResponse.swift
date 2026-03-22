@@ -153,6 +153,7 @@ struct ResponseMessage: Content {
 // MARK: - Tool call response types
 
 struct ResponseToolCall: Content {
+    let index: Int?
     let id: String           // "call_<random>"
     let type: String         // "function"
     let function: ResponseToolCallFunction
