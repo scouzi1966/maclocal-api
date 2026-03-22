@@ -1,0 +1,32 @@
+name: Sourcery Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - '**/*.swift'
+      - 'Package.swift'
+  workflow_dispatch:
+
+jobs:
+  sourcery:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Run Sourcery on Swift sources only
+        uses: sourcery-ai/action@v1
+        with:
+          token: ${{ secrets.SOURCERY_TOKEN }}
+          diff_ref: ${{ github.event.pull_request.base.sha }}
+          target: Sources Tests Scripts/patches Package.swift
