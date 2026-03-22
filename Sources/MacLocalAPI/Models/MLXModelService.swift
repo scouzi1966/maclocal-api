@@ -223,11 +223,22 @@ final class MLXModelService: @unchecked Sendable {
         let outputPath = "/tmp/afm-metal.trace"
         // Remove existing trace
         try? FileManager.default.removeItem(atPath: outputPath)
+        // Prefer custom shader-enabled template if available (has per-kernel names)
+        let shaderTemplate = NSString(string: "~/Library/Developer/Xcode/UserData/Instruments/Templates/Metal Shader Profile.tracetemplate").expandingTildeInPath
+        let templateArg: String
+        if FileManager.default.fileExists(atPath: shaderTemplate) {
+            templateArg = shaderTemplate
+            print("[\(ts())] [GPU-TRACE] Using Metal Shader Profile template (per-kernel shader names enabled)")
+        } else {
+            templateArg = "Metal System Trace"
+            print("[\(ts())] [GPU-TRACE] Using default Metal System Trace (no per-kernel names)")
+            print("[\(ts())] [GPU-TRACE]   For shader names: python3 Scripts/create-shader-template.py")
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
         process.arguments = [
             "xctrace", "record",
-            "--template", "Metal System Trace",
+            "--template", templateArg,
             "--attach", "\(pid)",
             "--time-limit", "\(duration)s",
             "--output", outputPath
@@ -239,7 +250,7 @@ final class MLXModelService: @unchecked Sendable {
             try process.run()
             xctraceProcess = process
             xctraceOutputPath = outputPath
-            print("[\(ts())] [GPU-TRACE] Recording Metal System Trace for \(duration)s (PID \(pid))")
+            print("[\(ts())] [GPU-TRACE] Recording for \(duration)s (PID \(pid))")
             print("[\(ts())] [GPU-TRACE] Output: \(outputPath)")
             // Give xctrace time to attach before we start inference
             Thread.sleep(forTimeInterval: 1.5)
