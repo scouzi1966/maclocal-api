@@ -1,0 +1,236 @@
+- description: "bfcl: choose weather tool with exact city argument"
+  metadata:
+    suite: quality
+    classification: not_yet_classified
+    source: bfcl_inspired
+    use_case: direct_tool_selection
+  vars:
+    prompt: "What is the weather in Berlin right now?"
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: "Get current weather for a city"
+          parameters:
+            type: object
+            properties:
+              location:
+                type: string
+            required: [location]
+      - type: function
+        function:
+          name: get_time
+          description: "Get current time in a city"
+          parameters:
+            type: object
+            properties:
+              location:
+                type: string
+            required: [location]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'get_weather' &&
+          parsed.tool_calls[0].function.arguments.location === 'Berlin';
+
+- description: "bfcl: choose create_calendar_event over send_email"
+  metadata:
+    suite: quality
+    classification: not_yet_classified
+    source: bfcl_inspired
+    use_case: similar_tool_disambiguation
+  vars:
+    prompt: "Schedule lunch with Maya tomorrow at 12:30 PM with title Team Lunch."
+    tools:
+      - type: function
+        function:
+          name: create_calendar_event
+          description: "Create a calendar event"
+          parameters:
+            type: object
+            properties:
+              title:
+                type: string
+              date:
+                type: string
+              time:
+                type: string
+              attendees:
+                type: array
+                items:
+                  type: string
+            required: [title, date, time]
+      - type: function
+        function:
+          name: send_email
+          description: "Send an email"
+          parameters:
+            type: object
+            properties:
+              to:
+                type: array
+                items:
+                  type: string
+              subject:
+                type: string
+              body:
+                type: string
+            required: [to, subject, body]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const call = parsed.tool_calls[0];
+        return parsed.tool_calls.length === 1 &&
+          call.function.name === 'create_calendar_event' &&
+          call.function.arguments.title === 'Team Lunch';
+
+- description: "when2call: answer directly when tools are irrelevant"
+  metadata:
+    suite: quality
+    classification: not_yet_classified
+    source: when2call_inspired
+    use_case: no_tool_direct_answer
+  vars:
+    prompt: "What does DNS stand for?"
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: "Get weather for a location"
+          parameters:
+            type: object
+            properties:
+              location:
+                type: string
+            required: [location]
+      - type: function
+        function:
+          name: create_calendar_event
+          description: "Create a calendar event"
+          parameters:
+            type: object
+            properties:
+              title:
+                type: string
+          required: [title]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 0 &&
+          /domain name system/i.test(parsed.content);
+
+- description: "when2call: ask follow-up when required tool args are missing"
+  metadata:
+    suite: quality
+    classification: not_yet_classified
+    source: when2call_inspired
+    use_case: follow_up_before_tool
+  vars:
+    prompt: "Book me a restaurant reservation for Friday night."
+    tools:
+      - type: function
+        function:
+          name: book_restaurant
+          description: "Book a restaurant reservation"
+          parameters:
+            type: object
+            properties:
+              restaurant_name:
+                type: string
+              date:
+                type: string
+              time:
+                type: string
+              party_size:
+                type: integer
+            required: [restaurant_name, date, time, party_size]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 0 &&
+          /(which restaurant|what restaurant|party size|how many people|what time)/i.test(parsed.content);
+
+- description: "bfcl: select database lookup tool for account balance"
+  metadata:
+    suite: quality
+    classification: not_yet_classified
+    source: bfcl_inspired
+    use_case: business_lookup
+  vars:
+    prompt: "Check the account balance for customer 84192."
+    tools:
+      - type: function
+        function:
+          name: get_account_balance
+          description: "Look up a customer account balance"
+          parameters:
+            type: object
+            properties:
+              customer_id:
+                type: string
+            required: [customer_id]
+      - type: function
+        function:
+          name: create_support_ticket
+          description: "Create a customer support ticket"
+          parameters:
+            type: object
+            properties:
+              customer_id:
+                type: string
+              issue:
+                type: string
+            required: [customer_id, issue]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'get_account_balance' &&
+          String(parsed.tool_calls[0].function.arguments.customer_id) === '84192';
+
+- description: "when2call: clarify or inspect before ambiguous file action"
+  metadata:
+    suite: quality
+    classification: not_yet_classified
+    source: when2call_inspired
+    use_case: clarification_or_inspection_before_file_mutation
+  vars:
+    prompt: "Update the README to match the new CLI behavior."
+    tools:
+      - type: function
+        function:
+          name: read_file
+          description: "Read a file from the repository"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+            required: [path]
+      - type: function
+        function:
+          name: apply_patch
+          description: "Apply a patch to a repository file"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              patch:
+                type: string
+            required: [path, patch]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        if (parsed.tool_calls.length === 0) {
+          return /(which readme|what file|show me the file|need the current readme)/i.test(parsed.content);
+        }
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'read_file';

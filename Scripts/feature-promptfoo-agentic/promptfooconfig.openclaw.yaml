@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+
+description: "AFM OpenClaw primary-source tool suite"
+
+prompts:
+  - "{{prompt}}"
+
+providers:
+  - id: providers/afm_provider.mjs
+    label: afm-default-openclaw
+    config:
+      transport: api
+      baseUrlEnv: AFM_BASE_URL_DEFAULT
+      modelEnv: AFM_MODEL
+      extract: normalized_message
+
+  - id: providers/afm_provider.mjs
+    label: afm-adaptive-xml-openclaw
+    config:
+      transport: api
+      baseUrlEnv: AFM_BASE_URL_ADAPTIVE_XML
+      modelEnv: AFM_MODEL
+      extract: normalized_message
+
+  - id: providers/afm_provider.mjs
+    label: afm-adaptive-xml-grammar-openclaw
+    config:
+      transport: api
+      baseUrlEnv: AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR
+      modelEnv: AFM_MODEL
+      extract: normalized_message
+
+tests: file://datasets/agentic/openclaw-primary-tools.yaml

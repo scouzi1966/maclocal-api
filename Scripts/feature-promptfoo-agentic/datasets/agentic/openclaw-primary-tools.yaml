@@ -1,0 +1,351 @@
+- description: "openclaw/exec run git status"
+  metadata: &openclaw_meta
+    suite: openclaw_primary
+    source_type: primary_source
+    source_urls:
+      - "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md"
+      - "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md"
+      - "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md"
+      - "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+    framework: OpenClaw
+    classification: not_yet_classified
+  vars:
+    prompt: "Check whether the repository has uncommitted changes."
+    system_prompt: "You are an OpenClaw-style coding agent using only documented OpenClaw tools."
+    tools:
+      - type: function
+        function:
+          name: exec
+          description: "Run shell commands in the workspace"
+          parameters:
+            type: object
+            properties:
+              command:
+                type: string
+              workdir:
+                type: string
+              timeout:
+                type: integer
+            required: [command]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'exec' &&
+          /git status/.test(String(args.command || ''));
+
+- description: "openclaw/exec targeted release build"
+  metadata:
+    <<: *openclaw_meta
+  vars:
+    prompt: "Build the Swift package in release mode from the repository root."
+    tools:
+      - type: function
+        function:
+          name: exec
+          description: "Run shell commands in the workspace"
+          parameters:
+            type: object
+            properties:
+              command:
+                type: string
+              workdir:
+                type: string
+            required: [command]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const command = String(parsed.tool_calls[0]?.function?.arguments?.command || '');
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'exec' &&
+          /(swift build -c release|make build)/.test(command);
+
+- description: "openclaw/exec background build with yield"
+  metadata:
+    <<: *openclaw_meta
+  vars:
+    prompt: "Kick off npm run build, let it run briefly, and keep the session around so we can poll it later."
+    tools:
+      - type: function
+        function:
+          name: exec
+          description: "Run shell commands in the workspace"
+          parameters:
+            type: object
+            properties:
+              command:
+                type: string
+              yieldMs:
+                type: integer
+              background:
+                type: boolean
+            required: [command]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'exec' &&
+          /npm run build/.test(String(args.command || '')) &&
+          (args.background === true || args.yieldMs !== undefined);
+
+- description: "openclaw/apply_patch add file"
+  metadata:
+    <<: *openclaw_meta
+  vars:
+    prompt: "Create docs/cache-notes.md with two short markdown lines using the OpenClaw patch tool."
+    tools:
+      - type: function
+        function:
+          name: apply_patch
+          description: "Apply structured multi-file patches"
+          parameters:
+            type: object
+            properties:
+              input:
+                type: string
+            required: [input]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'apply_patch' &&
+          (
+            (/\*\*\* Begin Patch/.test(input) && /\*\*\* Add File: docs\/cache-notes\.md/.test(input)) ||
+            (/^diff --git /m.test(input) && /(\+\+\+ b\/docs\/cache-notes\.md|new file mode)/.test(input))
+          );
+
+- description: "openclaw/apply_patch update existing file"
+  metadata:
+    <<: *openclaw_meta
+  vars:
+    prompt: "Update README.md so it mentions the promptfoo harness."
+    tools:
+      - type: function
+        function:
+          name: apply_patch
+          description: "Apply structured multi-file patches"
+          parameters:
+            type: object
+            properties:
+              input:
+                type: string
+            required: [input]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'apply_patch' &&
+          (
+            /\*\*\* Update File: README\.md/.test(input) ||
+            (/^diff --git /m.test(input) && /(\+\+\+ b\/README\.md|--- a\/README\.md)/.test(input))
+          );
+
+- description: "openclaw/web_search search recent cache bug reports"
+  metadata:
+    <<: *openclaw_meta
+    source_urls:
+      - "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md"
+      - "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/brave-search.md"
+    framework: OpenClaw
+    classification: not_yet_classified
+  vars:
+    prompt: "Search the web for recent Qwen prefix cache bugs from the last month."
+    tools:
+      - type: function
+        function:
+          name: web_search
+          description: "Search the web"
+          parameters:
+            type: object
+            properties:
+              query:
+                type: string
+              freshness:
+                type: string
+              count:
+                type: integer
+            required: [query]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'web_search' &&
+          /Qwen|prefix cache/i.test(String(args.query || '')) &&
+          (args.freshness !== undefined || args.count !== undefined);
+
+- description: "openclaw/web_fetch fetch docs page"
+  metadata:
+    <<: *openclaw_meta
+    source_urls:
+      - "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md"
+    framework: OpenClaw
+    classification: not_yet_classified
+  vars:
+    prompt: "Fetch and extract the readable content from https://opencode.ai/docs/tools/."
+    tools:
+      - type: function
+        function:
+          name: web_fetch
+          description: "Fetch a URL and extract readable text"
+          parameters:
+            type: object
+            properties:
+              url:
+                type: string
+              format:
+                type: string
+            required: [url]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const url = String(parsed.tool_calls[0]?.function?.arguments?.url || '');
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'web_fetch' &&
+          /https:\/\/opencode\.ai\/docs\/tools\/?/.test(url);
+
+- description: "openclaw/browser navigate to docs"
+  metadata:
+    <<: *openclaw_meta
+    source_urls:
+      - "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+    framework: OpenClaw
+    classification: not_yet_classified
+  vars:
+    prompt: "Open https://example.com in the managed browser."
+    tools:
+      - type: function
+        function:
+          name: browser_navigate
+          description: "Navigate the managed browser to a URL"
+          parameters:
+            type: object
+            properties:
+              url:
+                type: string
+              profile:
+                type: string
+            required: [url]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'browser_navigate' &&
+          /https:\/\/example\.com/.test(String(parsed.tool_calls[0].function.arguments.url || ''));
+
+- description: "openclaw/browser snapshot current page"
+  metadata:
+    <<: *openclaw_meta
+  vars:
+    prompt: "Get a snapshot of the current browser page."
+    tools:
+      - type: function
+        function:
+          name: browser_snapshot
+          description: "Capture a browser snapshot"
+          parameters:
+            type: object
+            properties:
+              profile:
+                type: string
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'browser_snapshot';
+
+- description: "openclaw/browser click by selector"
+  metadata:
+    <<: *openclaw_meta
+  vars:
+    prompt: "Click the Sign in button in the managed browser."
+    tools:
+      - type: function
+        function:
+          name: browser_click
+          description: "Click an element in the browser"
+          parameters:
+            type: object
+            properties:
+              selector:
+                type: string
+              profile:
+                type: string
+            required: [selector]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const selector = String(parsed.tool_calls[0]?.function?.arguments?.selector || '');
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'browser_click' &&
+          selector.length > 0;
+
+- description: "openclaw/browser type credentials"
+  metadata:
+    <<: *openclaw_meta
+  vars:
+    prompt: "Type syl@example.com into the email field in the managed browser."
+    tools:
+      - type: function
+        function:
+          name: browser_type
+          description: "Type into a browser field"
+          parameters:
+            type: object
+            properties:
+              selector:
+                type: string
+              text:
+                type: string
+              profile:
+                type: string
+            required: [selector, text]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'browser_type' &&
+          /@/.test(String(args.text || '')) &&
+          String(args.selector || '').length > 0;
+
+- description: "openclaw/browser press enter"
+  metadata:
+    <<: *openclaw_meta
+  vars:
+    prompt: "Press Enter in the managed browser."
+    tools:
+      - type: function
+        function:
+          name: browser_press
+          description: "Press a keyboard key in the browser"
+          parameters:
+            type: object
+            properties:
+              key:
+                type: string
+              profile:
+                type: string
+            required: [key]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'browser_press' &&
+          /enter/i.test(String(parsed.tool_calls[0].function.arguments.key || ''));

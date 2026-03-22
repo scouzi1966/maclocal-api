@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+
+description: "AFM tool-calling quality suite"
+
+prompts:
+  - "{{prompt}}"
+
+providers:
+  - id: providers/afm_provider.mjs
+    label: afm-default-quality
+    config:
+      transport: api
+      baseUrlEnv: AFM_BASE_URL_DEFAULT
+      modelEnv: AFM_MODEL
+      extract: normalized_message
+
+  - id: providers/afm_provider.mjs
+    label: afm-adaptive-xml-quality
+    config:
+      transport: api
+      baseUrlEnv: AFM_BASE_URL_ADAPTIVE_XML
+      modelEnv: AFM_MODEL
+      extract: normalized_message
+
+  - id: providers/afm_provider.mjs
+    label: afm-adaptive-xml-grammar-quality
+    config:
+      transport: api
+      baseUrlEnv: AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR
+      modelEnv: AFM_MODEL
+      extract: normalized_message
+
+tests: file://datasets/quality/toolcall-bfcl-when2call.yaml

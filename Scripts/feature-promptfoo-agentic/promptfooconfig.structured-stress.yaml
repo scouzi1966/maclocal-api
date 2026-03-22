@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+
+description: "AFM structured-output stress suite"
+
+prompts:
+  - "{{prompt}}"
+
+providers:
+  - id: providers/afm_provider.mjs
+    label: afm-api-json-schema-stress
+    config:
+      transport: api
+      baseUrlEnv: AFM_BASE_URL_DEFAULT
+      modelEnv: AFM_MODEL
+      extract: content
+
+tests: file://datasets/quality/structured-stress.yaml

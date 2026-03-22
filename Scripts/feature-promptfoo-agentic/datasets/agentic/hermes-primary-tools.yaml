@@ -1,0 +1,341 @@
+- description: "hermes/read_file inspect controller"
+  metadata: &hermes_meta
+    suite: hermes_primary
+    source_type: primary_source
+    source_urls:
+      - "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md"
+      - "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py"
+      - "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py"
+      - "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py"
+      - "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py"
+      - "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+    framework: Hermes
+    classification: not_yet_classified
+  vars:
+    prompt: "Read Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift."
+    system_prompt: "You are a Hermes-style agent using only documented Hermes tools."
+    tools:
+      - type: function
+        function:
+          name: read_file
+          description: "Read a file with pagination"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              offset:
+                type: integer
+              limit:
+                type: integer
+            required: [path]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'read_file' &&
+          /MLXChatCompletionsController\.swift$/.test(String(parsed.tool_calls[0].function.arguments.path || ''));
+
+- description: "hermes/read_file inspect line window"
+  metadata:
+    <<: *hermes_meta
+  vars:
+    prompt: "Open Sources/MacLocalAPI/Models/MLXModelService.swift around line 400."
+    tools:
+      - type: function
+        function:
+          name: read_file
+          description: "Read a file with pagination"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              offset:
+                type: integer
+              limit:
+                type: integer
+            required: [path]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'read_file' &&
+          /MLXModelService\.swift$/.test(String(args.path || '')) &&
+          (args.offset !== undefined || args.limit !== undefined);
+
+- description: "hermes/write_file create markdown report"
+  metadata:
+    <<: *hermes_meta
+  vars:
+    prompt: "Create docs/hermes-status.md with a short markdown status report."
+    tools:
+      - type: function
+        function:
+          name: write_file
+          description: "Write or overwrite a file"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              content:
+                type: string
+            required: [path, content]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'write_file' &&
+          /docs\/hermes-status\.md$/.test(String(args.path || '')) &&
+          /#|status/i.test(String(args.content || ''));
+
+- description: "hermes/patch surgical update"
+  metadata:
+    <<: *hermes_meta
+  vars:
+    prompt: "Patch README.md to replace the exact text 'Promptfoo results pending.' with 'Promptfoo results recorded.'"
+    tools:
+      - type: function
+        function:
+          name: patch
+          description: "Patch a file using exact replacements"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              old_text:
+                type: string
+              new_text:
+                type: string
+            required: [path, old_text, new_text]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'patch' &&
+          /README\.md$/.test(String(args.path || ''));
+
+- description: "hermes/search_files targeted string search"
+  metadata:
+    <<: *hermes_meta
+  vars:
+    prompt: "Search the repo for the exact text PrefixCache Save complete."
+    tools:
+      - type: function
+        function:
+          name: search_files
+          description: "Search files by regex or literal text"
+          parameters:
+            type: object
+            properties:
+              pattern:
+                type: string
+              path:
+                type: string
+              literal:
+                type: boolean
+            required: [pattern]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'search_files' &&
+          /PrefixCache Save complete/.test(String(args.pattern || ''));
+
+- description: "hermes/web_search recent cache articles"
+  metadata:
+    <<: *hermes_meta
+  vars:
+    prompt: "Search the web for recent MLX prompt cache issues from the past week."
+    tools:
+      - type: function
+        function:
+          name: web_search
+          description: "Search the web for information"
+          parameters:
+            type: object
+            properties:
+              query:
+                type: string
+              limit:
+                type: integer
+            required: [query]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const query = String(parsed.tool_calls[0]?.function?.arguments?.query || '');
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'web_search' &&
+          /MLX|prompt cache/i.test(query);
+
+- description: "hermes/web_extract fetch docs"
+  metadata:
+    <<: *hermes_meta
+  vars:
+    prompt: "Extract the readable content from https://opencode.ai/docs/tools/."
+    tools:
+      - type: function
+        function:
+          name: web_extract
+          description: "Extract content from specific web pages"
+          parameters:
+            type: object
+            properties:
+              urls:
+                type: array
+                items:
+                  type: string
+              format:
+                type: string
+            required: [urls]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const urls = parsed.tool_calls[0]?.function?.arguments?.urls || [];
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'web_extract' &&
+          Array.isArray(urls) &&
+          urls.some((url) => /https:\/\/opencode\.ai\/docs\/tools\/?/.test(String(url)));
+
+- description: "hermes/browser_navigate open docs"
+  metadata:
+    <<: *hermes_meta
+  vars:
+    prompt: "Open https://example.com in the browser."
+    tools:
+      - type: function
+        function:
+          name: browser_navigate
+          description: "Navigate the browser to a URL"
+          parameters:
+            type: object
+            properties:
+              url:
+                type: string
+            required: [url]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'browser_navigate' &&
+          /https:\/\/example\.com/.test(String(parsed.tool_calls[0].function.arguments.url || ''));
+
+- description: "hermes/browser_snapshot inspect current page"
+  metadata:
+    <<: *hermes_meta
+  vars:
+    prompt: "Get a snapshot of the current browser page."
+    tools:
+      - type: function
+        function:
+          name: browser_snapshot
+          description: "Capture a text snapshot of the current browser page"
+          parameters:
+            type: object
+            properties:
+              summarize:
+                type: boolean
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'browser_snapshot';
+
+- description: "hermes/browser_click click sign in"
+  metadata:
+    <<: *hermes_meta
+  vars:
+    prompt: "Click the Sign in button in the browser."
+    tools:
+      - type: function
+        function:
+          name: browser_click
+          description: "Click an element in the browser"
+          parameters:
+            type: object
+            properties:
+              element:
+                type: string
+            required: [element]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const element = String(parsed.tool_calls[0]?.function?.arguments?.element || '');
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'browser_click' &&
+          element.length > 0;
+
+- description: "hermes/browser_type enter email"
+  metadata:
+    <<: *hermes_meta
+  vars:
+    prompt: "Type syl@example.com into the email field in the browser."
+    tools:
+      - type: function
+        function:
+          name: browser_type
+          description: "Type into a browser field"
+          parameters:
+            type: object
+            properties:
+              element:
+                type: string
+              text:
+                type: string
+            required: [element, text]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'browser_type' &&
+          /@/.test(String(args.text || '')) &&
+          String(args.element || '').length > 0;
+
+- description: "hermes/delegate_task ask subagent for focused research"
+  metadata:
+    <<: *hermes_meta
+  vars:
+    prompt: "Delegate a focused subtask to investigate current MLX prompt cache bugs and report back."
+    tools:
+      - type: function
+        function:
+          name: delegate_task
+          description: "Delegate a focused task to a subagent"
+          parameters:
+            type: object
+            properties:
+              goal:
+                type: string
+              context:
+                type: string
+              toolsets:
+                type: array
+                items:
+                  type: string
+            required: [goal]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const args = parsed.tool_calls[0]?.function?.arguments || {};
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'delegate_task' &&
+          /prompt cache|MLX/i.test(String(args.goal || ''));

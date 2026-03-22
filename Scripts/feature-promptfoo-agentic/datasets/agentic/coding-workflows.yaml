@@ -1,0 +1,193 @@
+- description: "agentic/opencode style choose repo search first"
+  metadata:
+    suite: agentic
+    classification: not_yet_classified
+    source: opencode_inspired
+    use_case: coding_agent_initial_repo_search
+  vars:
+    prompt: "Find where AFM logs prefix cache save behavior before I ask you to change it."
+    system_prompt: "You are an autonomous coding agent. Prefer inspecting the repository before editing."
+    tools:
+      - type: function
+        function:
+          name: search_code
+          description: "Search the repository for text or file names"
+          parameters:
+            type: object
+            properties:
+              query:
+                type: string
+              path:
+                type: string
+            required: [query]
+      - type: function
+        function:
+          name: apply_patch
+          description: "Apply a patch to a file"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              patch:
+                type: string
+            required: [path, patch]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const call = parsed.tool_calls[0];
+        return parsed.tool_calls.length === 1 &&
+          call.function.name === 'search_code' &&
+          /cache|prefix|save/i.test(String(call.function.arguments.query || ''));
+
+- description: "agentic/openhands style inspect file after search results"
+  metadata:
+    suite: agentic
+    classification: not_yet_classified
+    source: openhands_inspired
+    use_case: coding_agent_follow_search_with_file_read
+  vars:
+    prompt: "Inspect the restore path that matched this search result and decide what to read next."
+    messages:
+      - role: system
+        content: "You are an autonomous coding agent. Use repository tools conservatively and inspect before editing."
+      - role: user
+        content: "Find the exact cache restore logic for MLX prefix caching."
+      - role: assistant
+        tool_calls:
+          - id: call_search_1
+            type: function
+            function:
+              name: search_code
+              arguments: "{\"query\":\"PrefixCache Save complete\",\"path\":\"Sources/MacLocalAPI\"}"
+      - role: tool
+        tool_call_id: call_search_1
+        content: "Sources/MacLocalAPI/Models/MLXModelService.swift: PrefixCache Save complete\nSources/MacLocalAPI/Models/BatchScheduler.swift: PrefixCache Save complete"
+      - role: user
+        content: "Inspect the restore path that matched this search result and decide what to read next."
+    tools:
+      - type: function
+        function:
+          name: read_file
+          description: "Read a file from the repository"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+            required: [path]
+      - type: function
+        function:
+          name: apply_patch
+          description: "Apply a patch to a file"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              patch:
+                type: string
+            required: [path, patch]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        const call = parsed.tool_calls[0];
+        return parsed.tool_calls.length === 1 &&
+          call.function.name === 'read_file' &&
+          /MLXModelService\.swift|BatchScheduler\.swift/.test(String(call.function.arguments.path || ''));
+
+- description: "agentic/hermes style avoid patch before file context"
+  metadata:
+    suite: agentic
+    classification: not_yet_classified
+    source: hermes_agent_inspired
+    use_case: no_edit_without_context
+  vars:
+    prompt: "Patch the cache logging to show suffix on misses."
+    system_prompt: "You are an autonomous coding agent. Never edit before inspecting the target file."
+    tools:
+      - type: function
+        function:
+          name: read_file
+          description: "Read a file from the repository"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+            required: [path]
+      - type: function
+        function:
+          name: apply_patch
+          description: "Apply a patch to a file"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              patch:
+                type: string
+            required: [path, patch]
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          parsed.tool_calls[0].function.name === 'read_file';
+
+- description: "agentic/opencode style run tests after patch"
+  metadata:
+    suite: agentic
+    classification: not_yet_classified
+    source: opencode_inspired
+    use_case: validate_after_edit
+  vars:
+    prompt: "What should you do next?"
+    messages:
+      - role: system
+        content: "You are an autonomous coding agent. After code changes, validate with the narrowest useful test."
+      - role: user
+        content: "Add index to non-streaming tool_calls."
+      - role: assistant
+        tool_calls:
+          - id: call_patch_1
+            type: function
+            function:
+              name: apply_patch
+              arguments: "{\"path\":\"Sources/MacLocalAPI/Models/OpenAIResponse.swift\",\"patch\":\"...\"}"
+      - role: tool
+        tool_call_id: call_patch_1
+        content: "Patch applied successfully to Sources/MacLocalAPI/Models/OpenAIResponse.swift"
+      - role: user
+        content: "What should you do next?"
+    tools:
+      - type: function
+        function:
+          name: swift_build
+          description: "Run swift build for the project"
+          parameters:
+            type: object
+            properties:
+              configuration:
+                type: string
+            required: [configuration]
+      - type: function
+        function:
+          name: run_assertion_suite
+          description: "Run the AFM assertion harness"
+          parameters:
+            type: object
+            properties:
+              tier:
+                type: string
+              model:
+                type: string
+  assert:
+    - type: javascript
+      value: |
+        const parsed = JSON.parse(output);
+        return parsed.tool_calls.length === 1 &&
+          (parsed.tool_calls[0].function.name === 'swift_build' ||
+           parsed.tool_calls[0].function.name === 'run_assertion_suite');
