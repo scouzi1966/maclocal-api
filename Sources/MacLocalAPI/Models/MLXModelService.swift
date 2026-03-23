@@ -442,11 +442,9 @@ final class MLXModelService: @unchecked Sendable {
             ioReportLock.unlock()
             return
         }
-        // Ensure first sample fires immediately after a 100ms settling period
-        Thread.sleep(forTimeInterval: 0.1)
-        _ = sampleIOReportGPU()
+        // First sample after 100ms settling, then every 300ms — no blocking sleep
         ioReportTimer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
-        ioReportTimer?.schedule(deadline: .now() + .milliseconds(300), repeating: .milliseconds(300))
+        ioReportTimer?.schedule(deadline: .now() + .milliseconds(100), repeating: .milliseconds(300))
         ioReportTimer?.setEventHandler { [weak self] in
             _ = self?.sampleIOReportGPU()
         }
@@ -460,12 +458,15 @@ final class MLXModelService: @unchecked Sendable {
     private static var dramGBsPerWatt = 10.5  // fallback if calibration fails
     private static var dramCalibrated = false
 
-    /// Thread-safe dispatch_once calibration via static let pattern.
+    /// Thread-safe dispatch_once calibration — runs async on background queue.
+    /// Default dramGBsPerWatt (10.5) is used until calibration completes.
     private static let calibrationOnce: Void = {
-        calibrateDRAMBandwidthImpl()
+        DispatchQueue.global(qos: .utility).async {
+            calibrateDRAMBandwidthImpl()
+        }
     }()
 
-    /// Public entry point — ensures calibration runs exactly once.
+    /// Public entry point — schedules calibration exactly once, returns immediately.
     static func calibrateDRAMBandwidth() {
         _ = calibrationOnce
     }
