@@ -133,6 +133,33 @@ Correctness and performance validation for batched MLX generation. Requires runn
 | `validate_mixed_workload.py` | 8 × B={1,2,4,8} | Mixed short-answer + long-decode (4K max_tokens) with GPU metrics via mactop |
 | `validate_multiturn_prefix.py` | 5 convs × B={1,2,4,8} | Multi-turn conversations with long system prompts; validates prefix cache hits under concurrency |
 
+## GPU Shader Profile (`gpu-profile-report.py`)
+
+Full harness: mactop bandwidth + `--gpu-profile` + `--gpu-trace` + shader extraction + HTML report.
+
+| Metric | Source | What It Measures |
+|--------|--------|------------------|
+| Decode tok/s | `--gpu-profile` | Token generation throughput |
+| Prefill tok/s | `--gpu-profile` | Prompt processing throughput |
+| Memory breakdown | `--gpu-profile` | Model weights vs KV cache vs peak |
+| DRAM bandwidth (GB/s) | mactop via PTY | Read + write bandwidth timeline |
+| GPU utilization (%) | mactop via PTY | GPU active percentage timeline |
+| GPU power (W) | mactop via PTY | Power consumption timeline |
+| Metal kernel names | xctrace Shader Timeline | Per-kernel shader inventory (e.g. `affine_qmv_fast`, `steel_gemm_fused`) |
+| Command line | `--gpu-profile` | Exact reproducible command |
+
+**Key files:**
+- `Scripts/gpu-profile-report.py` — full harness (run with `python3 Scripts/gpu-profile-report.py [model]`)
+- `Scripts/gpu-profile.sh` — individual profiling helpers (bandwidth, capture, trace, power)
+- `Scripts/create-shader-template.py` — one-time setup: patches Instruments template for Shader Timeline
+- Report output: `/tmp/afm-gpu-profile.html`, `/tmp/afm-metal.trace`, `/tmp/afm-gpu-samples.json`
+
+**CLI flags (can be used on any `afm mlx` invocation):**
+- `--gpu-profile` — zero-overhead per-request stats
+- `--gpu-profile-bw` — + mactop bandwidth sampling (~5s)
+- `--gpu-trace N` — xctrace Metal System Trace for N seconds
+- `--gpu-capture <path>` — full Metal GPU capture (small models only)
+
 ## Other Test Scripts
 
 | Script | Tests | Purpose |

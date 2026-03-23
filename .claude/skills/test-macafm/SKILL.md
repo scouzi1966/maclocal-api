@@ -94,13 +94,65 @@ AFM_BIN=.build/release/afm ./Scripts/mlx-model-test.sh \
 on code tests), thinking models may generate very long reasoning for the baseline prompt.
 Total run time for full suite: ~45-90 min depending on model speed.
 
-### 5. Review Reports
+### 5. Run GPU Shader Profile (full tier, or when investigating perf)
+
+Generates an interactive HTML report with measured DRAM bandwidth, GPU utilization/power
+timelines, and per-kernel Metal shader names from xctrace Shader Timeline.
+
+**One-time setup** (creates custom Instruments template with Shader Timeline enabled):
+```bash
+python3 Scripts/create-shader-template.py
+```
+
+**Run the profile** (no server needed — uses single-prompt mode):
+```bash
+python3 Scripts/gpu-profile-report.py MODEL [max_tokens] [prompt]
+# Default: 4096 tokens, built-in GPU analysis prompt
+# Example: python3 Scripts/gpu-profile-report.py mlx-community/Qwen3.5-35B-A3B-4bit
+```
+
+This does everything automatically:
+1. Warms up mactop (bandwidth monitor, no sudo)
+2. Runs inference with `--gpu-profile --gpu-trace 15`
+3. Collects 300ms bandwidth/GPU/power samples via PTY during inference
+4. Extracts shader kernel names from the xctrace trace
+5. Generates `/tmp/afm-gpu-profile.html` and opens in browser
+
+**Or use individual flags** on any AFM invocation:
+```bash
+afm mlx -m MODEL --gpu-profile -s "prompt"           # Zero-overhead stats
+afm mlx -m MODEL --gpu-profile-bw -s "prompt"        # + mactop bandwidth (~5s)
+afm mlx -m MODEL --gpu-trace 10 -s "prompt"          # xctrace shader trace
+```
+
+**Live bandwidth monitor** (run in separate terminal during server requests):
+```bash
+./Scripts/gpu-profile.sh bandwidth
+```
+
+**What the report shows:**
+- Device info (chip, memory, architecture)
+- Prefill/decode tok/s with exact timing
+- Memory breakdown (model weights vs KV cache)
+- DRAM bandwidth timeline chart (measured via mactop)
+- GPU utilization & power timeline chart
+- Per-kernel Metal shader names (from Shader Timeline)
+- Exact command line for reproducibility
+
+**What to look for:**
+- GPU utilization <100% during decode → CPU-GPU pipeline bubbles
+- Bandwidth utilization >80% → memory-bound, kernel optimization won't help
+- Bandwidth utilization <20% with MoE model → normal (only active experts read)
+- Key kernels: `affine_qmv_fast` (decode bottleneck), `steel_gemm_fused` (prefill), `sdpa_vector` (attention)
+
+### 6. Review Reports
 - Assertion report: `test-reports/assertions-report-*.html`
 - Smart analysis: `test-reports/smart-analysis-{tool}-*.md`
 - HTML report: `test-reports/mlx-model-report-*.html`
+- GPU profile: `/tmp/afm-gpu-profile.html` (+ `/tmp/afm-metal.trace` for Instruments)
 - JSONL data: `test-reports/assertions-report-*.jsonl`, `test-reports/mlx-model-report-*.jsonl`
 
-### 6. Stop Server (if we started it)
+### 7. Stop Server (if we started it)
 ```bash
 kill %1  # or whatever the background job is
 ```
@@ -159,6 +211,9 @@ Known patterns where AI judges score incorrectly (see `references/interpreting-s
 | `Scripts/feature-mlx-concurrent-batch/validate_responses.py` | Batched generation correctness: known-answer questions at B={1,2,4,8} |
 | `Scripts/feature-mlx-concurrent-batch/validate_mixed_workload.py` | Mixed short+long workload batch validation with GPU metrics |
 | `Scripts/feature-mlx-concurrent-batch/validate_multiturn_prefix.py` | Multi-turn prefix cache validation under concurrency |
+| `Scripts/gpu-profile-report.py` | Full GPU shader profiling harness: mactop BW + --gpu-profile + --gpu-trace + HTML report |
+| `Scripts/gpu-profile.sh` | GPU profiling helpers: bandwidth monitor, capture, trace, power |
+| `Scripts/create-shader-template.py` | One-time: patches Metal System Trace template for per-kernel shader names |
 | `Tests/MacLocalAPITests/StreamingUsageChunkTests.swift` | Unit tests: streaming usage chunks, finish reasons, Foundation commonPrefixLength |
 | `Tests/MacLocalAPITests/ConcurrentBatchTests.swift` | Unit tests: RequestSlot, StreamChunk, BatchScheduler internals |
 
@@ -197,3 +252,4 @@ Known patterns where AI judges score incorrectly (see `references/interpreting-s
 - [ ] Batch correctness: `validate_responses.py` at B={1,2,4,8}
 - [ ] Batch mixed workload: `validate_mixed_workload.py` (short+long decode, GPU metrics)
 - [ ] Batch prefix cache: `validate_multiturn_prefix.py` (multi-turn conversations under concurrency)
+- [ ] GPU shader profile: `gpu-profile-report.py` (bandwidth, power, kernel names, HTML report)
