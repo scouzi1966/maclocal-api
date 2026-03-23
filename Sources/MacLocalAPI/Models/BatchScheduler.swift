@@ -32,7 +32,7 @@ actor BatchScheduler {
 
     let maxConcurrent: Int
     private let model: any LanguageModel
-    private let tokenizer: Tokenizer
+    let tokenizer: Tokenizer
     private let processor: any UserInputProcessor
     private let configuration: ModelConfiguration
     private let cacheProfilePath: String?

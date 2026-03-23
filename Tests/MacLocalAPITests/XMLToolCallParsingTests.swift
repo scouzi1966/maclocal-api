@@ -1278,13 +1278,15 @@ struct XMLToolCallParsingTests {
             function: RequestToolFunction(
                 name: name,
                 description: nil,
-                parameters: schema
+                parameters: schema,
+                strict: nil
             )
         )
     }
 
     private func makeResponseToolCall(name: String, arguments: String) -> ResponseToolCall {
         ResponseToolCall(
+            index: nil,
             id: "call_test",
             type: "function",
             function: ResponseToolCallFunction(name: name, arguments: arguments)

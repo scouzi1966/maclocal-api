@@ -931,10 +931,37 @@ final class MLXModelService: @unchecked Sendable {
 
         // --- Concurrent path: bypass container.perform lock, route through BatchScheduler ---
         if let scheduler = self.scheduler {
-            if self.enableGrammarConstraints
-                && (Self.hasStrictTools(tools) || responseFormat?.jsonSchema?.strict == true) {
-                print("[\(ts())] [XGrammar] strict grammar not supported in concurrent mode; best-effort")
+            // Grammar constraint setup for concurrent path (uses scheduler's tokenizer)
+            let wantStrictSchema = responseFormat?.type == "json_schema"
+                && responseFormat?.jsonSchema?.strict == true
+                && self.enableGrammarConstraints
+            let wantStrictTools = Self.hasStrictTools(tools) && self.enableGrammarConstraints
+
+            let batchTokenizer = await scheduler.tokenizer
+            if wantStrictSchema {
+                if let gp = self.setupGrammarConstraint(
+                    modelID: modelID, responseFormat: responseFormat, tokenizer: batchTokenizer
+                ) {
+                    params.extraProcessor = gp
+                }
+            } else if wantStrictTools {
+                if let gp = self.setupToolCallGrammarConstraint(
+                    modelID: modelID, tokenizer: batchTokenizer, tools: tools
+                ) {
+                    params.extraProcessor = gp
+                }
             }
+
+            // Observability: warn when strict requested but engine not enabled
+            if !self.enableGrammarConstraints {
+                if responseFormat?.jsonSchema?.strict == true {
+                    print("[\(ts())] [XGrammar] strict: true on json_schema but --enable-grammar-constraints not set; best-effort")
+                }
+                if Self.hasStrictTools(tools) {
+                    print("[\(ts())] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort")
+                }
+            }
+
             let input = try await scheduler.prepareInput(userInput)
             let preparedPromptTokens = input.text.tokens.reshaped(-1).asArray(Int.self).count
             let concurrentStream = await scheduler.submit(
@@ -2134,7 +2161,7 @@ final class MLXModelService: @unchecked Sendable {
     }
 
     /// Check whether any tool in the request has `strict: true`.
-    private static func hasStrictTools(_ tools: [RequestTool]?) -> Bool {
+    static func hasStrictTools(_ tools: [RequestTool]?) -> Bool {
         tools?.contains { $0.function.strict == true } ?? false
     }
 

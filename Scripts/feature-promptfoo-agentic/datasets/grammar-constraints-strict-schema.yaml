@@ -1,0 +1,139 @@
+# Grammar Constraints — json_schema strict wiring tests
+# Validates: CLI --enable-grammar-constraints × API strict: true on response_format
+#
+# Policy:
+#   CLI OFF + strict absent/false → best-effort (prompt injection only)
+#   CLI OFF + strict true         → silent downgrade to best-effort
+#   CLI ON  + strict absent/false → best-effort (engine available but not requested)
+#   CLI ON  + strict true         → grammar enforcement via xgrammar
+
+- description: "json_schema strict:true — basic object"
+  vars:
+    prompt: "Return a person record for Alan Turing, age 41, occupation cryptographer."
+    response_format:
+      type: json_schema
+      json_schema:
+        name: person_record
+        strict: true
+        schema:
+          type: object
+          additionalProperties: false
+          properties:
+            name:
+              type: string
+            age:
+              type: integer
+            occupation:
+              type: string
+          required: [name, age, occupation]
+  assert:
+    - type: is-json
+    - type: contains
+      value: "\"name\""
+    - type: contains
+      value: "\"age\""
+    - type: contains
+      value: "\"occupation\""
+
+- description: "json_schema strict:true — nested array of objects"
+  vars:
+    prompt: "Extract action items: Sarah drafts the email by Friday. Ben fixes the dashboard Tuesday. Priya confirms pricing this afternoon."
+    response_format:
+      type: json_schema
+      json_schema:
+        name: meeting_actions
+        strict: true
+        schema:
+          type: object
+          additionalProperties: false
+          properties:
+            items:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                properties:
+                  owner:
+                    type: string
+                  task:
+                    type: string
+                  due_date:
+                    type: string
+                required: [owner, task, due_date]
+          required: [items]
+  assert:
+    - type: is-json
+    - type: contains
+      value: "\"items\""
+    - type: contains
+      value: "\"owner\""
+
+- description: "json_schema strict:true — enum constraint"
+  vars:
+    prompt: "Classify this sentiment: 'The product exceeded all my expectations, truly wonderful!'"
+    response_format:
+      type: json_schema
+      json_schema:
+        name: sentiment_result
+        strict: true
+        schema:
+          type: object
+          additionalProperties: false
+          properties:
+            sentiment:
+              type: string
+              enum: [positive, negative, neutral]
+            confidence:
+              type: number
+          required: [sentiment, confidence]
+  assert:
+    - type: is-json
+    - type: contains
+      value: "\"sentiment\""
+
+- description: "json_schema strict:false — no grammar activation (control)"
+  vars:
+    prompt: "Return a person record for Marie Curie, age 66, occupation physicist."
+    response_format:
+      type: json_schema
+      json_schema:
+        name: person_record
+        strict: false
+        schema:
+          type: object
+          additionalProperties: false
+          properties:
+            name:
+              type: string
+            age:
+              type: integer
+            occupation:
+              type: string
+          required: [name, age, occupation]
+  assert:
+    - type: is-json
+    - type: contains
+      value: "\"name\""
+
+- description: "json_schema no strict field — no grammar activation (control)"
+  vars:
+    prompt: "Return a person record for Nikola Tesla, age 86, occupation inventor."
+    response_format:
+      type: json_schema
+      json_schema:
+        name: person_record
+        schema:
+          type: object
+          additionalProperties: false
+          properties:
+            name:
+              type: string
+            age:
+              type: integer
+            occupation:
+              type: string
+          required: [name, age, occupation]
+  assert:
+    - type: is-json
+    - type: contains
+      value: "\"name\""
