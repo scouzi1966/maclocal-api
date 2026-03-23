@@ -7,6 +7,7 @@
 
 Usage:
     python3 Scripts/benchmark_afm_vs_mlxlm.py              # Full benchmark + graph
+    python3 Scripts/benchmark_afm_vs_mlxlm.py --afm-only    # AFM only (skip mlx-lm)
     python3 Scripts/benchmark_afm_vs_mlxlm.py --graph       # Re-generate graph from last results
     python3 Scripts/benchmark_afm_vs_mlxlm.py --graph FILE  # Re-generate graph from specific JSON
 """
@@ -30,7 +31,7 @@ MODEL_ID = "mlx-community/Qwen3.5-35B-A3B-4bit"
 MODEL_CACHE = "/Volumes/edata/models/vesta-test-cache"
 MODEL_LOCAL_PATH = f"{MODEL_CACHE}/{MODEL_ID}"
 MAX_TOKENS = 4096
-AFM_PORT = 9999
+AFM_PORT = 9876
 MLX_PORT = 8080
 MAX_CONCURRENT = 28          # AFM --concurrent / mlx-lm --decode-concurrency (headroom)
 TIMEOUT_PER_REQ = 600        # seconds
@@ -105,6 +106,7 @@ class GPUPowerMonitor:
                     "gpu_freq_mhz": soc.get("gpu_freq_mhz", 0),
                     "gpu_temp": soc.get("gpu_temp", 0),
                     "gpu_usage": data.get("gpu_usage", 0),
+                    "dram_bw_gbs": soc.get("dram_bw_combined_gbs", 0),
                 })
             except Exception:
                 pass
@@ -120,6 +122,8 @@ class GPUPowerMonitor:
             "avg_system_power": round(sum(s["system_power"] for s in self.samples) / len(self.samples), 2),
             "avg_gpu_usage": round(sum(s["gpu_usage"] for s in self.samples) / len(self.samples), 1),
             "avg_gpu_temp": round(sum(s["gpu_temp"] for s in self.samples) / len(self.samples), 1),
+            "avg_dram_bw_gbs": round(sum(s["dram_bw_gbs"] for s in self.samples) / len(self.samples), 1),
+            "peak_dram_bw_gbs": round(max(s["dram_bw_gbs"] for s in self.samples), 1),
             "n_samples": len(self.samples),
         }
 
@@ -392,7 +396,7 @@ def stop_server(proc, name="server"):
 # Graph Generation
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def generate_graph(afm_data, mlx_data, hw_info, output_path):
+def generate_graph(afm_data, mlx_data, hw_info, output_path, afm_version="0.9.7", mlx_lm_version="0.31.1"):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -403,9 +407,11 @@ def generate_graph(afm_data, mlx_data, hw_info, output_path):
     afm_x = [r["concurrent"] for r in afm_data]
     afm_y = [r["aggregate_tps"] for r in afm_data]
     afm_gpu = [r.get("gpu", {}).get("avg_gpu_power", 0) for r in afm_data]
+    afm_bw = [r.get("gpu", {}).get("avg_dram_bw_gbs", 0) for r in afm_data]
     mlx_x = [r["concurrent"] for r in mlx_data]
     mlx_y = [r["aggregate_tps"] for r in mlx_data]
     mlx_gpu = [r.get("gpu", {}).get("avg_gpu_power", 0) for r in mlx_data]
+    mlx_bw = [r.get("gpu", {}).get("avg_dram_bw_gbs", 0) for r in mlx_data]
 
     chip, mem_gb = hw_info
 
@@ -445,21 +451,28 @@ def generate_graph(afm_data, mlx_data, hw_info, output_path):
     fig, ax = plt.subplots(figsize=(16, 9))
     fig.subplots_adjust(left=0.07, right=0.92, top=0.84, bottom=0.22)
 
-    # ── mlx-lm line ──
-    ax.plot(mlx_x, mlx_y, color=MLX_C, lw=3, ls="-",
-            marker="D", ms=9, markerfacecolor="white",
-            markeredgecolor=MLX_C, markeredgewidth=2, zorder=4,
-            label=f"mlx-lm v0.31.1  (concurrency {MAX_CONCURRENT})")
-    ax.plot(mlx_x, mlx_y, color=MLX_C, lw=8, alpha=0.10, zorder=3)
-    ax.fill_between(mlx_x, 0, mlx_y, color=MLX_C, alpha=0.06, zorder=1)
+    # ── mlx-lm line (only if data exists) ──
+    has_mlx_plot = len(mlx_x) > 0 and any(y > 0 for y in mlx_y)
+    if has_mlx_plot:
+        ax.plot(mlx_x, mlx_y, color=MLX_C, lw=3, ls="-",
+                marker="D", ms=9, markerfacecolor="white",
+                markeredgecolor=MLX_C, markeredgewidth=2, zorder=4,
+                label=f"mlx-lm {mlx_lm_version}  (concurrency {MAX_CONCURRENT})")
+        ax.plot(mlx_x, mlx_y, color=MLX_C, lw=8, alpha=0.10, zorder=3)
+        ax.fill_between(mlx_x, 0, mlx_y, color=MLX_C, alpha=0.06, zorder=1)
 
-    # mlx-lm data labels (with GPU watts)
-    for x, y, w in zip(mlx_x, mlx_y, mlx_gpu):
-        label = f"{y:.0f}" if w == 0 else f"{y:.0f} (@{w:.0f}W)"
+    # mlx-lm data labels (with GPU watts + bandwidth)
+    for x, y, w, bw in zip(mlx_x, mlx_y, mlx_gpu, mlx_bw):
+        parts = [f"{y:.0f}"]
+        meta = []
+        if w > 0: meta.append(f"@{w:.0f}W")
+        if bw > 0: meta.append(f"@{bw:.0f}GB/s")
+        if meta: parts.append(f"({','.join(meta)})")
+        label = " ".join(parts)
         ax.annotate(
             label, (x, y),
-            textcoords="offset points", xytext=(0, -20),
-            ha="center", fontsize=9, color=MLX_C, alpha=0.85,
+            textcoords="offset points", xytext=(0, -18),
+            ha="center", fontsize=7, color=MLX_C, alpha=0.85,
             path_effects=[pe.withStroke(linewidth=3, foreground=BG)],
         )
 
@@ -467,31 +480,42 @@ def generate_graph(afm_data, mlx_data, hw_info, output_path):
     ax.plot(afm_x, afm_y, color=AFM_C, lw=3.5,
             marker="o", ms=10, markerfacecolor="white",
             markeredgecolor=AFM_C, markeredgewidth=2.5, zorder=5,
-            label=f"AFM v0.9.7  (--concurrent {MAX_CONCURRENT})")
+            label=f"AFM {afm_version}  (--concurrent {MAX_CONCURRENT})")
     ax.plot(afm_x, afm_y, color=AFM_C, lw=10, alpha=0.12, zorder=3)
     ax.fill_between(afm_x, 0, afm_y, color=AFM_F, alpha=0.12, zorder=1)
 
-    # AFM data labels (with GPU watts)
-    for x, y, w in zip(afm_x, afm_y, afm_gpu):
+    # AFM data labels (with GPU watts + bandwidth)
+    for x, y, w, bw in zip(afm_x, afm_y, afm_gpu, afm_bw):
         if x == afm_peak_x:
             continue
-        label = f"{y:.0f}" if w == 0 else f"{y:.0f} (@{w:.0f}W)"
+        parts = [f"{y:.0f}"]
+        meta = []
+        if w > 0: meta.append(f"@{w:.0f}W")
+        if bw > 0: meta.append(f"@{bw:.0f}GB/s")
+        if meta: parts.append(f"({','.join(meta)})")
+        label = " ".join(parts)
         ax.annotate(
             label, (x, y),
             textcoords="offset points", xytext=(0, 16),
-            ha="center", fontsize=9, color=AFM_C, alpha=0.85,
+            ha="center", fontsize=7, color=AFM_C, alpha=0.85,
             path_effects=[pe.withStroke(linewidth=3, foreground=BG)],
         )
 
     # ── AFM optimal highlight ──
     afm_peak_gpu = afm_gpu[afm_opt_idx] if afm_opt_idx < len(afm_gpu) else 0
-    peak_label = f"{afm_peak:.0f} tok/s" if afm_peak_gpu == 0 else f"{afm_peak:.0f} tok/s (@{afm_peak_gpu:.0f}W)"
+    afm_peak_bw = afm_bw[afm_opt_idx] if afm_opt_idx < len(afm_bw) else 0
+    parts = [f"{afm_peak:.0f} tok/s"]
+    meta = []
+    if afm_peak_gpu > 0: meta.append(f"@{afm_peak_gpu:.0f}W")
+    if afm_peak_bw > 0: meta.append(f"@{afm_peak_bw:.0f}GB/s")
+    if meta: parts.append(f"({','.join(meta)})")
+    peak_label = " ".join(parts)
     ax.plot(afm_peak_x, afm_peak, "o", color=GREEN, ms=18,
             markeredgecolor="white", markeredgewidth=2.5, zorder=6)
     ax.annotate(
         peak_label, (afm_peak_x, afm_peak),
         textcoords="offset points", xytext=(0, 22),
-        ha="center", fontsize=13, fontweight="bold", color=GREEN,
+        ha="center", fontsize=11, fontweight="bold", color=GREEN,
         path_effects=[pe.withStroke(linewidth=3, foreground=BG)],
     )
 
@@ -516,16 +540,21 @@ def generate_graph(afm_data, mlx_data, hw_info, output_path):
     )
 
     # ── Header (top of figure) ──
-    fig.text(0.07, 0.94, "AFM v0.9.7", fontsize=30, fontweight="bold",
+    has_mlx = len(mlx_data) > 0 and any(r.get("aggregate_tps", 0) > 0 for r in mlx_data)
+    fig.text(0.07, 0.94, f"AFM {afm_version}", fontsize=22, fontweight="bold",
              color=AFM_C, transform=fig.transFigure,
              path_effects=[pe.withStroke(linewidth=3, foreground=BG)])
-    fig.text(0.25, 0.95, "vs", fontsize=22, color=FG,
-             transform=fig.transFigure)
-    fig.text(0.30, 0.94, "mlx-lm v0.31.1", fontsize=30, fontweight="bold",
-             color=MLX_C, transform=fig.transFigure)
+    if has_mlx:
+        fig.text(0.38, 0.945, "vs", fontsize=16, color=FG, alpha=0.6,
+                 transform=fig.transFigure)
+        fig.text(0.43, 0.94, f"mlx-lm {mlx_lm_version}", fontsize=22, fontweight="bold",
+                 color=MLX_C, transform=fig.transFigure)
+    else:
+        fig.text(0.38, 0.94, "Batched Concurrency", fontsize=18, fontweight="bold",
+                 color=FG, alpha=0.6, transform=fig.transFigure)
 
     # ── Legend ──
-    leg = ax.legend(loc="lower right", fontsize=12,
+    leg = ax.legend(loc="lower right", fontsize=10,
                     frameon=True, fancybox=True, framealpha=0.4,
                     edgecolor=GRID, facecolor=BG)
     for t in leg.get_texts():
@@ -608,6 +637,8 @@ async def main():
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     results_file = RESULTS_DIR / f"concurrency-benchmark-{ts}.json"
 
+    afm_only = "--afm-only" in sys.argv
+
     # ── --graph mode ──
     if len(sys.argv) > 1 and sys.argv[1] == "--graph":
         src = Path(sys.argv[2]) if len(sys.argv) > 2 else None
@@ -623,7 +654,9 @@ async def main():
         hw = (data.get("hardware", {}).get("chip", "Apple Silicon"),
               data.get("hardware", {}).get("memory_gb", 0))
         gpath = RESULTS_DIR / f"concurrency-benchmark-{ts}.png"
-        stats = generate_graph(data["afm"], data.get("mlx_lm", []), hw, gpath)
+        stats = generate_graph(data["afm"], data.get("mlx_lm", []), hw, gpath,
+                               afm_version=data.get("afm_version", "0.9.7"),
+                               mlx_lm_version=data.get("mlx_lm_version", "0.31.1"))
         print(f"  AFM peak:  {stats['afm_peak_concurrent']} concurrent "
               f"→ {stats['afm_peak_tps']:.0f} tok/s")
         print(f"  mlx-lm peak: {stats['mlx_peak_concurrent']} concurrent "
@@ -633,10 +666,12 @@ async def main():
 
     # ── Hardware ──
     chip, mem_gb = get_hardware_info()
+    afm_ver = subprocess.check_output(["afm", "--version"], text=True).strip()
+    mode_label = "AFM-only Concurrency Benchmark" if afm_only else "AFM vs mlx-lm  —  Fair Concurrency Benchmark"
     print(f"\n{'═' * 64}")
-    print(f"  AFM vs mlx-lm  —  Fair Concurrency Benchmark")
+    print(f"  {mode_label}")
     print(f"  {chip} · {mem_gb} GB · {MODEL_ID.split('/')[-1]}")
-    print(f"  {MAX_TOKENS} max tokens · {len(LEVELS)} levels · both with batch decode")
+    print(f"  {MAX_TOKENS} max tokens · {len(LEVELS)} levels · --concurrent {MAX_CONCURRENT}")
     print(f"{'═' * 64}\n")
 
     store = {
@@ -644,7 +679,7 @@ async def main():
         "model": MODEL_ID,
         "max_tokens": MAX_TOKENS,
         "hardware": {"chip": chip, "memory_gb": mem_gb},
-        "afm_version": "0.9.7",
+        "afm_version": afm_ver,
         "mlx_lm_version": "0.31.1",
         "afm_flags": f"--concurrent {MAX_CONCURRENT}",
         "mlx_lm_flags": f"--decode-concurrency {MAX_CONCURRENT} --prompt-concurrency {MAX_CONCURRENT} --max-tokens {MAX_TOKENS}",
@@ -655,31 +690,33 @@ async def main():
     # ══════════════════════════════════════════════════════════════════════════
     # Phase 1 — mlx-lm FIRST (fresh GPU, no residual memory from AFM)
     # ══════════════════════════════════════════════════════════════════════════
-    print(f"{'─' * 64}")
-    print(f"  Phase 1: mlx-lm v0.31.1  (--decode-concurrency {MAX_CONCURRENT})")
-    print(f"  Running FIRST for fresh GPU — no residual memory pressure")
-    print(f"{'─' * 64}")
+    if not afm_only:
+        print(f"{'─' * 64}")
+        print(f"  Phase 1: mlx-lm v0.31.1  (--decode-concurrency {MAX_CONCURRENT})")
+        print(f"  Running FIRST for fresh GPU — no residual memory pressure")
+        print(f"{'─' * 64}")
 
-    mlx_proc = start_mlx_lm(MLX_PORT, MAX_CONCURRENT)
-    mlx_url = f"http://127.0.0.1:{MLX_PORT}"
+        mlx_proc = start_mlx_lm(MLX_PORT, MAX_CONCURRENT)
+        mlx_url = f"http://127.0.0.1:{MLX_PORT}"
 
-    try:
-        print("  Waiting for model load...")
-        if not wait_for_server(mlx_url, timeout=300):
-            print("  ERROR: mlx-lm did not start in time.")
+        try:
+            print("  Waiting for model load...")
+            if not wait_for_server(mlx_url, timeout=300):
+                print("  ERROR: mlx-lm did not start in time.")
+                stop_server(mlx_proc, "mlx-lm")
+                sys.exit(1)
+
+            await run_phase("mlx-lm", mlx_url, MODEL_ID, LEVELS,
+                           "mlx_lm", store, results_file)
+        finally:
             stop_server(mlx_proc, "mlx-lm")
-            sys.exit(1)
-
-        await run_phase("mlx-lm", mlx_url, MODEL_ID, LEVELS,
-                       "mlx_lm", store, results_file)
-    finally:
-        stop_server(mlx_proc, "mlx-lm")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Phase 2 — AFM (after mlx-lm released GPU)
+    # Phase 2 — AFM
     # ══════════════════════════════════════════════════════════════════════════
+    phase_n = 1 if afm_only else 2
     print(f"\n{'─' * 64}")
-    print(f"  Phase 2: AFM v0.9.7  (--concurrent {MAX_CONCURRENT})")
+    print(f"  Phase {phase_n}: AFM {afm_ver}  (--concurrent {MAX_CONCURRENT})")
     print(f"{'─' * 64}")
 
     afm_proc = start_afm(AFM_PORT, MAX_CONCURRENT)
@@ -706,7 +743,9 @@ async def main():
 
     graph_path = RESULTS_DIR / f"concurrency-benchmark-{ts}.png"
     stats = generate_graph(store["afm"], store["mlx_lm"],
-                           (chip, mem_gb), graph_path)
+                           (chip, mem_gb), graph_path,
+                           afm_version=afm_ver,
+                           mlx_lm_version=store.get("mlx_lm_version", "0.31.1"))
 
     print(f"\n{'═' * 64}")
     print(f"  RESULTS")

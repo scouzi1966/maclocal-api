@@ -192,10 +192,71 @@ Known patterns where AI judges score incorrectly (see `references/interpreting-s
 - **Tool call format mismatch**: Unknown format → check `ToolCallFormat.infer()` and model's config.json
 - **Build failure**: Vendor patch conflict → run `Scripts/apply-mlx-patches.sh --check`
 
+## Concurrency Benchmark
+
+Full-harness concurrency sweep that starts the server, runs warmup, tests all concurrency levels, collects GPU metrics via mactop, saves JSON results, and generates a comparison chart.
+
+### Script
+`Scripts/benchmarks/benchmark_afm_vs_mlxlm.py`
+
+### Usage
+```bash
+# AFM-only concurrency sweep (recommended for quick benchmarks)
+python3 Scripts/benchmarks/benchmark_afm_vs_mlxlm.py --afm-only
+
+# Full AFM vs mlx-lm comparison (both servers, fair A/B)
+python3 Scripts/benchmarks/benchmark_afm_vs_mlxlm.py
+
+# Re-generate graph from existing results
+python3 Scripts/benchmarks/benchmark_afm_vs_mlxlm.py --graph
+python3 Scripts/benchmarks/benchmark_afm_vs_mlxlm.py --graph Scripts/benchmark-results/FILE.json
+```
+
+### What it does
+1. Detects hardware (chip, memory)
+2. Starts server(s) with `--concurrent N`
+3. 60s GPU settle + multi-round warmup (JIT kernel compilation)
+4. Sweeps concurrency levels: `[1, 2, 4, 8, 12, 16, 20, 24, 32, 40, 50]`
+5. At each level: fires N simultaneous streaming 4096-token requests, measures aggregate tok/s, per-request tok/s, GPU power/temp/usage via mactop
+6. Saves JSON to `Scripts/benchmark-results/concurrency-benchmark-TIMESTAMP.json`
+7. Generates PNG chart to `Scripts/benchmark-results/concurrency-benchmark-TIMESTAMP.png`
+
+### Configuration (top of script)
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `MODEL_ID` | `mlx-community/Qwen3.5-35B-A3B-4bit` | Model to benchmark |
+| `MAX_TOKENS` | 4096 | Tokens per request (forces long decode) |
+| `MAX_CONCURRENT` | 50 | `--concurrent` flag value (must be >= max level) |
+| `LEVELS` | `[1,2,4,8,12,16,20,24,32,40,50]` | Concurrency levels to test |
+| `AFM_PORT` | 9999 | Port for AFM server |
+
+### Reference results (March 18, v0.9.7, M3 Ultra 512GB, --concurrent 28)
+```
+  B   Agg t/s   Per-req   Wall    GPU%   GPU W
+  1     118.7     118.7   34.5s    94%   28.5W
+  2     193.9      97.0   42.2s    93%   41.6W
+  4     298.4      74.6   54.9s    97%   62.7W
+  8     407.3      50.9   80.5s    96%   75.5W
+ 12     493.4      41.1   99.6s    98%   83.4W
+ 16     573.9      35.9  114.2s    99%   88.2W
+ 20     581.6      29.1  140.8s    98%   79.1W
+ 24     629.6      27.4  149.6s    99%   83.2W
+```
+
+### Additional batch validation scripts
+| Script | Purpose |
+|--------|---------|
+| `Scripts/feature-mlx-concurrent-batch/batch_stress_mactop.py` | Quick stress test at arbitrary concurrency (client-only, needs running server on port 9876) |
+| `Scripts/feature-mlx-concurrent-batch/batch_stress_ioreg.py` | Same but uses ioreg for GPU stats (less accurate) |
+| `Scripts/feature-mlx-concurrent-batch/validate_responses.py` | Known-answer correctness at B={1,2,4,8} |
+| `Scripts/feature-mlx-concurrent-batch/validate_mixed_workload.py` | Mixed short+long workload batch validation |
+| `Scripts/feature-mlx-concurrent-batch/validate_multiturn_prefix.py` | Multi-turn prefix cache under concurrency |
+
 ## Key File Reference
 
 | File | Purpose |
 |------|---------|
+| `Scripts/benchmarks/benchmark_afm_vs_mlxlm.py` | Full concurrency benchmark harness (server lifecycle, warmup, sweep, GPU metrics, chart generation) |
 | `Scripts/test-assertions.sh` | Automated pass/fail assertion tests (unit/smoke/standard/full tiers, includes `swift test`) |
 | `Scripts/test-llm-comprehensive.txt` | Comprehensive smart analysis test suite (model-generic, `[@ label]` template mode, has `[all]` baseline) |
 | `Scripts/test-Qwen3.5-35B-A3B-4bit.txt` | Model-specific test suite for Qwen3.5-35B-A3B-4bit (same tests as comprehensive, hardcoded model) |

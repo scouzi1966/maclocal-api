@@ -135,6 +135,7 @@ SMART_BATCH=0           # 0 = one big swoop (default), 1 = test-by-test
 REANALYSE_FILE=""
 NO_REPORT=false
 TEST_INDICES=""
+CLI_AFM_ARGS=""
 
 # Parse arguments
 args=("$@")
@@ -189,6 +190,14 @@ while [ $i -lt ${#args[@]} ]; do
       SMART_ANALYSIS=true
       ;;
     --no-report) NO_REPORT=true ;;
+    --afm)
+      i=$((i + 1))
+      if [ $i -ge ${#args[@]} ]; then
+        echo "Error: --afm requires a quoted string of afm CLI flags" >&2
+        exit 1
+      fi
+      CLI_AFM_ARGS="${args[$i]}"
+      ;;
     --tests)
       i=$((i + 1))
       if [ $i -ge ${#args[@]} ]; then
@@ -216,6 +225,8 @@ OPTIONS
                         E.g. --tests 1,5,10 runs only tests 1, 5, and 10
   --reanalyse <jsonl>   Re-run smart analysis on existing JSONL results (no tests)
                         Implies --smart. Combine with --smart to pick tools.
+  --afm <flags>         Extra CLI flags passed to afm server (quoted string)
+                        e.g. --afm "--concurrent 50 --enable-prefix-caching"
   --no-report           Skip HTML report generation (JSONL only, for automation)
   -h, --help            Show this help
 
@@ -799,10 +810,11 @@ max_tokens = params.get('max_tokens', defaults.get('max_tokens', $DEFAULT_MAX_TO
 temperature = params.get('temperature', defaults.get('temperature', $DEFAULT_TEMPERATURE))
 system = params.get('system', defaults.get('system', ''))
 
-# Merge afm args: defaults + run-specific (concatenate)
+# Merge afm args: CLI --afm + defaults + run-specific (concatenate)
+cli_afm = '$CLI_AFM_ARGS'
 default_afm = defaults.get('afm', '')
 run_afm = run.get('afm', '')
-afm_args = (default_afm + ' ' + run_afm).strip()
+afm_args = (cli_afm + ' ' + default_afm + ' ' + run_afm).strip()
 
 # Merge optional sampling params (None = not set, omitted from SDK call)
 def merge_param(key):
@@ -866,7 +878,7 @@ print(json.dumps({
     'max_tokens': $max_tokens,
     'temperature': $temperature,
     'system': '$sys_prompt',
-    'afm_args': ''
+    'afm_args': '$CLI_AFM_ARGS'
 }))
 "
 }
