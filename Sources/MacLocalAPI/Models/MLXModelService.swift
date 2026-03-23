@@ -304,6 +304,21 @@ final class MLXModelService: @unchecked Sendable {
     private static func IOReportStateGetCount(_ ch: CFDictionary) -> Int32
     @_silgen_name("IOReportStateGetResidency")
     private static func IOReportStateGetResidency(_ ch: CFDictionary, _ idx: Int32) -> Int64
+    @_silgen_name("IOReportChannelGetUnitLabel")
+    private static func IOReportChannelGetUnitLabel(_ ch: CFDictionary) -> Unmanaged<CFString>?
+
+    /// Convert an IOReport energy value to watts using the channel's unit label.
+    /// Channels report in mJ, uJ, nJ, or raw (NULL → assume /1e6).
+    private static func energyToWatts(_ value: Int64, unit: String?, dt: Double) -> Double {
+        guard dt > 0 else { return 0 }
+        let rate = Double(value) / dt
+        switch unit {
+        case "mJ":  return rate / 1e3
+        case "uJ":  return rate / 1e6
+        case "nJ":  return rate / 1e9
+        default:    return rate / 1e6  // mactop default for NULL unit
+        }
+    }
 
     /// Snapshot of GPU metrics from IOReport.
     struct IOReportGPUSample {
@@ -352,31 +367,31 @@ final class MLXModelService: @unchecked Sendable {
         guard let delta = Self.IOReportCreateSamplesDelta(prev, curr, nil),
               let arr = (delta as NSDictionary)["IOReportChannels"] as? [NSDictionary] else { return nil }
 
-        var gpuEnergyNJ: Int64 = 0
-        var dramEnergyNJ: Int64 = 0
+        var gpuPowerW: Double = 0
+        var dramPowerW: Double = 0
         var gpuActiveResidency: Int64 = 0
         var gpuTotalResidency: Int64 = 0
 
         for ch in arr {
-            let name = Self.IOReportChannelGetChannelName(ch as CFDictionary)?.takeUnretainedValue() as String? ?? ""
+            let cfCh = ch as CFDictionary
+            let name = Self.IOReportChannelGetChannelName(cfCh)?.takeUnretainedValue() as String? ?? ""
+            let unit = Self.IOReportChannelGetUnitLabel(cfCh)?.takeUnretainedValue() as String?
+            let val = Self.IOReportSimpleGetIntegerValue(cfCh, 0)
             if name == "GPU Energy" {
-                gpuEnergyNJ = Self.IOReportSimpleGetIntegerValue(ch as CFDictionary, 0)
+                gpuPowerW = Self.energyToWatts(val, unit: unit, dt: dt)
             } else if name.hasPrefix("DRAM") {
-                dramEnergyNJ += Self.IOReportSimpleGetIntegerValue(ch as CFDictionary, 0)
-            } else if name.hasPrefix("GPU ") && name.hasSuffix("MHz") == false {
-                let stateCount = Self.IOReportStateGetCount(ch as CFDictionary)
+                dramPowerW += Self.energyToWatts(val, unit: unit, dt: dt)
+            } else if name.hasPrefix("GPU ") {
+                let stateCount = Self.IOReportStateGetCount(cfCh)
                 if stateCount > 1 {
                     for s in 0..<stateCount {
-                        let res = Self.IOReportStateGetResidency(ch as CFDictionary, s)
+                        let res = Self.IOReportStateGetResidency(cfCh, s)
                         gpuTotalResidency += res
                         if s > 0 { gpuActiveResidency += res }
                     }
                 }
             }
         }
-
-        let gpuPowerW = Double(gpuEnergyNJ) / dt / 1e9
-        let dramPowerW = Double(dramEnergyNJ) / dt / 1e9
         let gpuActivePct = gpuTotalResidency > 0 ? Double(gpuActiveResidency) / Double(gpuTotalResidency) * 100.0 : 0
 
         ioReportPrevSample = curr
@@ -405,6 +420,7 @@ final class MLXModelService: @unchecked Sendable {
 
     /// Start GPU profiling for an API request. Call before inference.
     func startAPIProfile() {
+        if !Self.dramCalibrated { Self.calibrateDRAMBandwidth() }
         guard initIOReportGPU() else { return }
         ioReportTimer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
         ioReportTimer?.schedule(deadline: .now() + .milliseconds(300), repeating: .milliseconds(300))
@@ -414,10 +430,57 @@ final class MLXModelService: @unchecked Sendable {
         ioReportTimer?.resume()
     }
 
-    // DRAM power → bandwidth calibration (mactop formula)
-    // activePower = dramPower - idlePower; bandwidth = activePower × gbsPerWatt
-    private static let dramIdlePowerW = 0.3
-    private static let dramGBsPerWatt = 25.1
+    // DRAM power → bandwidth calibration
+    // Calibrated at startup by measuring DRAM idle power via IOReport Energy Model.
+    // The GB/s-per-watt constant is derived from cross-referencing mactop's measured
+    // bandwidth with IOReport DRAM power during real inference workloads:
+    //   M3 Ultra: ~171 GB/s at ~18.5W DRAM (idle 2.25W) → 10.5 GB/s/W
+    // We measure idle power for subtraction, then use a chip-family constant.
+    private static var dramIdlePowerW = 0.3
+    private static var dramGBsPerWatt = 10.5  // M3 Ultra cross-referenced with mactop
+    private static var dramCalibrated = false
+
+    /// Measure idle DRAM power and set calibration constants.
+    /// Uses IOReport Energy Model (unit-aware). Call once at startup.
+    static func calibrateDRAMBandwidth() {
+        guard let energyCh = IOReportCopyChannelsInGroup("Energy Model" as CFString, nil, 0, 0, 0) else {
+            print("[\(ts())] [CALIBRATE] IOReport Energy Model unavailable")
+            return
+        }
+        let mc = NSMutableDictionary(dictionary: energyCh as NSDictionary) as CFMutableDictionary
+        var subRef: Unmanaged<CFMutableDictionary>? = nil
+        guard let sub = IOReportCreateSubscription(nil, mc, &subRef, 0, nil) else { return }
+        let subCh = subRef?.takeUnretainedValue()
+
+        // Measure idle DRAM power (0.5s sample)
+        guard let s1 = IOReportCreateSamples(sub, subCh, nil) else { return }
+        Thread.sleep(forTimeInterval: 0.5)
+        guard let s2 = IOReportCreateSamples(sub, subCh, nil) else { return }
+        let idlePower = extractDRAMPower(from: s1, to: s2, dt: 0.5)
+
+        if idlePower > 0.01 {
+            dramIdlePowerW = idlePower
+        }
+        dramCalibrated = true
+        print("[\(ts())] [CALIBRATE] DRAM idle power: \(String(format: "%.2f", dramIdlePowerW))W | BW constant: \(String(format: "%.1f", dramGBsPerWatt)) GB/s/W")
+    }
+
+    /// Extract DRAM power (watts) from an IOReport sample delta.
+    private static func extractDRAMPower(from s1: CFDictionary, to s2: CFDictionary, dt: Double) -> Double {
+        guard let delta = IOReportCreateSamplesDelta(s1, s2, nil),
+              let arr = (delta as NSDictionary)["IOReportChannels"] as? [NSDictionary] else { return 0 }
+        var watts: Double = 0
+        for ch in arr {
+            let cfCh = ch as CFDictionary
+            let name = IOReportChannelGetChannelName(cfCh)?.takeUnretainedValue() as String? ?? ""
+            if name.hasPrefix("DRAM") {
+                let unit = IOReportChannelGetUnitLabel(cfCh)?.takeUnretainedValue() as String?
+                let val = IOReportSimpleGetIntegerValue(cfCh, 0)
+                watts += energyToWatts(val, unit: unit, dt: dt)
+            }
+        }
+        return watts
+    }
 
     /// Stop GPU profiling and build an AFMProfile for the API response.
     func stopAPIProfile(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) -> AFMProfile {
@@ -577,6 +640,8 @@ final class MLXModelService: @unchecked Sendable {
         print("[\(ts())] [GPU-PROFILE]   Active (model weights): \(snap.activeMemory / (1024*1024)) MB")
         print("[\(ts())] [GPU-PROFILE]   Cache: \(snap.cacheMemory / (1024*1024)) MB")
         print("[\(ts())] [GPU-PROFILE]   Peak (reset): 0 MB")
+        // Calibrate DRAM bandwidth on first use
+        if !Self.dramCalibrated { Self.calibrateDRAMBandwidth() }
         // Start native IOReport GPU monitoring (power + utilization, no mactop needed)
         if initIOReportGPU() {
             print("[\(ts())] [GPU-PROFILE]   IOReport GPU monitor: active")
@@ -711,6 +776,16 @@ final class MLXModelService: @unchecked Sendable {
             print("[\(ts())] [GPU-PROFILE] ─── GPU Power & Utilization (IOReport, \(gpuSamples.count) samples) ───")
             print("[\(ts())] [GPU-PROFILE]   Peak power: \(String(format: "%.1f", peakPower))W | Avg: \(String(format: "%.1f", avgPower))W")
             print("[\(ts())] [GPU-PROFILE]   Peak active: \(String(format: "%.1f", peakActive))% | Avg: \(String(format: "%.1f", avgActive))%")
+            // DRAM bandwidth from IOReport power (calibrated at startup)
+            let dramPowers = gpuSamples.map(\.dramPowerW).filter { $0 > 0.01 }
+            if !dramPowers.isEmpty && Self.dramCalibrated {
+                let avgDram = dramPowers.reduce(0, +) / Double(dramPowers.count)
+                let peakDram = dramPowers.max() ?? 0
+                let avgBW = Swift.max(0, avgDram - Self.dramIdlePowerW) * Self.dramGBsPerWatt
+                let peakBW = Swift.max(0, peakDram - Self.dramIdlePowerW) * Self.dramGBsPerWatt
+                print("[\(ts())] [GPU-PROFILE]   DRAM power: peak \(String(format: "%.1f", peakDram))W avg \(String(format: "%.1f", avgDram))W")
+                print("[\(ts())] [GPU-PROFILE]   Est. DRAM BW: peak \(String(format: "%.1f", peakBW)) GB/s avg \(String(format: "%.1f", avgBW)) GB/s (calibrated: \(String(format: "%.1f", Self.dramGBsPerWatt)) GB/s/W)")
+            }
         }
 
         print("[\(ts())] [GPU-PROFILE] ─── For deeper analysis ───")
