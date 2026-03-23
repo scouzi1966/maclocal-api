@@ -14,8 +14,6 @@ struct AFMProfile: Content {
     let chip: String?
     let theoreticalBwGbs: Double?
     let estBandwidthGbs: Double?
-    let estBandwidthReadGbs: Double?
-    let estBandwidthWriteGbs: Double?
 
     enum CodingKeys: String, CodingKey {
         case gpuPowerAvgW = "gpu_power_avg_w"
@@ -29,8 +27,6 @@ struct AFMProfile: Content {
         case chip
         case theoreticalBwGbs = "theoretical_bw_gbs"
         case estBandwidthGbs = "est_bandwidth_gbs"
-        case estBandwidthReadGbs = "est_bandwidth_read_gbs"
-        case estBandwidthWriteGbs = "est_bandwidth_write_gbs"
     }
 }
 
@@ -51,12 +47,11 @@ struct AFMProfileSample: Content {
     }
 }
 
-/// Extended profile with time-series samples and kernel names.
+/// Extended profile with time-series samples.
 /// Returned when client sends `X-AFM-Profile: extended` header.
 struct AFMProfileExtended: Content {
     let summary: AFMProfile
     let samples: [AFMProfileSample]
-    let kernels: [String]?
 }
 
 struct ChatCompletionResponse: Content {
@@ -82,6 +77,21 @@ struct ChatCompletionResponse: Content {
         case systemFingerprint = "system_fingerprint"
         case afmProfile = "afm_profile"
         case afmProfileExtended = "afm_profile_extended"
+    }
+
+    /// Custom encoder: omit afmProfile/afmProfileExtended when nil (no null pollution).
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(object, forKey: .object)
+        try container.encode(created, forKey: .created)
+        try container.encode(model, forKey: .model)
+        try container.encode(choices, forKey: .choices)
+        try container.encode(usage, forKey: .usage)
+        try container.encodeIfPresent(timings, forKey: .timings)
+        try container.encodeIfPresent(systemFingerprint, forKey: .systemFingerprint)
+        try container.encodeIfPresent(afmProfile, forKey: .afmProfile)
+        try container.encodeIfPresent(afmProfileExtended, forKey: .afmProfileExtended)
     }
 
     private static func fingerprint(for model: String) -> String {

@@ -79,7 +79,7 @@ struct MLXChatCompletionsController: RouteCollection {
         let response = Response(status: .ok)
         response.headers.add(name: .accessControlAllowOrigin, value: "*")
         response.headers.add(name: .accessControlAllowMethods, value: "POST, OPTIONS")
-        response.headers.add(name: .accessControlAllowHeaders, value: "Content-Type, Authorization")
+        response.headers.add(name: .accessControlAllowHeaders, value: "Content-Type, Authorization, X-AFM-Profile")
         return response
     }
 
@@ -334,7 +334,7 @@ struct MLXChatCompletionsController: RouteCollection {
         httpResponse.headers.add(name: .cacheControl, value: "no-cache")
         httpResponse.headers.add(name: .connection, value: "keep-alive")
         httpResponse.headers.add(name: "Access-Control-Allow-Origin", value: "*")
-        httpResponse.headers.add(name: "Access-Control-Allow-Headers", value: "Content-Type")
+        httpResponse.headers.add(name: "Access-Control-Allow-Headers", value: "Content-Type, X-AFM-Profile")
         httpResponse.headers.add(name: "X-Accel-Buffering", value: "no")
 
         let streamId = UUID().uuidString
@@ -1200,6 +1200,10 @@ struct MLXChatCompletionsController: RouteCollection {
                 try? await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
                 try? await writer.write(.end)
             } catch {
+                // Cleanup profile timer on error to prevent leak
+                if wantStreamProfile || wantStreamExtended {
+                    _ = self.service.stopAPIProfile(promptTokens: 0, completionTokens: 0, promptTime: 0, generateTime: 0)
+                }
                 // Log summary even on error/cancellation
                 let completionTokens = self.estimateTokens(fullContent)
                 let generationDuration = max(Date().timeIntervalSince(started), 0.001)
