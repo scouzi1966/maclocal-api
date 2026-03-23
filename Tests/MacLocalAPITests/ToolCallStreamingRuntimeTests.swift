@@ -57,6 +57,26 @@ struct ToolCallStreamingRuntimeTests {
         #expect(delta(from: end.events)?.function?.name == "get_weather")
     }
 
+    @Test("runtime preserves nulls in adaptive xml JSON fallback")
+    func preservesNullsInAdaptiveXMLJSONFallback() throws {
+        let runtime = ToolCallStreamingRuntime(
+            toolCallStartTag: "<tool_call>",
+            toolCallEndTag: "</tool_call>",
+            toolCallParser: "afm_adaptive_xml",
+            tools: [makeTool(name: "search", properties: ["query": ["type": "string"], "cursor": ["type": "string"]], required: ["query"])],
+            applyFixToolArgs: { $0 },
+            remapSingleKey: { key, _ in key }
+        )
+
+        _ = runtime.process(piece: "<tool_call>")
+        _ = runtime.process(piece: #"{"name":"search","arguments":{"query":"docs","cursor":null}}"#)
+        let end = runtime.process(piece: "</tool_call>")
+
+        let collected = appended(from: end.events)
+        #expect(collected?.function.name == "search")
+        #expect(collected?.function.arguments == #"{"cursor":null,"query":"docs"}"#)
+    }
+
     @Test("runtime salvages incomplete tool call at stream end")
     func salvagesIncompleteToolCall() throws {
         let runtime = ToolCallStreamingRuntime(

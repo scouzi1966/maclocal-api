@@ -20,7 +20,7 @@ This phase does **not** try to batch external tool execution, unify every non-st
 
 A shared streaming parser/runtime now lives in:
 
-- [Sources/MacLocalAPI/Models/ToolCallStreamingRuntime.swift](/Volumes/edata/codex/dev/git/maclocal-api/NEXT/maclocal-api/Sources/MacLocalAPI/Models/ToolCallStreamingRuntime.swift)
+- `Sources/MacLocalAPI/Models/ToolCallStreamingRuntime.swift`
 
 It owns:
 
@@ -35,7 +35,7 @@ It owns:
 
 The streaming controller now uses the shared runtime instead of its previous inline state machine:
 
-- [Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift](/Volumes/edata/codex/dev/git/maclocal-api/NEXT/maclocal-api/Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift)
+- `Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift`
 
 The controller now focuses on:
 
@@ -45,13 +45,13 @@ The controller now focuses on:
 
 A small protocol seam was added so controller streaming behavior can be tested without the full model service:
 
-- [Sources/MacLocalAPI/Controllers/MLXChatServing.swift](/Volumes/edata/codex/dev/git/maclocal-api/NEXT/maclocal-api/Sources/MacLocalAPI/Controllers/MLXChatServing.swift)
+- `Sources/MacLocalAPI/Controllers/MLXChatServing.swift`
 
 ### Batch scheduler support
 
 The batch scheduler now supports per-slot tool-call runtime state:
 
-- [Sources/MacLocalAPI/Models/BatchScheduler.swift](/Volumes/edata/codex/dev/git/maclocal-api/NEXT/maclocal-api/Sources/MacLocalAPI/Models/BatchScheduler.swift)
+- `Sources/MacLocalAPI/Models/BatchScheduler.swift`
 
 Phase 1 additions there:
 
@@ -70,7 +70,7 @@ Phase 1 additions there:
 
 `StreamChunk` now supports incremental tool-call deltas:
 
-- [Sources/MacLocalAPI/Models/MLXModelService.swift](/Volumes/edata/codex/dev/git/maclocal-api/NEXT/maclocal-api/Sources/MacLocalAPI/Models/MLXModelService.swift)
+- `Sources/MacLocalAPI/Models/MLXModelService.swift`
 
 Added field:
 
@@ -82,11 +82,11 @@ Added field:
 
 That logic is now shared through:
 
-- [Sources/MacLocalAPI/Utils/MLXMetalLibrary.swift](/Volumes/edata/codex/dev/git/maclocal-api/NEXT/maclocal-api/Sources/MacLocalAPI/Utils/MLXMetalLibrary.swift)
+- `Sources/MacLocalAPI/Utils/MLXMetalLibrary.swift`
 
 It is used by:
 
-- [Sources/MacLocalAPI/main.swift](/Volumes/edata/codex/dev/git/maclocal-api/NEXT/maclocal-api/Sources/MacLocalAPI/main.swift)
+- `Sources/MacLocalAPI/main.swift`
 - MLX-using test suites
 
 This preserves distributed binary behavior while allowing `swift test` to initialize MLX correctly.
@@ -95,7 +95,7 @@ This preserves distributed binary behavior while allowing `swift test` to initia
 
 ### Runtime tests
 
-- [Tests/MacLocalAPITests/ToolCallStreamingRuntimeTests.swift](/Volumes/edata/codex/dev/git/maclocal-api/NEXT/maclocal-api/Tests/MacLocalAPITests/ToolCallStreamingRuntimeTests.swift)
+- `Tests/MacLocalAPITests/ToolCallStreamingRuntimeTests.swift`
 
 Coverage includes:
 
@@ -106,7 +106,7 @@ Coverage includes:
 
 ### Scheduler/helper tests
 
-- [Tests/MacLocalAPITests/ConcurrentBatchTests.swift](/Volumes/edata/codex/dev/git/maclocal-api/NEXT/maclocal-api/Tests/MacLocalAPITests/ConcurrentBatchTests.swift)
+- `Tests/MacLocalAPITests/ConcurrentBatchTests.swift`
 
 Coverage includes:
 
@@ -117,7 +117,7 @@ Coverage includes:
 
 ### Controller streaming tests
 
-- [Tests/MacLocalAPITests/MLXChatCompletionsControllerStreamingTests.swift](/Volumes/edata/codex/dev/git/maclocal-api/NEXT/maclocal-api/Tests/MacLocalAPITests/MLXChatCompletionsControllerStreamingTests.swift)
+- `Tests/MacLocalAPITests/MLXChatCompletionsControllerStreamingTests.swift`
 
 Coverage includes:
 
@@ -130,7 +130,7 @@ Coverage includes:
 
 Existing tool parser coverage remains active in:
 
-- [Tests/MacLocalAPITests/XMLToolCallParsingTests.swift](/Volumes/edata/codex/dev/git/maclocal-api/NEXT/maclocal-api/Tests/MacLocalAPITests/XMLToolCallParsingTests.swift)
+- `Tests/MacLocalAPITests/XMLToolCallParsingTests.swift`
 
 ## Validation
 

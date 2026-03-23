@@ -36,6 +36,8 @@ enum MLXMetalLibrary {
             }
 
             let metalDir = source.deletingLastPathComponent().path
+            // MLX resolves the default metallib relative to the process CWD, so this is
+            // intentionally a one-time process-global change during startup/test bootstrap.
             guard fileManager.changeCurrentDirectoryPath(metalDir) else {
                 throw ValidationError("Failed to switch to metallib directory: \(metalDir)")
             }
@@ -46,14 +48,5 @@ enum MLXMetalLibrary {
 
             initialized = true
         }
-    }
-}
-
-private extension NSLock {
-    @discardableResult
-    func withLock<T>(_ body: () throws -> T) throws -> T {
-        self.lock()
-        defer { self.unlock() }
-        return try body()
     }
 }

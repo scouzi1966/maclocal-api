@@ -18,7 +18,7 @@ final class ToolCallStreamingRuntime {
     private let toolCallEndTag: String
     private let toolCallParser: String?
     private let tools: [RequestTool]?
-    let paramNameMapping: [String: String]
+    private(set) var paramNameMapping: [String: String]
     private let applyFixToolArgs: @Sendable (ResponseToolCall) -> ResponseToolCall
     private let remapSingleKey: @Sendable (String, String) -> String
 
@@ -113,7 +113,7 @@ final class ToolCallStreamingRuntime {
             return events
         }
 
-        return emitParsedToolCalls(from: currentToolText, forceWrap: true)
+        return emitParsedToolCalls(from: currentToolText)
     }
 
     private func consumeToolBodyFragment(_ fragment: String, prependStarted: Bool) -> ToolCallStreamingOutput {
@@ -154,7 +154,7 @@ final class ToolCallStreamingRuntime {
             return events
         }
 
-        return emitParsedToolCalls(from: currentToolText, forceWrap: false)
+        return emitParsedToolCalls(from: currentToolText)
     }
 
     private func parseIncrementalToolCalls(includeTrailingPartial: Bool) -> [ToolCall] {
@@ -169,8 +169,8 @@ final class ToolCallStreamingRuntime {
         return [fallback]
     }
 
-    private func emitParsedToolCalls(from body: String, forceWrap: Bool) -> [ToolCallStreamingEvent] {
-        let parsed = parseToolCalls(from: body, forceWrap: forceWrap)
+    private func emitParsedToolCalls(from body: String) -> [ToolCallStreamingEvent] {
+        let parsed = parseToolCalls(from: body)
         var events = [ToolCallStreamingEvent]()
         for tc in parsed {
             hasToolCalls = true
@@ -190,8 +190,8 @@ final class ToolCallStreamingRuntime {
         return events
     }
 
-    private func parseToolCalls(from body: String, forceWrap: Bool) -> [ToolCall] {
-        let wrapped = forceWrap ? "\(toolCallStartTag)\(body)\(toolCallEndTag)" : "\(toolCallStartTag)\(body)\(toolCallEndTag)"
+    private func parseToolCalls(from body: String) -> [ToolCall] {
+        let wrapped = "\(toolCallStartTag)\(body)\(toolCallEndTag)"
         let (parsed, _) = Self.parseCompletedToolCalls(
             from: wrapped,
             toolCallParser: toolCallParser,
@@ -536,7 +536,7 @@ final class ToolCallStreamingRuntime {
         case let array as [Any]:
             return array.map { makeSendableJSON($0) }
         case _ as NSNull:
-            return ""
+            return NSNull()
         default:
             return String(describing: value)
         }

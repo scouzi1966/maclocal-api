@@ -549,7 +549,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
     """
 }
 
-private final class FakeMLXChatService: MLXChatServing {
+private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
     let maxConcurrent: Int
     let toolCallParser: String?
     let thinkStartTag: String?
