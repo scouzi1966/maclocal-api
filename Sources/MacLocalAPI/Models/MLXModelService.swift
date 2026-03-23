@@ -322,6 +322,7 @@ final class MLXModelService: @unchecked Sendable {
 
     /// Snapshot of GPU metrics from IOReport.
     struct IOReportGPUSample {
+        let t: Double  // seconds since profile start
         let gpuPowerW: Double
         let gpuActivePercent: Double
         let gpuFreqMHz: Int
@@ -336,6 +337,7 @@ final class MLXModelService: @unchecked Sendable {
     private var ioReportGPUSamples: [IOReportGPUSample] = []
     private let ioReportLock = NSLock()
     private var ioReportTimer: DispatchSourceTimer?
+    private var ioReportStartTime: CFAbsoluteTime = 0
 
     /// Initialize IOReport subscription for GPU power + utilization.
     /// Call once before inference; then call sampleGPU() repeatedly.
@@ -352,6 +354,7 @@ final class MLXModelService: @unchecked Sendable {
         ioReportSubChannels = subRef
         ioReportGPUSamples = []
         // Take initial sample
+        ioReportStartTime = CFAbsoluteTimeGetCurrent()
         ioReportPrevSample = Self.IOReportCreateSamples(sub, subRef?.takeUnretainedValue(), nil)
         ioReportPrevTime = CFAbsoluteTimeGetCurrent()
         return ioReportPrevSample != nil
@@ -397,7 +400,8 @@ final class MLXModelService: @unchecked Sendable {
         ioReportPrevSample = curr
         ioReportPrevTime = now
 
-        let sample = IOReportGPUSample(gpuPowerW: gpuPowerW, gpuActivePercent: gpuActivePct, gpuFreqMHz: 0, dramPowerW: dramPowerW)
+        let elapsed = now - ioReportStartTime
+        let sample = IOReportGPUSample(t: (elapsed * 10).rounded() / 10, gpuPowerW: gpuPowerW, gpuActivePercent: gpuActivePct, gpuFreqMHz: 0, dramPowerW: dramPowerW)
         ioReportLock.lock()
         ioReportGPUSamples.append(sample)
         ioReportLock.unlock()
@@ -542,6 +546,66 @@ final class MLXModelService: @unchecked Sendable {
     }
 
     private func round1(_ v: Double) -> Double { (v * 10).rounded() / 10 }
+
+    /// Stop GPU profiling and build an AFMProfileExtended with time-series samples and optional kernel names.
+    func stopAPIProfileExtended(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double, kernels: [String]? = nil) -> AFMProfileExtended {
+        // Collect raw samples before clearing state
+        ioReportTimer?.cancel()
+        ioReportTimer = nil
+        _ = sampleIOReportGPU()
+        let rawSamples = stopIOReportGPU()
+
+        // Build summary from raw samples
+        let snap = Memory.snapshot()
+        let info = GPU.deviceInfo()
+        let memGB = info.memorySize / (1024 * 1024 * 1024)
+        let (theoreticalBW, chipName) = Self.estimateTheoreticalBandwidth(architecture: info.architecture, memoryGB: memGB)
+        let gib = 1024.0 * 1024.0 * 1024.0
+        let weightsBytes = gpuProfileModelWeightBytes > 0 ? Double(gpuProfileModelWeightBytes) : Double(snap.activeMemory)
+
+        let peakPower = rawSamples.map(\.gpuPowerW).max()
+        let avgPower = rawSamples.isEmpty ? nil : rawSamples.map(\.gpuPowerW).reduce(0, +) / Double(rawSamples.count)
+        let dramPowers = rawSamples.map(\.dramPowerW).filter { $0 > 0.01 }
+        let estBandwidth: Double? = (!dramPowers.isEmpty && Self.dramCalibrated) ? Swift.max(0, dramPowers.reduce(0, +) / Double(dramPowers.count) - Self.dramIdlePowerW) * Self.dramGBsPerWatt : nil
+
+        let summary = AFMProfile(
+            gpuPowerAvgW: avgPower.map { round1($0) },
+            gpuPowerPeakW: peakPower.map { round1($0) },
+            gpuSamples: rawSamples.isEmpty ? nil : rawSamples.count,
+            memoryWeightsGiB: round1(weightsBytes / gib),
+            memoryKvGiB: round1(Double(Swift.max(0, Int(snap.activeMemory) - gpuProfileModelWeightBytes)) / gib),
+            memoryPeakGiB: round1(Double(snap.peakMemory) / gib),
+            prefillTokS: promptTime > 0 ? round1(Double(promptTokens) / promptTime) : nil,
+            decodeTokS: generateTime > 0 ? round1(Double(completionTokens) / generateTime) : nil,
+            chip: chipName,
+            theoreticalBwGbs: theoreticalBW,
+            estBandwidthGbs: estBandwidth.map { round1($0) },
+            estBandwidthReadGbs: estBandwidth.map { round1($0 / 2) },
+            estBandwidthWriteGbs: estBandwidth.map { round1($0 / 2) }
+        )
+
+        // Log to stderr
+        if let avg = avgPower, let peak = peakPower {
+            var line = "[\(ts())] [AFM-PROFILE] GPU: peak \(String(format: "%.1f", peak))W avg \(String(format: "%.1f", avg))W (\(rawSamples.count) samples) | \(chipName)"
+            if let bw = estBandwidth { line += " | est BW: \(String(format: "%.1f", bw)) GB/s" }
+            print(line)
+        }
+
+        // Convert to API samples
+        let apiSamples: [AFMProfileSample] = rawSamples.map { s in
+            let activePower = Swift.max(0, s.dramPowerW - Self.dramIdlePowerW)
+            let bw = Self.dramCalibrated ? activePower * Self.dramGBsPerWatt : nil
+            return AFMProfileSample(
+                t: s.t,
+                bwGbs: bw.map { round1($0) },
+                gpuPct: round1(s.gpuActivePercent),
+                gpuPowerW: round1(s.gpuPowerW),
+                dramPowerW: round1(s.dramPowerW)
+            )
+        }
+
+        return AFMProfileExtended(summary: summary, samples: apiSamples, kernels: kernels)
+    }
 
     // MARK: - mactop Bandwidth Monitor
 

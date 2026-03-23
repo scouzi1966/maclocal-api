@@ -178,7 +178,9 @@ struct MLXChatCompletionsController: RouteCollection {
             defer { service.releaseSlot() }
 
             // AFM Profile: start GPU monitoring if client requests it
-            let wantProfile = req.headers.first(name: "X-AFM-Profile")?.lowercased() == "true"
+            let profileHeader = req.headers.first(name: "X-AFM-Profile")?.lowercased()
+            let wantProfile = profileHeader == "true" || profileHeader == "extended"
+            let wantExtended = profileHeader == "extended"
             if wantProfile { service.startAPIProfile() }
 
             let effectiveTemp = chatRequest.temperature ?? temperature
@@ -236,7 +238,8 @@ struct MLXChatCompletionsController: RouteCollection {
 
                 let choiceLogprobs = buildChoiceLogprobs(result.tokenLogprobs)
                 let timings = StreamTimings(prompt_n: result.promptTokens, prompt_ms: promptTime * 1000, predicted_n: completionTok, predicted_ms: generateTime * 1000)
-                let profile = wantProfile ? service.stopAPIProfile(promptTokens: result.promptTokens, completionTokens: completionTok, promptTime: promptTime, generateTime: generateTime) : nil
+                let extended = wantExtended ? service.stopAPIProfileExtended(promptTokens: result.promptTokens, completionTokens: completionTok, promptTime: promptTime, generateTime: generateTime) : nil
+                let profile = extended?.summary ?? (wantProfile ? service.stopAPIProfile(promptTokens: result.promptTokens, completionTokens: completionTok, promptTime: promptTime, generateTime: generateTime) : nil)
                 let response = ChatCompletionResponse(
                     model: result.modelID,
                     toolCalls: toolCalls,
@@ -247,7 +250,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     completionTime: generateTime,
                     promptTime: promptTime,
                     timings: timings,
-                    afmProfile: profile
+                    afmProfile: profile,
+                    afmProfileExtended: extended
                 )
                 let cacheInfo1 = Self.cacheStatsSummary(
                     cachedTokens: result.cachedTokens,
@@ -291,7 +295,8 @@ struct MLXChatCompletionsController: RouteCollection {
 
             let choiceLogprobs = buildChoiceLogprobs(result.tokenLogprobs)
             let timings = StreamTimings(prompt_n: result.promptTokens, prompt_ms: promptTime * 1000, predicted_n: completionTok, predicted_ms: generateTime * 1000)
-            let profile = wantProfile ? service.stopAPIProfile(promptTokens: result.promptTokens, completionTokens: completionTok, promptTime: promptTime, generateTime: generateTime) : nil
+            let extended = wantExtended ? service.stopAPIProfileExtended(promptTokens: result.promptTokens, completionTokens: completionTok, promptTime: promptTime, generateTime: generateTime) : nil
+            let profile = extended?.summary ?? (wantProfile ? service.stopAPIProfile(promptTokens: result.promptTokens, completionTokens: completionTok, promptTime: promptTime, generateTime: generateTime) : nil)
             let response = ChatCompletionResponse(
                 model: result.modelID,
                 content: finalContent,
@@ -304,7 +309,8 @@ struct MLXChatCompletionsController: RouteCollection {
                 completionTime: generateTime,
                 promptTime: promptTime,
                 timings: timings,
-                afmProfile: profile
+                afmProfile: profile,
+                afmProfileExtended: extended
             )
             let cacheInfo2 = Self.cacheStatsSummary(
                 cachedTokens: result.cachedTokens,
@@ -334,7 +340,9 @@ struct MLXChatCompletionsController: RouteCollection {
         let streamId = UUID().uuidString
 
         // AFM Profile: start GPU monitoring if client requests it
-        let wantStreamProfile = req.headers.first(name: "X-AFM-Profile")?.lowercased() == "true"
+        let streamProfileHeader = req.headers.first(name: "X-AFM-Profile")?.lowercased()
+        let wantStreamProfile = streamProfileHeader == "true" || streamProfileHeader == "extended"
+        let wantStreamExtended = streamProfileHeader == "extended"
         if wantStreamProfile { service.startAPIProfile() }
 
         httpResponse.body = .init(asyncStream: { writer in
@@ -1165,15 +1173,28 @@ struct MLXChatCompletionsController: RouteCollection {
                 }
                 // AFM Profile: send as a final SSE event before [DONE]
                 if wantStreamProfile {
-                    let profile = self.service.stopAPIProfile(
-                        promptTokens: promptTokens,
-                        completionTokens: completionTokens,
-                        promptTime: promptTime,
-                        generateTime: generateTime
-                    )
-                    if let profileData = try? JSONEncoder().encode(["afm_profile": profile]),
-                       let profileJson = String(data: profileData, encoding: .utf8) {
-                        try? await writer.write(.buffer(.init(string: "data: \(profileJson)\n\n")))
+                    if wantStreamExtended {
+                        let extended = self.service.stopAPIProfileExtended(
+                            promptTokens: promptTokens,
+                            completionTokens: completionTokens,
+                            promptTime: promptTime,
+                            generateTime: generateTime
+                        )
+                        if let data = try? JSONEncoder().encode(["afm_profile_extended": extended]),
+                           let json = String(data: data, encoding: .utf8) {
+                            try? await writer.write(.buffer(.init(string: "data: \(json)\n\n")))
+                        }
+                    } else {
+                        let profile = self.service.stopAPIProfile(
+                            promptTokens: promptTokens,
+                            completionTokens: completionTokens,
+                            promptTime: promptTime,
+                            generateTime: generateTime
+                        )
+                        if let data = try? JSONEncoder().encode(["afm_profile": profile]),
+                           let json = String(data: data, encoding: .utf8) {
+                            try? await writer.write(.buffer(.init(string: "data: \(json)\n\n")))
+                        }
                     }
                 }
                 try? await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
