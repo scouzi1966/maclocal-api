@@ -283,6 +283,121 @@ final class MLXModelService: @unchecked Sendable {
         }
     }
 
+    // MARK: - Native IOReport GPU Monitor (no mactop, no sudo)
+
+    // IOReport C function declarations (linked via -lIOReport)
+    @_silgen_name("IOReportCopyChannelsInGroup")
+    private static func IOReportCopyChannelsInGroup(_ group: CFString?, _ subgroup: CFString?, _ a: UInt64, _ b: UInt64, _ c: UInt64) -> CFDictionary?
+    @_silgen_name("IOReportMergeChannels")
+    private static func IOReportMergeChannels(_ a: CFDictionary, _ b: CFDictionary, _ c: UnsafeMutableRawPointer?)
+    @_silgen_name("IOReportCreateSubscription")
+    private static func IOReportCreateSubscription(_ a: UnsafeMutableRawPointer?, _ channels: CFMutableDictionary, _ buf: UnsafeMutablePointer<Unmanaged<CFMutableDictionary>?>, _ c: UInt64, _ d: UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
+    @_silgen_name("IOReportCreateSamples")
+    private static func IOReportCreateSamples(_ sub: UnsafeMutableRawPointer, _ channels: CFMutableDictionary?, _ b: UnsafeMutableRawPointer?) -> CFDictionary?
+    @_silgen_name("IOReportCreateSamplesDelta")
+    private static func IOReportCreateSamplesDelta(_ prev: CFDictionary, _ curr: CFDictionary, _ a: UnsafeMutableRawPointer?) -> CFDictionary?
+    @_silgen_name("IOReportChannelGetChannelName")
+    private static func IOReportChannelGetChannelName(_ ch: CFDictionary) -> Unmanaged<CFString>?
+    @_silgen_name("IOReportSimpleGetIntegerValue")
+    private static func IOReportSimpleGetIntegerValue(_ ch: CFDictionary, _ idx: Int32) -> Int64
+    @_silgen_name("IOReportStateGetCount")
+    private static func IOReportStateGetCount(_ ch: CFDictionary) -> Int32
+    @_silgen_name("IOReportStateGetResidency")
+    private static func IOReportStateGetResidency(_ ch: CFDictionary, _ idx: Int32) -> Int64
+
+    /// Snapshot of GPU metrics from IOReport.
+    struct IOReportGPUSample {
+        let gpuPowerW: Double
+        let gpuActivePercent: Double
+        let gpuFreqMHz: Int
+    }
+
+    /// IOReport subscription handle for GPU monitoring.
+    private var ioReportSub: UnsafeMutableRawPointer?
+    private var ioReportSubChannels: Unmanaged<CFMutableDictionary>?
+    private var ioReportPrevSample: CFDictionary?
+    private var ioReportPrevTime: CFAbsoluteTime = 0
+    private var ioReportGPUSamples: [IOReportGPUSample] = []
+    private let ioReportLock = NSLock()
+    private var ioReportTimer: DispatchSourceTimer?
+
+    /// Initialize IOReport subscription for GPU power + utilization.
+    /// Call once before inference; then call sampleGPU() repeatedly.
+    private func initIOReportGPU() -> Bool {
+        guard let energyCh = Self.IOReportCopyChannelsInGroup("Energy Model" as CFString, nil, 0, 0, 0) else { return false }
+        // Merge GPU Stats for frequency/active residency
+        if let gpuCh = Self.IOReportCopyChannelsInGroup("GPU Stats" as CFString, nil, 0, 0, 0) {
+            Self.IOReportMergeChannels(energyCh, gpuCh, nil)
+        }
+        let mc = NSMutableDictionary(dictionary: energyCh as NSDictionary) as CFMutableDictionary
+        var subRef: Unmanaged<CFMutableDictionary>? = nil
+        guard let sub = Self.IOReportCreateSubscription(nil, mc, &subRef, 0, nil) else { return false }
+        ioReportSub = sub
+        ioReportSubChannels = subRef
+        ioReportGPUSamples = []
+        // Take initial sample
+        ioReportPrevSample = Self.IOReportCreateSamples(sub, subRef?.takeUnretainedValue(), nil)
+        ioReportPrevTime = CFAbsoluteTimeGetCurrent()
+        return ioReportPrevSample != nil
+    }
+
+    /// Take a GPU sample (call at ~300ms intervals). Returns nil on error.
+    private func sampleIOReportGPU() -> IOReportGPUSample? {
+        guard let sub = ioReportSub, let prev = ioReportPrevSample else { return nil }
+        guard let curr = Self.IOReportCreateSamples(sub, ioReportSubChannels?.takeUnretainedValue(), nil) else { return nil }
+        let now = CFAbsoluteTimeGetCurrent()
+        let dt = now - ioReportPrevTime
+        guard dt > 0.01 else { return nil }
+        guard let delta = Self.IOReportCreateSamplesDelta(prev, curr, nil),
+              let arr = (delta as NSDictionary)["IOReportChannels"] as? [NSDictionary] else { return nil }
+
+        var gpuEnergyNJ: Int64 = 0
+        var gpuActiveResidency: Int64 = 0
+        var gpuTotalResidency: Int64 = 0
+
+        for ch in arr {
+            let name = Self.IOReportChannelGetChannelName(ch as CFDictionary)?.takeUnretainedValue() as String? ?? ""
+            if name == "GPU Energy" {
+                gpuEnergyNJ = Self.IOReportSimpleGetIntegerValue(ch as CFDictionary, 0)
+            } else if name.hasPrefix("GPU ") && name.hasSuffix("MHz") == false {
+                // GPU Stats channels have state residencies (idle vs active at various freqs)
+                let stateCount = Self.IOReportStateGetCount(ch as CFDictionary)
+                if stateCount > 1 {
+                    // State 0 = OFF, State 1+ = active at various frequencies
+                    for s in 0..<stateCount {
+                        let res = Self.IOReportStateGetResidency(ch as CFDictionary, s)
+                        gpuTotalResidency += res
+                        if s > 0 { gpuActiveResidency += res }
+                    }
+                }
+            }
+        }
+
+        let gpuPowerW = Double(gpuEnergyNJ) / dt / 1e9
+        let gpuActivePct = gpuTotalResidency > 0 ? Double(gpuActiveResidency) / Double(gpuTotalResidency) * 100.0 : 0
+
+        ioReportPrevSample = curr
+        ioReportPrevTime = now
+
+        let sample = IOReportGPUSample(gpuPowerW: gpuPowerW, gpuActivePercent: gpuActivePct, gpuFreqMHz: 0)
+        ioReportLock.lock()
+        ioReportGPUSamples.append(sample)
+        ioReportLock.unlock()
+        return sample
+    }
+
+    /// Stop IOReport monitoring and return all collected samples.
+    private func stopIOReportGPU() -> [IOReportGPUSample] {
+        ioReportSub = nil
+        ioReportSubChannels = nil
+        ioReportPrevSample = nil
+        ioReportLock.lock()
+        let samples = ioReportGPUSamples
+        ioReportGPUSamples = []
+        ioReportLock.unlock()
+        return samples
+    }
+
     // MARK: - mactop Bandwidth Monitor
 
     /// Collected bandwidth samples from mactop during inference.
@@ -380,6 +495,17 @@ final class MLXModelService: @unchecked Sendable {
         print("[\(ts())] [GPU-PROFILE]   Active (model weights): \(snap.activeMemory / (1024*1024)) MB")
         print("[\(ts())] [GPU-PROFILE]   Cache: \(snap.cacheMemory / (1024*1024)) MB")
         print("[\(ts())] [GPU-PROFILE]   Peak (reset): 0 MB")
+        // Start native IOReport GPU monitoring (power + utilization, no mactop needed)
+        if initIOReportGPU() {
+            print("[\(ts())] [GPU-PROFILE]   IOReport GPU monitor: active")
+            // Sample GPU every 300ms in background during inference
+            ioReportTimer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+            ioReportTimer?.schedule(deadline: .now() + .milliseconds(300), repeating: .milliseconds(300))
+            ioReportTimer?.setEventHandler { [weak self] in
+                _ = self?.sampleIOReportGPU()
+            }
+            ioReportTimer?.resume()
+        }
     }
 
     /// Estimate theoretical memory bandwidth (GB/s) from Apple Silicon architecture string.
@@ -426,6 +552,12 @@ final class MLXModelService: @unchecked Sendable {
 
     /// Print GPU profiling footer: post-inference memory, timing, bandwidth (measured + estimated).
     private func printGPUProfileFooter(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) {
+        // Stop IOReport timer and collect all GPU metrics
+        ioReportTimer?.cancel()
+        ioReportTimer = nil
+        _ = sampleIOReportGPU()  // one final sample
+        let gpuSamples = stopIOReportGPU()
+
         // Collect bandwidth from mactop if --gpu-profile-bw was specified.
         // mactop has ~5s startup overhead, so bandwidth sampling is opt-in.
         let bwSamples: [BandwidthSample]
@@ -488,6 +620,17 @@ final class MLXModelService: @unchecked Sendable {
                 print("[\(ts())] [GPU-PROFILE]   Measured bandwidth: --gpu-profile-bw (requires: brew install mactop)")
             }
         }
+        // Native IOReport GPU power + utilization (always available, no mactop)
+        if !gpuSamples.isEmpty {
+            let peakPower = gpuSamples.map(\.gpuPowerW).max() ?? 0
+            let avgPower = gpuSamples.map(\.gpuPowerW).reduce(0, +) / Double(gpuSamples.count)
+            let peakActive = gpuSamples.map(\.gpuActivePercent).max() ?? 0
+            let avgActive = gpuSamples.map(\.gpuActivePercent).reduce(0, +) / Double(gpuSamples.count)
+            print("[\(ts())] [GPU-PROFILE] ─── GPU Power & Utilization (IOReport, \(gpuSamples.count) samples) ───")
+            print("[\(ts())] [GPU-PROFILE]   Peak power: \(String(format: "%.1f", peakPower))W | Avg: \(String(format: "%.1f", avgPower))W")
+            print("[\(ts())] [GPU-PROFILE]   Peak active: \(String(format: "%.1f", peakActive))% | Avg: \(String(format: "%.1f", avgActive))%")
+        }
+
         print("[\(ts())] [GPU-PROFILE] ─── For deeper analysis ───")
         print("[\(ts())] [GPU-PROFILE]   Metal trace: afm mlx -m <model> --gpu-trace 10 -s \"prompt\"")
         print("[\(ts())] [GPU-PROFILE]   GPU capture: afm mlx -m <small-model> --gpu-capture /tmp/afm-trace.gputrace")

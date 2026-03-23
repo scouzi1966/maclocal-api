@@ -84,6 +84,8 @@ let package = Package(
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "/usr/lib/swift"], .when(configuration: .release)),
                 .unsafeFlags(["-Xlinker", "-dead_strip"], .when(configuration: .release)),
                 .linkedFramework("Security"),
+                .linkedFramework("IOKit"),
+                .linkedLibrary("IOReport"),
                 .linkedLibrary("sqlite3")
             ]
         ),
