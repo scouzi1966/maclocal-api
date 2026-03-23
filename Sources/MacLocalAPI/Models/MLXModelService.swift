@@ -310,6 +310,7 @@ final class MLXModelService: @unchecked Sendable {
         let gpuPowerW: Double
         let gpuActivePercent: Double
         let gpuFreqMHz: Int
+        let dramPowerW: Double
     }
 
     /// IOReport subscription handle for GPU monitoring.
@@ -352,6 +353,7 @@ final class MLXModelService: @unchecked Sendable {
               let arr = (delta as NSDictionary)["IOReportChannels"] as? [NSDictionary] else { return nil }
 
         var gpuEnergyNJ: Int64 = 0
+        var dramEnergyNJ: Int64 = 0
         var gpuActiveResidency: Int64 = 0
         var gpuTotalResidency: Int64 = 0
 
@@ -359,11 +361,11 @@ final class MLXModelService: @unchecked Sendable {
             let name = Self.IOReportChannelGetChannelName(ch as CFDictionary)?.takeUnretainedValue() as String? ?? ""
             if name == "GPU Energy" {
                 gpuEnergyNJ = Self.IOReportSimpleGetIntegerValue(ch as CFDictionary, 0)
+            } else if name.hasPrefix("DRAM") {
+                dramEnergyNJ += Self.IOReportSimpleGetIntegerValue(ch as CFDictionary, 0)
             } else if name.hasPrefix("GPU ") && name.hasSuffix("MHz") == false {
-                // GPU Stats channels have state residencies (idle vs active at various freqs)
                 let stateCount = Self.IOReportStateGetCount(ch as CFDictionary)
                 if stateCount > 1 {
-                    // State 0 = OFF, State 1+ = active at various frequencies
                     for s in 0..<stateCount {
                         let res = Self.IOReportStateGetResidency(ch as CFDictionary, s)
                         gpuTotalResidency += res
@@ -374,12 +376,13 @@ final class MLXModelService: @unchecked Sendable {
         }
 
         let gpuPowerW = Double(gpuEnergyNJ) / dt / 1e9
+        let dramPowerW = Double(dramEnergyNJ) / dt / 1e9
         let gpuActivePct = gpuTotalResidency > 0 ? Double(gpuActiveResidency) / Double(gpuTotalResidency) * 100.0 : 0
 
         ioReportPrevSample = curr
         ioReportPrevTime = now
 
-        let sample = IOReportGPUSample(gpuPowerW: gpuPowerW, gpuActivePercent: gpuActivePct, gpuFreqMHz: 0)
+        let sample = IOReportGPUSample(gpuPowerW: gpuPowerW, gpuActivePercent: gpuActivePct, gpuFreqMHz: 0, dramPowerW: dramPowerW)
         ioReportLock.lock()
         ioReportGPUSamples.append(sample)
         ioReportLock.unlock()
@@ -411,6 +414,11 @@ final class MLXModelService: @unchecked Sendable {
         ioReportTimer?.resume()
     }
 
+    // DRAM power → bandwidth calibration (mactop formula)
+    // activePower = dramPower - idlePower; bandwidth = activePower × gbsPerWatt
+    private static let dramIdlePowerW = 0.3
+    private static let dramGBsPerWatt = 25.1
+
     /// Stop GPU profiling and build an AFMProfile for the API response.
     func stopAPIProfile(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) -> AFMProfile {
         ioReportTimer?.cancel()
@@ -422,32 +430,55 @@ final class MLXModelService: @unchecked Sendable {
         let info = GPU.deviceInfo()
         let memGB = info.memorySize / (1024 * 1024 * 1024)
         let (theoreticalBW, chipName) = Self.estimateTheoreticalBandwidth(architecture: info.architecture, memoryGB: memGB)
-        let modelWeightsMB = gpuProfileModelWeightBytes > 0 ? gpuProfileModelWeightBytes / (1024 * 1024) : Int(snap.activeMemory) / (1024 * 1024)
-        let kvMB = Swift.max(0, (Int(snap.activeMemory) - gpuProfileModelWeightBytes) / (1024 * 1024))
+        let gib = 1024.0 * 1024.0 * 1024.0
+        let weightsBytes = gpuProfileModelWeightBytes > 0 ? Double(gpuProfileModelWeightBytes) : Double(snap.activeMemory)
+        let weightsGiB = weightsBytes / gib
+        let kvGiB = Double(Swift.max(0, Int(snap.activeMemory) - gpuProfileModelWeightBytes)) / gib
+        let peakGiB = Double(snap.peakMemory) / gib
 
         let peakPower = gpuSamples.map(\.gpuPowerW).max()
         let avgPower = gpuSamples.isEmpty ? nil : gpuSamples.map(\.gpuPowerW).reduce(0, +) / Double(gpuSamples.count)
         let prefillTokS = promptTime > 0 ? Double(promptTokens) / promptTime : nil
         let decodeTokS = generateTime > 0 ? Double(completionTokens) / generateTime : nil
 
-        // Also log to stderr (same as --gpu-profile)
+        // Estimate DRAM bandwidth from DRAM power samples (mactop calibration)
+        let dramPowers = gpuSamples.map(\.dramPowerW).filter { $0 > 0.01 }
+        let estBandwidth: Double?
+        if !dramPowers.isEmpty {
+            let avgDramPower = dramPowers.reduce(0, +) / Double(dramPowers.count)
+            let activePower = Swift.max(0, avgDramPower - Self.dramIdlePowerW)
+            estBandwidth = activePower * Self.dramGBsPerWatt
+        } else {
+            estBandwidth = nil
+        }
+
+        // Log to stderr
         if let avg = avgPower, let peak = peakPower {
-            print("[\(ts())] [AFM-PROFILE] GPU: peak \(String(format: "%.1f", peak))W avg \(String(format: "%.1f", avg))W (\(gpuSamples.count) samples) | \(chipName)")
+            var line = "[\(ts())] [AFM-PROFILE] GPU: peak \(String(format: "%.1f", peak))W avg \(String(format: "%.1f", avg))W (\(gpuSamples.count) samples) | \(chipName)"
+            if let bw = estBandwidth {
+                line += " | est BW: \(String(format: "%.1f", bw)) GB/s"
+            }
+            print(line)
         }
 
         return AFMProfile(
-            gpuPowerAvgW: avgPower.map { ($0 * 10).rounded() / 10 },
-            gpuPowerPeakW: peakPower.map { ($0 * 10).rounded() / 10 },
+            gpuPowerAvgW: avgPower.map { round1($0) },
+            gpuPowerPeakW: peakPower.map { round1($0) },
             gpuSamples: gpuSamples.isEmpty ? nil : gpuSamples.count,
-            memoryWeightsMB: modelWeightsMB,
-            memoryKvMB: kvMB,
-            memoryPeakMB: Int(snap.peakMemory) / (1024 * 1024),
-            prefillTokS: prefillTokS.map { ($0 * 10).rounded() / 10 },
-            decodeTokS: decodeTokS.map { ($0 * 10).rounded() / 10 },
+            memoryWeightsGiB: round1(weightsGiB),
+            memoryKvGiB: round1(kvGiB),
+            memoryPeakGiB: round1(peakGiB),
+            prefillTokS: prefillTokS.map { round1($0) },
+            decodeTokS: decodeTokS.map { round1($0) },
             chip: chipName,
-            theoreticalBwGbs: theoreticalBW
+            theoreticalBwGbs: theoreticalBW,
+            estBandwidthGbs: estBandwidth.map { round1($0) },
+            estBandwidthReadGbs: estBandwidth.map { round1($0 / 2) },
+            estBandwidthWriteGbs: estBandwidth.map { round1($0 / 2) }
         )
     }
+
+    private func round1(_ v: Double) -> Double { (v * 10).rounded() / 10 }
 
     // MARK: - mactop Bandwidth Monitor
 

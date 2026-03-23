@@ -333,6 +333,10 @@ struct MLXChatCompletionsController: RouteCollection {
 
         let streamId = UUID().uuidString
 
+        // AFM Profile: start GPU monitoring if client requests it
+        let wantStreamProfile = req.headers.first(name: "X-AFM-Profile")?.lowercased() == "true"
+        if wantStreamProfile { service.startAPIProfile() }
+
         httpResponse.body = .init(asyncStream: { writer in
             let encoder = JSONEncoder()
             var fullContent = ""
@@ -1158,6 +1162,19 @@ struct MLXChatCompletionsController: RouteCollection {
                 let usageData = try encoder.encode(usageChunk)
                 if let jsonString = String(data: usageData, encoding: .utf8) {
                     try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                }
+                // AFM Profile: send as a final SSE event before [DONE]
+                if wantStreamProfile {
+                    let profile = self.service.stopAPIProfile(
+                        promptTokens: promptTokens,
+                        completionTokens: completionTokens,
+                        promptTime: promptTime,
+                        generateTime: generateTime
+                    )
+                    if let profileData = try? JSONEncoder().encode(["afm_profile": profile]),
+                       let profileJson = String(data: profileData, encoding: .utf8) {
+                        try? await writer.write(.buffer(.init(string: "data: \(profileJson)\n\n")))
+                    }
                 }
                 try? await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
                 try? await writer.write(.end)

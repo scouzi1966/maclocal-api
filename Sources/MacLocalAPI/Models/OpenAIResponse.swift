@@ -6,25 +6,31 @@ struct AFMProfile: Content {
     let gpuPowerAvgW: Double?
     let gpuPowerPeakW: Double?
     let gpuSamples: Int?
-    let memoryWeightsMB: Int?
-    let memoryKvMB: Int?
-    let memoryPeakMB: Int?
+    let memoryWeightsGiB: Double?
+    let memoryKvGiB: Double?
+    let memoryPeakGiB: Double?
     let prefillTokS: Double?
     let decodeTokS: Double?
     let chip: String?
     let theoreticalBwGbs: Double?
+    let estBandwidthGbs: Double?
+    let estBandwidthReadGbs: Double?
+    let estBandwidthWriteGbs: Double?
 
     enum CodingKeys: String, CodingKey {
         case gpuPowerAvgW = "gpu_power_avg_w"
         case gpuPowerPeakW = "gpu_power_peak_w"
         case gpuSamples = "gpu_samples"
-        case memoryWeightsMB = "memory_weights_mb"
-        case memoryKvMB = "memory_kv_mb"
-        case memoryPeakMB = "memory_peak_mb"
+        case memoryWeightsGiB = "memory_weights_gib"
+        case memoryKvGiB = "memory_kv_gib"
+        case memoryPeakGiB = "memory_peak_gib"
         case prefillTokS = "prefill_tok_s"
         case decodeTokS = "decode_tok_s"
         case chip
         case theoreticalBwGbs = "theoretical_bw_gbs"
+        case estBandwidthGbs = "est_bandwidth_gbs"
+        case estBandwidthReadGbs = "est_bandwidth_read_gbs"
+        case estBandwidthWriteGbs = "est_bandwidth_write_gbs"
     }
 }
 
