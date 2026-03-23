@@ -68,34 +68,44 @@ Debug logging shows `[KVCache]` hit/miss stats, tool call detection, and timing 
 
 ### GPU Shader Profiling
 
-Three profiling modes, from lightweight to deep:
+Four profiling modes, from lightweight to deep:
 
 ```bash
 # 1. Per-request stats: device info, memory breakdown, bandwidth estimate (no overhead)
 afm mlx -m <model> --gpu-profile -s "Hello"
 
-# 2. xctrace Metal System Trace: command-buffer timing, GPU scheduling, pipeline bubbles (~100 MB)
+# 2. + measured DRAM bandwidth via mactop (adds ~5s, requires brew install mactop)
+afm mlx -m <model> --gpu-profile-bw -s "Hello"
+
+# 3. xctrace with per-kernel shader names (~100-300 MB, opens in Instruments)
 afm mlx -m <model> --gpu-trace 10 -s "Hello"
-# Then: open /tmp/afm-metal.trace  (opens in Instruments)
+# Then: open /tmp/afm-metal.trace
 
-# 3. Full Metal GPU capture: per-kernel shader analysis in Xcode (WARNING: multi-GB traces, use small models)
+# 4. Full Metal GPU capture in Xcode (WARNING: multi-GB traces, small models only)
 afm mlx -m <small-model> --gpu-capture /tmp/afm-trace.gputrace -s "Hello"
-# Auto-limits to 5 tokens. Then: open /tmp/afm-trace.gputrace  (opens in Xcode Metal Debugger)
 ```
 
-Bandwidth monitoring (run in separate terminal during inference):
+One-time setup for per-kernel shader names in `--gpu-trace`:
 ```bash
-sudo powermetrics --samplers gpu_power,bandwidth -i 200
+python3 Scripts/create-shader-template.py   # patches Metal System Trace template
 ```
 
-Helper script: `./Scripts/gpu-profile.sh` wraps all of the above.
+Live bandwidth monitoring (separate terminal, no sudo):
+```bash
+./Scripts/gpu-profile.sh bandwidth          # visual bar chart via mactop
+```
+
+Helper script: `./Scripts/gpu-profile.sh` wraps all profiling workflows.
 
 **Tradeoffs:**
-- `--gpu-profile`: Zero overhead, runs at full speed. Good for iterative measurement.
-- `--gpu-trace N`: Lightweight (~100 MB for 15s). Shows command-buffer scheduling and GPU utilization. No per-kernel shader names (Metal System Trace doesn't include Shader Timeline by default).
-- `--gpu-capture`: Per-kernel shader names and costs in Xcode Dependencies view. But traces are multi-GB even at 5 tokens — only practical for small models (<3B params).
+- `--gpu-profile`: Zero overhead. Device info, memory split (weights vs KV), timing, calculated bandwidth with chip detection.
+- `--gpu-profile-bw`: Adds mactop DRAM bandwidth sampling (~5s post-inference). Requires `brew install mactop`.
+- `--gpu-trace N`: Lightweight (~100-300 MB for 10-15s). With shader template: captures 60+ MLX Metal kernel names (`affine_qmv_fast`, `steel_gemm_fused`, `sdpa_vector`, etc.). Without: command-buffer timing only.
+- `--gpu-capture`: Full Xcode shader debugger with per-line costs. Multi-GB traces, auto-limited to 5 tokens — only practical for small models.
 
-**Key bottlenecks:** `affine_qmv_fast` (quantized MatVec) dominates decode (~80-90%, memory-bandwidth-bound). `steel_gemm_fused` dominates prefill (compute-bound).
+**Measured on Qwen3.5-35B-A3B-4bit (M3 Ultra 512GB):** 100% GPU utilization, ~28W GPU power, 171 GB/s sustained DRAM bandwidth (21.4% of 800 GB/s theoretical) during 4096-token decode at 95.7 tok/s.
+
+**Key kernels (from shader trace):** `affine_qmv_fast` (quantized MatVec, decode bottleneck), `affine_gather_qmv_fast` (MoE expert dispatch), `steel_gemm_fused` (prefill GEMM), `sdpa_vector` (attention), `rmsbfloat16` (normalization), `custom_kernel_gated_delta_step_fused` (Mamba/hybrid layers).
 
 ## Key Features
 
