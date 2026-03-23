@@ -434,39 +434,77 @@ final class MLXModelService: @unchecked Sendable {
         ioReportTimer?.resume()
     }
 
-    // DRAM power → bandwidth calibration
-    // Calibrated at startup by measuring DRAM idle power via IOReport Energy Model.
-    // The GB/s-per-watt constant is derived from cross-referencing mactop's measured
-    // bandwidth with IOReport DRAM power during real inference workloads:
-    //   M3 Ultra: ~171 GB/s at ~18.5W DRAM (idle 2.25W) → 10.5 GB/s/W
-    // We measure idle power for subtraction, then use a chip-family constant.
+    // DRAM power → bandwidth calibration via GPU memory stress (MLX).
+    // Runs a known GPU workload (x + 1 on 1 GiB array) for 1s, measures DRAM power
+    // via IOReport, derives GB/s-per-watt from actual GPU→DRAM traffic.
     private static var dramIdlePowerW = 0.3
-    private static var dramGBsPerWatt = 10.5  // M3 Ultra cross-referenced with mactop
+    private static var dramGBsPerWatt = 10.5  // fallback if calibration fails
     private static var dramCalibrated = false
 
-    /// Measure idle DRAM power and set calibration constants.
-    /// Uses IOReport Energy Model (unit-aware). Call once at startup.
+    /// Calibrate DRAM bandwidth using GPU memory stress via MLX.
+    /// Runs ~2s total (0.5s idle + 0.5s warmup + 1s measurement). Call once at startup.
     static func calibrateDRAMBandwidth() {
         guard let energyCh = IOReportCopyChannelsInGroup("Energy Model" as CFString, nil, 0, 0, 0) else {
-            print("[\(ts())] [CALIBRATE] IOReport Energy Model unavailable")
+            print("[\(ts())] [CALIBRATE] IOReport unavailable — using default \(dramGBsPerWatt) GB/s/W")
+            dramCalibrated = true
             return
         }
         let mc = NSMutableDictionary(dictionary: energyCh as NSDictionary) as CFMutableDictionary
         var subRef: Unmanaged<CFMutableDictionary>? = nil
-        guard let sub = IOReportCreateSubscription(nil, mc, &subRef, 0, nil) else { return }
+        guard let sub = IOReportCreateSubscription(nil, mc, &subRef, 0, nil) else {
+            dramCalibrated = true; return
+        }
         let subCh = subRef?.takeUnretainedValue()
 
-        // Measure idle DRAM power (0.5s sample)
-        guard let s1 = IOReportCreateSamples(sub, subCh, nil) else { return }
+        // Step 1: Measure idle DRAM power (0.5s)
+        guard let idleS1 = IOReportCreateSamples(sub, subCh, nil) else { dramCalibrated = true; return }
         Thread.sleep(forTimeInterval: 0.5)
-        guard let s2 = IOReportCreateSamples(sub, subCh, nil) else { return }
-        let idlePower = extractDRAMPower(from: s1, to: s2, dt: 0.5)
+        guard let idleS2 = IOReportCreateSamples(sub, subCh, nil) else { dramCalibrated = true; return }
+        let idlePower = extractDRAMPower(from: idleS1, to: idleS2, dt: 0.5)
+        if idlePower > 0.01 { dramIdlePowerW = idlePower }
 
-        if idlePower > 0.01 {
-            dramIdlePowerW = idlePower
+        // Step 2: Allocate 1 GiB MLX array on GPU and warm up
+        let elemCount = 256 * 1024 * 1024  // 256M float32 = 1 GiB
+        let x = MLXArray.ones([elemCount], dtype: .float32)
+        MLX.eval(x)
+        Stream.gpu.synchronize()
+        // Warm up: one full read+write pass
+        let w = x + 1
+        MLX.eval(w)
+        Stream.gpu.synchronize()
+
+        // Step 3: GPU memory stress for 1s — measure DRAM power
+        // Each iteration: y = x + 1 → reads 1 GiB, writes 1 GiB = 2 GiB
+        guard let loadS1 = IOReportCreateSamples(sub, subCh, nil) else { dramCalibrated = true; return }
+        let t0 = CFAbsoluteTimeGetCurrent()
+        var totalBytes: Int64 = 0
+        let bytesPerIter = Int64(elemCount) * 4 * 2  // float32=4B, read+write
+        while CFAbsoluteTimeGetCurrent() - t0 < 1.0 {
+            let y = x + 1
+            MLX.eval(y)
+            Stream.gpu.synchronize()
+            totalBytes += bytesPerIter
+        }
+        let loadDt = CFAbsoluteTimeGetCurrent() - t0
+        guard let loadS2 = IOReportCreateSamples(sub, subCh, nil) else { dramCalibrated = true; return }
+        let loadPower = extractDRAMPower(from: loadS1, to: loadS2, dt: loadDt)
+
+        // Step 4: Derive calibration constant
+        let activePower = loadPower - dramIdlePowerW
+        let measuredGBs = Double(totalBytes) / loadDt / 1e9
+
+        if activePower > 0.1 && measuredGBs > 1.0 {
+            let candidate = measuredGBs / activePower
+            if candidate >= 2.0 && candidate <= 200.0 {
+                dramGBsPerWatt = candidate
+            } else {
+                print("[\(ts())] [CALIBRATE] Out of range (\(String(format: "%.1f", candidate)) GB/s/W) — keeping default \(dramGBsPerWatt)")
+            }
+            print("[\(ts())] [CALIBRATE] DRAM BW calibrated: \(String(format: "%.1f", dramGBsPerWatt)) GB/s/W (idle: \(String(format: "%.2f", dramIdlePowerW))W, load: \(String(format: "%.2f", loadPower))W, GPU: \(String(format: "%.1f", measuredGBs)) GB/s, \(Int(totalBytes / 1_073_741_824)) GiB in \(String(format: "%.1f", loadDt))s)")
+        } else {
+            print("[\(ts())] [CALIBRATE] Inconclusive (active=\(String(format: "%.2f", activePower))W) — using default \(dramGBsPerWatt) GB/s/W")
         }
         dramCalibrated = true
-        print("[\(ts())] [CALIBRATE] DRAM idle power: \(String(format: "%.2f", dramIdlePowerW))W | BW constant: \(String(format: "%.1f", dramGBsPerWatt)) GB/s/W")
     }
 
     /// Extract DRAM power (watts) from an IOReport sample delta.
