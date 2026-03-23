@@ -398,6 +398,57 @@ final class MLXModelService: @unchecked Sendable {
         return samples
     }
 
+    // MARK: - API Profile (X-AFM-Profile header)
+
+    /// Start GPU profiling for an API request. Call before inference.
+    func startAPIProfile() {
+        guard initIOReportGPU() else { return }
+        ioReportTimer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        ioReportTimer?.schedule(deadline: .now() + .milliseconds(300), repeating: .milliseconds(300))
+        ioReportTimer?.setEventHandler { [weak self] in
+            _ = self?.sampleIOReportGPU()
+        }
+        ioReportTimer?.resume()
+    }
+
+    /// Stop GPU profiling and build an AFMProfile for the API response.
+    func stopAPIProfile(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) -> AFMProfile {
+        ioReportTimer?.cancel()
+        ioReportTimer = nil
+        _ = sampleIOReportGPU()
+        let gpuSamples = stopIOReportGPU()
+
+        let snap = Memory.snapshot()
+        let info = GPU.deviceInfo()
+        let memGB = info.memorySize / (1024 * 1024 * 1024)
+        let (theoreticalBW, chipName) = Self.estimateTheoreticalBandwidth(architecture: info.architecture, memoryGB: memGB)
+        let modelWeightsMB = gpuProfileModelWeightBytes > 0 ? gpuProfileModelWeightBytes / (1024 * 1024) : Int(snap.activeMemory) / (1024 * 1024)
+        let kvMB = Swift.max(0, (Int(snap.activeMemory) - gpuProfileModelWeightBytes) / (1024 * 1024))
+
+        let peakPower = gpuSamples.map(\.gpuPowerW).max()
+        let avgPower = gpuSamples.isEmpty ? nil : gpuSamples.map(\.gpuPowerW).reduce(0, +) / Double(gpuSamples.count)
+        let prefillTokS = promptTime > 0 ? Double(promptTokens) / promptTime : nil
+        let decodeTokS = generateTime > 0 ? Double(completionTokens) / generateTime : nil
+
+        // Also log to stderr (same as --gpu-profile)
+        if let avg = avgPower, let peak = peakPower {
+            print("[\(ts())] [AFM-PROFILE] GPU: peak \(String(format: "%.1f", peak))W avg \(String(format: "%.1f", avg))W (\(gpuSamples.count) samples) | \(chipName)")
+        }
+
+        return AFMProfile(
+            gpuPowerAvgW: avgPower.map { ($0 * 10).rounded() / 10 },
+            gpuPowerPeakW: peakPower.map { ($0 * 10).rounded() / 10 },
+            gpuSamples: gpuSamples.isEmpty ? nil : gpuSamples.count,
+            memoryWeightsMB: modelWeightsMB,
+            memoryKvMB: kvMB,
+            memoryPeakMB: Int(snap.peakMemory) / (1024 * 1024),
+            prefillTokS: prefillTokS.map { ($0 * 10).rounded() / 10 },
+            decodeTokS: decodeTokS.map { ($0 * 10).rounded() / 10 },
+            chip: chipName,
+            theoreticalBwGbs: theoreticalBW
+        )
+    }
+
     // MARK: - mactop Bandwidth Monitor
 
     /// Collected bandwidth samples from mactop during inference.

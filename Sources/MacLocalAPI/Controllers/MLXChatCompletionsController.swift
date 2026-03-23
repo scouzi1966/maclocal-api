@@ -177,6 +177,10 @@ struct MLXChatCompletionsController: RouteCollection {
             // scheduler when the stream finishes.
             defer { service.releaseSlot() }
 
+            // AFM Profile: start GPU monitoring if client requests it
+            let wantProfile = req.headers.first(name: "X-AFM-Profile")?.lowercased() == "true"
+            if wantProfile { service.startAPIProfile() }
+
             let effectiveTemp = chatRequest.temperature ?? temperature
             let effectiveTopP = chatRequest.topP ?? topP
             let effectiveMaxTokens = normalizedMaxTokens(chatRequest.effectiveMaxTokens)
@@ -232,6 +236,7 @@ struct MLXChatCompletionsController: RouteCollection {
 
                 let choiceLogprobs = buildChoiceLogprobs(result.tokenLogprobs)
                 let timings = StreamTimings(prompt_n: result.promptTokens, prompt_ms: promptTime * 1000, predicted_n: completionTok, predicted_ms: generateTime * 1000)
+                let profile = wantProfile ? service.stopAPIProfile(promptTokens: result.promptTokens, completionTokens: completionTok, promptTime: promptTime, generateTime: generateTime) : nil
                 let response = ChatCompletionResponse(
                     model: result.modelID,
                     toolCalls: toolCalls,
@@ -241,7 +246,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     cachedTokens: result.cachedTokens,
                     completionTime: generateTime,
                     promptTime: promptTime,
-                    timings: timings
+                    timings: timings,
+                    afmProfile: profile
                 )
                 let cacheInfo1 = Self.cacheStatsSummary(
                     cachedTokens: result.cachedTokens,
@@ -285,6 +291,7 @@ struct MLXChatCompletionsController: RouteCollection {
 
             let choiceLogprobs = buildChoiceLogprobs(result.tokenLogprobs)
             let timings = StreamTimings(prompt_n: result.promptTokens, prompt_ms: promptTime * 1000, predicted_n: completionTok, predicted_ms: generateTime * 1000)
+            let profile = wantProfile ? service.stopAPIProfile(promptTokens: result.promptTokens, completionTokens: completionTok, promptTime: promptTime, generateTime: generateTime) : nil
             let response = ChatCompletionResponse(
                 model: result.modelID,
                 content: finalContent,
@@ -296,7 +303,8 @@ struct MLXChatCompletionsController: RouteCollection {
                 cachedTokens: result.cachedTokens,
                 completionTime: generateTime,
                 promptTime: promptTime,
-                timings: timings
+                timings: timings,
+                afmProfile: profile
             )
             let cacheInfo2 = Self.cacheStatsSummary(
                 cachedTokens: result.cachedTokens,
