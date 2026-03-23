@@ -98,6 +98,12 @@ private var traceLogging = false
 private var grammarConstraintsActive = false
 
 final class MLXModelService: @unchecked Sendable {
+    private struct ConstrainedDecodingSetup {
+        let processor: GrammarLogitProcessor
+        let mode: String
+        let matcherHandle: GrammarMatcherHandle?
+    }
+
     private static let registerModelFactoriesOnce: Void = {
         ModelFactoryRegistry.shared.addTrampoline { LLMModelFactory.shared }
         ModelFactoryRegistry.shared.addTrampoline { VLMModelFactory.shared }
@@ -415,23 +421,17 @@ final class MLXModelService: @unchecked Sendable {
         var saveInsertTime: Double? = nil
         let generated: String = try await container.perform { context in
             // Grammar constraint setup (needs tokenizer from context)
-            let grammarProcessor: GrammarLogitProcessor?
-            if responseFormat?.type == "json_schema" {
-                grammarProcessor = self.setupGrammarConstraint(
-                    modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
-                )
-            } else if self.enableGrammarConstraints && self.toolCallParser == "afm_adaptive_xml" {
-                grammarProcessor = self.setupToolCallGrammarConstraint(
-                    modelID: modelID, tokenizer: context.tokenizer, tools: tools
-                )
-            } else {
-                grammarProcessor = nil
-            }
+            let constrainedDecoding = self.setupConstrainedDecodingProcessor(
+                modelID: modelID,
+                responseFormat: responseFormat,
+                tokenizer: context.tokenizer,
+                tools: tools
+            )
             defer {
-                (grammarProcessor?.matcherHandle as? GrammarMatcherHandle)?.release()
+                constrainedDecoding?.matcherHandle?.release()
             }
-            if let grammarProcessor {
-                params.extraProcessor = grammarProcessor
+            if let constrainedDecoding {
+                params.extraProcessor = constrainedDecoding.processor
             }
 
             let input = try await context.processor.prepare(input: userInput)
@@ -785,36 +785,24 @@ final class MLXModelService: @unchecked Sendable {
             if debugLogging {
                 print("[\(ts())] [ToolCallParser] Vendor parser found 0 tool calls, trying fallback on \(generated.count) chars")
             }
-            let (parsed, remaining) = Self.extractToolCallsFallback(from: generated)
+            let (parsed, remaining) = ToolCallStreamingRuntime.parseCompletedToolCalls(
+                from: generated,
+                toolCallParser: self.toolCallParser,
+                tools: tools
+            )
             if !parsed.isEmpty {
                 finalToolCalls = parsed
                 finalContent = remaining
             }
         }
 
-        let responseToolCalls: [ResponseToolCall]? = finalToolCalls.isEmpty ? nil : finalToolCalls.enumerated().map { (i, tc) in
-            var converted = Self.coerceArgumentTypes(Self.convertToolCall(tc, index: i), tools: tools)
-            if self.fixToolArgs, let requestTools = tools {
-                // Re-parse arguments JSON, remap keys, re-serialize
-                if let data = converted.function.arguments.data(using: .utf8),
-                   let argsDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    var sendableArgs = [String: any Sendable]()
-                    for (k, v) in argsDict { sendableArgs[k] = v }
-                    let remapped = Self.remapArgumentKeys(sendableArgs, toolName: converted.function.name, tools: requestTools)
-                    let remappedAny = remapped.mapValues { $0 as Any }
-                    if let newData = try? JSONSerialization.data(withJSONObject: remappedAny, options: [.sortedKeys]),
-                       let newStr = String(data: newData, encoding: .utf8) {
-                        converted = ResponseToolCall(
-                            index: converted.index,
-                            id: converted.id,
-                            type: converted.type,
-                            function: ResponseToolCallFunction(name: converted.function.name, arguments: newStr)
-                        )
-                    }
-                }
-            }
-            return converted
-        }
+        let responseToolCalls: [ResponseToolCall]? = finalToolCalls.isEmpty
+            ? nil
+            : Self.normalizeToolCalls(
+                finalToolCalls,
+                tools: tools,
+                fixToolArgs: self.fixToolArgs
+            )
 
             let promptTokens = cacheInputTokenCount > 0
                 ? cacheInputTokenCount
@@ -916,6 +904,18 @@ final class MLXModelService: @unchecked Sendable {
 
         // --- Concurrent path: bypass container.perform lock, route through BatchScheduler ---
         if let scheduler = self.scheduler {
+            let constrainedDecoding = try await container.perform { context in
+                self.setupConstrainedDecodingProcessor(
+                    modelID: modelID,
+                    responseFormat: responseFormat,
+                    tokenizer: context.tokenizer,
+                    tools: tools
+                )
+            }
+            if let constrainedDecoding {
+                params.extraProcessor = constrainedDecoding.processor
+            }
+
             let toolRuntimeConfig: BatchScheduler.ToolCallRuntimeConfiguration?
             if let tools, !tools.isEmpty {
                 let format = withStateLock({ currentToolCallFormat })
@@ -951,11 +951,20 @@ final class MLXModelService: @unchecked Sendable {
 
             let input = try await scheduler.prepareInput(userInput)
             let preparedPromptTokens = input.text.tokens.reshaped(-1).asArray(Int.self).count
-            let concurrentStream = await scheduler.submit(
+            let schedulerStream = scheduler.submit(
                 input: input,
                 parameters: params,
                 promptTokens: preparedPromptTokens,
-                toolCallRuntimeConfig: toolRuntimeConfig
+                toolCallRuntimeConfig: toolRuntimeConfig,
+                constraintRuntimeConfig: constrainedDecoding.map {
+                    BatchScheduler.ConstraintRuntimeConfiguration(
+                        mode: $0.mode,
+                        matcherHandle: $0.matcherHandle
+                    )
+                },
+                stopSequences: stop ?? [],
+                thinkStartTag: self.thinkStartTag,
+                thinkEndTag: self.thinkEndTag
             )
             self.cleanupTempFiles(mediaTempFiles)
 
@@ -963,7 +972,7 @@ final class MLXModelService: @unchecked Sendable {
             let toolTags = toolRuntimeConfig.map { ($0.startTag, $0.endTag) }
 
             endOperationOnExit = false
-            return (modelID, concurrentStream, preparedPromptTokens, toolTags?.0, toolTags?.1, self.thinkStartTag, self.thinkEndTag)
+            return (modelID, schedulerStream, preparedPromptTokens, toolTags?.0, toolTags?.1, self.thinkStartTag, self.thinkEndTag)
         }
 
         // --- Serial path: full-featured generation via container.perform lock ---
@@ -973,23 +982,17 @@ final class MLXModelService: @unchecked Sendable {
                 do {
                     try await container.perform { context in
                         // Grammar constraint setup — see non-streaming path for details.
-                        let grammarProcessor: GrammarLogitProcessor?
-                        if responseFormat?.type == "json_schema" {
-                            grammarProcessor = self.setupGrammarConstraint(
-                                modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
-                            )
-                        } else if self.enableGrammarConstraints && self.toolCallParser == "afm_adaptive_xml" {
-                            grammarProcessor = self.setupToolCallGrammarConstraint(
-                                modelID: modelID, tokenizer: context.tokenizer, tools: tools
-                            )
-                        } else {
-                            grammarProcessor = nil
-                        }
+                        let constrainedDecoding = self.setupConstrainedDecodingProcessor(
+                            modelID: modelID,
+                            responseFormat: responseFormat,
+                            tokenizer: context.tokenizer,
+                            tools: tools
+                        )
                         defer {
-                            (grammarProcessor?.matcherHandle as? GrammarMatcherHandle)?.release()
+                            constrainedDecoding?.matcherHandle?.release()
                         }
-                        if let grammarProcessor {
-                            params.extraProcessor = grammarProcessor
+                        if let constrainedDecoding {
+                            params.extraProcessor = constrainedDecoding.processor
                         }
 
                         let input = try await context.processor.prepare(input: userInput)
@@ -1491,6 +1494,56 @@ final class MLXModelService: @unchecked Sendable {
                 name: tc.function.name,
                 arguments: argsJSON
             )
+        )
+    }
+
+    static func normalizeToolCall(
+        _ tc: ToolCall,
+        index: Int,
+        paramNameMapping: [String: String] = [:],
+        tools: [RequestTool]? = nil,
+        fixToolArgs: Bool = false
+    ) -> ResponseToolCall {
+        var converted = convertToolCall(tc, index: index, paramNameMapping: paramNameMapping)
+        if fixToolArgs, let tools, !tools.isEmpty {
+            converted = remapResponseToolCallArguments(converted, tools: tools)
+        }
+        return coerceArgumentTypes(converted, tools: tools)
+    }
+
+    static func normalizeToolCalls(
+        _ toolCalls: [ToolCall],
+        startIndex: Int = 0,
+        paramNameMapping: [String: String] = [:],
+        tools: [RequestTool]? = nil,
+        fixToolArgs: Bool = false
+    ) -> [ResponseToolCall] {
+        toolCalls.enumerated().map { offset, toolCall in
+            normalizeToolCall(
+                toolCall,
+                index: startIndex + offset,
+                paramNameMapping: paramNameMapping,
+                tools: tools,
+                fixToolArgs: fixToolArgs
+            )
+        }
+    }
+
+    static func remapResponseToolCallArguments(_ rtc: ResponseToolCall, tools: [RequestTool]?) -> ResponseToolCall {
+        guard let tools, !tools.isEmpty else { return rtc }
+        guard let data = rtc.function.arguments.data(using: .utf8),
+              let argsDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return rtc }
+        var sendableArgs = [String: any Sendable]()
+        for (key, value) in argsDict { sendableArgs[key] = value }
+        let remapped = remapArgumentKeys(sendableArgs, toolName: rtc.function.name, tools: tools)
+        let remappedAny = remapped.mapValues { $0 as Any }
+        guard let newData = try? JSONSerialization.data(withJSONObject: remappedAny, options: [.sortedKeys]),
+              let newString = String(data: newData, encoding: .utf8) else { return rtc }
+        return ResponseToolCall(
+            index: rtc.index,
+            id: rtc.id,
+            type: rtc.type,
+            function: ResponseToolCallFunction(name: rtc.function.name, arguments: newString)
         )
     }
 
@@ -2114,6 +2167,45 @@ final class MLXModelService: @unchecked Sendable {
         if let vs = json["vocab_size"] as? Int { return vs }
         if let textConfig = json["text_config"] as? [String: Any],
            let vs = textConfig["vocab_size"] as? Int { return vs }
+        return nil
+    }
+
+    /// Set up grammar-constrained decoding for a json_schema response format.
+    /// Returns a GrammarLogitProcessor on success, nil on failure (falls back to prompt injection).
+    private func setupConstrainedDecodingProcessor(
+        modelID: String,
+        responseFormat: ResponseFormat?,
+        tokenizer: any Tokenizer,
+        tools: [RequestTool]?
+    ) -> ConstrainedDecodingSetup? {
+        if responseFormat?.type == "json_schema" {
+            guard let processor = setupGrammarConstraint(
+                modelID: modelID,
+                responseFormat: responseFormat,
+                tokenizer: tokenizer
+            ) else {
+                return nil
+            }
+            return ConstrainedDecodingSetup(
+                processor: processor,
+                mode: "json_schema",
+                matcherHandle: processor.matcherHandle as? GrammarMatcherHandle
+            )
+        }
+        if enableGrammarConstraints && toolCallParser == "afm_adaptive_xml" {
+            guard let processor = setupToolCallGrammarConstraint(
+                modelID: modelID,
+                tokenizer: tokenizer,
+                tools: tools
+            ) else {
+                return nil
+            }
+            return ConstrainedDecodingSetup(
+                processor: processor,
+                mode: "tool_call_grammar",
+                matcherHandle: processor.matcherHandle as? GrammarMatcherHandle
+            )
+        }
         return nil
     }
 

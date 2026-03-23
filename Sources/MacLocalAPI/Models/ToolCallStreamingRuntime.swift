@@ -191,36 +191,13 @@ final class ToolCallStreamingRuntime {
     }
 
     private func parseToolCalls(from body: String, forceWrap: Bool) -> [ToolCall] {
-        if toolCallParser == "afm_adaptive_xml" {
-            let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmedBody.hasPrefix("{"),
-               let data = trimmedBody.data(using: .utf8),
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let name = json["name"] as? String {
-                var arguments: [String: any Sendable] = [:]
-                if let args = (json["arguments"] as? [String: Any]) ?? (json["parameters"] as? [String: Any]) {
-                    for (key, value) in args {
-                        arguments[key] = Self.makeSendableJSON(value)
-                    }
-                }
-                return [ToolCall(function: .init(
-                    name: resolveToolName(name),
-                    arguments: arguments
-                ))]
-            }
-        }
-
         let wrapped = forceWrap ? "\(toolCallStartTag)\(body)\(toolCallEndTag)" : "\(toolCallStartTag)\(body)\(toolCallEndTag)"
-        let (regexParsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
-        if toolCallParser == "afm_adaptive_xml" {
-            return regexParsed.map { toolCall in
-                ToolCall(function: .init(
-                    name: resolveToolName(toolCall.function.name),
-                    arguments: toolCall.function.arguments
-                ))
-            }
-        }
-        return regexParsed
+        let (parsed, _) = Self.parseCompletedToolCalls(
+            from: wrapped,
+            toolCallParser: toolCallParser,
+            tools: tools
+        )
+        return parsed
     }
 
     private func normalizedToolCall(from toolCall: ToolCall, index: Int) -> ResponseToolCall {
@@ -442,6 +419,82 @@ final class ToolCallStreamingRuntime {
         value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+    }
+
+    static func parseCompletedToolCalls(
+        from text: String,
+        toolCallParser: String?,
+        tools: [RequestTool]?
+    ) -> ([ToolCall], String) {
+        if toolCallParser == "afm_adaptive_xml",
+           let direct = parseSingleAdaptiveJSONToolCall(from: text, tools: tools) {
+            return direct
+        }
+        let (parsed, remaining) = MLXModelService.extractToolCallsFallback(from: text)
+        guard !parsed.isEmpty else { return (parsed, remaining) }
+        return (normalizeParsedToolCalls(parsed, toolCallParser: toolCallParser, tools: tools), remaining)
+    }
+
+    private static func normalizeParsedToolCalls(
+        _ toolCalls: [ToolCall],
+        toolCallParser: String?,
+        tools: [RequestTool]?
+    ) -> [ToolCall] {
+        guard toolCallParser == "afm_adaptive_xml" else { return toolCalls }
+        let validNames = tools?.map(\.function.name) ?? []
+        guard !validNames.isEmpty else { return toolCalls }
+        return toolCalls.map { toolCall in
+            let resolvedName: String
+            if validNames.contains(toolCall.function.name) {
+                resolvedName = toolCall.function.name
+            } else {
+                resolvedName = fuzzyMatchToolName(toolCall.function.name, candidates: validNames) ?? toolCall.function.name
+            }
+            return ToolCall(function: .init(name: resolvedName, arguments: toolCall.function.arguments))
+        }
+    }
+
+    private static func parseSingleAdaptiveJSONToolCall(
+        from text: String,
+        tools: [RequestTool]?
+    ) -> ([ToolCall], String)? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let regex = try? NSRegularExpression(
+            pattern: #"<tool_call>\s*(.*?)\s*</tool_call>"#,
+            options: [.dotMatchesLineSeparators]
+        ),
+        let match = regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+        match.range.location == 0,
+        match.range.length == (trimmed as NSString).length,
+        let innerRange = Range(match.range(at: 1), in: trimmed),
+        let toolCall = parseAdaptiveJSONToolCallBody(String(trimmed[innerRange]), tools: tools) else {
+            return nil
+        }
+        return ([toolCall], "")
+    }
+
+    private static func parseAdaptiveJSONToolCallBody(_ body: String, tools: [RequestTool]?) -> ToolCall? {
+        let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedBody.hasPrefix("{"),
+              let data = trimmedBody.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let name = json["name"] as? String else {
+            return nil
+        }
+        var arguments: [String: any Sendable] = [:]
+        if let args = (json["arguments"] as? [String: Any]) ?? (json["parameters"] as? [String: Any]) {
+            for (key, value) in args {
+                arguments[key] = makeSendableJSON(value)
+            }
+        }
+        let validNames = tools?.map(\.function.name) ?? []
+        let resolvedName: String
+        if validNames.isEmpty || validNames.contains(name) {
+            resolvedName = name
+        } else {
+            resolvedName = fuzzyMatchToolName(name, candidates: validNames) ?? name
+        }
+        return ToolCall(function: .init(name: resolvedName, arguments: arguments))
     }
 
     private static func toSnakeCase(_ value: String) -> String {

@@ -2,6 +2,13 @@ import Vapor
 import Foundation
 import MLXLMCommon
 
+struct FinalizedAssistantTurn {
+    let finishReason: String
+    let content: String?
+    let reasoningContent: String?
+    let toolCalls: [ResponseToolCall]?
+}
+
 struct MLXChatCompletionsController: RouteCollection {
     private let streamingEnabled: Bool
     private let modelID: String
@@ -117,14 +124,10 @@ struct MLXChatCompletionsController: RouteCollection {
                 print("[\(Self.timestamp())] MLX request model '\(requestedModelRaw)' does not match active model '\(modelID)'; serving active model"); fflush(stdout)
             }
 
-            // Suppress tools when tool_choice=none
-            let toolChoiceNone: Bool
-            if case .mode(let m) = chatRequest.toolChoice, m == "none" {
-                toolChoiceNone = true
-            } else {
-                toolChoiceNone = false
-            }
-            let effectiveTools: [RequestTool]? = toolChoiceNone ? nil : chatRequest.tools
+            let effectiveTools = try Self.resolveEffectiveTools(
+                chatRequest.tools,
+                toolChoice: chatRequest.toolChoice
+            )
 
             let hasTools = effectiveTools != nil && !(effectiveTools?.isEmpty ?? true)
             if hasTools && veryVerbose {
@@ -212,15 +215,26 @@ struct MLXChatCompletionsController: RouteCollection {
                 responseFormat: chatRequest.responseFormat,
                 chatTemplateKwargs: chatRequest.chatTemplateKwargs
             )
-            let cleanedContent = sanitizeDegenerateTail(result.content)
             let completionTok = result.completionTokens
             let promptTime = result.promptTime
             let generateTime = result.generateTime
             let tokPerSec = generateTime > 0 ? Double(completionTok) / generateTime : 0
             let promptTokPerSec = promptTime > 0 ? Double(result.promptTokens) / promptTime : 0
+            let finalizedTurn = Self.finalizeAssistantTurn(
+                content: result.content,
+                toolCalls: result.toolCalls,
+                toolChoice: chatRequest.toolChoice,
+                extractThinking: extractThinking,
+                thinkStartTag: service.thinkStartTag ?? "<think>",
+                thinkEndTag: service.thinkEndTag ?? "</think>",
+                stoppedBySequence: result.stoppedBySequence,
+                completionTokens: completionTok,
+                maxTokens: effectiveMaxTokens,
+                sanitizeContent: sanitizeDegenerateTail
+            )
 
             // If we got tool calls, return a tool_calls response
-            if let toolCalls = result.toolCalls, !toolCalls.isEmpty {
+            if let toolCalls = finalizedTurn.toolCalls, !toolCalls.isEmpty {
                 if veryVerbose {
                     let toolNames = toolCalls.map { $0.function.name }.joined(separator: ", ")
                     print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false\n  prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok)\n  prompt=\(String(format: "%.2f", promptTime))s gen=\(String(format: "%.2f", generateTime))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=tool_calls\(Self.reset)"); fflush(stdout)
@@ -264,31 +278,17 @@ struct MLXChatCompletionsController: RouteCollection {
                 return try await createSuccessResponse(req: req, response: response)
             }
 
-            let stopReason = result.stoppedBySequence ? "stop" : (completionTok >= effectiveMaxTokens ? "length" : "stop")
+            let stopReason = finalizedTurn.finishReason
             if veryVerbose {
                 print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false\n  prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok)\n  prompt=\(String(format: "%.2f", promptTime))s gen=\(String(format: "%.2f", generateTime))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=\(stopReason)\(Self.reset)"); fflush(stdout)
-            }
-
-            // Extract <think>...</think> tags into reasoning_content
-            let finalContent: String
-            let reasoningContent: String?
-            if extractThinking {
-                (finalContent, reasoningContent) = Self.extractThinkContent(
-                    from: cleanedContent,
-                    startTag: service.thinkStartTag ?? "<think>",
-                    endTag: service.thinkEndTag ?? "</think>"
-                )
-            } else {
-                finalContent = cleanedContent
-                reasoningContent = nil
             }
 
             let choiceLogprobs = buildChoiceLogprobs(result.tokenLogprobs)
             let timings = StreamTimings(prompt_n: result.promptTokens, prompt_ms: promptTime * 1000, predicted_n: completionTok, predicted_ms: generateTime * 1000)
             let response = ChatCompletionResponse(
                 model: result.modelID,
-                content: finalContent,
-                reasoningContent: reasoningContent,
+                content: finalizedTurn.content ?? "",
+                reasoningContent: finalizedTurn.reasoningContent,
                 logprobs: choiceLogprobs,
                 finishReason: stopReason,
                 promptTokens: result.promptTokens,
@@ -308,6 +308,16 @@ struct MLXChatCompletionsController: RouteCollection {
                 print("\(Self.teal)[\(Self.timestamp())] SEND full response:\n\(encodeJSON(response))\(Self.reset)"); fflush(stdout)
             }
             return try await createSuccessResponse(req: req, response: response)
+        } catch let abort as Abort {
+            req.logger.error("[\(Self.timestamp())] MLX completions error: \(abort)")
+            return try await createErrorResponse(
+                req: req,
+                error: OpenAIError(
+                    message: abort.reason,
+                    type: abort.status == .badRequest ? "invalid_request_error" : "mlx_error"
+                ),
+                status: abort.status
+            )
         } catch {
             req.logger.error("[\(Self.timestamp())] MLX completions error: \(error)")
             return try await createErrorResponse(req: req, error: OpenAIError(message: error.localizedDescription, type: "mlx_error"), status: .badRequest)
@@ -338,12 +348,12 @@ struct MLXChatCompletionsController: RouteCollection {
             let effectivePresencePenalty = chatRequest.presencePenalty ?? self.presencePenalty
             let effectiveSeed = chatRequest.seed ?? self.seed
             let effectiveStop = self.mergeStopSequences(cliStop: self.stop, apiStop: chatRequest.stop)
-            let effectiveTools: [RequestTool]? = {
-                if case .mode(let m) = chatRequest.toolChoice, m == "none" { return nil }
-                return chatRequest.tools
-            }()
 
             do {
+                let effectiveTools = try Self.resolveEffectiveTools(
+                    chatRequest.tools,
+                    toolChoice: chatRequest.toolChoice
+                )
                 if self.veryVerbose {
                     let promptChars = chatRequest.messages.map { $0.textContent.count }.reduce(0, +)
                     let stopDesc = effectiveStop.map { $0.map { $0.debugDescription }.joined(separator: ", ") }
@@ -389,6 +399,13 @@ struct MLXChatCompletionsController: RouteCollection {
                 var logprobBuffer = [ResolvedLogprob]()
                 var collectedToolCalls = [ResponseToolCall]()
                 var hasToolCalls = false
+                let allowedToolName: String? = {
+                    if case .function(let functionChoice) = chatRequest.toolChoice {
+                        return functionChoice.function.name
+                    }
+                    return nil
+                }()
+                var permittedToolIndices = Set<Int>()
                 var stoppedBySequence = false
                 var realPromptTokens: Int? = nil
                 var realCompletionTokens: Int? = nil
@@ -408,12 +425,12 @@ struct MLXChatCompletionsController: RouteCollection {
                     toolCallStartTag: toolCallStartTag!,
                     toolCallEndTag: toolCallEndTag!,
                     toolCallParser: self.service.toolCallParser,
-                    tools: chatRequest.tools,
+                    tools: effectiveTools,
                     applyFixToolArgs: { rtc in
-                        return self.applyFixToolArgs(rtc, tools: chatRequest.tools)
+                        return self.applyFixToolArgs(rtc, tools: effectiveTools)
                     },
                     remapSingleKey: { key, toolName in
-                        return self.remapSingleKey(key, toolName: toolName, tools: chatRequest.tools)
+                        return self.remapSingleKey(key, toolName: toolName, tools: effectiveTools)
                     }
                 ) : nil
                 let fallbackParamNameMapping = toolRuntime?.paramNameMapping ?? [:]
@@ -431,11 +448,20 @@ struct MLXChatCompletionsController: RouteCollection {
                     if let gt = streamChunk.generateTime { realGenerateTime = gt }
 
                     if let deltas = streamChunk.toolCallDeltas, !deltas.isEmpty {
+                        let filtered = deltas.filter {
+                            Self.isToolDeltaAllowed(
+                                $0,
+                                toolChoice: chatRequest.toolChoice,
+                                allowedFunctionName: allowedToolName,
+                                permittedToolIndices: &permittedToolIndices
+                            )
+                        }
+                        guard !filtered.isEmpty else { continue }
                         hasToolCalls = true
                         let tcChunk = ChatCompletionStreamResponse(
                             id: streamId,
                             model: res.modelID,
-                            toolCalls: deltas
+                            toolCalls: filtered
                         )
                         let tcData = try encoder.encode(tcChunk)
                         if let jsonString = String(data: tcData, encoding: .utf8) {
@@ -446,8 +472,14 @@ struct MLXChatCompletionsController: RouteCollection {
 
                     // Handle tool call chunks from the vendor parser
                     if let tcs = streamChunk.toolCalls, !tcs.isEmpty {
-                        hasToolCalls = true
                         for tc in tcs {
+                            guard Self.isToolCallAllowed(
+                                tc,
+                                toolChoice: chatRequest.toolChoice,
+                                allowedFunctionName: allowedToolName,
+                                permittedToolIndices: &permittedToolIndices
+                            ) else { continue }
+                            hasToolCalls = true
                             collectedToolCalls.append(tc)
                             if self.veryVerbose {
                                 print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (vendor): \(tc.function.name)\n  id=\(tc.id)\n  args=\(tc.function.arguments)\(Self.reset)")
@@ -639,9 +671,21 @@ struct MLXChatCompletionsController: RouteCollection {
                         case .started:
                             break
                         case .appendCollected(let toolCall):
+                            guard Self.isToolCallAllowed(
+                                toolCall,
+                                toolChoice: chatRequest.toolChoice,
+                                allowedFunctionName: allowedToolName,
+                                permittedToolIndices: &permittedToolIndices
+                            ) else { continue }
                             hasToolCalls = true
                             collectedToolCalls.append(toolCall)
                         case .replaceCollected(let index, let toolCall):
+                            guard Self.isToolCallAllowed(
+                                toolCall,
+                                toolChoice: chatRequest.toolChoice,
+                                allowedFunctionName: allowedToolName,
+                                permittedToolIndices: &permittedToolIndices
+                            ) else { continue }
                             hasToolCalls = true
                             if index < collectedToolCalls.count {
                                 collectedToolCalls[index] = toolCall
@@ -649,6 +693,12 @@ struct MLXChatCompletionsController: RouteCollection {
                                 collectedToolCalls.append(toolCall)
                             }
                         case .delta(let delta):
+                            guard Self.isToolDeltaAllowed(
+                                delta,
+                                toolChoice: chatRequest.toolChoice,
+                                allowedFunctionName: allowedToolName,
+                                permittedToolIndices: &permittedToolIndices
+                            ) else { continue }
                             let tcChunk = ChatCompletionStreamResponse(
                                 id: streamId,
                                 model: res.modelID,
@@ -678,11 +728,26 @@ struct MLXChatCompletionsController: RouteCollection {
                         print("\(Self.gold)[\(Self.timestamp())] SEND tool_call: token-level missed, trying fallback parser\(Self.reset)")
                         fflush(stdout)
                     }
-                    let (parsed, _) = MLXModelService.extractToolCallsFallback(from: fullContent)
+                    let (parsed, _) = ToolCallStreamingRuntime.parseCompletedToolCalls(
+                        from: fullContent,
+                        toolCallParser: self.service.toolCallParser,
+                        tools: chatRequest.tools
+                    )
                     if !parsed.isEmpty {
-                        hasToolCalls = true
-                        for tc in parsed {
-                            let rtc = MLXModelService.coerceArgumentTypes(self.applyFixToolArgs(MLXModelService.convertToolCall(tc, index: collectedToolCalls.count, paramNameMapping: fallbackParamNameMapping), tools: chatRequest.tools), tools: chatRequest.tools)
+                        for rtc in MLXModelService.normalizeToolCalls(
+                            parsed,
+                            startIndex: collectedToolCalls.count,
+                            paramNameMapping: fallbackParamNameMapping,
+                            tools: chatRequest.tools,
+                            fixToolArgs: service.fixToolArgs
+                        ) {
+                            guard Self.isToolCallAllowed(
+                                rtc,
+                                toolChoice: chatRequest.toolChoice,
+                                allowedFunctionName: allowedToolName,
+                                permittedToolIndices: &permittedToolIndices
+                            ) else { continue }
+                            hasToolCalls = true
                             collectedToolCalls.append(rtc)
                             let delta = StreamDeltaToolCall(
                                 index: collectedToolCalls.count - 1,
@@ -715,17 +780,24 @@ struct MLXChatCompletionsController: RouteCollection {
                 let completionTokens = realCompletionTokens ?? self.estimateTokens(fullContent)
                 let generationDuration = max(Date().timeIntervalSince(started), 0.001)
                 let tokPerSec = generationDuration > 0 ? Double(completionTokens) / generationDuration : 0
-                let finishReason: String
-                if hasToolCalls {
-                    finishReason = "tool_calls"
-                    if self.veryVerbose {
+                let finalizedTurn = Self.finalizeAssistantTurn(
+                    content: fullContent,
+                    toolCalls: hasToolCalls ? collectedToolCalls : nil,
+                    toolChoice: chatRequest.toolChoice,
+                    extractThinking: extractThinking,
+                    thinkStartTag: thinkStartTag ?? "<think>",
+                    thinkEndTag: thinkEndTag ?? "</think>",
+                    stoppedBySequence: stoppedBySequence,
+                    completionTokens: completionTokens,
+                    maxTokens: effectiveMaxTokens,
+                    sanitizeContent: self.sanitizeDegenerateTail
+                )
+                let finishReason = finalizedTurn.finishReason
+                if self.veryVerbose {
+                    if finishReason == "tool_calls" {
                         print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true\n  prompt_tokens=\(promptTokens) completion_tokens=\(completionTokens)\n  elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=tool_calls\(Self.reset)")
-                    }
-                } else {
-                    finishReason = stoppedBySequence ? "stop" : (completionTokens >= effectiveMaxTokens ? "length" : "stop")
-                    if self.veryVerbose {
-                        let (finalAnswer, _) = Self.extractThinkContent(from: fullContent, startTag: thinkStartTag ?? "<think>", endTag: thinkEndTag ?? "</think>")
-                        let trimmedAnswer = finalAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
+                    } else {
+                        let trimmedAnswer = (finalizedTurn.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                         if !trimmedAnswer.isEmpty {
                             print("\(Self.teal)[\(Self.timestamp())] MLX full answer:\n  \(trimmedAnswer)\(Self.reset)")
                         }
@@ -742,9 +814,9 @@ struct MLXChatCompletionsController: RouteCollection {
                     totalPromptTokens: promptTokens
                 )
                 print("\(Self.orange)[\(Self.timestamp())] [STATS] pp: \(promptTokens) tok, \(String(format: "%.2f", sPromptTime))s (\(String(format: "%.1f", sPromptTokPerSec)) tok/s) | tg: \(completionTokens) tok, \(String(format: "%.2f", sGenTime))s (\(String(format: "%.1f", sGenTokPerSec)) tok/s)\(sCacheInfo) stream=true\(Self.reset)")
-                if hasToolCalls && !collectedToolCalls.isEmpty {
-                    let tcSummary = collectedToolCalls.map { "\($0.function.name)(\(Self.argKeysPreview($0.function.arguments)))" }.joined(separator: ", ")
-                    print("\(Self.gold)[\(Self.timestamp())] [TOOL_CALLS] \(collectedToolCalls.count) call(s): \(tcSummary)\(Self.reset)")
+                if let finalToolCalls = finalizedTurn.toolCalls, !finalToolCalls.isEmpty {
+                    let tcSummary = finalToolCalls.map { "\($0.function.name)(\(Self.argKeysPreview($0.function.arguments)))" }.joined(separator: ", ")
+                    print("\(Self.gold)[\(Self.timestamp())] [TOOL_CALLS] \(finalToolCalls.count) call(s): \(tcSummary)\(Self.reset)")
                 }
                 if self.veryVerbose {
                     let usageLog = StreamUsage(promptTokens: promptTokens, completionTokens: completionTokens, completionTime: generationDuration, promptTime: 0)
@@ -872,21 +944,8 @@ struct MLXChatCompletionsController: RouteCollection {
 
     /// Apply heuristic argument key remapping to a ResponseToolCall when --fix-tool-args is enabled.
     private func applyFixToolArgs(_ rtc: ResponseToolCall, tools: [RequestTool]?) -> ResponseToolCall {
-        guard service.fixToolArgs, let tools, !tools.isEmpty else { return rtc }
-        guard let data = rtc.function.arguments.data(using: .utf8),
-              let argsDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return rtc }
-        var sendableArgs = [String: any Sendable]()
-        for (k, v) in argsDict { sendableArgs[k] = v }
-        let remapped = MLXModelService.remapArgumentKeys(sendableArgs, toolName: rtc.function.name, tools: tools)
-        let remappedAny = remapped.mapValues { $0 as Any }
-        guard let newData = try? JSONSerialization.data(withJSONObject: remappedAny, options: [.sortedKeys]),
-              let newStr = String(data: newData, encoding: .utf8) else { return rtc }
-        return ResponseToolCall(
-            index: rtc.index,
-            id: rtc.id,
-            type: rtc.type,
-            function: ResponseToolCallFunction(name: rtc.function.name, arguments: newStr)
-        )
+        guard service.fixToolArgs else { return rtc }
+        return MLXModelService.remapResponseToolCallArguments(rtc, tools: tools)
     }
 
     private func normalizedMaxTokens(_ requested: Int?) -> Int {
@@ -1092,6 +1151,133 @@ struct MLXChatCompletionsController: RouteCollection {
         let reasoning: String? = allReasoning.isEmpty ? nil : allReasoning.trimmingCharacters(in: .whitespacesAndNewlines)
         let content = allContent.trimmingCharacters(in: .whitespacesAndNewlines)
         return (content, reasoning)
+    }
+
+    static func finalizeAssistantTurn(
+        content: String,
+        toolCalls: [ResponseToolCall]?,
+        toolChoice: ToolChoice?,
+        extractThinking: Bool,
+        thinkStartTag: String,
+        thinkEndTag: String,
+        stoppedBySequence: Bool,
+        completionTokens: Int,
+        maxTokens: Int,
+        sanitizeContent: (String) -> String
+    ) -> FinalizedAssistantTurn {
+        let effectiveToolCalls = applyToolChoice(toolCalls, toolChoice: toolChoice)
+        if let effectiveToolCalls, !effectiveToolCalls.isEmpty {
+            return FinalizedAssistantTurn(
+                finishReason: "tool_calls",
+                content: nil,
+                reasoningContent: nil,
+                toolCalls: effectiveToolCalls
+            )
+        }
+
+        let cleanedContent = sanitizeContent(content)
+        let finalContent: String
+        let reasoningContent: String?
+        if extractThinking {
+            (finalContent, reasoningContent) = extractThinkContent(
+                from: cleanedContent,
+                startTag: thinkStartTag,
+                endTag: thinkEndTag
+            )
+        } else {
+            finalContent = cleanedContent
+            reasoningContent = nil
+        }
+
+        let finishReason = stoppedBySequence ? "stop" : (completionTokens >= maxTokens ? "length" : "stop")
+        return FinalizedAssistantTurn(
+            finishReason: finishReason,
+            content: finalContent,
+            reasoningContent: reasoningContent,
+            toolCalls: nil
+        )
+    }
+
+    static func applyToolChoice(_ toolCalls: [ResponseToolCall]?, toolChoice: ToolChoice?) -> [ResponseToolCall]? {
+        guard let toolCalls, !toolCalls.isEmpty else { return nil }
+        guard let toolChoice else { return toolCalls }
+
+        switch toolChoice {
+        case .mode(let mode):
+            return mode == "none" ? nil : toolCalls
+        case .function(let functionChoice):
+            let name = functionChoice.function.name
+            let filtered = toolCalls.filter { $0.function.name == name }
+            return filtered.isEmpty ? nil : filtered
+        }
+    }
+
+    static func resolveEffectiveTools(_ tools: [RequestTool]?, toolChoice: ToolChoice?) throws -> [RequestTool]? {
+        guard let tools, !tools.isEmpty else { return nil }
+        guard let toolChoice else { return tools }
+
+        switch toolChoice {
+        case .mode(let mode):
+            return mode == "none" ? nil : tools
+        case .function(let functionChoice):
+            let requestedName = functionChoice.function.name
+            let filtered = tools.filter { $0.function.name == requestedName }
+            guard !filtered.isEmpty else {
+                throw Abort(
+                    .badRequest,
+                    reason: "tool_choice specifies function '\(requestedName)', but that tool was not provided"
+                )
+            }
+            return filtered
+        }
+    }
+
+    static func isToolCallAllowed(
+        _ toolCall: ResponseToolCall,
+        toolChoice: ToolChoice?,
+        allowedFunctionName: String?,
+        permittedToolIndices: inout Set<Int>
+    ) -> Bool {
+        switch toolChoice {
+        case .mode(let mode) where mode == "none":
+            return false
+        case .function:
+            guard let allowedFunctionName else { return false }
+            let isAllowed = toolCall.function.name == allowedFunctionName
+            if isAllowed {
+                permittedToolIndices.insert(toolCall.index ?? permittedToolIndices.count)
+            }
+            return isAllowed
+        default:
+            if let index = toolCall.index {
+                permittedToolIndices.insert(index)
+            }
+            return true
+        }
+    }
+
+    static func isToolDeltaAllowed(
+        _ delta: StreamDeltaToolCall,
+        toolChoice: ToolChoice?,
+        allowedFunctionName: String?,
+        permittedToolIndices: inout Set<Int>
+    ) -> Bool {
+        switch toolChoice {
+        case .mode(let mode) where mode == "none":
+            return false
+        case .function:
+            if let name = delta.function?.name {
+                let isAllowed = name == allowedFunctionName
+                if isAllowed {
+                    permittedToolIndices.insert(delta.index)
+                }
+                return isAllowed
+            }
+            return permittedToolIndices.contains(delta.index)
+        default:
+            permittedToolIndices.insert(delta.index)
+            return true
+        }
     }
 
     private func buildChoiceLogprobs(_ resolved: [ResolvedLogprob]?) -> ChoiceLogprobs? {

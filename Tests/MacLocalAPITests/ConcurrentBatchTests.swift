@@ -280,4 +280,80 @@ struct ConcurrentBatchTests {
         #expect(chunks[1].toolCallDeltas == nil)
         #expect(chunks[1].toolCalls?.first?.function.arguments == #"{"location":"Berlin"}"#)
     }
+
+    @Test("BatchScheduler stop helper emits stopped chunk on exact stop match")
+    func stopHelperEmitsStoppedChunk() {
+        var stopBuffer = ""
+        var insideThink = false
+
+        let result = BatchScheduler.stopChunksToEmit(
+            from: "Hello\n\nUser:",
+            stopBuffer: &stopBuffer,
+            activeStops: ["\n\nUser:"],
+            maxStopLength: "\n\nUser:".count,
+            insideThink: &insideThink,
+            thinkStartTag: nil,
+            thinkEndTag: nil
+        )
+
+        #expect(result.stopped)
+        #expect(result.chunks.count == 1)
+        #expect(result.chunks[0].text == "Hello")
+        #expect(result.chunks[0].stoppedBySequence == true)
+    }
+
+    @Test("BatchScheduler stop helper buffers partial stop across chunk boundaries")
+    func stopHelperBuffersAcrossBoundaries() {
+        var stopBuffer = ""
+        var insideThink = false
+
+        let first = BatchScheduler.stopChunksToEmit(
+            from: "Hello\n\nUs",
+            stopBuffer: &stopBuffer,
+            activeStops: ["\n\nUser:"],
+            maxStopLength: "\n\nUser:".count,
+            insideThink: &insideThink,
+            thinkStartTag: nil,
+            thinkEndTag: nil
+        )
+        #expect(first.stopped == false)
+        #expect(first.chunks.count == 1)
+        #expect(first.chunks[0].text == "He")
+        #expect(stopBuffer == "llo\n\nUs")
+
+        let second = BatchScheduler.stopChunksToEmit(
+            from: "er:",
+            stopBuffer: &stopBuffer,
+            activeStops: ["\n\nUser:"],
+            maxStopLength: "\n\nUser:".count,
+            insideThink: &insideThink,
+            thinkStartTag: nil,
+            thinkEndTag: nil
+        )
+        #expect(second.stopped)
+        #expect(second.chunks.count == 1)
+        #expect(second.chunks[0].text == "llo")
+        #expect(second.chunks[0].stoppedBySequence == true)
+    }
+
+    @Test("BatchScheduler stop helper does not stop while still inside think block")
+    func stopHelperDoesNotStopInsideThinkBlock() {
+        var stopBuffer = ""
+        var insideThink = false
+
+        let result = BatchScheduler.stopChunksToEmit(
+            from: "<think>plan\n\nUser:",
+            stopBuffer: &stopBuffer,
+            activeStops: ["\n\nUser:"],
+            maxStopLength: "\n\nUser:".count,
+            insideThink: &insideThink,
+            thinkStartTag: "<think>",
+            thinkEndTag: "</think>"
+        )
+
+        #expect(result.stopped == false)
+        #expect(result.chunks.count == 1)
+        #expect(result.chunks[0].text == "<think>plan\n\nUser:")
+        #expect(insideThink == true)
+    }
 }
