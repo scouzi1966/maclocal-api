@@ -1911,6 +1911,8 @@ final class MLXModelService: @unchecked Sendable {
         }
 
         // Ensure queued GPU work is complete before clearing recycled buffers.
+        // The BatchScheduler's decode loop synchronizes the GPU stream before
+        // exiting on cancellation, so this should be safe.
         Stream.gpu.synchronize()
         Stream.cpu.synchronize()
         Memory.clearCache()

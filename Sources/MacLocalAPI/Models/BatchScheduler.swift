@@ -455,7 +455,11 @@ actor BatchScheduler {
             }
 
             if slots.isEmpty { break }
-            if Task.isCancelled { return }
+            if Task.isCancelled {
+                // Drain any in-flight GPU work before exiting so synchronize() won't trap.
+                Stream.gpu.synchronize()
+                return
+            }
 
             // --- Batched decode: build graph from lastTokenArray (CPU, ~2.7ms) ---
             let activeB = slots.count

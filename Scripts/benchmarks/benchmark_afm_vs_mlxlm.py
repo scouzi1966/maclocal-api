@@ -33,11 +33,11 @@ MODEL_LOCAL_PATH = f"{MODEL_CACHE}/{MODEL_ID}"
 MAX_TOKENS = 4096
 AFM_PORT = 9876
 MLX_PORT = 8080
-MAX_CONCURRENT = 28          # AFM --concurrent / mlx-lm --decode-concurrency (headroom)
+MAX_CONCURRENT = 190         # AFM --concurrent / mlx-lm --decode-concurrency (headroom)
 TIMEOUT_PER_REQ = 600        # seconds
 
 # Same concurrency levels for BOTH servers — fair comparison
-LEVELS = [1, 2, 3, 4, 6, 8, 10, 12, 16, 20, 24]
+LEVELS = [130, 150, 180]
 
 RESULTS_DIR = Path("Scripts/benchmark-results")
 
@@ -67,36 +67,52 @@ PROMPTS = [
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 class GPUPowerMonitor:
-    """Sample GPU power via mactop --headless during benchmark runs."""
+    """Sample GPU metrics via a single continuous mactop --headless process."""
 
-    def __init__(self, interval_ms=500):
+    def __init__(self, interval_ms=100):
         self.interval_ms = interval_ms
         self.samples = []
-        self._stop = threading.Event()
+        self._proc = None
         self._thread = None
+        self._stop = threading.Event()
 
     def start(self):
         self.samples = []
         self._stop.clear()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
+        try:
+            self._proc = subprocess.Popen(
+                ["mactop", "--headless", "--format", "json",
+                 "-i", str(self.interval_ms), "--count", "0"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+            )
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
+        except FileNotFoundError:
+            self._proc = None
 
     def stop(self):
         self._stop.set()
+        if self._proc:
+            self._proc.terminate()
+            try:
+                self._proc.wait(timeout=3)
+            except Exception:
+                self._proc.kill()
         if self._thread:
             self._thread.join(timeout=5)
         return self.results()
 
     def _run(self):
-        while not self._stop.is_set():
+        if not self._proc:
+            return
+        for line in self._proc.stdout:
+            if self._stop.is_set():
+                break
+            line = line.strip()
+            if not line:
+                continue
             try:
-                out = subprocess.check_output(
-                    ["mactop", "--headless", "--format", "json",
-                     "--count", "1", "-i", str(self.interval_ms)],
-                    timeout=self.interval_ms / 1000 + 5,
-                    text=True,
-                )
-                data = json.loads(out)
+                data = json.loads(line)
                 if isinstance(data, list):
                     data = data[0]
                 soc = data.get("soc_metrics", {})
@@ -105,7 +121,7 @@ class GPUPowerMonitor:
                     "system_power": soc.get("system_power", 0),
                     "gpu_freq_mhz": soc.get("gpu_freq_mhz", 0),
                     "gpu_temp": soc.get("gpu_temp", 0),
-                    "gpu_usage": data.get("gpu_usage", 0),
+                    "gpu_usage": soc.get("gpu_active", data.get("gpu_usage", 0)),
                     "dram_bw_gbs": soc.get("dram_bw_combined_gbs", 0),
                 })
             except Exception:
