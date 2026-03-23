@@ -35,6 +35,10 @@ Principles:
 | `--concurrent N` | Batch mode (N>1) | Grammar supported — uses `scheduler.tokenizer` for setup |
 | `--enable-prefix-caching` | KV cache reuse | **Independent** — grammar is per-request logit processor, cache is prompt-level |
 
+**Design note:** `hasStrictTools()` returns `true` if *any* tool in the request has `strict: true`. This activates grammar for the entire generation — token-level constraints can't be applied per-tool since generation is a single sequence. A request mixing `strict: true` and non-strict tools gets full grammar enforcement.
+
+When both `response_format.json_schema.strict` and tool `strict` are true, json_schema grammar takes priority (schema grammar is more constrained than tool call EBNF).
+
 ## Implementation
 
 ### Files Changed

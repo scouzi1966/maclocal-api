@@ -412,36 +412,10 @@ final class MLXModelService: @unchecked Sendable {
         var saveTruncateTime: Double? = nil
         var saveInsertTime: Double? = nil
         let generated: String = try await container.perform { context in
-            // Grammar constraint setup (needs tokenizer from context)
-            // Policy: strict: true is the per-request opt-in, --enable-grammar-constraints is the admin opt-in.
-            // Both must be true for grammar enforcement. strict: true without the CLI flag is silently downgraded.
-            let wantStrictSchema = responseFormat?.type == "json_schema"
-                && responseFormat?.jsonSchema?.strict == true
-                && self.enableGrammarConstraints
-            let wantStrictTools = Self.hasStrictTools(tools) && self.enableGrammarConstraints
-
-            let grammarProcessor: GrammarLogitProcessor?
-            if wantStrictSchema {
-                grammarProcessor = self.setupGrammarConstraint(
-                    modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
-                )
-            } else if wantStrictTools {
-                grammarProcessor = self.setupToolCallGrammarConstraint(
-                    modelID: modelID, tokenizer: context.tokenizer, tools: tools
-                )
-            } else {
-                grammarProcessor = nil
-            }
-
-            // Observability: warn when strict requested but engine not enabled
-            if !self.enableGrammarConstraints {
-                if responseFormat?.jsonSchema?.strict == true {
-                    print("[\(ts())] [XGrammar] strict: true on json_schema but --enable-grammar-constraints not set; best-effort")
-                }
-                if Self.hasStrictTools(tools) {
-                    print("[\(ts())] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort")
-                }
-            }
+            // Grammar constraint setup — policy centralised in resolveGrammarConstraint()
+            let grammarProcessor = self.resolveGrammarConstraint(
+                modelID: modelID, responseFormat: responseFormat, tools: tools, tokenizer: context.tokenizer
+            )
             defer {
                 (grammarProcessor?.matcherHandle as? GrammarMatcherHandle)?.release()
             }
@@ -931,35 +905,12 @@ final class MLXModelService: @unchecked Sendable {
 
         // --- Concurrent path: bypass container.perform lock, route through BatchScheduler ---
         if let scheduler = self.scheduler {
-            // Grammar constraint setup for concurrent path (uses scheduler's tokenizer)
-            let wantStrictSchema = responseFormat?.type == "json_schema"
-                && responseFormat?.jsonSchema?.strict == true
-                && self.enableGrammarConstraints
-            let wantStrictTools = Self.hasStrictTools(tools) && self.enableGrammarConstraints
-
+            // Grammar constraint setup — uses scheduler's tokenizer (same policy as serial path)
             let batchTokenizer = await scheduler.tokenizer
-            if wantStrictSchema {
-                if let gp = self.setupGrammarConstraint(
-                    modelID: modelID, responseFormat: responseFormat, tokenizer: batchTokenizer
-                ) {
-                    params.extraProcessor = gp
-                }
-            } else if wantStrictTools {
-                if let gp = self.setupToolCallGrammarConstraint(
-                    modelID: modelID, tokenizer: batchTokenizer, tools: tools
-                ) {
-                    params.extraProcessor = gp
-                }
-            }
-
-            // Observability: warn when strict requested but engine not enabled
-            if !self.enableGrammarConstraints {
-                if responseFormat?.jsonSchema?.strict == true {
-                    print("[\(ts())] [XGrammar] strict: true on json_schema but --enable-grammar-constraints not set; best-effort")
-                }
-                if Self.hasStrictTools(tools) {
-                    print("[\(ts())] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort")
-                }
+            if let gp = self.resolveGrammarConstraint(
+                modelID: modelID, responseFormat: responseFormat, tools: tools, tokenizer: batchTokenizer
+            ) {
+                params.extraProcessor = gp
             }
 
             let input = try await scheduler.prepareInput(userInput)
@@ -1000,34 +951,10 @@ final class MLXModelService: @unchecked Sendable {
                 defer { self.endOperation() }
                 do {
                     try await container.perform { context in
-                        // Grammar constraint setup — see non-streaming path for policy details.
-                        let wantStrictSchema = responseFormat?.type == "json_schema"
-                            && responseFormat?.jsonSchema?.strict == true
-                            && self.enableGrammarConstraints
-                        let wantStrictTools = Self.hasStrictTools(tools) && self.enableGrammarConstraints
-
-                        let grammarProcessor: GrammarLogitProcessor?
-                        if wantStrictSchema {
-                            grammarProcessor = self.setupGrammarConstraint(
-                                modelID: modelID, responseFormat: responseFormat, tokenizer: context.tokenizer
-                            )
-                        } else if wantStrictTools {
-                            grammarProcessor = self.setupToolCallGrammarConstraint(
-                                modelID: modelID, tokenizer: context.tokenizer, tools: tools
-                            )
-                        } else {
-                            grammarProcessor = nil
-                        }
-
-                        // Observability: warn when strict requested but engine not enabled
-                        if !self.enableGrammarConstraints {
-                            if responseFormat?.jsonSchema?.strict == true {
-                                print("[\(ts())] [XGrammar] strict: true on json_schema but --enable-grammar-constraints not set; best-effort")
-                            }
-                            if Self.hasStrictTools(tools) {
-                                print("[\(ts())] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort")
-                            }
-                        }
+                        // Grammar constraint setup — policy centralised in resolveGrammarConstraint()
+                        let grammarProcessor = self.resolveGrammarConstraint(
+                            modelID: modelID, responseFormat: responseFormat, tools: tools, tokenizer: context.tokenizer
+                        )
                         defer {
                             (grammarProcessor?.matcherHandle as? GrammarMatcherHandle)?.release()
                         }
@@ -2163,6 +2090,48 @@ final class MLXModelService: @unchecked Sendable {
     /// Check whether any tool in the request has `strict: true`.
     static func hasStrictTools(_ tools: [RequestTool]?) -> Bool {
         tools?.contains { $0.function.strict == true } ?? false
+    }
+
+    /// Check whether a response_format has json_schema with strict: true.
+    static func hasStrictSchema(_ responseFormat: ResponseFormat?) -> Bool {
+        responseFormat?.type == "json_schema" && responseFormat?.jsonSchema?.strict == true
+    }
+
+    /// Resolve grammar constraint for a request. Centralizes the strict × CLI policy.
+    /// Returns the grammar logit processor (nil if not applicable) and logs warnings.
+    func resolveGrammarConstraint(
+        modelID: String,
+        responseFormat: ResponseFormat?,
+        tools: [RequestTool]?,
+        tokenizer: any Tokenizer
+    ) -> GrammarLogitProcessor? {
+        let wantStrictSchema = Self.hasStrictSchema(responseFormat) && self.enableGrammarConstraints
+        let wantStrictTools = Self.hasStrictTools(tools) && self.enableGrammarConstraints
+
+        let processor: GrammarLogitProcessor?
+        if wantStrictSchema {
+            processor = self.setupGrammarConstraint(
+                modelID: modelID, responseFormat: responseFormat, tokenizer: tokenizer
+            )
+        } else if wantStrictTools {
+            processor = self.setupToolCallGrammarConstraint(
+                modelID: modelID, tokenizer: tokenizer, tools: tools
+            )
+        } else {
+            processor = nil
+        }
+
+        // Observability: warn when strict requested but engine not enabled
+        if !self.enableGrammarConstraints {
+            if Self.hasStrictSchema(responseFormat) {
+                print("[\(ts())] [XGrammar] strict: true on json_schema but --enable-grammar-constraints not set; best-effort")
+            }
+            if Self.hasStrictTools(tools) {
+                print("[\(ts())] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort")
+            }
+        }
+
+        return processor
     }
 
     /// Set up grammar-constrained decoding for a json_schema response format.

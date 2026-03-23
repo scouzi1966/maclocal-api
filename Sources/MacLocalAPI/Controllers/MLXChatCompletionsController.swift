@@ -95,8 +95,8 @@ struct MLXChatCompletionsController: RouteCollection {
                 }
             }
             // Detect strict-mode downgrade: user requested grammar enforcement but admin didn't enable the engine
-            let strictRequested = chatRequest.responseFormat?.jsonSchema?.strict == true
-                || (chatRequest.tools?.contains { $0.function.strict == true } ?? false)
+            let strictRequested = MLXModelService.hasStrictSchema(chatRequest.responseFormat)
+                || MLXModelService.hasStrictTools(chatRequest.tools)
             let grammarDowngraded = strictRequested && !service.enableGrammarConstraints
 
             guard !chatRequest.messages.isEmpty else {
