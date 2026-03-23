@@ -365,6 +365,12 @@ final class MLXModelService: @unchecked Sendable {
         let snap = Memory.snapshot()
         gpuProfileModelWeightBytes = snap.activeMemory
         GPU.resetPeakMemory()
+        // Emit the exact command line used (for reproducibility / HTML report header)
+        let args = ProcessInfo.processInfo.arguments
+        let cmd = args.joined(separator: " ")
+        let envPrefix = ProcessInfo.processInfo.environment["MACAFM_MLX_MODEL_CACHE"].map { "MACAFM_MLX_MODEL_CACHE=\($0) " } ?? ""
+        print("[\(ts())] [GPU-PROFILE] ─── Command ───")
+        print("[\(ts())] [GPU-PROFILE]   \(envPrefix)\(cmd)")
         print("[\(ts())] [GPU-PROFILE] ─── Device ───")
         print("[\(ts())] [GPU-PROFILE]   Architecture: \(info.architecture)")
         print("[\(ts())] [GPU-PROFILE]   Memory: \(info.memorySize / (1024*1024*1024)) GB")
