@@ -54,8 +54,26 @@ Master table of every test case across all test scripts.
 | 46 | Perf | tok/s > 1 | full | Throughput |
 | 47 | Perf | Long context 2K no crash | full | Context stability |
 | 48 | Perf | Very long context 4K no NaN | full | SDPA regression |
+| 49 | AdaptiveXML | Tool call valid (with/without grammar) | std+ | afm_adaptive_xml parsing |
+| 50 | AdaptiveXML | Required params present (grammar-hardened) | std+ | EBNF param enforcement |
+| 51 | AdaptiveXML | Structured param types (grammar-hardened) | std+ | EBNF type enforcement |
+| 52 | Grammar | Calculator tool call (non-streaming) | std+ | Grammar enforcement (strict:true) |
+| 53 | Grammar | Calculator tool call (streaming) | std+ | Streaming grammar |
+| 54 | Grammar | Two tools: correct selection | std+ | Grammar + tool routing |
+| 55 | Grammar | Two tools: selects calculate | std+ | Grammar + multi-tool |
+| 56 | Grammar | 3 required params enforced (send_email) | std+ | Grammar completeness |
+| 57 | Grammar | Array param constrained | std+ | Grammar typed constraint |
+| 58 | Grammar | Array param via streaming | std+ | Streaming grammar typed |
+| 59 | Grammar | Complex schema: string+int+array+object | std+ | Deep structure |
+| 60 | StrictWiring | X-Grammar-Constraints header (tool strict:true) | all | Downgrade header present/absent |
+| 61 | StrictWiring | X-Grammar-Constraints header (schema strict:true) | all | Downgrade header present/absent |
+| 62 | StrictWiring | No header when strict absent | all | No false positive header |
+| 63 | StrictWiring | Streaming json_schema strict:true valid JSON | all | Streaming schema grammar |
+| 64 | StrictWiring | Streaming tool strict:true valid tool call | all | Streaming tool grammar |
+| 65 | StrictWiring | strict:false does not error | all | Best-effort control |
 
 \* Think tests auto-skip if model doesn't support `<think>` tags.
+† Section 13 Grammar tests require `--grammar-constraints` flag. Section 14 adapts assertions based on `--grammar-constraints` presence.
 
 ## Smart Analysis Tests (`test-edge-cases.txt`)
 
@@ -93,6 +111,7 @@ Run automatically by `test-assertions.sh --tier unit` (and all higher tiers).
 | `ConcurrentBatchTests.swift` | 10 | RequestSlot init/uniqueID/append/thread-safety/elapsed, StreamChunk defaults/timing/cached, MLXServiceError messages, BatchScheduler constants |
 | `NullableToolSchemaTests.swift` | — | Nullable tool schema parsing |
 | `XMLToolCallParsingTests.swift` | — | XML tool call format parsing |
+| `StrictGrammarWiringTests.swift` | 16 | hasStrictTools() (nil/empty/true/false/nil/mixed), RequestToolFunction strict decoding (true/false/absent/array), ResponseJsonSchema strict decoding (true/false/absent), ResponseFormat json_schema strict detection (true/false/json_object) |
 
 ## OpenAI Compatibility Evals (`test-openai-compat-evals.py`)
 
@@ -132,6 +151,22 @@ Correctness and performance validation for batched MLX generation. Requires runn
 | `validate_responses.py` | 8 × B={1,2,4,8} | Known-answer questions at various batch sizes; catches corrupt KV cache/masks |
 | `validate_mixed_workload.py` | 8 × B={1,2,4,8} | Mixed short-answer + long-decode (4K max_tokens) with GPU metrics via mactop |
 | `validate_multiturn_prefix.py` | 5 convs × B={1,2,4,8} | Multi-turn conversations with long system prompts; validates prefix cache hits under concurrency |
+
+## Promptfoo Grammar-Constraints Suite (`run-promptfoo-agentic.sh grammar-constraints`)
+
+7 phases testing the full CLI flag × `strict: true` Cartesian matrix. Each phase starts a server with a different profile and runs promptfoo eval.
+
+| Phase | Server Profile | Config | Tests | Covers |
+|---|---|---|---|---|
+| P1 | `default` (no grammar) | schema + tools | 12 | Downgrade path (strict:true silently downgraded) |
+| P2 | `grammar-enabled` | schema + tools | 12 | Enforcement path (xgrammar active) |
+| P3 | `grammar-enabled-adaptive-xml` | tools | 7 | Parser flag regression (grammar works without afm_adaptive_xml) |
+| P4 | `grammar-enabled-concurrent` | schema + tools | 12 | Concurrent/batch path grammar |
+| P5 | `grammar-enabled-prefix-cache` | schema + tools | 12 | Prefix caching + grammar interaction |
+| P6 | `grammar-enabled` | mixed-strict | 1 | Schema + tool strict priority (json_schema wins) |
+| P7 | `default` + `grammar-enabled` | header assertions | 4 | X-Grammar-Constraints: downgraded header via JS judge |
+
+Custom assertion judge: `judges/assert-grammar-header.mjs` — validates presence/absence of `X-Grammar-Constraints` response header.
 
 ## Other Test Scripts
 
