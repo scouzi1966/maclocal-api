@@ -145,6 +145,50 @@ afm mlx -m MODEL --gpu-trace 10 -s "prompt"          # xctrace shader trace
 - Bandwidth utilization <20% with MoE model → normal (only active experts read)
 - Key kernels: `affine_qmv_fast` (decode bottleneck), `steel_gemm_fused` (prefill), `sdpa_vector` (attention)
 
+### 5b. API-Based GPU Profiling (per-request, no CLI flags needed)
+
+Clients can request GPU profiling data via the `X-AFM-Profile` HTTP header.
+No server flags required — works on any running AFM server.
+
+**Two levels:**
+```bash
+# Summary: GPU power, memory, bandwidth, tok/s
+curl http://127.0.0.1:9999/v1/chat/completions \
+  -H "X-AFM-Profile: true" \
+  -d '{"model":"m","messages":[{"role":"user","content":"Hi"}]}'
+
+# Extended: summary + 300ms time-series samples (for charts/dashboards)
+curl http://127.0.0.1:9999/v1/chat/completions \
+  -H "X-AFM-Profile: extended" \
+  -d '{"model":"m","messages":[{"role":"user","content":"Hi"}]}'
+```
+
+**Response fields (`afm_profile`):**
+- `gpu_power_avg_w` / `gpu_power_peak_w` — GPU power via native IOReport (no mactop)
+- `memory_weights_gib` / `memory_kv_gib` / `memory_peak_gib` — memory breakdown in GiB
+- `prefill_tok_s` / `decode_tok_s` — throughput
+- `est_bandwidth_gbs` — DRAM bandwidth from IOReport power (calibrated at startup via MLX GPU stress)
+- `chip` / `theoretical_bw_gbs` — hardware context
+- `gpu_samples` — number of 300ms readings taken
+
+**Extended adds (`afm_profile_extended`):**
+- `summary` — same as `afm_profile`
+- `samples[]` — per-300ms readings: `{t, bw_gbs, gpu_pct, gpu_power_w, dram_power_w}`
+
+**How it works internally:**
+- IOReport `Energy Model` + `GPU Stats` channels sampled every 300ms via DispatchSource timer
+- DRAM bandwidth derived from DRAM power using chip-specific calibration constant
+- Calibration runs once at startup: 1 GiB MLX GPU stress test (~2s, async, non-blocking)
+- Per-request isolation: concurrent profiled requests are guarded (second request skips gracefully)
+- Zero overhead when header not sent (one string lookup per request)
+- Works for both streaming (SSE event before `[DONE]`) and non-streaming
+
+**What to look for:**
+- `gpu_power_peak_w` ~28W during decode on M3 Ultra (matches mactop)
+- `est_bandwidth_gbs` ~170-180 GB/s for Qwen3.5-35B-A3B-4bit (21% of 800 GB/s theoretical)
+- Short requests (<300ms): at least 1 sample (timer first-fires at 100ms)
+- `afm_profile` absent from response when header not sent (no null pollution)
+
 ### 6. Review Reports
 - Assertion report: `test-reports/assertions-report-*.html`
 - Smart analysis: `test-reports/smart-analysis-{tool}-*.md`
@@ -314,3 +358,8 @@ python3 Scripts/benchmarks/benchmark_afm_vs_mlxlm.py --graph Scripts/benchmark-r
 - [ ] Batch mixed workload: `validate_mixed_workload.py` (short+long decode, GPU metrics)
 - [ ] Batch prefix cache: `validate_multiturn_prefix.py` (multi-turn conversations under concurrency)
 - [ ] GPU shader profile: `gpu-profile-report.py` (bandwidth, power, kernel names, HTML report)
+- [ ] API profile: `X-AFM-Profile: true` returns `afm_profile` with GPU power + bandwidth
+- [ ] API profile: `X-AFM-Profile: extended` returns `afm_profile_extended` with samples array
+- [ ] API profile: no header → no `afm_profile` fields in response (no null pollution)
+- [ ] API profile: streaming → profile SSE event before `[DONE]`
+- [ ] API profile: concurrent profiled requests → second skips gracefully

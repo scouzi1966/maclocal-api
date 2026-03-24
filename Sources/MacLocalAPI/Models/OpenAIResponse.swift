@@ -1,6 +1,59 @@
 import Vapor
 import Foundation
 
+/// AFM-specific GPU profiling data, returned when client sends `X-AFM-Profile: true` header.
+struct AFMProfile: Content {
+    let gpuPowerAvgW: Double?
+    let gpuPowerPeakW: Double?
+    let gpuSamples: Int?
+    let memoryWeightsGiB: Double?
+    let memoryKvGiB: Double?
+    let memoryPeakGiB: Double?
+    let prefillTokS: Double?
+    let decodeTokS: Double?
+    let chip: String?
+    let theoreticalBwGbs: Double?
+    let estBandwidthGbs: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case gpuPowerAvgW = "gpu_power_avg_w"
+        case gpuPowerPeakW = "gpu_power_peak_w"
+        case gpuSamples = "gpu_samples"
+        case memoryWeightsGiB = "memory_weights_gib"
+        case memoryKvGiB = "memory_kv_gib"
+        case memoryPeakGiB = "memory_peak_gib"
+        case prefillTokS = "prefill_tok_s"
+        case decodeTokS = "decode_tok_s"
+        case chip
+        case theoreticalBwGbs = "theoretical_bw_gbs"
+        case estBandwidthGbs = "est_bandwidth_gbs"
+    }
+}
+
+/// A single IOReport GPU sample (300ms interval).
+struct AFMProfileSample: Content {
+    let t: Double
+    let bwGbs: Double?
+    let gpuPct: Double
+    let gpuPowerW: Double
+    let dramPowerW: Double
+
+    enum CodingKeys: String, CodingKey {
+        case t
+        case bwGbs = "bw_gbs"
+        case gpuPct = "gpu_pct"
+        case gpuPowerW = "gpu_power_w"
+        case dramPowerW = "dram_power_w"
+    }
+}
+
+/// Extended profile with time-series samples.
+/// Returned when client sends `X-AFM-Profile: extended` header.
+struct AFMProfileExtended: Content {
+    let summary: AFMProfile
+    let samples: [AFMProfileSample]
+}
+
 struct ChatCompletionResponse: Content {
     let id: String
     let object: String
@@ -10,6 +63,8 @@ struct ChatCompletionResponse: Content {
     let usage: Usage
     let timings: StreamTimings?
     let systemFingerprint: String?
+    let afmProfile: AFMProfile?
+    let afmProfileExtended: AFMProfileExtended?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -20,6 +75,23 @@ struct ChatCompletionResponse: Content {
         case usage
         case timings
         case systemFingerprint = "system_fingerprint"
+        case afmProfile = "afm_profile"
+        case afmProfileExtended = "afm_profile_extended"
+    }
+
+    /// Custom encoder: omit afmProfile/afmProfileExtended when nil (no null pollution).
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(object, forKey: .object)
+        try container.encode(created, forKey: .created)
+        try container.encode(model, forKey: .model)
+        try container.encode(choices, forKey: .choices)
+        try container.encode(usage, forKey: .usage)
+        try container.encodeIfPresent(timings, forKey: .timings)
+        try container.encodeIfPresent(systemFingerprint, forKey: .systemFingerprint)
+        try container.encodeIfPresent(afmProfile, forKey: .afmProfile)
+        try container.encodeIfPresent(afmProfileExtended, forKey: .afmProfileExtended)
     }
 
     private static func fingerprint(for model: String) -> String {
@@ -31,7 +103,7 @@ struct ChatCompletionResponse: Content {
         }
     }
 
-    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, finishReason: String = "stop", promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil, timings: StreamTimings? = nil) {
+    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, finishReason: String = "stop", promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil, timings: StreamTimings? = nil, afmProfile: AFMProfile? = nil, afmProfileExtended: AFMProfileExtended? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion"
         self.created = Int(Date().timeIntervalSince1970)
@@ -54,9 +126,11 @@ struct ChatCompletionResponse: Content {
         )
         self.timings = timings
         self.systemFingerprint = Self.fingerprint(for: model)
+        self.afmProfile = afmProfile
+        self.afmProfileExtended = afmProfileExtended
     }
 
-    init(id: String = UUID().uuidString, model: String, toolCalls: [ResponseToolCall], logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil, timings: StreamTimings? = nil) {
+    init(id: String = UUID().uuidString, model: String, toolCalls: [ResponseToolCall], logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil, timings: StreamTimings? = nil, afmProfile: AFMProfile? = nil, afmProfileExtended: AFMProfileExtended? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion"
         self.created = Int(Date().timeIntervalSince1970)
@@ -79,6 +153,8 @@ struct ChatCompletionResponse: Content {
         )
         self.timings = timings
         self.systemFingerprint = Self.fingerprint(for: model)
+        self.afmProfile = afmProfile
+        self.afmProfileExtended = afmProfileExtended
     }
 }
 

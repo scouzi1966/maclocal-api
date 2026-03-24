@@ -160,6 +160,38 @@ Full harness: mactop bandwidth + `--gpu-profile` + `--gpu-trace` + shader extrac
 - `--gpu-trace N` — xctrace Metal System Trace for N seconds
 - `--gpu-capture <path>` — full Metal GPU capture (small models only)
 
+## API GPU Profile (`X-AFM-Profile` header)
+
+Per-request GPU profiling via HTTP header — no CLI flags needed, works on any running server.
+
+| Header Value | Response Field | What It Contains |
+|-------------|----------------|------------------|
+| `true` | `afm_profile` | GPU power (avg/peak W), memory (GiB), tok/s, est. bandwidth (GB/s), chip name |
+| `extended` | `afm_profile_extended` | Summary + `samples[]` array of 300ms IOReport readings |
+| *(none)* | *(nothing)* | Standard OpenAI response, zero overhead |
+
+**Implementation details:**
+- GPU power: native IOReport `Energy Model` channel (nJ units)
+- DRAM bandwidth: IOReport DRAM power (mJ units) × calibrated GB/s-per-watt constant
+- Calibration: 1 GiB MLX GPU stress at startup (~2s, async, non-blocking, runs once)
+- Sampling: DispatchSource timer every 300ms, first sample at 100ms
+- Per-request isolation: atomic guard, concurrent profiled requests skip gracefully
+- Streaming: profile data sent as SSE event before `[DONE]`
+- No null pollution: `encodeIfPresent` omits profile fields when not requested
+
+**Test cases:**
+| Test | What to verify |
+|------|---------------|
+| `X-AFM-Profile: true` non-streaming | `afm_profile` present with GPU power, memory, bandwidth |
+| `X-AFM-Profile: extended` non-streaming | `afm_profile_extended` with `summary` + `samples[]` |
+| `X-AFM-Profile: true` streaming | SSE `data: {"afm_profile": {...}}` before `data: [DONE]` |
+| `X-AFM-Profile: extended` streaming | SSE `data: {"afm_profile_extended": {...}}` before `data: [DONE]` |
+| No header | No `afm_profile` or `afm_profile_extended` in response |
+| Concurrent profiled requests | Second request completes without profile (skipped) |
+| Short request (<300ms) | At least 1 sample in `gpu_samples` |
+| DRAM calibration | `[CALIBRATE]` log at startup with GB/s per watt |
+| Tool call response with profile | `afm_profile` present alongside `tool_calls` |
+
 ## Other Test Scripts
 
 | Script | Tests | Purpose |
