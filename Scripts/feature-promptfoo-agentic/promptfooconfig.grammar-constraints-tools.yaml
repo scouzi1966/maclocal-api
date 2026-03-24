@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+
+description: "AFM grammar-constraints strict wiring — tool call tests"
+
+prompts:
+  - "{{prompt}}"
+
+providers:
+  # Server WITHOUT --enable-grammar-constraints (strict: true silently downgraded)
+  - id: providers/afm_provider.mjs
+    label: afm-no-grammar-tools
+    config:
+      transport: api
+      baseUrlEnv: AFM_BASE_URL_DEFAULT
+      modelEnv: AFM_MODEL
+      extract: tool_calls
+
+  # Server WITH --enable-grammar-constraints (strict: true activates xgrammar)
+  - id: providers/afm_provider.mjs
+    label: afm-grammar-enabled-tools
+    config:
+      transport: api
+      baseUrlEnv: AFM_BASE_URL_GRAMMAR
+      modelEnv: AFM_MODEL
+      extract: tool_calls
+
+tests: file://datasets/grammar-constraints-strict-tools.yaml

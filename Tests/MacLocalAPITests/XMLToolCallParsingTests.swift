@@ -1377,7 +1377,8 @@ struct XMLToolCallParsingTests {
             function: RequestToolFunction(
                 name: name,
                 description: nil,
-                parameters: schema
+                parameters: schema,
+                strict: nil
             )
         )
     }

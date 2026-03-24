@@ -108,6 +108,14 @@ api_call() {
     -d "$body" 2>/dev/null || echo '{"error":"curl_failed"}'
 }
 
+# Helper: call API and return response headers (one per line)
+api_call_headers() {
+  local body="$1"
+  curl -sf --max-time 60 -D - -o /dev/null "$BASE_URL/v1/chat/completions" \
+    -H 'Content-Type: application/json' \
+    -d "$body" 2>/dev/null || echo 'ERROR'
+}
+
 # Helper: call API streaming and return raw SSE
 api_stream() {
   local body="$1"
@@ -3294,10 +3302,10 @@ if should_run_section 13 && min_tier standard && [ "$GRAMMAR_CONSTRAINTS" = true
   echo "🔧 Section 13: Grammar Constraint Validation"
 
   # Define calculator tool (from test-tool-call-parsers.py patterns)
-  CALC_TOOL_13='[{"type":"function","function":{"name":"calculate","description":"Evaluate a mathematical expression and return the result","parameters":{"type":"object","properties":{"expression":{"type":"string","description":"Math expression to evaluate, e.g. 2 + 3 * 4"}},"required":["expression"]}}}]'
+  CALC_TOOL_13='[{"type":"function","function":{"name":"calculate","description":"Evaluate a mathematical expression and return the result","strict":true,"parameters":{"type":"object","properties":{"expression":{"type":"string","description":"Math expression to evaluate, e.g. 2 + 3 * 4"}},"required":["expression"]}}}]'
 
   # Two-tool definition (weather + calculator) matching test-tool-call-parsers.py
-  DUAL_TOOLS_13='[{"type":"function","function":{"name":"get_weather","description":"Get the current weather for a given city","parameters":{"type":"object","properties":{"city":{"type":"string","description":"City name"}},"required":["city"]}}},{"type":"function","function":{"name":"calculate","description":"Evaluate a mathematical expression","parameters":{"type":"object","properties":{"expression":{"type":"string","description":"Math expression"}},"required":["expression"]}}}]'
+  DUAL_TOOLS_13='[{"type":"function","function":{"name":"get_weather","description":"Get the current weather for a given city","strict":true,"parameters":{"type":"object","properties":{"city":{"type":"string","description":"City name"}},"required":["city"]}}},{"type":"function","function":{"name":"calculate","description":"Evaluate a mathematical expression","strict":true,"parameters":{"type":"object","properties":{"expression":{"type":"string","description":"Math expression"}},"required":["expression"]}}}]'
 
   # ── Test 13.1: Calculator tool call (non-streaming) ──────────────────────
   # From test-tool-call-parsers.py calc_nonstream pattern
@@ -3443,7 +3451,7 @@ except Exception as e:
   # ── Test 13.5: Grammar prevents missing required params ──────────────────
   # With grammar constraints, EBNF named rules force ALL required params.
   # This test uses 3 required params to stress the grammar.
-  THREE_REQ_TOOL='[{"type":"function","function":{"name":"send_email","description":"Send an email","parameters":{"type":"object","properties":{"to":{"type":"string","description":"Recipient email"},"subject":{"type":"string","description":"Email subject"},"body":{"type":"string","description":"Email body"}},"required":["to","subject","body"]}}}]'
+  THREE_REQ_TOOL='[{"type":"function","function":{"name":"send_email","description":"Send an email","strict":true,"parameters":{"type":"object","properties":{"to":{"type":"string","description":"Recipient email"},"subject":{"type":"string","description":"Email subject"},"body":{"type":"string","description":"Email body"}},"required":["to","subject","body"]}}}]'
   t0=$(now_ms)
   three_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Send an email to alice@example.com with subject Hello and body How are you?\"}],\"tools\":$THREE_REQ_TOOL,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
   dur=$(( $(now_ms) - t0 ))
@@ -3476,7 +3484,7 @@ except Exception as e:
   # ── Test 13.6: Grammar constrains array param at generation time ─────────
   # With grammar, the EBNF rule for array params produces json_array constraint
   # so the model can't emit a bare string for an array param.
-  ARRAY_TOOL_13='[{"type":"function","function":{"name":"add_tags","description":"Add tags to an item","parameters":{"type":"object","properties":{"item_id":{"type":"string","description":"Item ID"},"tags":{"type":"array","items":{"type":"string"},"description":"Tags to add"}},"required":["item_id","tags"]}}}]'
+  ARRAY_TOOL_13='[{"type":"function","function":{"name":"add_tags","description":"Add tags to an item","strict":true,"parameters":{"type":"object","properties":{"item_id":{"type":"string","description":"Item ID"},"tags":{"type":"array","items":{"type":"string"},"description":"Tags to add"}},"required":["item_id","tags"]}}}]'
   t0=$(now_ms)
   arr_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Add tags bug, critical, and urgent to item PROJ-123\"}],\"tools\":$ARRAY_TOOL_13,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
   dur=$(( $(now_ms) - t0 ))
@@ -3556,7 +3564,7 @@ else:
 
   # ── Test 13.8: Grammar with nested object + mixed types ──────────────────
   # Complex schema that exercises grammar enforcement of nested structures
-  COMPLEX_TOOL_13='[{"type":"function","function":{"name":"create_task","description":"Create a project task","parameters":{"type":"object","properties":{"title":{"type":"string","description":"Task title"},"priority":{"type":"integer","description":"Priority 1-5"},"assignees":{"type":"array","items":{"type":"string"},"description":"List of assignees"},"metadata":{"type":"object","description":"Extra metadata","properties":{"sprint":{"type":"string"},"estimate_hours":{"type":"number"}}}},"required":["title","priority","assignees"]}}}]'
+  COMPLEX_TOOL_13='[{"type":"function","function":{"name":"create_task","description":"Create a project task","strict":true,"parameters":{"type":"object","properties":{"title":{"type":"string","description":"Task title"},"priority":{"type":"integer","description":"Priority 1-5"},"assignees":{"type":"array","items":{"type":"string"},"description":"List of assignees"},"metadata":{"type":"object","description":"Extra metadata","properties":{"sprint":{"type":"string"},"estimate_hours":{"type":"number"}}}},"required":["title","priority","assignees"]}}}]'
   t0=$(now_ms)
   complex_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Create a task: Fix login bug, priority 2, assign to alice and bob, sprint S42, estimate 4.5 hours\"}],\"tools\":$COMPLEX_TOOL_13,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
   dur=$(( $(now_ms) - t0 ))
@@ -3594,6 +3602,196 @@ except Exception as e:
     run_test "Grammar" "Complex schema: string + int + array + object" "correct types" "PASS" "$dur"
   else
     run_test "Grammar" "Complex schema: string + int + array + object" "correct types" "$complex_ok" "$dur"
+  fi
+
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Section 14: Strict Wiring Validation (smoke tier)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Tests the strict: true → grammar activation wiring and observability:
+#   - X-Grammar-Constraints: downgraded header when grammar not enabled
+#   - Header absent when grammar IS enabled
+#   - Streaming json_schema with strict: true produces valid JSON
+#   - Warning log when strict requested but engine not enabled
+
+if should_run_section 14; then
+  CURRENT_TIER="smoke"
+  echo ""
+  echo "🔒 Section 14: Strict Wiring Validation"
+
+  STRICT_TOOL_14='[{"type":"function","function":{"name":"get_weather","description":"Get weather","strict":true,"parameters":{"type":"object","properties":{"location":{"type":"string"}},"required":["location"]}}}]'
+  STRICT_SCHEMA_14='{"type":"json_schema","json_schema":{"name":"person","strict":true,"schema":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"age":{"type":"integer"}},"required":["name","age"]}}}'
+
+  # ── Test 14.1: X-Grammar-Constraints header — tool strict:true ─────────
+  # When server does NOT have --enable-grammar-constraints but request has strict:true,
+  # the response should include X-Grammar-Constraints: downgraded.
+  # When server DOES have --enable-grammar-constraints, the header should be absent.
+  t0=$(now_ms)
+  header_resp=$(api_call_headers "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Paris?\"}],\"tools\":$STRICT_TOOL_14,\"max_tokens\":200,\"stream\":false,\"temperature\":0}")
+  dur=$(( $(now_ms) - t0 ))
+  if [ "$GRAMMAR_CONSTRAINTS" = true ]; then
+    # Grammar enabled: header should be ABSENT
+    if echo "$header_resp" | grep -qi 'X-Grammar-Constraints'; then
+      run_test "StrictWiring" "Header absent when grammar enabled (tool strict:true)" "no header" "FAIL: header present" "$dur"
+    else
+      run_test "StrictWiring" "Header absent when grammar enabled (tool strict:true)" "no header" "PASS" "$dur"
+    fi
+  else
+    # Grammar not enabled: header should be "downgraded"
+    if echo "$header_resp" | grep -qi 'X-Grammar-Constraints: downgraded'; then
+      run_test "StrictWiring" "X-Grammar-Constraints: downgraded header (tool strict:true)" "downgraded" "PASS" "$dur"
+    else
+      run_test "StrictWiring" "X-Grammar-Constraints: downgraded header (tool strict:true)" "downgraded" "FAIL: header missing" "$dur"
+    fi
+  fi
+
+  # ── Test 14.2: X-Grammar-Constraints header — json_schema strict:true ──
+  t0=$(now_ms)
+  header_resp2=$(api_call_headers "{\"messages\":[{\"role\":\"user\",\"content\":\"Return a person record for Ada Lovelace age 36\"}],\"response_format\":$STRICT_SCHEMA_14,\"max_tokens\":200,\"stream\":false,\"temperature\":0}")
+  dur=$(( $(now_ms) - t0 ))
+  if [ "$GRAMMAR_CONSTRAINTS" = true ]; then
+    if echo "$header_resp2" | grep -qi 'X-Grammar-Constraints'; then
+      run_test "StrictWiring" "Header absent when grammar enabled (schema strict:true)" "no header" "FAIL: header present" "$dur"
+    else
+      run_test "StrictWiring" "Header absent when grammar enabled (schema strict:true)" "no header" "PASS" "$dur"
+    fi
+  else
+    if echo "$header_resp2" | grep -qi 'X-Grammar-Constraints: downgraded'; then
+      run_test "StrictWiring" "X-Grammar-Constraints: downgraded header (schema strict:true)" "downgraded" "PASS" "$dur"
+    else
+      run_test "StrictWiring" "X-Grammar-Constraints: downgraded header (schema strict:true)" "downgraded" "FAIL: header missing" "$dur"
+    fi
+  fi
+
+  # ── Test 14.3: No header when strict is absent ─────────────────────────
+  t0=$(now_ms)
+  NOSTRICTTOOL='[{"type":"function","function":{"name":"get_weather","description":"Get weather","parameters":{"type":"object","properties":{"location":{"type":"string"}},"required":["location"]}}}]'
+  header_resp3=$(api_call_headers "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in London?\"}],\"tools\":$NOSTRICTTOOL,\"max_tokens\":200,\"stream\":false,\"temperature\":0}")
+  dur=$(( $(now_ms) - t0 ))
+  if echo "$header_resp3" | grep -qi 'X-Grammar-Constraints'; then
+    run_test "StrictWiring" "No header when strict absent" "no header" "FAIL: header present" "$dur"
+  else
+    run_test "StrictWiring" "No header when strict absent" "no header" "PASS" "$dur"
+  fi
+
+  # ── Test 14.4: Streaming json_schema strict:true returns valid JSON ────
+  t0=$(now_ms)
+  stream_schema_content=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"Return a person record for Alan Turing age 41\"}],\"response_format\":$STRICT_SCHEMA_14,\"max_tokens\":300,\"stream\":true,\"temperature\":0}" | python3 -c "
+import sys, json
+lines = sys.stdin.read().strip().split('\n')
+parts = []
+for line in lines:
+    line = line.strip()
+    if not line.startswith('data: ') or line == 'data: [DONE]':
+        continue
+    try:
+        chunk = json.loads(line[6:])
+        c = chunk.get('choices', [{}])[0].get('delta', {}).get('content', '')
+        if c:
+            parts.append(c)
+    except:
+        pass
+full = ''.join(parts)
+# Strip any think tags if present
+import re
+full = re.sub(r'<think>.*?</think>', '', full, flags=re.DOTALL).strip()
+print(full)
+" 2>/dev/null)
+  dur=$(( $(now_ms) - t0 ))
+  schema_stream_ok=$(echo "$stream_schema_content" | python3 -c "
+import sys, json
+try:
+    text = sys.stdin.read().strip()
+    if not text:
+        print('FAIL: empty response')
+    else:
+        d = json.loads(text)
+        if 'name' in d and 'age' in d:
+            print('PASS')
+        else:
+            print(f'FAIL: missing keys, got: {list(d.keys())}')
+except json.JSONDecodeError as e:
+    print(f'FAIL: invalid JSON: {e}')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$schema_stream_ok" = "PASS" ]; then
+    run_test "StrictWiring" "Streaming json_schema strict:true returns valid JSON" "valid JSON with name+age" "PASS" "$dur"
+  else
+    run_test "StrictWiring" "Streaming json_schema strict:true returns valid JSON" "valid JSON with name+age" "$schema_stream_ok" "$dur"
+  fi
+
+  # ── Test 14.5: Streaming tool strict:true returns valid tool call ──────
+  t0=$(now_ms)
+  stream_tool_raw=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Tokyo?\"}],\"tools\":$STRICT_TOOL_14,\"max_tokens\":300,\"stream\":true,\"temperature\":0}")
+  dur=$(( $(now_ms) - t0 ))
+  stream_tool_ok=$(echo "$stream_tool_raw" | python3 -c "
+import sys, json
+lines = sys.stdin.read().strip().split('\n')
+tool_name = ''
+args_parts = []
+finish = None
+for line in lines:
+    line = line.strip()
+    if not line.startswith('data: ') or line == 'data: [DONE]':
+        continue
+    try:
+        chunk = json.loads(line[6:])
+        delta = chunk['choices'][0].get('delta', {})
+        fr = chunk['choices'][0].get('finish_reason')
+        if fr: finish = fr
+        for tc in delta.get('tool_calls', []):
+            fn = tc.get('function', {})
+            if fn.get('name'): tool_name = fn['name']
+            if fn.get('arguments') is not None: args_parts.append(fn['arguments'])
+    except: pass
+if not tool_name:
+    print('FAIL: no tool call in stream')
+elif tool_name != 'get_weather':
+    print(f'FAIL: expected get_weather, got {tool_name}')
+elif finish != 'tool_calls':
+    print(f'FAIL: finish_reason={finish}')
+else:
+    full_args = ''.join(args_parts)
+    try:
+        args = json.loads(full_args)
+        if 'location' in args:
+            print('PASS')
+        else:
+            print(f'FAIL: missing location in args: {args}')
+    except json.JSONDecodeError as e:
+        print(f'FAIL: invalid JSON: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$stream_tool_ok" = "PASS" ]; then
+    run_test "StrictWiring" "Streaming tool strict:true returns valid tool call" "get_weather(location)" "PASS" "$dur"
+  else
+    run_test "StrictWiring" "Streaming tool strict:true returns valid tool call" "get_weather(location)" "$stream_tool_ok" "$dur"
+  fi
+
+  # ── Test 14.6: strict:false does NOT activate grammar (non-streaming) ──
+  t0=$(now_ms)
+  STRICTFALSE_TOOL='[{"type":"function","function":{"name":"get_weather","description":"Get weather","strict":false,"parameters":{"type":"object","properties":{"location":{"type":"string"}},"required":["location"]}}}]'
+  nostrict_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Berlin?\"}],\"tools\":$STRICTFALSE_TOOL,\"max_tokens\":200,\"stream\":false,\"temperature\":0}")
+  dur=$(( $(now_ms) - t0 ))
+  nostrict_ok=$(echo "$nostrict_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    tc = d['choices'][0]['message'].get('tool_calls', [])
+    if tc and tc[0]['function']['name'] == 'get_weather':
+        print('PASS')
+    elif d['choices'][0]['message'].get('content'):
+        print('PASS')  # best-effort may produce text instead
+    else:
+        print('FAIL: no tool call and no content')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$nostrict_ok" = "PASS" ]; then
+    run_test "StrictWiring" "strict:false does not error (best-effort)" "valid response" "PASS" "$dur"
+  else
+    run_test "StrictWiring" "strict:false does not error (best-effort)" "valid response" "$nostrict_ok" "$dur"
   fi
 
 fi

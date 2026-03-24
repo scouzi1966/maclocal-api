@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+
+description: "AFM grammar-constraints — no X-Grammar-Constraints header (grammar active)"
+
+prompts:
+  - "{{prompt}}"
+
+providers:
+  # Server WITH --enable-grammar-constraints — strict: true activates xgrammar, no downgrade header
+  - id: providers/afm_provider.mjs
+    label: afm-grammar-enabled-header
+    config:
+      transport: api
+      baseUrlEnv: AFM_BASE_URL_GRAMMAR
+      modelEnv: AFM_MODEL
+      extract: full_response
+
+tests: file://datasets/grammar-constraints-header-enforced.yaml

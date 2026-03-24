@@ -1,0 +1,198 @@
+# Grammar Constraints — tool strict wiring tests
+# Validates: CLI --enable-grammar-constraints × API strict: true on tools
+#
+# Policy:
+#   CLI OFF + strict absent/false → best-effort (parsing only)
+#   CLI OFF + strict true         → silent downgrade to best-effort
+#   CLI ON  + strict absent/false → best-effort (engine available but not requested)
+#   CLI ON  + strict true         → grammar enforcement via xgrammar
+
+- description: "tool strict:true — single tool, required param"
+  vars:
+    prompt: "What is the weather in Paris?"
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: "Get weather for a location"
+          strict: true
+          parameters:
+            type: object
+            properties:
+              location:
+                type: string
+              unit:
+                type: string
+                enum: [celsius, fahrenheit]
+            required: [location]
+    tool_choice: required
+  assert:
+    - type: is-json
+    - type: contains
+      value: "\"get_weather\""
+    - type: contains
+      value: "\"location\""
+
+- description: "tool strict:true — multi-param with typed args"
+  vars:
+    prompt: "Search for 'grammar constraints' case-sensitively, return max 3 results."
+    tools:
+      - type: function
+        function:
+          name: search_code
+          description: "Search codebase for a pattern"
+          strict: true
+          parameters:
+            type: object
+            properties:
+              query:
+                type: string
+              case_sensitive:
+                type: boolean
+              max_results:
+                type: integer
+            required: [query, case_sensitive, max_results]
+    tool_choice: required
+  assert:
+    - type: is-json
+    - type: contains
+      value: "\"search_code\""
+    - type: contains
+      value: "\"query\""
+
+- description: "tool strict:true — two tools, correct selection"
+  vars:
+    prompt: "What time is it in New York right now?"
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: "Get weather for a location"
+          strict: true
+          parameters:
+            type: object
+            properties:
+              location:
+                type: string
+            required: [location]
+      - type: function
+        function:
+          name: get_time
+          description: "Get current time for a timezone"
+          strict: true
+          parameters:
+            type: object
+            properties:
+              timezone:
+                type: string
+            required: [timezone]
+  assert:
+    - type: is-json
+    - type: contains
+      value: "\"get_time\""
+    - type: contains
+      value: "\"timezone\""
+
+- description: "tool strict:false — no grammar activation (control)"
+  vars:
+    prompt: "What is the weather in Tokyo?"
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: "Get weather for a location"
+          strict: false
+          parameters:
+            type: object
+            properties:
+              location:
+                type: string
+            required: [location]
+    tool_choice: required
+  assert:
+    - type: is-json
+    - type: contains
+      value: "\"get_weather\""
+
+- description: "tool no strict field — no grammar activation (control)"
+  vars:
+    prompt: "What is the weather in London?"
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: "Get weather for a location"
+          parameters:
+            type: object
+            properties:
+              location:
+                type: string
+            required: [location]
+    tool_choice: required
+  assert:
+    - type: is-json
+    - type: contains
+      value: "\"get_weather\""
+
+- description: "mixed strict tools — one strict:true, one without"
+  vars:
+    prompt: "What is the weather in Berlin?"
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: "Get weather for a location"
+          strict: true
+          parameters:
+            type: object
+            properties:
+              location:
+                type: string
+            required: [location]
+      - type: function
+        function:
+          name: get_time
+          description: "Get current time for a timezone"
+          parameters:
+            type: object
+            properties:
+              timezone:
+                type: string
+            required: [timezone]
+    tool_choice: required
+  assert:
+    - type: is-json
+    - type: contains
+      value: "\"get_weather\""
+
+- description: "tool strict:true — array argument"
+  vars:
+    prompt: "Create a task list with items: fix bug, write tests, update docs."
+    tools:
+      - type: function
+        function:
+          name: create_tasks
+          description: "Create multiple tasks at once"
+          strict: true
+          parameters:
+            type: object
+            properties:
+              tasks:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    title:
+                      type: string
+                    priority:
+                      type: string
+                      enum: [low, medium, high]
+                  required: [title, priority]
+            required: [tasks]
+    tool_choice: required
+  assert:
+    - type: is-json
+    - type: contains
+      value: "\"create_tasks\""
+    - type: contains
+      value: "\"tasks\""
