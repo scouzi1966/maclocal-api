@@ -26,6 +26,17 @@ private func batchTs() -> String { _batchTsFormatter.string(from: Date()) }
 /// are merged into `BatchKVCacheSimple` for batched decode. Dynamic slot
 /// add/remove uses `extend()` and `filter()` on the batch cache.
 actor BatchScheduler {
+    struct ConstraintRuntimeConfiguration: @unchecked Sendable {
+        let mode: String
+        let matcherHandle: GrammarMatcherHandle?
+    }
+
+    struct ToolCallRuntimeConfiguration: @unchecked Sendable {
+        let startTag: String
+        let endTag: String
+        let parser: String?
+        let tools: [RequestTool]?
+    }
 
     /// Default maximum concurrent generations.
     static let defaultMaxConcurrent = 8
@@ -73,10 +84,19 @@ actor BatchScheduler {
         var processor: LogitProcessor?
         var detokenizer: NaiveStreamingDetokenizer
         let maxTokens: Int?
+        let toolRuntime: ToolCallStreamingRuntime?
+        let constraintRuntime: ConstraintRuntimeConfiguration?
 
         /// Lazy token array from the previous decode step (for deferred dispatch).
         /// Set after asyncEval; materialized via .item() after the NEXT model call.
         var pendingTokenArray: MLXArray? = nil
+        let activeStops: [String]
+        let maxStopLength: Int
+        let thinkStartTag: String?
+        let thinkEndTag: String?
+        var stopBuffer = ""
+        var insideThink = false
+        var stoppedBySequence = false
 
         init(
             continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation,
@@ -91,7 +111,12 @@ actor BatchScheduler {
             sampler: LogitSampler,
             processor: LogitProcessor?,
             detokenizer: NaiveStreamingDetokenizer,
-            maxTokens: Int?
+            maxTokens: Int?,
+            toolRuntime: ToolCallStreamingRuntime?,
+            constraintRuntime: ConstraintRuntimeConfiguration?,
+            activeStops: [String],
+            thinkStartTag: String?,
+            thinkEndTag: String?
         ) {
             self.id = UUID()
             self.continuation = continuation
@@ -107,6 +132,12 @@ actor BatchScheduler {
             self.processor = processor
             self.detokenizer = detokenizer
             self.maxTokens = maxTokens
+            self.toolRuntime = toolRuntime
+            self.constraintRuntime = constraintRuntime
+            self.activeStops = activeStops
+            self.maxStopLength = activeStops.map(\.count).max() ?? 0
+            self.thinkStartTag = thinkStartTag
+            self.thinkEndTag = thinkEndTag
         }
     }
 
@@ -256,6 +287,11 @@ actor BatchScheduler {
         let input: LMInput
         let parameters: GenerateParameters
         let promptTokens: Int
+        let toolCallRuntimeConfig: ToolCallRuntimeConfiguration?
+        let constraintRuntimeConfig: ConstraintRuntimeConfiguration?
+        let stopSequences: [String]
+        let thinkStartTag: String?
+        let thinkEndTag: String?
         let continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation
     }
 
@@ -342,7 +378,12 @@ actor BatchScheduler {
     nonisolated func submit(
         input: LMInput,
         parameters: GenerateParameters,
-        promptTokens: Int
+        promptTokens: Int,
+        toolCallRuntimeConfig: ToolCallRuntimeConfiguration? = nil,
+        constraintRuntimeConfig: ConstraintRuntimeConfiguration? = nil,
+        stopSequences: [String] = [],
+        thinkStartTag: String? = nil,
+        thinkEndTag: String? = nil
     ) -> AsyncThrowingStream<StreamChunk, Error> {
         if _isShutdown.withLock({ $0 }) {
             return AsyncThrowingStream { $0.finish(throwing: MLXServiceError.serviceShuttingDown) }
@@ -356,6 +397,11 @@ actor BatchScheduler {
                 input: input,
                 parameters: parameters,
                 promptTokens: promptTokens,
+                toolCallRuntimeConfig: toolCallRuntimeConfig,
+                constraintRuntimeConfig: constraintRuntimeConfig,
+                stopSequences: stopSequences,
+                thinkStartTag: thinkStartTag,
+                thinkEndTag: thinkEndTag,
                 continuation: continuation
             ))
         }
@@ -396,6 +442,7 @@ actor BatchScheduler {
 
         for slot in slots {
             slot.continuation.finish(throwing: MLXServiceError.serviceShuttingDown)
+            slot.constraintRuntime?.matcherHandle?.release()
         }
         // Reset in-flight counter
         _inFlightCount.withLock { $0 = 0 }
@@ -538,7 +585,9 @@ actor BatchScheduler {
                     slot.detokenizer.append(token: token)
                     if let chunk = slot.detokenizer.next() {
                         slot.tokenCount += 1
-                        slot.continuation.yield(StreamChunk(text: chunk))
+                        if yieldTextChunk(chunk, for: slot) {
+                            completedIndices.append(i)
+                        }
                     }
                 }
 
@@ -593,7 +642,10 @@ actor BatchScheduler {
                 slot.detokenizer.append(token: token)
                 if let chunk = slot.detokenizer.next() {
                     slot.tokenCount += 1
-                    slot.continuation.yield(StreamChunk(text: chunk))
+                    if yieldTextChunk(chunk, for: slot) {
+                        finishSlot(at: i)
+                        continue
+                    }
                 }
             }
         }
@@ -725,12 +777,33 @@ actor BatchScheduler {
             sampler: logitSampler,
             processor: logitProcessor,
             detokenizer: NaiveStreamingDetokenizer(tokenizer: tokenizer),
-            maxTokens: req.parameters.maxTokens
+            maxTokens: req.parameters.maxTokens,
+            toolRuntime: req.toolCallRuntimeConfig.map { config in
+                ToolCallStreamingRuntime(
+                    toolCallStartTag: config.startTag,
+                    toolCallEndTag: config.endTag,
+                    toolCallParser: config.parser,
+                    tools: config.tools,
+                    applyFixToolArgs: { rtc in
+                        Self.applyFixToolArgs(rtc, tools: config.tools)
+                    },
+                    remapSingleKey: { key, toolName in
+                        Self.remapSingleKey(key, toolName: toolName, tools: config.tools)
+                    }
+                )
+            },
+            constraintRuntime: req.constraintRuntimeConfig,
+            activeStops: req.stopSequences,
+            thinkStartTag: req.thinkStartTag,
+            thinkEndTag: req.thinkEndTag
         )
 
         // Emit cached token count so the controller can include it in usage
         if cachedTokens > 0 {
             req.continuation.yield(StreamChunk(text: "", cachedTokens: cachedTokens))
+        }
+        if let constraintRuntime = req.constraintRuntimeConfig {
+            DebugLogger.log("[BatchScheduler] Constrained slot \(slot.id.uuidString.prefix(8)) mode=\(constraintRuntime.mode)")
         }
         let radixEntries = radixCache.map { String($0.count) } ?? "nil"
         print("[\(batchTs())] [PrefixCache] Prefill complete: mode=batch | outcome=\(cacheOutcome) | input_tokens=\(inputTokens.count) | cached_tokens=\(cachedTokens) | suffix_tokens=\(inputTokens.count - cachedTokens) | radix_entries=\(radixEntries) | lookup=\(String(format: "%.6f", cacheLookupTime ?? 0))s | prefill=\(String(format: "%.3f", prefillTime))s")
@@ -835,6 +908,14 @@ actor BatchScheduler {
         let elapsed = Date().timeIntervalSince(slot.startTime)
         let generateTime = elapsed - slot.prefillTime
 
+        if let trailingEvents = slot.toolRuntime?.finishIncompleteToolCall(), !trailingEvents.isEmpty {
+            yieldToolRuntimeEvents(trailingEvents, to: slot)
+        }
+        if !slot.activeStops.isEmpty && !slot.stopBuffer.isEmpty && !slot.stoppedBySequence {
+            slot.continuation.yield(StreamChunk(text: slot.stopBuffer))
+            slot.stopBuffer = ""
+        }
+
         // Save prompt KV state to prefix cache before removal.
         // Use the original per-layer prefill caches (retained on the slot).
         let cacheStart = debugTiming ? Date() : Date.distantPast
@@ -898,11 +979,14 @@ actor BatchScheduler {
             text: "",
             promptTokens: slot.promptTokenCount,
             completionTokens: slot.tokenCount,
+            cachedTokens: slot.cachedTokens,
             promptTime: slot.prefillTime,
-            generateTime: generateTime
+            generateTime: generateTime,
+            stoppedBySequence: slot.stoppedBySequence
         ))
         print("[\(batchTs())] [ChunkStats] stage=final | stream=true | cached_tokens=\(slot.cachedTokens) | prompt_tokens=\(slot.promptTokenCount) | completion_tokens=\(slot.tokenCount) | prompt_time=\(String(format: "%.3f", slot.prefillTime))s | generate_time=\(String(format: "%.3f", generateTime))s")
         slot.continuation.finish()
+        slot.constraintRuntime?.matcherHandle?.release()
         _inFlightCount.withLock { $0 = max($0 - 1, 0) }
 
         DebugLogger.log("[BatchScheduler] Finished slot \(slot.id.uuidString.prefix(8)) (\(slot.tokenCount) tok, \(String(format: "%.2f", elapsed))s, in-flight: \(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
@@ -955,6 +1039,154 @@ actor BatchScheduler {
             tokenId: data.tokenId,
             logprob: data.logprob,
             topTokens: topTokens
+        )
+    }
+
+    private func yieldTextChunk(_ chunk: String, for slot: SlotState) -> Bool {
+        if let toolRuntime = slot.toolRuntime {
+            let output = toolRuntime.process(piece: chunk)
+            if output.handled {
+                yieldToolRuntimeEvents(output.events, to: slot)
+                return false
+            }
+        }
+        let stopResult = Self.stopChunksToEmit(
+            from: chunk,
+            stopBuffer: &slot.stopBuffer,
+            activeStops: slot.activeStops,
+            maxStopLength: slot.maxStopLength,
+            insideThink: &slot.insideThink,
+            thinkStartTag: slot.thinkStartTag,
+            thinkEndTag: slot.thinkEndTag
+        )
+        for emit in stopResult.chunks {
+            slot.continuation.yield(emit)
+        }
+        if stopResult.stopped {
+            slot.stoppedBySequence = true
+        }
+        return stopResult.stopped
+    }
+
+    private func yieldToolRuntimeEvents(_ events: [ToolCallStreamingEvent], to slot: SlotState) {
+        for chunk in Self.streamChunksToEmit(from: events) {
+            slot.continuation.yield(chunk)
+        }
+    }
+
+    static func streamChunksToEmit(from events: [ToolCallStreamingEvent]) -> [StreamChunk] {
+        var chunks = [StreamChunk]()
+        let deltas = deltaToolCallsToEmit(from: events)
+        if !deltas.isEmpty {
+            chunks.append(StreamChunk(text: "", toolCallDeltas: deltas))
+        }
+        for toolCall in completedToolCallsToEmit(from: events) {
+            chunks.append(StreamChunk(text: "", toolCalls: [toolCall]))
+        }
+        return chunks
+    }
+
+    static func deltaToolCallsToEmit(from events: [ToolCallStreamingEvent]) -> [StreamDeltaToolCall] {
+        var emitted = [StreamDeltaToolCall]()
+        for event in events {
+            if case .delta(let delta) = event {
+                emitted.append(delta)
+            }
+        }
+        return emitted
+    }
+
+    static func completedToolCallsToEmit(from events: [ToolCallStreamingEvent]) -> [ResponseToolCall] {
+        var emitted = [ResponseToolCall]()
+        for event in events {
+            switch event {
+            case .started, .delta:
+                continue
+            case .appendCollected(let toolCall):
+                if !toolCall.function.arguments.isEmpty {
+                    emitted.append(toolCall)
+                }
+            case .replaceCollected(_, let toolCall):
+                emitted.append(toolCall)
+            }
+        }
+        return emitted
+    }
+
+    static func stopChunksToEmit(
+        from text: String,
+        stopBuffer: inout String,
+        activeStops: [String],
+        maxStopLength: Int,
+        insideThink: inout Bool,
+        thinkStartTag: String?,
+        thinkEndTag: String?
+    ) -> (chunks: [StreamChunk], stopped: Bool) {
+        guard !activeStops.isEmpty else {
+            return ([StreamChunk(text: text)], false)
+        }
+
+        var chunks = [StreamChunk]()
+        let wasInsideThink = insideThink
+        if let thinkStartTag, text.contains(thinkStartTag) {
+            insideThink = true
+        }
+        if let thinkEndTag, text.contains(thinkEndTag) {
+            insideThink = false
+        }
+
+        if !insideThink {
+            if wasInsideThink, let thinkEndTag, let range = text.range(of: thinkEndTag) {
+                let afterThink = String(text[range.upperBound...])
+                if !afterThink.isEmpty {
+                    stopBuffer += afterThink
+                }
+            } else {
+                stopBuffer += text
+            }
+
+            if let match = activeStops.first(where: { stopBuffer.contains($0) }),
+               let range = stopBuffer.range(of: match) {
+                let before = String(stopBuffer[..<range.lowerBound])
+                chunks.append(StreamChunk(text: before, stoppedBySequence: true))
+                return (chunks, true)
+            }
+
+            if stopBuffer.count > maxStopLength {
+                let flushEnd = stopBuffer.index(stopBuffer.endIndex, offsetBy: -maxStopLength)
+                let flushText = String(stopBuffer[..<flushEnd])
+                stopBuffer = String(stopBuffer[flushEnd...])
+                chunks.append(StreamChunk(text: flushText))
+            }
+        } else {
+            chunks.append(StreamChunk(text: text))
+        }
+
+        return (chunks, false)
+    }
+
+    private static func remapSingleKey(_ key: String, toolName: String, tools: [RequestTool]?) -> String {
+        guard let tools, !tools.isEmpty else { return key }
+        let dummy: [String: any Sendable] = [key: ""]
+        let remapped = MLXModelService.remapArgumentKeys(dummy, toolName: toolName, tools: tools)
+        return remapped.keys.first ?? key
+    }
+
+    private static func applyFixToolArgs(_ rtc: ResponseToolCall, tools: [RequestTool]?) -> ResponseToolCall {
+        guard let tools, !tools.isEmpty else { return rtc }
+        guard let data = rtc.function.arguments.data(using: .utf8),
+              let argsDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return rtc }
+        var sendableArgs = [String: any Sendable]()
+        for (key, value) in argsDict { sendableArgs[key] = value }
+        let remapped = MLXModelService.remapArgumentKeys(sendableArgs, toolName: rtc.function.name, tools: tools)
+        let remappedAny = remapped.mapValues { $0 as Any }
+        guard let newData = try? JSONSerialization.data(withJSONObject: remappedAny, options: [.sortedKeys]),
+              let newString = String(data: newData, encoding: .utf8) else { return rtc }
+        return ResponseToolCall(
+            index: rtc.index,
+            id: rtc.id,
+            type: rtc.type,
+            function: ResponseToolCallFunction(name: rtc.function.name, arguments: newString)
         )
     }
 }

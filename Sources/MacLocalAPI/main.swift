@@ -1377,43 +1377,7 @@ if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
 }
 
 private func ensureMLXMetalLibraryAvailable(verbose: Bool) throws {
-    let fileManager = FileManager.default
-    let executableURL = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
-    let executableDir = executableURL.deletingLastPathComponent()
-
-    // Resolution order:
-    // 1. MACAFM_MLX_METALLIB env var (explicit override)
-    // 2. Bundle.module resource (standard Swift PM — works from build dir and when bundle is co-located)
-    // 3. MacLocalAPI_MacLocalAPI.bundle/ next to executable (relocated binary with bundle)
-    // MLX loads kernels from default.metallib in the cwd, so we always chdir.
-
-    let env = ProcessInfo.processInfo.environment
-    let explicit = env["MACAFM_MLX_METALLIB"].flatMap { raw -> URL? in
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : URL(fileURLWithPath: trimmed)
-    }
-    let packaged = Bundle.module.url(forResource: "default", withExtension: "metallib")
-    let bundleRelative: URL? = {
-        let candidate = executableDir
-            .appendingPathComponent("MacLocalAPI_MacLocalAPI.bundle")
-            .appendingPathComponent("default.metallib")
-        return fileManager.fileExists(atPath: candidate.path) ? candidate : nil
-    }()
-
-    guard let source = explicit ?? packaged ?? bundleRelative,
-          fileManager.fileExists(atPath: source.path) else {
-        throw ValidationError(
-            "MLX metallib not found. Ensure MacLocalAPI_MacLocalAPI.bundle is next to the afm binary."
-        )
-    }
-
-    let metalDir = source.deletingLastPathComponent().path
-    guard fileManager.changeCurrentDirectoryPath(metalDir) else {
-        throw ValidationError("Failed to switch to metallib directory: \(metalDir)")
-    }
-    if verbose {
-        print("Using MLX metallib: \(source.path)")
-    }
+    try MLXMetalLibrary.ensureAvailable(verbose: verbose)
 }
 
 private final class MLXLoadReporter {

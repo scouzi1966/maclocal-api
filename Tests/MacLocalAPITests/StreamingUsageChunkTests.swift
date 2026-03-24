@@ -2,6 +2,80 @@ import XCTest
 @testable import MacLocalAPI
 
 final class StreamingUsageChunkTests: XCTestCase {
+    func testFinalizeAssistantTurnPrefersToolCallsOverContent() {
+        let toolCall = ResponseToolCall(
+            index: 0,
+            id: "call_test",
+            type: "function",
+            function: ResponseToolCallFunction(name: "read_file", arguments: #"{"path":"README.md"}"#)
+        )
+
+        let finalized = MLXChatCompletionsController.finalizeAssistantTurn(
+            content: "ignored",
+            toolCalls: [toolCall],
+            toolChoice: nil,
+            extractThinking: true,
+            thinkStartTag: "<think>",
+            thinkEndTag: "</think>",
+            stoppedBySequence: false,
+            completionTokens: 5,
+            maxTokens: 20,
+            sanitizeContent: { $0 }
+        )
+
+        XCTAssertEqual(finalized.finishReason, "tool_calls")
+        XCTAssertNil(finalized.content)
+        XCTAssertNil(finalized.reasoningContent)
+        XCTAssertEqual(finalized.toolCalls?.count, 1)
+        XCTAssertEqual(finalized.toolCalls?.first?.function.name, "read_file")
+    }
+
+    func testFinalizeAssistantTurnExtractsThinkingAndComputesLengthFinishReason() {
+        let finalized = MLXChatCompletionsController.finalizeAssistantTurn(
+            content: "<think>plan</think>\nAnswer",
+            toolCalls: nil,
+            toolChoice: nil,
+            extractThinking: true,
+            thinkStartTag: "<think>",
+            thinkEndTag: "</think>",
+            stoppedBySequence: false,
+            completionTokens: 20,
+            maxTokens: 20,
+            sanitizeContent: { $0 }
+        )
+
+        XCTAssertEqual(finalized.finishReason, "length")
+        XCTAssertEqual(finalized.content, "Answer")
+        XCTAssertEqual(finalized.reasoningContent, "plan")
+        XCTAssertNil(finalized.toolCalls)
+    }
+
+    func testFinalizeAssistantTurnFiltersToolCallsToNamedChoice() {
+        let wrongToolCall = ResponseToolCall(
+            index: 0,
+            id: "call_wrong",
+            type: "function",
+            function: ResponseToolCallFunction(name: "get_weather", arguments: #"{"location":"Berlin"}"#)
+        )
+
+        let finalized = MLXChatCompletionsController.finalizeAssistantTurn(
+            content: "fallback",
+            toolCalls: [wrongToolCall],
+            toolChoice: .function(.init(type: "function", function: .init(name: "read_file"))),
+            extractThinking: false,
+            thinkStartTag: "<think>",
+            thinkEndTag: "</think>",
+            stoppedBySequence: false,
+            completionTokens: 5,
+            maxTokens: 20,
+            sanitizeContent: { $0 }
+        )
+
+        XCTAssertEqual(finalized.finishReason, "stop")
+        XCTAssertEqual(finalized.content, "fallback")
+        XCTAssertNil(finalized.toolCalls)
+    }
+
     func testNonStreamingResponsePreservesExplicitFinishReason() throws {
         let response = ChatCompletionResponse(
             id: "chat-1234",

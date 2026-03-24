@@ -1,4 +1,5 @@
 import Foundation
+import MLXLMCommon
 import Testing
 
 @testable import MacLocalAPI
@@ -1178,6 +1179,104 @@ struct XMLToolCallParsingTests {
         #expect(names.isEmpty)
     }
 
+    @Test("normalizeToolCall remaps keys before coercing values")
+    func normalizeToolCallRemapsThenCoerces() {
+        let tool = makeRequestTool(name: "search", properties: [
+            "query": ["type": "string"],
+            "maxResults": ["type": "integer"]
+        ], required: ["query"])
+        let toolCall = ToolCall(function: .init(
+            name: "search",
+            arguments: [
+                "query": "files",
+                "max_results": "5"
+            ]
+        ))
+
+        let result = MLXModelService.normalizeToolCall(
+            toolCall,
+            index: 0,
+            paramNameMapping: ["max_results": "maxResults"],
+            tools: [tool],
+            fixToolArgs: true
+        )
+
+        let args = parseArgs(result.function.arguments)
+        #expect((args?["query"] as? String) == "files")
+        #expect((args?["maxResults"] as? Int) == 5)
+        #expect(args?["max_results"] == nil)
+    }
+
+    @Test("normalizeToolCalls assigns sequential indices from startIndex")
+    func normalizeToolCallsAssignsSequentialIndices() {
+        let tool = makeRequestTool(name: "search", properties: [
+            "query": ["type": "string"]
+        ], required: ["query"])
+        let calls = [
+            ToolCall(function: .init(name: "search", arguments: ["query": "one"])),
+            ToolCall(function: .init(name: "search", arguments: ["query": "two"])),
+        ]
+
+        let result = MLXModelService.normalizeToolCalls(
+            calls,
+            startIndex: 3,
+            tools: [tool]
+        )
+
+        #expect(result.count == 2)
+        #expect(result[0].index == 3)
+        #expect(result[1].index == 4)
+    }
+
+    @Test("completed tool call parsing resolves adaptive XML tool names against offered tools")
+    func parseCompletedToolCallsResolvesAdaptiveXMLNames() {
+        let tool = makeRequestTool(name: "get_weather", properties: [
+            "location": ["type": "string"]
+        ], required: ["location"])
+        let text = #"<tool_call>{"name":"get_weathr","arguments":{"location":"Berlin"}}</tool_call>"#
+
+        let (calls, remaining) = ToolCallStreamingRuntime.parseCompletedToolCalls(
+            from: text,
+            toolCallParser: "afm_adaptive_xml",
+            tools: [tool]
+        )
+
+        #expect(calls.count == 1)
+        #expect(calls[0].function.name == "get_weather")
+        #expect(calls[0].function.arguments["location"]?.anyValue as? String == "Berlin")
+        #expect(remaining.isEmpty)
+    }
+
+    @Test("completed tool call parsing preserves remaining non-tool text")
+    func parseCompletedToolCallsPreservesRemainingText() {
+        let tool = makeRequestTool(name: "search", properties: [
+            "query": ["type": "string"]
+        ], required: ["query"])
+        let text = """
+        First inspect the repo.
+
+        <tool_call>
+        <function=search>
+        <parameter=query>auth middleware</parameter>
+        </function>
+        </tool_call>
+
+        Then summarize findings.
+        """
+
+        let (calls, remaining) = ToolCallStreamingRuntime.parseCompletedToolCalls(
+            from: text,
+            toolCallParser: "qwen3_xml",
+            tools: [tool]
+        )
+
+        #expect(calls.count == 1)
+        #expect(calls[0].function.name == "search")
+        #expect(remaining.contains("First inspect the repo."))
+        #expect(remaining.contains("Then summarize findings."))
+        #expect(!remaining.contains("<tool_call>"))
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // MARK: - EBNF grammar generation (buildToolCallEBNF)
     // ═══════════════════════════════════════════════════════════════════
@@ -1285,6 +1384,7 @@ struct XMLToolCallParsingTests {
 
     private func makeResponseToolCall(name: String, arguments: String) -> ResponseToolCall {
         ResponseToolCall(
+            index: nil,
             id: "call_test",
             type: "function",
             function: ResponseToolCallFunction(name: name, arguments: arguments)

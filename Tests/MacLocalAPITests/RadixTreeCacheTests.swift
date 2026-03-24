@@ -5,6 +5,9 @@ import Testing
 @testable import MacLocalAPI
 
 struct RadixTreeCacheTests {
+    init() throws {
+        try MLXMetalLibrary.ensureAvailable(verbose: false)
+    }
 
     /// Return placeholder layer states without creating real MLXArrays.
     /// RadixTreeCache only stores/returns layer states — it never reads array
