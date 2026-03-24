@@ -37,7 +37,7 @@ MAX_CONCURRENT = 190         # AFM --concurrent / mlx-lm --decode-concurrency (h
 TIMEOUT_PER_REQ = 600        # seconds
 
 # Same concurrency levels for BOTH servers — fair comparison
-LEVELS = [130, 150, 180]
+LEVELS = [180]
 
 RESULTS_DIR = Path("Scripts/benchmark-results")
 
