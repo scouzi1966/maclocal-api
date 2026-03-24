@@ -2957,15 +2957,29 @@ final class MLXModelService: @unchecked Sendable {
         return nil
     }
 
-    /// Set up grammar-constrained decoding for a json_schema response format.
-    /// Returns a GrammarLogitProcessor on success, nil on failure (falls back to prompt injection).
+    /// Check whether any tool in the request has `strict: true`.
+    static func hasStrictTools(_ tools: [RequestTool]?) -> Bool {
+        tools?.contains { $0.function.strict == true } ?? false
+    }
+
+    /// Check whether a response_format has json_schema with strict: true.
+    static func hasStrictSchema(_ responseFormat: ResponseFormat?) -> Bool {
+        responseFormat?.type == "json_schema" && responseFormat?.jsonSchema?.strict == true
+    }
+
+    /// Set up grammar-constrained decoding based on strict × CLI policy.
+    /// Returns a ConstrainedDecodingSetup on success, nil on failure (falls back to prompt injection).
+    /// Policy: strict: true is the per-request opt-in, --enable-grammar-constraints is the admin opt-in.
     private func setupConstrainedDecodingProcessor(
         modelID: String,
         responseFormat: ResponseFormat?,
         tokenizer: any Tokenizer,
         tools: [RequestTool]?
     ) -> ConstrainedDecodingSetup? {
-        if responseFormat?.type == "json_schema" {
+        let wantStrictSchema = Self.hasStrictSchema(responseFormat) && self.enableGrammarConstraints
+        let wantStrictTools = Self.hasStrictTools(tools) && self.enableGrammarConstraints
+
+        if wantStrictSchema {
             guard let processor = setupGrammarConstraint(
                 modelID: modelID,
                 responseFormat: responseFormat,
@@ -2979,7 +2993,7 @@ final class MLXModelService: @unchecked Sendable {
                 matcherHandle: processor.matcherHandle as? GrammarMatcherHandle
             )
         }
-        if enableGrammarConstraints && toolCallParser == "afm_adaptive_xml" {
+        if wantStrictTools {
             guard let processor = setupToolCallGrammarConstraint(
                 modelID: modelID,
                 tokenizer: tokenizer,
@@ -2993,6 +3007,17 @@ final class MLXModelService: @unchecked Sendable {
                 matcherHandle: processor.matcherHandle as? GrammarMatcherHandle
             )
         }
+
+        // Observability: warn when strict requested but engine not enabled
+        if !self.enableGrammarConstraints {
+            if Self.hasStrictSchema(responseFormat) {
+                print("[\(ts())] [XGrammar] strict: true on json_schema but --enable-grammar-constraints not set; best-effort")
+            }
+            if Self.hasStrictTools(tools) {
+                print("[\(ts())] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort")
+            }
+        }
+
         return nil
     }
 

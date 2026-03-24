@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+
+description: "AFM grammar-constraints mixed strict (schema + tools)"
+
+prompts:
+  - "{{prompt}}"
+
+providers:
+  - id: providers/afm_provider.mjs
+    label: afm-grammar-mixed
+    config:
+      transport: api
+      baseUrlEnv: AFM_BASE_URL_GRAMMAR
+      modelEnv: AFM_MODEL
+      extract: content
+
+tests: file://datasets/grammar-constraints-mixed-strict.yaml

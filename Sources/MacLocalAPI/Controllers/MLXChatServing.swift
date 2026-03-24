@@ -29,10 +29,15 @@ protocol MLXChatServing {
     var thinkStartTag: String? { get }
     var thinkEndTag: String? { get }
     var fixToolArgs: Bool { get }
+    var enableGrammarConstraints: Bool { get }
 
     func normalizeModel(_ raw: String) -> String
     func tryReserveSlot() -> Bool
     func releaseSlot()
+
+    func startAPIProfile()
+    func stopAPIProfile(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) -> AFMProfile
+    func stopAPIProfileExtended(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) -> AFMProfileExtended
 
     func generate(
         model: String,

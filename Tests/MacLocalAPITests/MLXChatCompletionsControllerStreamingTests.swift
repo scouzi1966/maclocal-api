@@ -555,6 +555,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
     let thinkStartTag: String?
     let thinkEndTag: String?
     let fixToolArgs: Bool
+    let enableGrammarConstraints: Bool = false
     private let generateResult: ChatGenerationResult
     private let streamingResult: ChatStreamingResult
     private let streamingHandler: (([Message]) -> ChatStreamingResult)?
@@ -624,6 +625,13 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
     func normalizeModel(_ raw: String) -> String { raw }
     func tryReserveSlot() -> Bool { true }
     func releaseSlot() {}
+    func startAPIProfile() {}
+    func stopAPIProfile(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) -> AFMProfile {
+        AFMProfile(gpuPowerAvgW: nil, gpuPowerPeakW: nil, gpuSamples: nil, memoryWeightsGiB: nil, memoryKvGiB: nil, memoryPeakGiB: nil, prefillTokS: nil, decodeTokS: nil, chip: nil, theoreticalBwGbs: nil, estBandwidthGbs: nil)
+    }
+    func stopAPIProfileExtended(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) -> AFMProfileExtended {
+        AFMProfileExtended(summary: stopAPIProfile(promptTokens: promptTokens, completionTokens: completionTokens, promptTime: promptTime, generateTime: generateTime), samples: [])
+    }
 
     func generate(
         model: String,

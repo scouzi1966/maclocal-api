@@ -91,7 +91,14 @@ async function postJson(url, body) {
   if (!parsed) {
     throw new Error(`AFM returned non-JSON response: ${text}`);
   }
-  return parsed;
+
+  // Capture response headers for assertion tests (e.g. X-Grammar-Constraints)
+  const responseHeaders = {};
+  response.headers.forEach((value, key) => {
+    responseHeaders[key] = value;
+  });
+
+  return { body: parsed, headers: responseHeaders };
 }
 
 async function runCli(binary, args, env) {
@@ -201,7 +208,7 @@ export default class AfmPromptfooProvider {
       ],
       max_tokens: vars.max_tokens || this.config.maxTokens || 400,
       temperature: vars.temperature ?? this.config.temperature ?? 0,
-      stream: false,
+      stream: vars.stream !== undefined ? vars.stream : false,
     };
 
     if (vars.response_format) body.response_format = vars.response_format;
@@ -210,7 +217,7 @@ export default class AfmPromptfooProvider {
     if (vars.stop) body.stop = vars.stop;
     if (vars.seed !== undefined) body.seed = vars.seed;
 
-    const responseBody = await postJson(`${baseUrl}/chat/completions`, body);
+    const { body: responseBody, headers: responseHeaders } = await postJson(`${baseUrl}/chat/completions`, body);
 
     return {
       output: extractOutput(this.config, responseBody),
@@ -220,6 +227,7 @@ export default class AfmPromptfooProvider {
         baseUrl,
         requestBody: body,
         responseBody,
+        responseHeaders,
         usage: responseBody.usage || null,
       },
     };

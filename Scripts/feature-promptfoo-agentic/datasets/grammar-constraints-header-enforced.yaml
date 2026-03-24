@@ -1,0 +1,51 @@
+# Grammar Constraints — header assertion: no X-Grammar-Constraints header
+# Validates: when CLI has --enable-grammar-constraints and strict: true is requested,
+# the server does NOT return the X-Grammar-Constraints header (grammar is active).
+# Run against: afm-grammar-enabled provider only.
+
+- description: "header absent (grammar active) — json_schema strict:true"
+  vars:
+    prompt: "Return a color record for red, hex #FF0000."
+    response_format:
+      type: json_schema
+      json_schema:
+        name: color_record
+        strict: true
+        schema:
+          type: object
+          additionalProperties: false
+          properties:
+            color:
+              type: string
+            hex:
+              type: string
+          required: [color, hex]
+  assert:
+    - type: is-json
+    - type: javascript
+      value: file://judges/assert-grammar-header.mjs
+      config:
+        expectDowngraded: false
+
+- description: "header absent (grammar active) — tool strict:true"
+  vars:
+    prompt: "What is the weather in Tokyo?"
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: "Get weather for a location"
+          strict: true
+          parameters:
+            type: object
+            properties:
+              location:
+                type: string
+            required: [location]
+    tool_choice: required
+  assert:
+    - type: is-json
+    - type: javascript
+      value: file://judges/assert-grammar-header.mjs
+      config:
+        expectDowngraded: false

@@ -1,0 +1,40 @@
+# Grammar Constraints — mixed strict tests
+# Validates: json_schema strict + tool strict in the same request
+#
+# Policy:
+#   When both response_format.json_schema.strict and tools[].function.strict
+#   are true in the same request, json_schema grammar takes priority.
+
+- description: "mixed strict: json_schema + tool strict in same request"
+  vars:
+    prompt: "Return a person record for Ada Lovelace, age 36."
+    response_format:
+      type: json_schema
+      json_schema:
+        name: person_record
+        strict: true
+        schema:
+          type: object
+          additionalProperties: false
+          properties:
+            name:
+              type: string
+            age:
+              type: integer
+          required: [name, age]
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: "Get weather"
+          strict: true
+          parameters:
+            type: object
+            properties:
+              location:
+                type: string
+            required: [location]
+  assert:
+    - type: is-json
+    - type: contains
+      value: "\"name\""

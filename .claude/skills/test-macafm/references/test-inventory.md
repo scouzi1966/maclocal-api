@@ -54,8 +54,26 @@ Master table of every test case across all test scripts.
 | 46 | Perf | tok/s > 1 | full | Throughput |
 | 47 | Perf | Long context 2K no crash | full | Context stability |
 | 48 | Perf | Very long context 4K no NaN | full | SDPA regression |
+| 49 | AdaptiveXML | Tool call valid (with/without grammar) | std+ | afm_adaptive_xml parsing |
+| 50 | AdaptiveXML | Required params present (grammar-hardened) | std+ | EBNF param enforcement |
+| 51 | AdaptiveXML | Structured param types (grammar-hardened) | std+ | EBNF type enforcement |
+| 52 | Grammar | Calculator tool call (non-streaming) | std+ | Grammar enforcement (strict:true) |
+| 53 | Grammar | Calculator tool call (streaming) | std+ | Streaming grammar |
+| 54 | Grammar | Two tools: correct selection | std+ | Grammar + tool routing |
+| 55 | Grammar | Two tools: selects calculate | std+ | Grammar + multi-tool |
+| 56 | Grammar | 3 required params enforced (send_email) | std+ | Grammar completeness |
+| 57 | Grammar | Array param constrained | std+ | Grammar typed constraint |
+| 58 | Grammar | Array param via streaming | std+ | Streaming grammar typed |
+| 59 | Grammar | Complex schema: string+int+array+object | std+ | Deep structure |
+| 60 | StrictWiring | X-Grammar-Constraints header (tool strict:true) | all | Downgrade header present/absent |
+| 61 | StrictWiring | X-Grammar-Constraints header (schema strict:true) | all | Downgrade header present/absent |
+| 62 | StrictWiring | No header when strict absent | all | No false positive header |
+| 63 | StrictWiring | Streaming json_schema strict:true valid JSON | all | Streaming schema grammar |
+| 64 | StrictWiring | Streaming tool strict:true valid tool call | all | Streaming tool grammar |
+| 65 | StrictWiring | strict:false does not error | all | Best-effort control |
 
 \* Think tests auto-skip if model doesn't support `<think>` tags.
+† Section 13 Grammar tests require `--grammar-constraints` flag. Section 14 adapts assertions based on `--grammar-constraints` presence.
 
 ## Smart Analysis Tests (`test-edge-cases.txt`)
 
@@ -93,6 +111,7 @@ Run automatically by `test-assertions.sh --tier unit` (and all higher tiers).
 | `ConcurrentBatchTests.swift` | 10 | RequestSlot init/uniqueID/append/thread-safety/elapsed, StreamChunk defaults/timing/cached, MLXServiceError messages, BatchScheduler constants |
 | `NullableToolSchemaTests.swift` | — | Nullable tool schema parsing |
 | `XMLToolCallParsingTests.swift` | — | XML tool call format parsing |
+| `StrictGrammarWiringTests.swift` | 16 | hasStrictTools() (nil/empty/true/false/nil/mixed), RequestToolFunction strict decoding (true/false/absent/array), ResponseJsonSchema strict decoding (true/false/absent), ResponseFormat json_schema strict detection (true/false/json_object) |
 
 ## OpenAI Compatibility Evals (`test-openai-compat-evals.py`)
 
@@ -133,64 +152,22 @@ Correctness and performance validation for batched MLX generation. Requires runn
 | `validate_mixed_workload.py` | 8 × B={1,2,4,8} | Mixed short-answer + long-decode (4K max_tokens) with GPU metrics via mactop |
 | `validate_multiturn_prefix.py` | 5 convs × B={1,2,4,8} | Multi-turn conversations with long system prompts; validates prefix cache hits under concurrency |
 
-## GPU Shader Profile (`gpu-profile-report.py`)
+## Promptfoo Grammar-Constraints Suite (`run-promptfoo-agentic.sh grammar-constraints`)
 
-Full harness: mactop bandwidth + `--gpu-profile` + `--gpu-trace` + shader extraction + HTML report.
+7 phases testing the full CLI flag × `strict: true` Cartesian matrix. Each phase starts a server with a different profile and runs promptfoo eval.
 
-| Metric | Source | What It Measures |
-|--------|--------|------------------|
-| Decode tok/s | `--gpu-profile` | Token generation throughput |
-| Prefill tok/s | `--gpu-profile` | Prompt processing throughput |
-| Memory breakdown | `--gpu-profile` | Model weights vs KV cache vs peak |
-| DRAM bandwidth (GB/s) | mactop via PTY | Read + write bandwidth timeline |
-| GPU utilization (%) | mactop via PTY | GPU active percentage timeline |
-| GPU power (W) | mactop via PTY | Power consumption timeline |
-| Metal kernel names | xctrace Shader Timeline | Per-kernel shader inventory (e.g. `affine_qmv_fast`, `steel_gemm_fused`) |
-| Command line | `--gpu-profile` | Exact reproducible command |
+| Phase | Server Profile | Config | Tests | Covers |
+|---|---|---|---|---|
+| P1 | `default` (no grammar) | schema + tools | 12 | Downgrade path (strict:true silently downgraded) |
+| P2 | `grammar-enabled` | schema + tools | 12 | Enforcement path (xgrammar active) |
+| P3 | `grammar-enabled-adaptive-xml` | tools | 7 | Parser flag regression (grammar works without afm_adaptive_xml) |
+| P4 | `grammar-enabled-concurrent` | schema + tools | 12 | Concurrent/batch path grammar |
+| P5 | `grammar-enabled-prefix-cache` | schema + tools | 12 | Prefix caching + grammar interaction |
+| P6 | `grammar-enabled` | mixed-strict | 1 | Schema + tool strict priority (json_schema wins) |
+| P7 | `default` + `grammar-enabled` | header assertions | 4 | X-Grammar-Constraints: downgraded header via JS judge |
 
-**Key files:**
-- `Scripts/gpu-profile-report.py` — full harness (run with `python3 Scripts/gpu-profile-report.py [model]`)
-- `Scripts/gpu-profile.sh` — individual profiling helpers (bandwidth, capture, trace, power)
-- `Scripts/create-shader-template.py` — one-time setup: patches Instruments template for Shader Timeline
-- Report output: `/tmp/afm-gpu-profile.html`, `/tmp/afm-metal.trace`, `/tmp/afm-gpu-samples.json`
+Custom assertion judge: `judges/assert-grammar-header.mjs` — validates presence/absence of `X-Grammar-Constraints` response header.
 
-**CLI flags (can be used on any `afm mlx` invocation):**
-- `--gpu-profile` — zero-overhead per-request stats
-- `--gpu-profile-bw` — + mactop bandwidth sampling (~5s)
-- `--gpu-trace N` — xctrace Metal System Trace for N seconds
-- `--gpu-capture <path>` — full Metal GPU capture (small models only)
-
-## API GPU Profile (`X-AFM-Profile` header)
-
-Per-request GPU profiling via HTTP header — no CLI flags needed, works on any running server.
-
-| Header Value | Response Field | What It Contains |
-|-------------|----------------|------------------|
-| `true` | `afm_profile` | GPU power (avg/peak W), memory (GiB), tok/s, est. bandwidth (GB/s), chip name |
-| `extended` | `afm_profile_extended` | Summary + `samples[]` array of 300ms IOReport readings |
-| *(none)* | *(nothing)* | Standard OpenAI response, zero overhead |
-
-**Implementation details:**
-- GPU power: native IOReport `Energy Model` channel (nJ units)
-- DRAM bandwidth: IOReport DRAM power (mJ units) × calibrated GB/s-per-watt constant
-- Calibration: 1 GiB MLX GPU stress at startup (~2s, async, non-blocking, runs once)
-- Sampling: DispatchSource timer every 300ms, first sample at 100ms
-- Per-request isolation: atomic guard, concurrent profiled requests skip gracefully
-- Streaming: profile data sent as SSE event before `[DONE]`
-- No null pollution: `encodeIfPresent` omits profile fields when not requested
-
-**Test cases:**
-| Test | What to verify |
-|------|---------------|
-| `X-AFM-Profile: true` non-streaming | `afm_profile` present with GPU power, memory, bandwidth |
-| `X-AFM-Profile: extended` non-streaming | `afm_profile_extended` with `summary` + `samples[]` |
-| `X-AFM-Profile: true` streaming | SSE `data: {"afm_profile": {...}}` before `data: [DONE]` |
-| `X-AFM-Profile: extended` streaming | SSE `data: {"afm_profile_extended": {...}}` before `data: [DONE]` |
-| No header | No `afm_profile` or `afm_profile_extended` in response |
-| Concurrent profiled requests | Second request completes without profile (skipped) |
-| Short request (<300ms) | At least 1 sample in `gpu_samples` |
-| DRAM calibration | `[CALIBRATE]` log at startup with GB/s per watt |
-| Tool call response with profile | `afm_profile` present alongside `tool_calls` |
 
 ## Other Test Scripts
 

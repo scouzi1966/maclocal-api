@@ -1,0 +1,51 @@
+# Grammar Constraints — header assertion: X-Grammar-Constraints: downgraded
+# Validates: when CLI lacks --enable-grammar-constraints and strict: true is requested,
+# the server returns X-Grammar-Constraints: downgraded header.
+# Run against: afm-no-grammar provider only.
+
+- description: "header downgraded — json_schema strict:true"
+  vars:
+    prompt: "Return a color record for blue, hex #0000FF."
+    response_format:
+      type: json_schema
+      json_schema:
+        name: color_record
+        strict: true
+        schema:
+          type: object
+          additionalProperties: false
+          properties:
+            color:
+              type: string
+            hex:
+              type: string
+          required: [color, hex]
+  assert:
+    - type: is-json
+    - type: javascript
+      value: file://judges/assert-grammar-header.mjs
+      config:
+        expectDowngraded: true
+
+- description: "header downgraded — tool strict:true"
+  vars:
+    prompt: "What is the weather in Sydney?"
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: "Get weather for a location"
+          strict: true
+          parameters:
+            type: object
+            properties:
+              location:
+                type: string
+            required: [location]
+    tool_choice: required
+  assert:
+    - type: is-json
+    - type: javascript
+      value: file://judges/assert-grammar-header.mjs
+      config:
+        expectDowngraded: true
