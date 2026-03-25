@@ -43,7 +43,19 @@ Upload a JSONL file for batch processing.
 
 #### `GET /v1/files/{file_id}`
 
-Returns file metadata.
+Returns file metadata (same shape as `POST /v1/files` response).
+
+**Response:**
+```json
+{
+  "id": "file-abc123",
+  "object": "file",
+  "bytes": 12345,
+  "created_at": 1711471533,
+  "filename": "requests.jsonl",
+  "purpose": "batch"
+}
+```
 
 #### `GET /v1/files/{file_id}/content`
 
@@ -52,6 +64,15 @@ Returns raw file content (JSONL). Used to download batch results.
 #### `DELETE /v1/files/{file_id}`
 
 Removes file from in-memory store.
+
+**Response:**
+```json
+{
+  "id": "file-abc123",
+  "object": "file",
+  "deleted": true
+}
+```
 
 ### Batch Endpoints
 
@@ -98,9 +119,9 @@ Create and immediately dispatch a batch.
 **Dispatch flow:**
 1. Parse input JSONL, validate each request
 2. Call `ensureBatchMode()` to auto-promote if needed
-3. Reserve slots for all requests (or return 503 if insufficient capacity)
+3. Reserve slots atomically via `BatchScheduler.tryReserveMultiple(count:) -> Bool`. This checks and reserves N slots in a single atomic operation — if insufficient capacity, no slots are reserved and the endpoint returns 503. If `requestCount > maxConcurrent`, the batch is rejected (batch size cannot exceed scheduler capacity).
 4. Submit each request to `BatchScheduler.submit()`
-5. Collect results asynchronously into output JSONL
+5. Collect results asynchronously into output JSONL via background `Task` per request
 6. Return batch object with `status: "in_progress"`
 
 #### `GET /v1/batches/{batch_id}`
@@ -131,9 +152,11 @@ Poll batch status.
 
 **Output JSONL format:**
 ```jsonl
-{"id": "batch_req_001", "custom_id": "req-1", "response": {"status_code": 200, "request_id": "req-abc", "body": {"id": "chatcmpl-abc", "object": "chat.completion", "created": 1711471535, "model": "qwen3-coder", "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}}}, "error": null}
-{"id": "batch_req_002", "custom_id": "req-2", "response": {"status_code": 200, "request_id": "req-def", "body": {"id": "chatcmpl-def", "object": "chat.completion", "created": 1711471536, "model": "qwen3-coder", "choices": [{"index": 0, "message": {"role": "assistant", "content": "World!"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 8, "completion_tokens": 3, "total_tokens": 11}}}, "error": null}
+{"id": "batch_req_001", "custom_id": "req-1", "response": {"status_code": 200, "request_id": "req_001", "body": {"id": "chatcmpl-abc", "object": "chat.completion", "created": 1711471535, "model": "qwen3-coder", "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}}}, "error": null}
+{"id": "batch_req_002", "custom_id": "req-2", "response": {"status_code": 200, "request_id": "req_002", "body": {"id": "chatcmpl-def", "object": "chat.completion", "created": 1711471536, "model": "qwen3-coder", "choices": [{"index": 0, "message": {"role": "assistant", "content": "World!"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 8, "completion_tokens": 3, "total_tokens": 11}}}, "error": null}
 ```
+
+Note: `request_id` is a server-generated UUID per request (matching the `X-Request-ID` convention). Not derived from existing types — generated fresh per batch request entry.
 
 #### `GET /v1/batches`
 
@@ -141,7 +164,7 @@ List all batches. Returns array of batch objects.
 
 #### `POST /v1/batches/{batch_id}/cancel`
 
-Cancel a running batch. Signals all in-progress slots to stop.
+Cancel a running batch. Cancellation mechanism: set a per-slot `isCancelled` flag on each slot belonging to the batch. The `generationLoop()` checks this flag at the top of each decode step and finishes the continuation with a cancellation error (`finish_reason: "cancelled"`). The batch transitions to `cancelling` immediately, then `cancelled` once all slots have drained.
 
 ### Batch Statuses
 
@@ -207,19 +230,26 @@ data: [DONE]
 data: {"custom_id":"req-3","object":"batch.error","error":{"message":"Context length exceeded","type":"invalid_request_error"}}
 ```
 
-**Validation:**
-- Maximum batch size: 64 requests
+**Validation (applies to both endpoints):**
+- Maximum batch size: 64 requests (both OpenAI Batch API and SSE multiplex)
 - Duplicate `custom_id` values rejected with 400
-- Each `body` validated as a standard `ChatCompletionRequest`
+- Each request body validated as a standard `ChatCompletionRequest`
+- `custom_id` must be a non-empty string
+
+**SSE object values:** The stream may contain these `object` types:
+- `chat.completion.chunk` — streaming delta (standard OpenAI)
+- `chat.completion` — complete non-streaming response (standard OpenAI)
+- `batch.error` — per-request error (AFM extension)
 
 ## Auto-Promotion
 
 When the server runs in serial mode (`maxConcurrent = 0`) and a batch request arrives:
 
 1. **Promote:** `MLXModelService.ensureBatchMode(concurrency:)` creates a BatchScheduler with `maxConcurrent = max(requestCount, 8)` and enables RadixTreeCache. Reuses existing `initScheduler()` internals.
-2. **Reference counting:** `activeBatchCount` (atomic `Int`) tracks in-flight batch operations. Incremented on batch start, decremented on batch completion.
-3. **Teardown:** When `activeBatchCount` hits 0 AND the server was originally serial, schedule teardown after a 5-second grace period. If a new batch arrives within the grace period, cancel teardown.
-4. **Already in batch mode:** If `--concurrent` was set at startup, skip promotion/teardown. Requests join the existing scheduler.
+2. **Thread safety:** `ensureBatchMode()` uses the existing `stateLock` to make check-and-create atomic. Inside the lock: check if `scheduler != nil` — if so, return early (idempotent). Otherwise, release lock, create scheduler (requires `await container.perform {}`), re-acquire lock, assign scheduler. A `promotionInProgress` flag prevents concurrent callers from racing past the nil check while the first caller is awaiting scheduler creation.
+3. **Reference counting:** `activeBatchCount` (atomic `Int`) tracks in-flight batch operations. Incremented on batch start, decremented on batch completion.
+4. **Teardown:** When `activeBatchCount` hits 0 AND the server was originally serial AND the scheduler has no active slots (`scheduler.activeCount == 0`), schedule teardown after a 5-second grace period. If a new batch or regular request arrives within the grace period, cancel teardown. This ensures in-flight regular `/v1/chat/completions` requests using the scheduler are not disrupted.
+5. **Already in batch mode:** If `--concurrent` was set at startup, skip promotion/teardown. Requests join the existing scheduler.
 
 ## Non-Streaming Through BatchScheduler
 
@@ -231,6 +261,12 @@ When the server runs in serial mode (`maxConcurrent = 0`) and a batch request ar
 - Shares GPU time fairly across all in-flight requests
 
 The controller-level change is minimal: call `generateStreaming()` + collect instead of `generate()` when a scheduler is active.
+
+**Feature parity notes:** The serial-mode `generate()` path includes GPU capture (`beginGPUCaptureIfNeeded`), GPU trace (`beginGPUTraceIfNeeded`), and GPU profiling (`printGPUProfileHeader`). These features use `container.perform {}` for exclusive model access and are incompatible with batched decode. When a scheduler is active:
+- GPU profiling (`--gpu-profile`): still works — IOReport sampling is independent of the generation path
+- GPU capture/trace: not supported in batch mode (these require exclusive model access). If requested, log a warning and skip.
+- Prompt caching: serial mode uses `PromptCacheBox` (single-slot), batch mode uses `RadixTreeCache` (multi-slot). The switch is automatic — no user-visible difference.
+- Timing/usage data: extracted from the final `StreamChunk` sentinel which carries `promptTokens`, `completionTokens`, `cachedTokens`, `promptTime`, and `generateTime`.
 
 ## In-Memory Storage
 
@@ -257,7 +293,7 @@ Thread-safe dictionary `[String: BatchState]` for batch lifecycle:
 
 ```
 BatchState:
-  id: String          // "batch-<uuid>"
+  id: String          // "batch_<uuid>"
   inputFileId: String
   status: BatchStatus
   requestCounts: RequestCounts  // total, completed, failed
@@ -268,7 +304,7 @@ BatchState:
   error: BatchError?            // batch-level error
 ```
 
-Both stores live in a single `BatchStore` actor for thread safety.
+Both stores live in a single `BatchStore` actor for thread safety. This is acceptable for a local inference server — contention is low since batch operations are infrequent relative to GPU generation time. If contention becomes an issue, the actor can be split into separate `FileStore` and `BatchStore` actors.
 
 ## Files Changed
 
@@ -293,6 +329,18 @@ Both stores live in a single `BatchStore` actor for thread safety.
 5. **Interleaving tests:** Submit batch + regular completion simultaneously, verify both complete
 6. **Python client test:** Use `openai` Python package against the server, verify standard `client.batches` workflow works end-to-end
 7. **Non-streaming fix test:** Submit non-streaming request with `--concurrent`, verify it goes through BatchScheduler (check batched decode logs)
+
+## Implementation Notes
+
+### Tool Calls and Think Extraction in Batch Mode
+
+Both the SSE multiplex controller and the OpenAI batch result collector need per-request instances of the tool call detection state machine (`inToolCall`/`madeToolCall`/`currentToolText`) and think tag extraction (`extractThinkTags`). These are already per-request in the existing `MLXChatCompletionsController` — the batch controllers replicate the same per-request state pattern, one instance per `custom_id`.
+
+The BatchScheduler's `SlotState` already handles tool call runtime and think tag extraction at the generation level (via `ToolCallStreamingRuntime` and `thinkStartTag`/`thinkEndTag`). The controller layer only needs to handle the higher-level SSE formatting of these events.
+
+### ChatCompletionRequest Decoding
+
+`ChatCompletionRequest` conforms to Vapor's `Content` protocol. When decoding batch request bodies from nested JSON (not from a Vapor HTTP request), use standard `JSONDecoder` rather than `req.content.decode()`. The `CodingKeys` are already defined on the struct, so `JSONDecoder` works correctly.
 
 ## Out of Scope
 
