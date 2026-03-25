@@ -527,3 +527,125 @@ struct OpenAIError: Content, Error {
         self.error = ErrorDetail(message: message, type: type, code: code)
     }
 }
+
+// MARK: - Batch API Response Types
+
+/// OpenAI File object for /v1/files endpoints.
+struct FileObject: Content {
+    let id: String
+    let object: String
+    let bytes: Int
+    let createdAt: Int
+    let filename: String
+    let purpose: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, object, bytes
+        case createdAt = "created_at"
+        case filename, purpose
+    }
+
+    init(id: String, bytes: Int, createdAt: Int, filename: String, purpose: String) {
+        self.id = id
+        self.object = "file"
+        self.bytes = bytes
+        self.createdAt = createdAt
+        self.filename = filename
+        self.purpose = purpose
+    }
+}
+
+/// Response for DELETE /v1/files/{id}.
+struct FileDeleteResponse: Content {
+    let id: String
+    let object: String
+    let deleted: Bool
+
+    init(id: String) {
+        self.id = id
+        self.object = "file"
+        self.deleted = true
+    }
+}
+
+/// Batch request counts.
+struct BatchRequestCounts: Content {
+    var total: Int
+    var completed: Int
+    var failed: Int
+}
+
+/// OpenAI Batch object for /v1/batches endpoints.
+struct BatchObject: Content {
+    let id: String
+    let object: String
+    let endpoint: String
+    let inputFileId: String
+    let completionWindow: String
+    var status: String
+    let createdAt: Int
+    var completedAt: Int?
+    var outputFileId: String?
+    var requestCounts: BatchRequestCounts
+
+    enum CodingKeys: String, CodingKey {
+        case id, object, endpoint, status
+        case inputFileId = "input_file_id"
+        case completionWindow = "completion_window"
+        case createdAt = "created_at"
+        case completedAt = "completed_at"
+        case outputFileId = "output_file_id"
+        case requestCounts = "request_counts"
+    }
+}
+
+/// A single result line in the output JSONL file.
+struct BatchResultLine: Codable {
+    let id: String
+    let customId: String
+    let response: BatchResultResponse?
+    let error: BatchError?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case customId = "custom_id"
+        case response, error
+    }
+}
+
+/// The response wrapper inside a batch result line.
+struct BatchResultResponse: Codable {
+    let statusCode: Int
+    let requestId: String
+    let body: ChatCompletionResponse
+
+    enum CodingKeys: String, CodingKey {
+        case statusCode = "status_code"
+        case requestId = "request_id"
+        case body
+    }
+}
+
+/// Error object for batch results and SSE error events.
+struct BatchError: Content {
+    let message: String
+    let type: String
+}
+
+/// Wrapper for OpenAI list responses (GET /v1/batches).
+struct BatchListResponse: Content {
+    let object: String
+    let data: [BatchObject]
+    let hasMore: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case object, data
+        case hasMore = "has_more"
+    }
+
+    init(data: [BatchObject]) {
+        self.object = "list"
+        self.data = data
+        self.hasMore = false
+    }
+}
