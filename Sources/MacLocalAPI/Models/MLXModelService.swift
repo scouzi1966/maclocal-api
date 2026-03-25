@@ -1,5 +1,6 @@
 import Foundation
 import CoreImage
+import os
 import MLX
 import Cmlx
 import MLXLLM
@@ -148,6 +149,19 @@ final class MLXModelService: @unchecked Sendable {
     private var scheduler: BatchScheduler?
     /// Maximum concurrent generations (0 = serial mode, 2+ = batch mode).
     var maxConcurrent: Int = 0
+
+    /// Whether the server was started with --concurrent (persistent batch mode).
+    private var startedInBatchMode = false
+
+    /// Number of in-flight batch operations (for auto-teardown).
+    private let _activeBatchCount = OSAllocatedUnfairLock(initialState: 0)
+
+    /// Whether a promotion is currently in progress (prevents races).
+    private var promotionInProgress = false
+
+    /// Scheduled teardown work item (cancelled if new batch arrives).
+    private var teardownWorkItem: DispatchWorkItem?
+
     /// Atomically reserve a concurrent slot. Returns true if reserved (or serial mode).
     func tryReserveSlot() -> Bool { scheduler?.tryReserve() ?? true }
     /// Release a reserved slot (call if request fails before generation starts).
@@ -1082,6 +1096,7 @@ final class MLXModelService: @unchecked Sendable {
     /// from the container. Must be called after ensureLoaded() and only when maxConcurrent >= 2.
     func initScheduler() async throws {
         guard maxConcurrent >= 2 else { return }
+        startedInBatchMode = true
         guard let container = withStateLock({ currentContainer }) else {
             throw MLXServiceError.noModelLoaded
         }
@@ -1100,6 +1115,105 @@ final class MLXModelService: @unchecked Sendable {
         }
         self.scheduler = sched
         print("[\(ts())] Concurrent mode: up to \(limit) parallel generations\(prefixCaching ? " (prefix caching enabled)" : "")")
+    }
+
+    /// Auto-promote from serial to batch mode for batch requests.
+    /// Thread-safe: uses stateLock + promotionInProgress to prevent races.
+    func ensureBatchMode(concurrency: Int) async throws {
+        // Fast path: scheduler already exists
+        if withStateLock({ scheduler != nil }) {
+            _activeBatchCount.withLock { $0 += 1 }
+            // Cancel any pending teardown
+            teardownWorkItem?.cancel()
+            teardownWorkItem = nil
+            return
+        }
+
+        // Check if another caller is already promoting
+        let shouldPromote = withStateLock { () -> Bool in
+            if scheduler != nil { return false }
+            if promotionInProgress { return false }
+            promotionInProgress = true
+            return true
+        }
+
+        if !shouldPromote {
+            // Wait for the other caller to finish promotion
+            while withStateLock({ promotionInProgress && scheduler == nil }) {
+                try await Task.sleep(nanoseconds: 10_000_000) // 10ms
+            }
+            _activeBatchCount.withLock { $0 += 1 }
+            return
+        }
+
+        // Promote: create scheduler
+        let limit = max(concurrency, 8)
+        self.maxConcurrent = limit
+        self.enablePrefixCaching = true
+
+        guard let container = withStateLock({ currentContainer }) else {
+            withStateLock { promotionInProgress = false }
+            throw MLXServiceError.noModelLoaded
+        }
+
+        let sched = await container.perform { context -> BatchScheduler in
+            BatchScheduler(
+                model: context.model,
+                tokenizer: context.tokenizer,
+                processor: context.processor,
+                configuration: context.configuration,
+                maxConcurrent: limit,
+                enablePrefixCaching: true,
+                cacheProfilePath: self.cacheProfilePath
+            )
+        }
+
+        withStateLock {
+            self.scheduler = sched
+            self.promotionInProgress = false
+        }
+        _activeBatchCount.withLock { $0 += 1 }
+        print("[\(ts())] Auto-promoted to batch mode: \(limit) concurrent slots (prefix caching enabled)")
+    }
+
+    /// Decrement batch reference count and schedule teardown if appropriate.
+    func releaseBatchReference() {
+        let remaining = _activeBatchCount.withLock { count -> Int in
+            count = max(0, count - 1)
+            return count
+        }
+
+        // Only teardown if auto-promoted (not started with --concurrent)
+        guard !startedInBatchMode, remaining == 0 else { return }
+
+        // Schedule teardown after grace period
+        teardownWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            Task {
+                await self.performTeardownIfIdle()
+            }
+        }
+        teardownWorkItem = workItem
+        DispatchQueue.global().asyncAfter(deadline: .now() + 5.0, execute: workItem)
+    }
+
+    /// Tear down auto-promoted scheduler if no active slots or batches.
+    private func performTeardownIfIdle() async {
+        let shouldTeardown = _activeBatchCount.withLock { $0 == 0 }
+        guard shouldTeardown else { return }
+
+        // Check scheduler has no active slots
+        if let sched = withStateLock({ scheduler }) {
+            guard sched.activeSlotCount == 0 else { return }
+        }
+
+        withStateLock {
+            self.scheduler = nil
+            self.maxConcurrent = 0
+            self.enablePrefixCaching = false
+        }
+        print("[\(ts())] Auto-teardown: returned to serial mode")
     }
 
     func generate(
