@@ -680,17 +680,13 @@ public struct TokenIterator: Sequence, IteratorProtocol {
             // evaluate the remainder of the prompt -- this primes the pump
             let token = step(previous: tokens)
             y = .init(tokens: token)
-            // Sync-evaluate first token and free prefill intermediates.
-            // Without this, async graph holds ~12 GB for large MoE models.
-            MLX.eval(token)  // mlx_lm equivalent: mx.eval(y) after prefill
-            Memory.clearCache()
+            asyncEval(token)
 
         case .logits(let result):
             y = .init(tokens: convertToToken(logits: result.logits))
             if let y {
                 asyncEval(y.tokens)
             }
-            Memory.clearCache()
 
             break
         }

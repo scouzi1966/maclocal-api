@@ -29,9 +29,8 @@ extension LLMModel {
         while y.tokens.size > prefillStepSize {
             let input = y[.newAxis, ..<prefillStepSize]
             _ = self(input, cache: cache.isEmpty ? nil : cache, state: nil)
-            MLX.eval(cache.flatMap { $0.state })
+            eval(cache)
             y = y[prefillStepSize...]
-            Memory.clearCache()
         }
 
         return .tokens(y)
