@@ -208,24 +208,84 @@ struct MLXChatCompletionsController: RouteCollection {
                     "\(Self.orange)[\(Self.timestamp())] MLX start: stream=false\n  prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens)\n  temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\n  top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none")\n  seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
                 ); fflush(stdout)
             }
-            let result = try await service.generate(
-                model: modelID,
-                messages: chatRequest.messages,
-                temperature: effectiveTemp,
-                maxTokens: effectiveMaxTokens,
-                topP: effectiveTopP,
-                repetitionPenalty: effectiveRepetitionPenalty,
-                topK: effectiveTopK,
-                minP: effectiveMinP,
-                presencePenalty: effectivePresencePenalty,
-                seed: effectiveSeed,
-                logprobs: chatRequest.logprobs,
-                topLogprobs: chatRequest.topLogprobs,
-                tools: effectiveTools,
-                stop: effectiveStop,
-                responseFormat: chatRequest.responseFormat,
-                chatTemplateKwargs: chatRequest.chatTemplateKwargs
-            )
+            let result: ChatGenerationResult
+            if service.maxConcurrent >= 2 {
+                // Batch mode: route through scheduler for batched decode
+                let streamResult: ChatStreamingResult = try await service.generateStreaming(
+                    model: modelID,
+                    messages: chatRequest.messages,
+                    temperature: effectiveTemp,
+                    maxTokens: effectiveMaxTokens,
+                    topP: effectiveTopP,
+                    repetitionPenalty: effectiveRepetitionPenalty,
+                    topK: effectiveTopK,
+                    minP: effectiveMinP,
+                    presencePenalty: effectivePresencePenalty,
+                    seed: effectiveSeed,
+                    logprobs: chatRequest.logprobs,
+                    topLogprobs: chatRequest.topLogprobs,
+                    tools: effectiveTools,
+                    stop: effectiveStop,
+                    responseFormat: chatRequest.responseFormat,
+                    chatTemplateKwargs: chatRequest.chatTemplateKwargs
+                )
+
+                // Collect stream into complete response
+                var fullText = ""
+                var allLogprobs: [ResolvedLogprob] = []
+                var finalToolCalls: [ResponseToolCall]? = nil
+                var promptTokens = streamResult.promptTokens
+                var completionTokens = 0
+                var cachedTokens = 0
+                var promptTime: Double = 0
+                var generateTime: Double = 0
+                var stoppedBySequence = false
+
+                for try await chunk in streamResult.stream {
+                    fullText += chunk.text
+                    if let lp = chunk.logprobs { allLogprobs.append(contentsOf: lp) }
+                    if let tc = chunk.toolCalls { finalToolCalls = tc }
+                    if let pt = chunk.promptTokens { promptTokens = pt }
+                    if let ct = chunk.completionTokens { completionTokens = ct }
+                    if let cached = chunk.cachedTokens { cachedTokens = cached }
+                    if let pt = chunk.promptTime { promptTime = pt }
+                    if let gt = chunk.generateTime { generateTime = gt }
+                    if let sbs = chunk.stoppedBySequence { stoppedBySequence = sbs }
+                }
+
+                result = (
+                    modelID: streamResult.modelID,
+                    content: fullText,
+                    promptTokens: promptTokens,
+                    completionTokens: completionTokens,
+                    tokenLogprobs: allLogprobs.isEmpty ? nil : allLogprobs,
+                    toolCalls: finalToolCalls,
+                    cachedTokens: cachedTokens,
+                    promptTime: promptTime,
+                    generateTime: generateTime,
+                    stoppedBySequence: stoppedBySequence
+                )
+            } else {
+                // Serial mode: use existing generate() path
+                result = try await service.generate(
+                    model: modelID,
+                    messages: chatRequest.messages,
+                    temperature: effectiveTemp,
+                    maxTokens: effectiveMaxTokens,
+                    topP: effectiveTopP,
+                    repetitionPenalty: effectiveRepetitionPenalty,
+                    topK: effectiveTopK,
+                    minP: effectiveMinP,
+                    presencePenalty: effectivePresencePenalty,
+                    seed: effectiveSeed,
+                    logprobs: chatRequest.logprobs,
+                    topLogprobs: chatRequest.topLogprobs,
+                    tools: effectiveTools,
+                    stop: effectiveStop,
+                    responseFormat: chatRequest.responseFormat,
+                    chatTemplateKwargs: chatRequest.chatTemplateKwargs
+                )
+            }
             let completionTok = result.completionTokens
             let promptTime = result.promptTime
             let generateTime = result.generateTime
