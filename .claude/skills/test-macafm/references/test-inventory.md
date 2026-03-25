@@ -75,6 +75,18 @@ Master table of every test case across all test scripts.
 \* Think tests auto-skip if model doesn't support `<think>` tags.
 † Section 13 Grammar tests require `--grammar-constraints` flag. Section 14 adapts assertions based on `--grammar-constraints` presence.
 
+| 66 | Batch | POST /v1/files upload returns file ID | std+ | File upload |
+| 67 | Batch | GET /v1/files/:id returns file metadata | std+ | File retrieval |
+| 68 | Batch | POST /v1/batches creates batch | std+ | Batch creation |
+| 69 | Batch | GET /v1/batches/:id polls to completed | std+ | Batch polling |
+| 70 | Batch | Output JSONL contains both results (2/2) | std+ | Output retrieval |
+| 71 | Batch | GET /v1/batches lists completed batch | std+ | Batch listing |
+| 72 | Batch | DELETE /v1/files/:id removes uploaded file | std+ | File deletion |
+| 73 | Batch | SSE multiplex: 2 non-streaming requests tagged | std+ | SSE multiplex |
+| 74 | Batch | SSE multiplex: streaming interleaved with finish | std+ | SSE streaming |
+| 75 | Batch | SSE multiplex rejects duplicate custom_ids | std+ | Validation |
+| 76 | Batch | SSE multiplex rejects empty requests | std+ | Validation |
+
 ## Smart Analysis Tests (`test-edge-cases.txt`)
 
 | Label | Section | What AI Judge Evaluates |
@@ -112,6 +124,7 @@ Run automatically by `test-assertions.sh --tier unit` (and all higher tiers).
 | `NullableToolSchemaTests.swift` | — | Nullable tool schema parsing |
 | `XMLToolCallParsingTests.swift` | — | XML tool call format parsing |
 | `StrictGrammarWiringTests.swift` | 16 | hasStrictTools() (nil/empty/true/false/nil/mixed), RequestToolFunction strict decoding (true/false/absent/array), ResponseJsonSchema strict decoding (true/false/absent), ResponseFormat json_schema strict detection (true/false/json_object) |
+| `BatchDispatchTests.swift` | 71 | BatchStore file/batch CRUD, concurrent access, type serialization round-trips, JSONL parsing edge cases, Vapor integration tests for BatchAPIController (file endpoints, batch endpoints, validation, e2e dispatch+polling) and BatchCompletionsController (SSE headers, streaming/non-streaming, error events, slot reservation, mixed mode) |
 
 ## OpenAI Compatibility Evals (`test-openai-compat-evals.py`)
 

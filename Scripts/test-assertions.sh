@@ -3796,6 +3796,251 @@ except Exception as e:
 
 fi
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Section 15: Batch Dispatch API (standard tier)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Tests the OpenAI-compatible Batch API (/v1/files, /v1/batches) and the
+# SSE multiplex endpoint (/v1/batch/completions). Validates file upload,
+# batch creation, immediate dispatch, polling, output retrieval, and
+# multiplexed streaming.
+
+if should_run_section 15 && min_tier standard; then
+  CURRENT_TIER="standard"
+  echo ""
+  echo "📦 Section 15: Batch Dispatch API"
+
+  # ── Test 15.1: POST /v1/files upload ───────────────────────────────────
+  BATCH_JSONL_LINE='{"custom_id":"assert-1","method":"POST","url":"/v1/chat/completions","body":{"model":"'"$MODEL"'","messages":[{"role":"user","content":"Say hello in 3 words"}],"max_tokens":20}}'
+  BATCH_JSONL_LINE2='{"custom_id":"assert-2","method":"POST","url":"/v1/chat/completions","body":{"model":"'"$MODEL"'","messages":[{"role":"user","content":"What is 2+2? Just the number"}],"max_tokens":10}}'
+
+  BATCH_TMPFILE=$(mktemp /tmp/afm-batch-XXXXXX.jsonl)
+  printf '%s\n%s\n' "$BATCH_JSONL_LINE" "$BATCH_JSONL_LINE2" > "$BATCH_TMPFILE"
+
+  t0=$(now_ms)
+  file_resp=$(curl -sf --max-time 10 "$BASE_URL/v1/files" \
+    -F purpose=batch \
+    -F "file=@$BATCH_TMPFILE" 2>/dev/null || echo '{"error":"curl_failed"}')
+  dur=$(( $(now_ms) - t0 ))
+  file_id=$(echo "$file_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+  if [ -n "$file_id" ] && [ "$file_id" != "" ]; then
+    run_test "Batch" "POST /v1/files upload returns file ID" "file-*" "PASS" "$dur"
+  else
+    run_test "Batch" "POST /v1/files upload returns file ID" "file-*" "FAIL: $file_resp" "$dur"
+  fi
+
+  # ── Test 15.2: GET /v1/files/:id returns metadata ─────────────────────
+  t0=$(now_ms)
+  get_file_resp=$(curl -sf --max-time 10 "$BASE_URL/v1/files/$file_id" 2>/dev/null || echo '{"error":"curl_failed"}')
+  dur=$(( $(now_ms) - t0 ))
+  get_file_ok=$(echo "$get_file_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if d.get('id') and d.get('object') == 'file':
+        print('PASS')
+    else:
+        print(f'FAIL: {d}')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$get_file_ok" = "PASS" ]; then
+    run_test "Batch" "GET /v1/files/:id returns file metadata" "file object" "PASS" "$dur"
+  else
+    run_test "Batch" "GET /v1/files/:id returns file metadata" "file object" "$get_file_ok" "$dur"
+  fi
+
+  # ── Test 15.3: POST /v1/batches creates batch with in_progress ────────
+  t0=$(now_ms)
+  batch_resp=$(curl -sf --max-time 10 "$BASE_URL/v1/batches" \
+    -H 'Content-Type: application/json' \
+    -d "{\"input_file_id\":\"$file_id\",\"endpoint\":\"/v1/chat/completions\",\"completion_window\":\"24h\"}" 2>/dev/null || echo '{"error":"curl_failed"}')
+  dur=$(( $(now_ms) - t0 ))
+  batch_id=$(echo "$batch_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+  batch_status=$(echo "$batch_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null)
+  if [ -n "$batch_id" ] && { [ "$batch_status" = "in_progress" ] || [ "$batch_status" = "completed" ]; }; then
+    run_test "Batch" "POST /v1/batches creates batch" "in_progress|completed" "PASS" "$dur"
+  else
+    run_test "Batch" "POST /v1/batches creates batch" "in_progress|completed" "FAIL: status=$batch_status id=$batch_id" "$dur"
+  fi
+
+  # ── Test 15.4: GET /v1/batches/:id polls to completed ─────────────────
+  t0=$(now_ms)
+  batch_final_status="unknown"
+  for _poll in $(seq 1 30); do
+    poll_resp=$(curl -sf --max-time 10 "$BASE_URL/v1/batches/$batch_id" 2>/dev/null || echo '{}')
+    batch_final_status=$(echo "$poll_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null)
+    if [ "$batch_final_status" = "completed" ] || [ "$batch_final_status" = "failed" ]; then
+      break
+    fi
+    sleep 2
+  done
+  dur=$(( $(now_ms) - t0 ))
+  if [ "$batch_final_status" = "completed" ]; then
+    run_test "Batch" "GET /v1/batches/:id polls to completed" "completed" "PASS" "$dur"
+  else
+    run_test "Batch" "GET /v1/batches/:id polls to completed" "completed" "FAIL: $batch_final_status" "$dur"
+  fi
+
+  # ── Test 15.5: Output file has both results (2/2 completed) ───────────
+  output_file_id=$(echo "$poll_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('output_file_id',''))" 2>/dev/null)
+  t0=$(now_ms)
+  output_content=$(curl -sf --max-time 10 "$BASE_URL/v1/files/$output_file_id/content" 2>/dev/null || echo '')
+  dur=$(( $(now_ms) - t0 ))
+  output_ok=$(echo "$output_content" | python3 -c "
+import sys, json
+lines = [l.strip() for l in sys.stdin if l.strip()]
+if len(lines) < 2:
+    print(f'FAIL: expected 2 lines, got {len(lines)}')
+else:
+    ids = set()
+    for l in lines:
+        obj = json.loads(l)
+        ids.add(obj.get('custom_id',''))
+        r = obj.get('response', {})
+        if r.get('status_code') != 200:
+            print(f'FAIL: status_code={r.get(\"status_code\")}')
+            sys.exit()
+    if 'assert-1' in ids and 'assert-2' in ids:
+        print('PASS')
+    else:
+        print(f'FAIL: missing custom_ids, got {ids}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$output_ok" = "PASS" ]; then
+    run_test "Batch" "Output JSONL contains both results (2/2)" "assert-1 + assert-2" "PASS" "$dur"
+  else
+    run_test "Batch" "Output JSONL contains both results (2/2)" "assert-1 + assert-2" "$output_ok" "$dur"
+  fi
+
+  # ── Test 15.6: GET /v1/batches lists the batch ────────────────────────
+  t0=$(now_ms)
+  list_resp=$(curl -sf --max-time 10 "$BASE_URL/v1/batches" 2>/dev/null || echo '{}')
+  dur=$(( $(now_ms) - t0 ))
+  list_ok=$(echo "$list_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if d.get('object') == 'list' and len(d.get('data', [])) > 0:
+        print('PASS')
+    else:
+        print(f'FAIL: {d}')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$list_ok" = "PASS" ]; then
+    run_test "Batch" "GET /v1/batches lists completed batch" "list with ≥1 batch" "PASS" "$dur"
+  else
+    run_test "Batch" "GET /v1/batches lists completed batch" "list with ≥1 batch" "$list_ok" "$dur"
+  fi
+
+  # ── Test 15.7: DELETE /v1/files/:id removes file ──────────────────────
+  t0=$(now_ms)
+  del_resp=$(curl -sf -X DELETE --max-time 10 "$BASE_URL/v1/files/$file_id" 2>/dev/null || echo '{}')
+  dur=$(( $(now_ms) - t0 ))
+  del_ok=$(echo "$del_resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print('PASS' if d.get('deleted') == True else f'FAIL: {d}')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$del_ok" = "PASS" ]; then
+    run_test "Batch" "DELETE /v1/files/:id removes uploaded file" "deleted=true" "PASS" "$dur"
+  else
+    run_test "Batch" "DELETE /v1/files/:id removes uploaded file" "deleted=true" "$del_ok" "$dur"
+  fi
+
+  # ── Test 15.8: SSE multiplex non-streaming ─────────────────────────────
+  t0=$(now_ms)
+  sse_resp=$(curl -sf --max-time 30 -N "$BASE_URL/v1/batch/completions" \
+    -H 'Content-Type: application/json' \
+    -d '{"requests":[{"custom_id":"sse-a","body":{"model":"'"$MODEL"'","messages":[{"role":"user","content":"Say hi"}],"max_tokens":10}},{"custom_id":"sse-b","body":{"model":"'"$MODEL"'","messages":[{"role":"user","content":"Say bye"}],"max_tokens":10}}]}' 2>/dev/null || echo 'ERROR')
+  dur=$(( $(now_ms) - t0 ))
+  sse_ok=$(echo "$sse_resp" | python3 -c "
+import sys
+text = sys.stdin.read()
+has_a = '\"sse-a\"' in text
+has_b = '\"sse-b\"' in text
+has_done = '[DONE]' in text
+has_completion = 'chat.completion' in text
+if has_a and has_b and has_done and has_completion:
+    print('PASS')
+else:
+    missing = []
+    if not has_a: missing.append('sse-a')
+    if not has_b: missing.append('sse-b')
+    if not has_done: missing.append('[DONE]')
+    if not has_completion: missing.append('chat.completion')
+    print(f'FAIL: missing {missing}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$sse_ok" = "PASS" ]; then
+    run_test "Batch" "SSE multiplex: 2 non-streaming requests tagged with custom_id" "sse-a + sse-b + [DONE]" "PASS" "$dur"
+  else
+    run_test "Batch" "SSE multiplex: 2 non-streaming requests tagged with custom_id" "sse-a + sse-b + [DONE]" "$sse_ok" "$dur"
+  fi
+
+  # ── Test 15.9: SSE multiplex streaming interleaved ─────────────────────
+  t0=$(now_ms)
+  sse_stream_resp=$(curl -sf --max-time 30 -N "$BASE_URL/v1/batch/completions" \
+    -H 'Content-Type: application/json' \
+    -d '{"requests":[{"custom_id":"str-x","body":{"model":"'"$MODEL"'","stream":true,"messages":[{"role":"user","content":"Count to 3"}],"max_tokens":15}},{"custom_id":"str-y","body":{"model":"'"$MODEL"'","stream":true,"messages":[{"role":"user","content":"Say ok"}],"max_tokens":10}}]}' 2>/dev/null || echo 'ERROR')
+  dur=$(( $(now_ms) - t0 ))
+  sse_stream_ok=$(echo "$sse_stream_resp" | python3 -c "
+import sys, json
+text = sys.stdin.read()
+lines = [l.strip() for l in text.split('\n') if l.strip().startswith('data: ') and l.strip() != 'data: [DONE]']
+x_count = 0
+y_count = 0
+has_finish_x = False
+has_finish_y = False
+for line in lines:
+    try:
+        chunk = json.loads(line[6:])
+        cid = chunk.get('custom_id', '')
+        if cid == 'str-x': x_count += 1
+        if cid == 'str-y': y_count += 1
+        fr = chunk.get('choices', [{}])[0].get('finish_reason')
+        if fr == 'stop' and cid == 'str-x': has_finish_x = True
+        if fr == 'stop' and cid == 'str-y': has_finish_y = True
+    except: pass
+if x_count > 0 and y_count > 0 and has_finish_x and has_finish_y and '[DONE]' in text:
+    print('PASS')
+else:
+    print(f'FAIL: x={x_count} y={y_count} finish_x={has_finish_x} finish_y={has_finish_y} done={\"[DONE]\" in text}')
+" 2>/dev/null || echo "FAIL: parse error")
+  if [ "$sse_stream_ok" = "PASS" ]; then
+    run_test "Batch" "SSE multiplex: streaming interleaved with finish_reason" "str-x + str-y chunks + stop + [DONE]" "PASS" "$dur"
+  else
+    run_test "Batch" "SSE multiplex: streaming interleaved with finish_reason" "str-x + str-y chunks + stop + [DONE]" "$sse_stream_ok" "$dur"
+  fi
+
+  # ── Test 15.10: Batch rejects duplicate custom_ids ──────────────────────
+  t0=$(now_ms)
+  dup_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$BASE_URL/v1/batch/completions" \
+    -H 'Content-Type: application/json' \
+    -d '{"requests":[{"custom_id":"dup","body":{"model":"'"$MODEL"'","messages":[{"role":"user","content":"a"}]}},{"custom_id":"dup","body":{"model":"'"$MODEL"'","messages":[{"role":"user","content":"b"}]}}]}' 2>/dev/null)
+  dur=$(( $(now_ms) - t0 ))
+  if [ "$dup_code" = "400" ]; then
+    run_test "Batch" "SSE multiplex rejects duplicate custom_ids" "400" "PASS" "$dur"
+  else
+    run_test "Batch" "SSE multiplex rejects duplicate custom_ids" "400" "FAIL: HTTP $dup_code" "$dur"
+  fi
+
+  # ── Test 15.11: Batch rejects empty requests ───────────────────────────
+  t0=$(now_ms)
+  empty_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$BASE_URL/v1/batch/completions" \
+    -H 'Content-Type: application/json' \
+    -d '{"requests":[]}' 2>/dev/null)
+  dur=$(( $(now_ms) - t0 ))
+  if [ "$empty_code" = "400" ]; then
+    run_test "Batch" "SSE multiplex rejects empty requests" "400" "PASS" "$dur"
+  else
+    run_test "Batch" "SSE multiplex rejects empty requests" "400" "FAIL: HTTP $empty_code" "$dur"
+  fi
+
+  rm -f "$BATCH_TMPFILE"
+fi
+
 fi  # end: min_tier smoke (server-dependent sections)
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3870,6 +4115,7 @@ cat > "$REPORT_FILE" <<'HTMLHEAD'
   .group-badge.XMLParsing { color: #f0883e; border-color: #bd561d; }
   .group-badge.NullableSchema { color: #79c0ff; border-color: #388bfd; }
   .group-badge.UnitTest { color: #a5d6ff; border-color: #58a6ff; }
+  .group-badge.Batch { color: #7ee787; border-color: #3fb950; }
   .tier-row td { background: #161b22; padding: 0.6rem 1rem; font-weight: 700; font-size: 0.9rem; border-bottom: 2px solid #30363d; border-top: 2px solid #30363d; }
   .tier-badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600; }
   .tier-badge.unit { background: #1a1a2e; color: #a5d6ff; border: 1px solid #58a6ff; }
