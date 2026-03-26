@@ -2726,6 +2726,19 @@ final class MLXModelService: @unchecked Sendable {
                 continue
             }
 
+            // Try hybrid format: <function=NAME, "arguments": {JSON}}
+            // Some models mix XML function tags with inline JSON arguments.
+            if let tc = parseXMLFunctionWithEmbeddedJSON(inner) {
+                if debugLogging {
+                    print("[\(ts())] [ToolCallParser] XML+embedded-JSON: \(tc.function.name)(\(tc.function.arguments.keys.joined(separator: ", ")))")
+                }
+                toolCalls.insert(tc, at: 0)
+                if let fullRange = Range(match.range, in: remaining) {
+                    remaining.removeSubrange(fullRange)
+                }
+                continue
+            }
+
             // Try JSON format: {"name":"func","arguments":{...}}
             if let tc = parseJSONToolCall(inner) {
                 if debugLogging {
@@ -2856,6 +2869,50 @@ final class MLXModelService: @unchecked Sendable {
             print("[\(ts())] [ToolCallParser] parseXMLFunction: \(funcName) (\(content.count) chars)")
         }
         return parseXMLFunctionRegex(normalized, funcName: funcName)
+    }
+
+    /// Parse hybrid format: `<function=NAME", "arguments": {JSON}}` or `<function=NAME, "arguments": {JSON}>`
+    /// Models sometimes mix XML function tags with inline JSON arguments instead of `<parameter>` tags.
+    private static func parseXMLFunctionWithEmbeddedJSON(_ content: String) -> ToolCall? {
+        // Match <function=NAME followed by optional quote, comma, then "arguments": {JSON}
+        let regex = try! NSRegularExpression(
+            pattern: #"<function=([a-zA-Z_][a-zA-Z0-9_]*)["']?[,\s]*"arguments"\s*:\s*(\{.*\})"#,
+            options: [.dotMatchesLineSeparators]
+        )
+        guard let match = regex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
+              let nameRange = Range(match.range(at: 1), in: content),
+              let argsRange = Range(match.range(at: 2), in: content) else {
+            return nil
+        }
+        let name = String(content[nameRange])
+        var argsStr = String(content[argsRange])
+        // Greedy regex may capture trailing }} — trim until valid JSON.
+        var parsed: [String: Any]?
+        for _ in 0..<3 {
+            if let data = argsStr.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                parsed = obj
+                break
+            }
+            if argsStr.hasSuffix("}") {
+                argsStr = String(argsStr.dropLast())
+            } else {
+                break
+            }
+        }
+        guard let parsed else { return nil }
+        var arguments: [String: String] = [:]
+        for (k, v) in parsed {
+            if let s = v as? String {
+                arguments[k] = s
+            } else if let data = try? JSONSerialization.data(withJSONObject: v),
+                      let s = String(data: data, encoding: .utf8) {
+                arguments[k] = s
+            } else {
+                arguments[k] = "\(v)"
+            }
+        }
+        return ToolCall(function: .init(name: name, arguments: arguments))
     }
 
     /// Regex-based XML function parser with entity decoding.
@@ -3610,15 +3667,26 @@ final class MLXModelService: @unchecked Sendable {
         var chatMessages: [Chat.Message] = []
         var hasSystemMessage = false
         var allTempFiles: [URL] = []
+        // Merge consecutive system/developer messages into one so that Jinja
+        // templates requiring a single system message at position 0 don't fail
+        // (e.g. Qwen3.5). The OpenAI API allows multiple system messages, so
+        // we consolidate them here for broader compatibility.
+        var pendingSystemParts: [String] = []
+        func flushSystemParts() {
+            guard !pendingSystemParts.isEmpty else { return }
+            hasSystemMessage = true
+            chatMessages.append(.system(pendingSystemParts.joined(separator: "\n\n")))
+            pendingSystemParts.removeAll()
+        }
         for m in messages {
             let text = m.textContent
             let media = try extractMedia(from: m)
             allTempFiles.append(contentsOf: media.tempFiles)
             switch m.role {
             case "system", "developer":
-                hasSystemMessage = true
-                chatMessages.append(.system(text))
+                pendingSystemParts.append(text)
             case "assistant":
+                flushSystemParts()
                 if let toolCalls = m.toolCalls, !toolCalls.isEmpty {
                     // Reconstruct assistant tool-call message as text for the chat template.
                     // Models expect tool calls in a specific format that the template handles.
@@ -3634,6 +3702,7 @@ final class MLXModelService: @unchecked Sendable {
                     chatMessages.append(.assistant(text))
                 }
             case "tool":
+                flushSystemParts()
                 // Tool result messages — use the vendor's .tool() factory
                 let toolContent: String
                 if let name = m.name {
@@ -3643,9 +3712,11 @@ final class MLXModelService: @unchecked Sendable {
                 }
                 chatMessages.append(.tool(toolContent))
             default:
+                flushSystemParts()
                 chatMessages.append(.user(text, images: media.images, videos: media.videos))
             }
         }
+        flushSystemParts()
 
         // Align with Vesta behavior: always include a base system instruction
         // when callers don't explicitly provide one.

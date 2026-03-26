@@ -100,12 +100,19 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
         switch modelType.lowercased() {
         case "lfm2", "lfm2_moe":
             return .lfm2
-        case "glm4", "glm4_moe", "glm4_moe_lite":
+        case "glm4", "glm4_moe", "glm4_moe_lite",
+             "glm_moe_dsa":
             return .glm4
         case "gemma":
             return .gemma
-        case "qwen3_next", "qwen3_coder", "qwen3_5_moe", "qwen3_5":
+        case "qwen3_next", "qwen3_coder", "qwen3_5_moe", "qwen3_5",
+             "qwen3_moe", "nemotron_h", "joyai_llm_flash":
             return .xmlFunction
+        case "qwen3_vl", "granitemoehybrid", "bailing_moe",
+             "smollm3", "exaone4":
+            return .json
+        case "mistral3":
+            return .json  // [TOOL_CALLS] JSON format
         default:
             return nil
         }
