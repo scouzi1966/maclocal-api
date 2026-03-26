@@ -310,10 +310,18 @@ private class Qwen3_5Attention: Module {
         fusedQKVMode = qQ.mode
 
         if let fw = fusedQKVWeight, let fs = fusedQKVScales {
-            var toEval: [MLXArray] = [fw, fs]
-            if let fb = fusedQKVBiases { toEval.append(fb) }
-            eval(toEval)
+            var arrays: [MLXArray] = [fw, fs]
+            if let fb = fusedQKVBiases { arrays.append(fb) }
+            MLX.eval(arrays)
         }
+
+        // Release original q/k/v weights -- fused path does not use them
+        let tiny = MLXArray(Float16(0))
+        self.update(parameters: ModuleParameters.unflattened([
+            "q_proj.weight": tiny, "q_proj.scales": tiny,
+            "k_proj.weight": tiny, "k_proj.scales": tiny,
+            "v_proj.weight": tiny, "v_proj.scales": tiny,
+        ]))
     }
 
     func callAsFunction(
@@ -426,12 +434,19 @@ private class Qwen3_5MLP: Module, UnaryLayer {
         fusedBits = qGate.bits
         fusedMode = qGate.mode
 
-        // Force evaluate so the concat is materialized once
+        // Materialize fused tensors, then release originals
         if let fw = fusedWeight, let fs = fusedScales {
-            var toEval: [MLXArray] = [fw, fs]
-            if let fb = fusedBiases { toEval.append(fb) }
-            eval(toEval)
+            var arrays: [MLXArray] = [fw, fs]
+            if let fb = fusedBiases { arrays.append(fb) }
+            MLX.eval(arrays)
         }
+
+        // Release original gate/up weights -- fused path does not use them
+        let tiny = MLXArray(Float16(0))
+        self.update(parameters: ModuleParameters.unflattened([
+            "gate.weight": tiny, "gate.scales": tiny,
+            "up.weight": tiny, "up.scales": tiny,
+        ]))
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
@@ -567,10 +582,19 @@ private class Qwen3_5GatedDeltaNet: Module {
         fusedInProjMode = qQKV.mode
 
         if let fw = fusedInProjWeight, let fs = fusedInProjScales {
-            var toEval: [MLXArray] = [fw, fs]
-            if let fb = fusedInProjBiases { toEval.append(fb) }
-            eval(toEval)
+            var arrays: [MLXArray] = [fw, fs]
+            if let fb = fusedInProjBiases { arrays.append(fb) }
+            MLX.eval(arrays)
         }
+
+        // Release original projection weights -- fused path does not use them
+        let tiny = MLXArray(Float16(0))
+        self.update(parameters: ModuleParameters.unflattened([
+            "in_proj_qkv.weight": tiny, "in_proj_qkv.scales": tiny,
+            "in_proj_z.weight": tiny, "in_proj_z.scales": tiny,
+            "in_proj_b.weight": tiny, "in_proj_b.scales": tiny,
+            "in_proj_a.weight": tiny, "in_proj_a.scales": tiny,
+        ]))
     }
 
     func callAsFunction(

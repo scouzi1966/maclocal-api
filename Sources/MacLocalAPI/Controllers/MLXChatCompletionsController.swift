@@ -1,5 +1,6 @@
 import Vapor
 import Foundation
+import MLX
 import MLXLMCommon
 
 struct FinalizedAssistantTurn {
@@ -171,6 +172,10 @@ struct MLXChatCompletionsController: RouteCollection {
                 ))
                 return response
             }
+
+            // Reset peak memory before each request so usage.peak_memory_gib
+            // reflects this request only (matches mlx_lm's mx.reset_peak_memory())
+            GPU.resetPeakMemory()
 
             let isWebUI = req.headers.first(name: .origin) != nil
             let extractThinking = !rawOutput || isWebUI

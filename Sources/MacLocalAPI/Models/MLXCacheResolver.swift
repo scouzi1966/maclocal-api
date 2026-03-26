@@ -22,11 +22,31 @@ struct MLXCacheResolver {
     func normalizedModelID(_ input: String) -> String {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return trimmed }
+        // Absolute or relative filesystem path: resolve to absolute if it exists on disk
+        if trimmed.hasPrefix("/") || trimmed.hasPrefix("./") || trimmed.hasPrefix("..") {
+            let url = URL(fileURLWithPath: trimmed).standardized
+            if FileManager.default.fileExists(atPath: url.path) {
+                return url.path
+            }
+        }
+        // Check if it's a relative path that exists on disk (e.g. "models/foo")
+        if trimmed.contains("/") {
+            let url = URL(fileURLWithPath: trimmed).standardized
+            if FileManager.default.fileExists(atPath: url.path) {
+                return url.path
+            }
+        }
         if trimmed.contains("/") { return trimmed }
         return "mlx-community/\(trimmed)"
     }
 
     func localModelDirectory(repoId: String) -> URL? {
+        // Absolute path: check directly (no HF cache resolution)
+        if repoId.hasPrefix("/") {
+            let url = URL(fileURLWithPath: repoId)
+            return resolvedIfComplete(url)
+        }
+
         let parts = repoId.split(separator: "/", maxSplits: 1).map(String.init)
         let org = parts.count > 1 ? parts[0] : "mlx-community"
         let model = parts.count > 1 ? parts[1] : repoId

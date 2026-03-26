@@ -1,5 +1,6 @@
 import Vapor
 import Foundation
+import MLX
 
 /// AFM-specific GPU profiling data, returned when client sends `X-AFM-Profile: true` header.
 struct AFMProfile: Content {
@@ -258,6 +259,7 @@ struct Usage: Content {
     let totalTime: Double?
     let completionTokensPerSecond: Double?
     let promptTokensPerSecond: Double?
+    let peakMemoryGib: Double?
 
     enum CodingKeys: String, CodingKey {
         case promptTokens = "prompt_tokens"
@@ -269,6 +271,7 @@ struct Usage: Content {
         case totalTime = "total_time"
         case completionTokensPerSecond = "completion_tokens_per_second"
         case promptTokensPerSecond = "prompt_tokens_per_second"
+        case peakMemoryGib = "peak_memory_gib"
     }
 
     init(promptTokens: Int, completionTokens: Int, totalTokens: Int, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil) {
@@ -304,6 +307,10 @@ struct Usage: Content {
         } else {
             self.promptTokensPerSecond = nil
         }
+
+        // Lightweight peak memory from MLX allocator counter — no GPU profiling overhead
+        let gib = 1024.0 * 1024.0 * 1024.0
+        self.peakMemoryGib = (Double(Memory.snapshot().peakMemory) / gib * 10).rounded() / 10
     }
 }
 
