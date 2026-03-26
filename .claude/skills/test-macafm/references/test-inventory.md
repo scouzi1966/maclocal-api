@@ -124,7 +124,7 @@ Run automatically by `test-assertions.sh --tier unit` (and all higher tiers).
 | `NullableToolSchemaTests.swift` | — | Nullable tool schema parsing |
 | `XMLToolCallParsingTests.swift` | — | XML tool call format parsing |
 | `StrictGrammarWiringTests.swift` | 16 | hasStrictTools() (nil/empty/true/false/nil/mixed), RequestToolFunction strict decoding (true/false/absent/array), ResponseJsonSchema strict decoding (true/false/absent), ResponseFormat json_schema strict detection (true/false/json_object) |
-| `BatchDispatchTests.swift` | 71 | BatchStore file/batch CRUD, concurrent access, type serialization round-trips, JSONL parsing edge cases, Vapor integration tests for BatchAPIController (file endpoints, batch endpoints, validation, e2e dispatch+polling) and BatchCompletionsController (SSE headers, streaming/non-streaming, error events, slot reservation, mixed mode) |
+| `BatchDispatchTests.swift` | 89 | BatchStore file/batch CRUD, concurrent access, type serialization round-trips, JSONL parsing edge cases, Vapor integration tests for BatchAPIController (file endpoints, batch endpoints, validation, e2e dispatch+polling) and BatchCompletionsController (SSE headers, streaming/non-streaming, error events, slot reservation, mixed mode). StreamCollector: think extraction (single/multi-chunk/disabled/with-tools), logprobs collection+conversion, finish reason (tool_calls/stop/length/default), timing stats, edge cases. BatchPostProcessingParity: reasoning_content, logprobs, tool_calls in batch output, grammar downgrade header |
 
 ## OpenAI Compatibility Evals (`test-openai-compat-evals.py`)
 

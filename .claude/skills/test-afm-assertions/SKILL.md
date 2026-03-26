@@ -88,7 +88,7 @@ Use this skill when the user asks to:
 | 11 | XMLTools | standard | **XML tool call deep validation** (10 tests) |
 | 12 | AdaptiveXML | standard | afm_adaptive_xml parser (14 tests: JSON-in-XML fallback, coercion, entity decoding, EBNF) |
 | 13 | Grammar | standard | **Grammar constraint validation** (8 tests, requires `--grammar-constraints`) |
-| 15 | Batch | standard | **Batch dispatch API** (11 tests: file CRUD, batch create/poll/list, output JSONL, SSE multiplex non-streaming/streaming, validation) |
+| 15 | Batch | standard | **Batch dispatch API** (11 tests: file CRUD, batch create/poll/list, output JSONL, SSE multiplex non-streaming/streaming, validation). Post-processing parity: think extraction, logprobs, tool calls, grammar header via StreamCollector |
 | 9 | Perf | full | TTFT, tok/s, long context (2K, 4K tokens) |
 
 ### Section 13: Grammar Constraint Validation
