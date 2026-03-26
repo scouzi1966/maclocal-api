@@ -315,7 +315,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     fflush(stdout)
                 }
 
-                let choiceLogprobs = buildChoiceLogprobs(result.tokenLogprobs)
+                let choiceLogprobs = Self.buildChoiceLogprobs(result.tokenLogprobs)
                 let timings = StreamTimings(prompt_n: result.promptTokens, prompt_ms: promptTime * 1000, predicted_n: completionTok, predicted_ms: generateTime * 1000)
                 let extended = wantExtended ? service.stopAPIProfileExtended(promptTokens: result.promptTokens, completionTokens: completionTok, promptTime: promptTime, generateTime: generateTime) : nil
                 let profile = wantExtended ? nil : (wantProfile ? service.stopAPIProfile(promptTokens: result.promptTokens, completionTokens: completionTok, promptTime: promptTime, generateTime: generateTime) : nil)
@@ -358,7 +358,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false\n  prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok)\n  prompt=\(String(format: "%.2f", promptTime))s gen=\(String(format: "%.2f", generateTime))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=\(stopReason)\(Self.reset)"); fflush(stdout)
             }
 
-            let choiceLogprobs = buildChoiceLogprobs(result.tokenLogprobs)
+            let choiceLogprobs = Self.buildChoiceLogprobs(result.tokenLogprobs)
             let timings = StreamTimings(prompt_n: result.promptTokens, prompt_ms: promptTime * 1000, predicted_n: completionTok, predicted_ms: generateTime * 1000)
             let extended = wantExtended ? service.stopAPIProfileExtended(promptTokens: result.promptTokens, completionTokens: completionTok, promptTime: promptTime, generateTime: generateTime) : nil
             let profile = wantExtended ? nil : (wantProfile ? service.stopAPIProfile(promptTokens: result.promptTokens, completionTokens: completionTok, promptTime: promptTime, generateTime: generateTime) : nil)
@@ -693,7 +693,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         let emitContent = extracted.content
                         let emitReasoning = extracted.reasoning
 
-                        let flushLogprobs = logprobBuffer.isEmpty ? nil : self.buildChoiceLogprobs(logprobBuffer)
+                        let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
 
                         // Emit a chunk whenever we have visible content, extracted reasoning,
                         // or buffered logprobs. Without this, per-token logprobs can be lost
@@ -735,7 +735,7 @@ struct MLXChatCompletionsController: RouteCollection {
                             pendingRawTag = nil
                         }
                     } else {
-                        let flushLogprobs = logprobBuffer.isEmpty ? nil : self.buildChoiceLogprobs(logprobBuffer)
+                        let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
                         logprobBuffer = []
                         let contentChunk = ChatCompletionStreamResponse(
                             id: streamId,
@@ -926,7 +926,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         remainingReasoning = nil
                     }
                     if remaining != nil || remainingReasoning != nil {
-                        let flushLogprobs = logprobBuffer.isEmpty ? nil : self.buildChoiceLogprobs(logprobBuffer)
+                        let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
                         logprobBuffer = []
                         let flushChunk = ChatCompletionStreamResponse(
                             id: streamId,
@@ -945,7 +945,7 @@ struct MLXChatCompletionsController: RouteCollection {
                             id: streamId,
                             model: res.modelID,
                             content: "",
-                            logprobs: self.buildChoiceLogprobs(logprobBuffer),
+                            logprobs: Self.buildChoiceLogprobs(logprobBuffer),
                             isFirst: false
                         )
                         logprobBuffer = []
@@ -1194,7 +1194,7 @@ struct MLXChatCompletionsController: RouteCollection {
     /// Extract `<think>...</think>` content from a streaming buffer.
     /// Returns any reasoning and regular content that can be flushed.
     /// The buffer retains incomplete tag fragments for the next call.
-    private static func extractThinkTags(
+    static func extractThinkTags(
         buffer: inout String,
         insideThinkBlock: inout Bool,
         startTag: String = "<think>",
@@ -1247,7 +1247,7 @@ struct MLXChatCompletionsController: RouteCollection {
     }
 
     /// Extract think tags from a complete (non-streaming) response.
-    private static func extractThinkContent(from text: String, startTag: String = "<think>", endTag: String = "</think>") -> (content: String, reasoning: String?) {
+    static func extractThinkContent(from text: String, startTag: String = "<think>", endTag: String = "</think>") -> (content: String, reasoning: String?) {
         guard text.contains(startTag) else { return (text, nil) }
         var buffer = text
         var inside = false
@@ -1401,7 +1401,7 @@ struct MLXChatCompletionsController: RouteCollection {
         }
     }
 
-    private func buildChoiceLogprobs(_ resolved: [ResolvedLogprob]?) -> ChoiceLogprobs? {
+    static func buildChoiceLogprobs(_ resolved: [ResolvedLogprob]?) -> ChoiceLogprobs? {
         guard let resolved, !resolved.isEmpty else { return nil }
         let content = resolved.map { entry in
             let topEntries = entry.topTokens.map { top in

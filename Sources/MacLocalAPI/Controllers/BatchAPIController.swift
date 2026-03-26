@@ -258,13 +258,14 @@ struct BatchAPIController: RouteCollection {
             defer { service.releaseSlot() }
 
             let effectiveModel = service.normalizeModel(chatReq.model ?? modelID)
+            let effectiveMaxTokens = chatReq.effectiveMaxTokens ?? maxTokens ?? Int.max
 
-            // Use generateStreaming + collect
+            // Use generateStreaming + StreamCollector for full post-processing
             let streamResult = try await service.generateStreaming(
                 model: effectiveModel,
                 messages: chatReq.messages,
                 temperature: chatReq.temperature ?? temperature,
-                maxTokens: chatReq.effectiveMaxTokens ?? maxTokens,
+                maxTokens: effectiveMaxTokens,
                 topP: chatReq.topP ?? topP,
                 repetitionPenalty: chatReq.effectiveRepetitionPenalty ?? repetitionPenalty,
                 topK: chatReq.topK ?? topK,
@@ -279,40 +280,40 @@ struct BatchAPIController: RouteCollection {
                 chatTemplateKwargs: chatReq.chatTemplateKwargs
             )
 
-            // Collect stream
-            var fullText = ""
-            var promptTokens = streamResult.promptTokens
-            var completionTokens = 0
-            var cachedTokens = 0
-            var toolCalls: [ResponseToolCall]? = nil
-            var stoppedBySequence = false
+            // Determine if model supports thinking
+            let extractThinking = streamResult.thinkStartTag != nil
 
-            for try await chunk in streamResult.stream {
-                fullText += chunk.text
-                if let tc = chunk.toolCalls { toolCalls = tc }
-                if let ct = chunk.completionTokens { completionTokens = ct }
-                if let pt = chunk.promptTokens { promptTokens = pt }
-                if let cached = chunk.cachedTokens { cachedTokens = cached }
-                if let sbs = chunk.stoppedBySequence { stoppedBySequence = sbs }
-            }
+            let collected = try await StreamCollector.collect(
+                from: streamResult,
+                extractThinking: extractThinking,
+                thinkStartTag: streamResult.thinkStartTag ?? "<think>",
+                thinkEndTag: streamResult.thinkEndTag ?? "</think>",
+                maxTokens: effectiveMaxTokens
+            )
 
-            // Use existing ChatCompletionResponse convenience inits
+            let choiceLogprobs = MLXChatCompletionsController.buildChoiceLogprobs(collected.logprobs)
+
+            // Build response with full post-processing
             let response: ChatCompletionResponse
-            if let toolCalls, !toolCalls.isEmpty {
+            if let toolCalls = collected.toolCalls, !toolCalls.isEmpty {
                 response = ChatCompletionResponse(
                     model: effectiveModel,
                     toolCalls: toolCalls,
-                    promptTokens: promptTokens,
-                    completionTokens: completionTokens,
-                    cachedTokens: cachedTokens > 0 ? cachedTokens : nil
+                    logprobs: choiceLogprobs,
+                    promptTokens: collected.promptTokens,
+                    completionTokens: collected.completionTokens,
+                    cachedTokens: collected.cachedTokens > 0 ? collected.cachedTokens : nil
                 )
             } else {
                 response = ChatCompletionResponse(
                     model: effectiveModel,
-                    content: fullText,
-                    promptTokens: promptTokens,
-                    completionTokens: completionTokens,
-                    cachedTokens: cachedTokens > 0 ? cachedTokens : nil
+                    content: collected.content ?? "",
+                    reasoningContent: collected.reasoningContent,
+                    logprobs: choiceLogprobs,
+                    finishReason: collected.finishReason,
+                    promptTokens: collected.promptTokens,
+                    completionTokens: collected.completionTokens,
+                    cachedTokens: collected.cachedTokens > 0 ? collected.cachedTokens : nil
                 )
             }
 

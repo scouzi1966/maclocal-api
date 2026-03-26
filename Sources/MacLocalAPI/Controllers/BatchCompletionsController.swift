@@ -74,6 +74,15 @@ struct BatchCompletionsController: RouteCollection {
         response.headers.replaceOrAdd(name: "X-Accel-Buffering", value: "no")
         response.headers.add(name: .accessControlAllowOrigin, value: "*")
 
+        // Grammar constraint header: check if any request has strict tools/schema
+        let anyStrict = batchReq.requests.contains { item in
+            MLXModelService.hasStrictTools(item.body.tools) ||
+            MLXModelService.hasStrictSchema(item.body.responseFormat)
+        }
+        if anyStrict && !service.enableGrammarConstraints {
+            response.headers.add(name: "X-Grammar-Constraints", value: "downgraded")
+        }
+
         let svc = service
         let mdlID = modelID
         let temp = temperature
@@ -165,12 +174,13 @@ struct BatchCompletionsController: RouteCollection {
             defer { service.releaseSlot() }
 
             let effectiveModel = service.normalizeModel(chatReq.model ?? modelID)
+            let effectiveMaxTokens = chatReq.effectiveMaxTokens ?? maxTokens ?? Int.max
 
             let streamResult = try await service.generateStreaming(
                 model: effectiveModel,
                 messages: chatReq.messages,
                 temperature: chatReq.temperature ?? temperature,
-                maxTokens: chatReq.effectiveMaxTokens ?? maxTokens,
+                maxTokens: effectiveMaxTokens,
                 topP: chatReq.topP ?? topP,
                 repetitionPenalty: chatReq.effectiveRepetitionPenalty ?? repetitionPenalty,
                 topK: chatReq.topK ?? topK,
@@ -185,12 +195,21 @@ struct BatchCompletionsController: RouteCollection {
                 chatTemplateKwargs: chatReq.chatTemplateKwargs
             )
 
+            let extractThinking = streamResult.thinkStartTag != nil
+            let thinkStart = streamResult.thinkStartTag ?? "<think>"
+            let thinkEnd = streamResult.thinkEndTag ?? "</think>"
+
             if isStreaming {
                 // Emit streaming chunks tagged with custom_id
+                // Includes per-chunk think extraction, logprobs, and tool call deltas
                 let completionId = "chatcmpl-\(UUID().uuidString.lowercased().prefix(12))"
                 var tokenCount = 0
                 var promptTokens = streamResult.promptTokens
-                var lastCachedTokens = 0
+                var hasToolCalls = false
+
+                // Think extraction state
+                var thinkBuffer = ""
+                var insideThinkBlock = false
 
                 for try await chunk in streamResult.stream {
                     tokenCount += 1
@@ -205,15 +224,81 @@ struct BatchCompletionsController: RouteCollection {
 
                     var delta: [String: Any] = [:]
                     if tokenCount == 1 { delta["role"] = "assistant" }
-                    if !chunk.text.isEmpty { delta["content"] = chunk.text }
+
+                    // Think extraction on each chunk
+                    if extractThinking && !chunk.text.isEmpty {
+                        thinkBuffer += chunk.text
+                        let extracted = MLXChatCompletionsController.extractThinkTags(
+                            buffer: &thinkBuffer,
+                            insideThinkBlock: &insideThinkBlock,
+                            startTag: thinkStart,
+                            endTag: thinkEnd
+                        )
+                        if let reasoning = extracted.reasoning {
+                            delta["reasoning_content"] = reasoning
+                        }
+                        if let content = extracted.content, !content.isEmpty {
+                            delta["content"] = content
+                        }
+                    } else if !chunk.text.isEmpty {
+                        delta["content"] = chunk.text
+                    }
+
+                    // Tool call deltas
+                    if let deltas = chunk.toolCallDeltas {
+                        var tcArray: [[String: Any]] = []
+                        for d in deltas {
+                            var tc: [String: Any] = ["index": d.index]
+                            var fn: [String: Any] = [:]
+                            if let name = d.function?.name { fn["name"] = name }
+                            if let args = d.function?.arguments { fn["arguments"] = args }
+                            if !fn.isEmpty { tc["function"] = fn }
+                            if let id = d.id { tc["id"] = id }
+                            if let type = d.type { tc["type"] = type }
+                            tcArray.append(tc)
+                        }
+                        delta["tool_calls"] = tcArray
+                        hasToolCalls = true
+                    }
+
+                    // Logprobs
+                    if let lps = chunk.logprobs {
+                        let choiceLogprobs = MLXChatCompletionsController.buildChoiceLogprobs(lps)
+                        if let clp = choiceLogprobs, let content = clp.content {
+                            event["logprobs"] = ["content": content.map { lp in
+                                ["token": lp.token, "logprob": lp.logprob, "bytes": lp.bytes as Any, "top_logprobs": lp.topLogprobs.map { t in
+                                    ["token": t.token, "logprob": t.logprob, "bytes": t.bytes as Any] as [String: Any]
+                                }] as [String: Any]
+                            }]
+                        }
+                    }
 
                     var choiceDict: [String: Any] = ["index": 0, "delta": delta]
 
                     if let ct = chunk.completionTokens {
                         // Final chunk with usage
-                        choiceDict["finish_reason"] = chunk.toolCalls != nil ? "tool_calls" : "stop"
+                        // Flush remaining think buffer
+                        if extractThinking && !thinkBuffer.isEmpty {
+                            insideThinkBlock = false
+                            let flushed = MLXChatCompletionsController.extractThinkTags(
+                                buffer: &thinkBuffer,
+                                insideThinkBlock: &insideThinkBlock,
+                                startTag: thinkStart,
+                                endTag: thinkEnd
+                            )
+                            if let r = flushed.reasoning { delta["reasoning_content"] = r }
+                            if let c = flushed.content, !c.isEmpty { delta["content"] = c }
+                            // Flush any remaining buffer as content
+                            if !thinkBuffer.isEmpty {
+                                let existing = delta["content"] as? String ?? ""
+                                delta["content"] = existing + thinkBuffer
+                                thinkBuffer = ""
+                            }
+                            choiceDict["delta"] = delta
+                        }
+
+                        choiceDict["finish_reason"] = (hasToolCalls || chunk.toolCalls != nil) ? "tool_calls" : "stop"
                         if let pt = chunk.promptTokens { promptTokens = pt }
-                        if let cached = chunk.cachedTokens { lastCachedTokens = cached }
                         event["usage"] = [
                             "prompt_tokens": promptTokens,
                             "completion_tokens": ct,
@@ -229,43 +314,62 @@ struct BatchCompletionsController: RouteCollection {
                     }
                 }
             } else {
-                // Non-streaming: collect all, emit single complete response
-                var fullText = ""
-                var promptTokens = streamResult.promptTokens
-                var completionTokens = 0
-                var cachedTokens = 0
-                var toolCalls: [ResponseToolCall]? = nil
-                var stoppedBySequence = false
+                // Non-streaming: use StreamCollector for full post-processing
+                let collected = try await StreamCollector.collect(
+                    from: streamResult,
+                    extractThinking: extractThinking,
+                    thinkStartTag: thinkStart,
+                    thinkEndTag: thinkEnd,
+                    maxTokens: effectiveMaxTokens
+                )
 
-                for try await chunk in streamResult.stream {
-                    fullText += chunk.text
-                    if let tc = chunk.toolCalls { toolCalls = tc }
-                    if let ct = chunk.completionTokens { completionTokens = ct }
-                    if let pt = chunk.promptTokens { promptTokens = pt }
-                    if let cached = chunk.cachedTokens { cachedTokens = cached }
-                    if let sbs = chunk.stoppedBySequence { stoppedBySequence = sbs }
+                let choiceLogprobs = MLXChatCompletionsController.buildChoiceLogprobs(collected.logprobs)
+
+                var message: [String: Any] = ["role": "assistant"]
+                if let tc = collected.toolCalls, !tc.isEmpty {
+                    message["content"] = NSNull()
+                    message["tool_calls"] = tc.map { toolCall in
+                        [
+                            "id": toolCall.id,
+                            "type": toolCall.type,
+                            "function": [
+                                "name": toolCall.function.name,
+                                "arguments": toolCall.function.arguments
+                            ]
+                        ] as [String: Any]
+                    }
+                } else {
+                    message["content"] = collected.content ?? ""
+                    if let reasoning = collected.reasoningContent {
+                        message["reasoning_content"] = reasoning
+                    }
                 }
 
-                let finishReason = toolCalls != nil ? "tool_calls" : "stop"
+                var choiceDict: [String: Any] = [
+                    "index": 0,
+                    "message": message,
+                    "finish_reason": collected.finishReason
+                ]
 
-                var event: [String: Any] = [
+                if let clp = choiceLogprobs {
+                    choiceDict["logprobs"] = ["content": clp.content?.map { lp in
+                        ["token": lp.token, "logprob": lp.logprob, "bytes": lp.bytes as Any, "top_logprobs": lp.topLogprobs.map { t in
+                            ["token": t.token, "logprob": t.logprob, "bytes": t.bytes as Any] as [String: Any]
+                        }] as [String: Any]
+                    } as Any]
+                }
+
+                let event: [String: Any] = [
                     "custom_id": customId,
                     "object": "chat.completion",
                     "id": "chatcmpl-\(UUID().uuidString.lowercased().prefix(12))",
                     "created": Int(Date().timeIntervalSince1970),
                     "model": effectiveModel,
-                    "choices": [[
-                        "index": 0,
-                        "message": [
-                            "role": "assistant",
-                            "content": toolCalls != nil ? NSNull() : fullText
-                        ] as [String: Any],
-                        "finish_reason": finishReason
-                    ] as [String: Any]],
+                    "choices": [choiceDict],
                     "usage": [
-                        "prompt_tokens": promptTokens,
-                        "completion_tokens": completionTokens,
-                        "total_tokens": promptTokens + completionTokens
+                        "prompt_tokens": collected.promptTokens,
+                        "completion_tokens": collected.completionTokens,
+                        "total_tokens": collected.promptTokens + collected.completionTokens
                     ]
                 ]
 
