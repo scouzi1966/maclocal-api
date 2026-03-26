@@ -504,44 +504,16 @@ actor BatchScheduler {
                 }
 
                 if accepted.count > 1 {
-                    // Classify: requests with usable prefix cache hits → individual, rest → batch
-                    // Note: exact matches on recurrent models are bypassed (effectivePrefix=0),
-                    // so those are still batch-eligible.
+                    // Batch all non-multimodal requests together. Prefix cache hits
+                    // are skipped inside prefillBatch (fresh caches only). The batch
+                    // speedup from a single B=N forward pass outweighs small partial
+                    // cache hits (e.g. shared chat template prefix).
                     var batchEligible: [PendingRequest] = []
                     var individual: [PendingRequest] = []
-                    let templateCache = model.newCache(parameters: accepted[0].parameters)
-                    let modelHasRecurrent = hasRecurrentLayers(templateCache)
-                    let forcedSuffix = unsafeExactReplaySuffix()
 
                     for req in accepted {
                         let isMultimodal = req.input.image != nil || req.input.video != nil
                         if isMultimodal {
-                            individual.append(req)
-                            continue
-                        }
-
-                        guard let radix = radixCache else {
-                            batchEligible.append(req)
-                            continue
-                        }
-
-                        let inputTokens = req.input.text.tokens.reshaped(-1).asArray(Int.self)
-                        let (prefixLen, _, _) = radix.findPrefix(inputTokens)
-
-                        // Compute effective prefix using same logic as prefillOne
-                        let effectivePrefix: Int
-                        if prefixLen == 0 {
-                            effectivePrefix = 0
-                        } else if prefixLen == inputTokens.count && modelHasRecurrent && forcedSuffix == nil {
-                            effectivePrefix = 0  // Exact match bypass for recurrent models
-                        } else if prefixLen == inputTokens.count, let forcedSuffix {
-                            effectivePrefix = max(0, inputTokens.count - forcedSuffix)
-                        } else {
-                            let minSuffix = 16
-                            effectivePrefix = min(prefixLen, max(0, inputTokens.count - minSuffix))
-                        }
-
-                        if effectivePrefix > 0 {
                             individual.append(req)
                         } else {
                             batchEligible.append(req)

@@ -22,10 +22,12 @@ struct MLXCacheResolver {
     func normalizedModelID(_ input: String) -> String {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return trimmed }
-        // Absolute or relative filesystem path: resolve to absolute
+        // Absolute or relative filesystem path: resolve to absolute if it exists on disk
         if trimmed.hasPrefix("/") || trimmed.hasPrefix("./") || trimmed.hasPrefix("..") {
             let url = URL(fileURLWithPath: trimmed).standardized
-            return url.path
+            if FileManager.default.fileExists(atPath: url.path) {
+                return url.path
+            }
         }
         // Check if it's a relative path that exists on disk (e.g. "models/foo")
         if trimmed.contains("/") {
