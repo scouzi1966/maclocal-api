@@ -136,9 +136,16 @@ struct BatchAPIController: RouteCollection {
 
         let decoder = JSONDecoder()
         var inputLines: [BatchInputLine] = []
-        for line in content.split(separator: "\n") where !line.trimmingCharacters(in: .whitespaces).isEmpty {
+        for (lineIndex, line) in content.split(separator: "\n").enumerated() where !line.trimmingCharacters(in: .whitespaces).isEmpty {
             guard let lineData = line.data(using: .utf8) else { continue }
             let parsed = try decoder.decode(BatchInputLine.self, from: lineData)
+            // Validate per-line method and url per OpenAI Batch API spec
+            guard parsed.method == "POST" else {
+                throw Abort(.badRequest, reason: "Line \(lineIndex + 1): method must be POST, got \(parsed.method)")
+            }
+            guard parsed.url == "/v1/chat/completions" else {
+                throw Abort(.badRequest, reason: "Line \(lineIndex + 1): url must be /v1/chat/completions, got \(parsed.url)")
+            }
             inputLines.append(parsed)
         }
 
@@ -217,8 +224,13 @@ struct BatchAPIController: RouteCollection {
         }
 
         await store.markBatchCancelling(batchId)
-        // TODO: cancel scheduler slots via cancelSlots(ids:)
-        // For now, mark as cancelled directly
+
+        // Actually cancel in-flight scheduler slots
+        let slotIds = await store.getSlotIds(batchId)
+        if !slotIds.isEmpty {
+            await service.cancelBatchSlots(ids: Set(slotIds))
+        }
+
         await store.markBatchCancelled(batchId)
 
         guard let updated = await store.getBatch(batchId) else {

@@ -37,6 +37,7 @@ protocol MLXChatServing {
 
     func ensureBatchMode(concurrency: Int) async throws
     func releaseBatchReference()
+    func cancelBatchSlots(ids: Set<UUID>) async
 
     func startAPIProfile()
     func stopAPIProfile(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) -> AFMProfile

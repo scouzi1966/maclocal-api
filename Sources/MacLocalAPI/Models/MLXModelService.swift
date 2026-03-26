@@ -1142,6 +1142,10 @@ final class MLXModelService: @unchecked Sendable {
             while withStateLock({ promotionInProgress && scheduler == nil }) {
                 try await Task.sleep(nanoseconds: 10_000_000) // 10ms
             }
+            // Verify scheduler was actually installed — promotion may have failed
+            guard withStateLock({ scheduler != nil }) else {
+                throw MLXServiceError.noModelLoaded
+            }
             _activeBatchCount.withLock { $0 += 1 }
             return
         }
@@ -1214,6 +1218,12 @@ final class MLXModelService: @unchecked Sendable {
             self.enablePrefixCaching = false
         }
         print("[\(ts())] Auto-teardown: returned to serial mode")
+    }
+
+    /// Forward cancellation to the scheduler for in-flight batch slots.
+    func cancelBatchSlots(ids: Set<UUID>) async {
+        guard let sched = withStateLock({ scheduler }) else { return }
+        await sched.cancelSlots(ids: ids)
     }
 
     func generate(

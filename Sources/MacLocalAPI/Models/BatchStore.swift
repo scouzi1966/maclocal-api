@@ -104,8 +104,13 @@ actor BatchStore {
     }
 
     /// Record a completed request result.
+    /// Late results for cancelled/cancelling batches are silently dropped.
     func recordResult(_ batchId: String, result: BatchResultLine) {
         guard var batch = batches[batchId] else { return }
+
+        // Don't let late-arriving results overwrite a cancelled batch
+        guard batch.status != "cancelled" && batch.status != "cancelling" else { return }
+
         batch.results.append(result)
         if result.error != nil {
             batch.requestCounts.failed += 1

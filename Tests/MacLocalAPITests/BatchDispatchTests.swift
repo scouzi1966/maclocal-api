@@ -71,6 +71,10 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
         _lock.unlock()
     }
 
+    func cancelBatchSlots(ids: Set<UUID>) async {
+        // No-op in tests
+    }
+
     func startAPIProfile() {}
     func stopAPIProfile(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) -> AFMProfile {
         AFMProfile(gpuPowerAvgW: nil, gpuPowerPeakW: nil, gpuSamples: nil, memoryWeightsGiB: nil, memoryKvGiB: nil, memoryPeakGiB: nil, prefillTokS: nil, decodeTokS: nil, chip: nil, theoreticalBwGbs: nil, estBandwidthGbs: nil)
