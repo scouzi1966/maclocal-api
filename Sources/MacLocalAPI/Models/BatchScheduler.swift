@@ -492,12 +492,71 @@ actor BatchScheduler {
 
             // Drain nonisolated queue — no Task.yield() needed for request pickup
             let newRequests = drainPendingQueue()
-            for req in newRequests {
-                if slots.count < maxConcurrent {
+            if !newRequests.isEmpty {
+                // Separate capacity-limited requests from overflow
+                var accepted: [PendingRequest] = []
+                for req in newRequests {
+                    if slots.count + accepted.count < maxConcurrent {
+                        accepted.append(req)
+                    } else {
+                        _pendingQueue.withLock { $0.append(req) }
+                    }
+                }
+
+                if accepted.count > 1 {
+                    // Classify: requests with usable prefix cache hits → individual, rest → batch
+                    // Note: exact matches on recurrent models are bypassed (effectivePrefix=0),
+                    // so those are still batch-eligible.
+                    var batchEligible: [PendingRequest] = []
+                    var individual: [PendingRequest] = []
+                    let templateCache = model.newCache(parameters: accepted[0].parameters)
+                    let modelHasRecurrent = hasRecurrentLayers(templateCache)
+                    let forcedSuffix = unsafeExactReplaySuffix()
+
+                    for req in accepted {
+                        let isMultimodal = req.input.image != nil || req.input.video != nil
+                        if isMultimodal {
+                            individual.append(req)
+                            continue
+                        }
+
+                        guard let radix = radixCache else {
+                            batchEligible.append(req)
+                            continue
+                        }
+
+                        let inputTokens = req.input.text.tokens.reshaped(-1).asArray(Int.self)
+                        let (prefixLen, _, _) = radix.findPrefix(inputTokens)
+
+                        // Compute effective prefix using same logic as prefillOne
+                        let effectivePrefix: Int
+                        if prefixLen == 0 {
+                            effectivePrefix = 0
+                        } else if prefixLen == inputTokens.count && modelHasRecurrent && forcedSuffix == nil {
+                            effectivePrefix = 0  // Exact match bypass for recurrent models
+                        } else if prefixLen == inputTokens.count, let forcedSuffix {
+                            effectivePrefix = max(0, inputTokens.count - forcedSuffix)
+                        } else {
+                            let minSuffix = 16
+                            effectivePrefix = min(prefixLen, max(0, inputTokens.count - minSuffix))
+                        }
+
+                        if effectivePrefix > 0 {
+                            individual.append(req)
+                        } else {
+                            batchEligible.append(req)
+                        }
+                    }
+
+                    for req in individual { prefillOne(req) }
+
+                    if batchEligible.count > 1 {
+                        prefillBatch(batchEligible)
+                    } else if let req = batchEligible.first {
+                        prefillOne(req)
+                    }
+                } else if let req = accepted.first {
                     prefillOne(req)
-                } else {
-                    // Re-enqueue if at capacity (shouldn't happen often)
-                    _pendingQueue.withLock { $0.append(req) }
                 }
             }
 
@@ -823,6 +882,183 @@ actor BatchScheduler {
 
         slots.append(slot)
         DebugLogger.log("[BatchScheduler] Prefilled slot \(slot.id.uuidString.prefix(8)) (B=\(slots.count), \(cachedTokens > 0 ? "cache hit \(cachedTokens) tokens" : "full prefill"), \(String(format: "%.0f", prefillTime * 1000))ms)")
+    }
+
+    // MARK: - Batched Prefill
+
+    /// Prefill multiple requests in a single batched forward pass (B=N).
+    ///
+    /// All requests must have fresh (empty) caches — no prefix cache hits.
+    /// Uses left-padding to handle variable-length prompts in a dense array.
+    /// `BatchKVCacheSimple` handles attention mask creation; `MambaCache` handles SSM masks.
+    ///
+    /// For cold-start concurrent arrivals (the primary use case), this replaces
+    /// N sequential B=1 prefills with a single B=N forward pass.
+    private func prefillBatch(_ requests: [PendingRequest]) {
+        let B = requests.count
+        guard B > 0 else { return }
+
+        // Verify cache types support batching (KVCacheSimple + MambaCache/ArraysCache only)
+        let templateCache = model.newCache(parameters: requests[0].parameters)
+        let canBatch = templateCache.allSatisfy { $0 is KVCacheSimple || $0 is ArraysCache }
+        if !canBatch {
+            // Fall back to individual prefill for unsupported cache types (RotatingKVCache, etc.)
+            for req in requests { prefillOne(req) }
+            return
+        }
+
+        let prefillStart = Date()
+
+        // Phase 1: Prepare per-request data
+        var allInputTokens: [[Int]] = []
+        var logitProcessors: [LogitProcessor?] = []
+        var logitSamplers: [LogitSampler] = []
+
+        for req in requests {
+            let inputTokens = req.input.text.tokens.reshaped(-1).asArray(Int.self)
+            allInputTokens.append(inputTokens)
+
+            var processor = req.parameters.processor()
+            let sampler = req.parameters.sampler()
+            processor?.prompt(req.input.text.tokens)
+            logitProcessors.append(processor)
+            logitSamplers.append(sampler)
+        }
+
+        // Phase 2: Left-pad and stack
+        let lengths = allInputTokens.map { $0.count }
+        let maxLen = lengths.max()!
+        var leftPads: [Int] = []
+        var paddedTokenRows: [[Int32]] = []
+
+        for tokens in allInputTokens {
+            let pad = maxLen - tokens.count
+            leftPads.append(pad)
+            paddedTokenRows.append(Array(repeating: Int32(0), count: pad) + tokens.map { Int32($0) })
+        }
+
+        let batchTokens = stacked(paddedTokenRows.map { MLXArray($0) })  // [B, maxLen]
+
+        // Phase 3: Create batched caches
+        // Attention layers -> BatchKVCacheSimple with leftPadding (handles causal+padding masks)
+        // SSM layers -> MambaCache with leftPadding (handles SSM masks)
+        let prefillCaches: [KVCache] = templateCache.map { layerCache in
+            if layerCache is ArraysCache {
+                return MambaCache(leftPadding: leftPads) as KVCache
+            } else {
+                return BatchKVCacheSimple(batchSize: B, leftPadding: leftPads) as KVCache
+            }
+        }
+
+        // Phase 4: Single model forward pass
+        let input = LMInput.Text(tokens: batchTokens)
+        let result = model(input, cache: prefillCaches, state: nil)
+
+        // Phase 5: Per-request logit processing and sampling
+        // With left-padding, position -1 is the last real token for all sequences
+        let logits = result.logits  // [B, maxLen, vocabSize]
+        var tokenArrays: [MLXArray] = []
+
+        for i in 0..<B {
+            let seqLogits = logits[i, -1, 0...]
+            let processed = logitProcessors[i]?.process(logits: seqLogits) ?? seqLogits
+            let tokenArray = logitSamplers[i].sample(logits: processed)
+            logitProcessors[i]?.didSample(token: tokenArray)
+            tokenArrays.append(tokenArray)
+        }
+
+        // Materialize caches and tokens (MLX eval for GPU synchronization)
+        var evalArrays: [MLXArray] = tokenArrays
+        evalArrays.append(contentsOf: prefillCaches.flatMap { $0.innerState() })
+        if let s = result.state?.crossAttentionStates { evalArrays.append(s) }
+        MLX.eval(evalArrays)
+
+        let prefillTime = Date().timeIntervalSince(prefillStart)
+
+        // Phase 6: Extract individual caches per request (for prefix cache save in finishSlot)
+        var perRequestCaches: [[KVCache]] = (0..<B).map { _ in [KVCache]() }
+        for cache in prefillCaches {
+            if let bkvCache = cache as? BatchKVCacheSimple {
+                for i in 0..<B {
+                    let (k, v, _) = bkvCache.extract(i)
+                    let individual = KVCacheSimple()
+                    individual.state = [k, v]
+                    perRequestCaches[i].append(individual as KVCache)
+                }
+            } else if let acCache = cache as? ArraysCache {
+                let cacheState = acCache.state
+                for i in 0..<B {
+                    let individual = MambaCache()
+                    if !cacheState.isEmpty {
+                        individual.state = cacheState.map { $0[i ..< i + 1] }
+                    }
+                    perRequestCaches[i].append(individual as KVCache)
+                }
+            }
+        }
+
+        // Merge into decode batch
+        if slots.isEmpty {
+            // No existing decode slots -- use prefill caches directly for decode
+            batchCaches = prefillCaches
+            cacheMode = .batched
+            batchState = result.state
+        } else {
+            // Existing decode slots -- merge individual caches into current batch
+            for i in 0..<B {
+                mergeCacheIntoBatch(individualCache: perRequestCaches[i], modelState: i == 0 ? result.state : nil)
+            }
+        }
+
+        // Create SlotState for each request
+        for i in 0..<B {
+            let req = requests[i]
+            let firstToken = tokenArrays[i].item(Int.self)
+
+            let slot = SlotState(
+                continuation: req.continuation,
+                promptTokenCount: allInputTokens[i].count,
+                startTime: prefillStart,
+                prefillTime: prefillTime,
+                inputTokens: allInputTokens[i],
+                cachedTokens: 0,
+                prefillCaches: perRequestCaches[i],
+                lastTokenId: firstToken,
+                lastTokenArray: tokenArrays[i],
+                sampler: logitSamplers[i],
+                processor: logitProcessors[i],
+                detokenizer: NaiveStreamingDetokenizer(tokenizer: tokenizer),
+                maxTokens: req.parameters.maxTokens,
+                toolRuntime: req.toolCallRuntimeConfig.map { config in
+                    ToolCallStreamingRuntime(
+                        toolCallStartTag: config.startTag,
+                        toolCallEndTag: config.endTag,
+                        toolCallParser: config.parser,
+                        tools: config.tools,
+                        applyFixToolArgs: { rtc in
+                            Self.applyFixToolArgs(rtc, tools: config.tools)
+                        },
+                        remapSingleKey: { key, toolName in
+                            Self.remapSingleKey(key, toolName: toolName, tools: config.tools)
+                        }
+                    )
+                },
+                constraintRuntime: req.constraintRuntimeConfig,
+                activeStops: req.stopSequences,
+                thinkStartTag: req.thinkStartTag,
+                thinkEndTag: req.thinkEndTag
+            )
+
+            if let constraintRuntime = req.constraintRuntimeConfig {
+                DebugLogger.log("[BatchScheduler] Constrained slot \(slot.id.uuidString.prefix(8)) mode=\(constraintRuntime.mode)")
+            }
+
+            slots.append(slot)
+        }
+
+        let totalInputTokens = lengths.reduce(0, +)
+        print("[\(batchTs())] [BatchScheduler] Batched prefill: B=\(B), maxLen=\(maxLen), totalTokens=\(totalInputTokens), leftPads=\(leftPads), time=\(String(format: "%.3f", prefillTime))s (\(String(format: "%.0f", Double(totalInputTokens) / prefillTime)) tok/s)")
+        DebugLogger.log("[BatchScheduler] Batched prefill complete: B=\(B), \(String(format: "%.0f", prefillTime * 1000))ms")
     }
 
     /// Merge a newly-prefilled individual cache into the batch.
