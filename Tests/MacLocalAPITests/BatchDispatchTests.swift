@@ -71,8 +71,14 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
         _lock.unlock()
     }
 
+    private(set) var cancelBatchSlotsCallCount = 0
+    private(set) var lastCancelledSlotIds: Set<UUID> = []
+
     func cancelBatchSlots(ids: Set<UUID>) async {
-        // No-op in tests
+        _lock.lock()
+        cancelBatchSlotsCallCount += 1
+        lastCancelledSlotIds = ids
+        _lock.unlock()
     }
 
     func startAPIProfile() {}
@@ -1799,6 +1805,246 @@ struct BatchPostProcessingParityTests {
             #expect(res.status == .ok)
             let grammarHeader = res.headers.first(name: "X-Grammar-Constraints")
             #expect(grammarHeader == "downgraded")
+        }
+    }
+}
+
+// MARK: - PR Review Fix Tests
+
+@Suite("BatchStore.recordResult cancellation guard")
+struct BatchStoreRecordResultCancellationTests {
+
+    @Test("recordResult drops results for cancelled batch")
+    func recordResultDropsCancelled() async {
+        let store = BatchStore()
+        let batchId = await store.createBatch(inputFileId: "f1", endpoint: "/v1/chat/completions", totalRequests: 2)
+        await store.markBatchInProgress(batchId)
+        await store.markBatchCancelling(batchId)
+        await store.markBatchCancelled(batchId)
+
+        // Late result arrives after cancellation
+        let result = BatchResultLine(
+            id: "r1", customId: "c1",
+            response: BatchResultResponse(statusCode: 200, requestId: "req1", body: ChatCompletionResponse(model: "m", content: "late")),
+            error: nil
+        )
+        await store.recordResult(batchId, result: result)
+
+        // Status must remain cancelled, not flip to completed
+        let batch = await store.getBatch(batchId)
+        #expect(batch?.status == "cancelled")
+        #expect(batch?.requestCounts.completed == 0)
+    }
+
+    @Test("recordResult drops results for cancelling batch")
+    func recordResultDropsCancelling() async {
+        let store = BatchStore()
+        let batchId = await store.createBatch(inputFileId: "f1", endpoint: "/v1/chat/completions", totalRequests: 1)
+        await store.markBatchInProgress(batchId)
+        await store.markBatchCancelling(batchId)
+
+        let result = BatchResultLine(
+            id: "r1", customId: "c1",
+            response: BatchResultResponse(statusCode: 200, requestId: "req1", body: ChatCompletionResponse(model: "m", content: "late")),
+            error: nil
+        )
+        await store.recordResult(batchId, result: result)
+
+        let batch = await store.getBatch(batchId)
+        #expect(batch?.status == "cancelling")
+        #expect(batch?.requestCounts.completed == 0)
+    }
+
+    @Test("recordResult still works for in_progress batch")
+    func recordResultWorksForInProgress() async {
+        let store = BatchStore()
+        let batchId = await store.createBatch(inputFileId: "f1", endpoint: "/v1/chat/completions", totalRequests: 1)
+        await store.markBatchInProgress(batchId)
+
+        let result = BatchResultLine(
+            id: "r1", customId: "c1",
+            response: BatchResultResponse(statusCode: 200, requestId: "req1", body: ChatCompletionResponse(model: "m", content: "ok")),
+            error: nil
+        )
+        await store.recordResult(batchId, result: result)
+
+        let batch = await store.getBatch(batchId)
+        #expect(batch?.status == "completed")
+        #expect(batch?.requestCounts.completed == 1)
+    }
+}
+
+@Suite("Batch JSONL per-line validation")
+struct BatchJSONLPerLineValidationTests {
+
+    @Test("Rejects line with wrong method")
+    func rejectsWrongMethod() async throws {
+        let app = try await Application.make(.testing)
+        defer { Task { try await app.asyncShutdown() } }
+        let svc = FakeBatchService(maxConcurrent: 8)
+        let store = BatchStore()
+        let controller = BatchAPIController(service: svc, store: store, modelID: "test-model")
+        try app.register(collection: controller)
+
+        // Upload a JSONL with method=GET instead of POST
+        let jsonl = """
+        {"custom_id":"bad","method":"GET","url":"/v1/chat/completions","body":{"model":"test","messages":[{"role":"user","content":"hi"}]}}
+        """
+        var fileId = ""
+        try await app.test(.POST, "/v1/files", beforeRequest: { req in
+            let boundary = "test-boundary"
+            req.headers.contentType = .init(type: "multipart", subType: "form-data", parameters: ["boundary": boundary])
+            var body = "--\(boundary)\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nbatch\r\n"
+            body += "--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"input.jsonl\"\r\nContent-Type: application/octet-stream\r\n\r\n\(jsonl)\r\n"
+            body += "--\(boundary)--\r\n"
+            req.body = .init(string: body)
+        }) { res async in
+            #expect(res.status == .ok)
+            if let data = res.body.string.data(using: .utf8),
+               let obj = try? JSONDecoder().decode(FileObject.self, from: data) {
+                fileId = obj.id
+            }
+        }
+
+        // Create batch — should fail with 400 on method validation
+        try await app.test(.POST, "/v1/batches", beforeRequest: { req in
+            req.headers.contentType = .json
+            req.body = .init(string: "{\"input_file_id\":\"\(fileId)\",\"endpoint\":\"/v1/chat/completions\",\"completion_window\":\"24h\"}")
+        }) { res async in
+            #expect(res.status == .badRequest)
+            let body = res.body.string
+            #expect(body.contains("method must be POST"))
+        }
+    }
+
+    @Test("Rejects line with wrong url")
+    func rejectsWrongUrl() async throws {
+        let app = try await Application.make(.testing)
+        defer { Task { try await app.asyncShutdown() } }
+        let svc = FakeBatchService(maxConcurrent: 8)
+        let store = BatchStore()
+        let controller = BatchAPIController(service: svc, store: store, modelID: "test-model")
+        try app.register(collection: controller)
+
+        let jsonl = """
+        {"custom_id":"bad","method":"POST","url":"/v1/embeddings","body":{"model":"test","messages":[{"role":"user","content":"hi"}]}}
+        """
+        var fileId = ""
+        try await app.test(.POST, "/v1/files", beforeRequest: { req in
+            let boundary = "test-boundary"
+            req.headers.contentType = .init(type: "multipart", subType: "form-data", parameters: ["boundary": boundary])
+            var body = "--\(boundary)\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nbatch\r\n"
+            body += "--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"input.jsonl\"\r\nContent-Type: application/octet-stream\r\n\r\n\(jsonl)\r\n"
+            body += "--\(boundary)--\r\n"
+            req.body = .init(string: body)
+        }) { res async in
+            #expect(res.status == .ok)
+            if let data = res.body.string.data(using: .utf8),
+               let obj = try? JSONDecoder().decode(FileObject.self, from: data) {
+                fileId = obj.id
+            }
+        }
+
+        try await app.test(.POST, "/v1/batches", beforeRequest: { req in
+            req.headers.contentType = .json
+            req.body = .init(string: "{\"input_file_id\":\"\(fileId)\",\"endpoint\":\"/v1/chat/completions\",\"completion_window\":\"24h\"}")
+        }) { res async in
+            #expect(res.status == .badRequest)
+            let body = res.body.string
+            #expect(body.contains("url must be"))
+        }
+    }
+
+    @Test("Accepts valid method and url")
+    func acceptsValidMethodAndUrl() async throws {
+        let app = try await Application.make(.testing)
+        defer { Task { try await app.asyncShutdown() } }
+        let svc = FakeBatchService(maxConcurrent: 8)
+        let store = BatchStore()
+        let controller = BatchAPIController(service: svc, store: store, modelID: "test-model")
+        try app.register(collection: controller)
+
+        let jsonl = """
+        {"custom_id":"ok","method":"POST","url":"/v1/chat/completions","body":{"model":"test","messages":[{"role":"user","content":"hi"}]}}
+        """
+        var fileId = ""
+        try await app.test(.POST, "/v1/files", beforeRequest: { req in
+            let boundary = "test-boundary"
+            req.headers.contentType = .init(type: "multipart", subType: "form-data", parameters: ["boundary": boundary])
+            var body = "--\(boundary)\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nbatch\r\n"
+            body += "--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"input.jsonl\"\r\nContent-Type: application/octet-stream\r\n\r\n\(jsonl)\r\n"
+            body += "--\(boundary)--\r\n"
+            req.body = .init(string: body)
+        }) { res async in
+            #expect(res.status == .ok)
+            if let data = res.body.string.data(using: .utf8),
+               let obj = try? JSONDecoder().decode(FileObject.self, from: data) {
+                fileId = obj.id
+            }
+        }
+
+        // Should succeed (200, not 400)
+        try await app.test(.POST, "/v1/batches", beforeRequest: { req in
+            req.headers.contentType = .json
+            req.body = .init(string: "{\"input_file_id\":\"\(fileId)\",\"endpoint\":\"/v1/chat/completions\",\"completion_window\":\"24h\"}")
+        }) { res async in
+            #expect(res.status == .ok)
+        }
+    }
+}
+
+@Suite("Cancel endpoint wiring")
+struct BatchCancelEndpointTests {
+
+    @Test("Cancel batch on non-in_progress returns 400")
+    func cancelNonInProgressReturns400() async throws {
+        let app = try await Application.make(.testing)
+        defer { Task { try await app.asyncShutdown() } }
+        let svc = FakeBatchService(maxConcurrent: 8)
+        let store = BatchStore()
+        let controller = BatchAPIController(service: svc, store: store, modelID: "test-model")
+        try app.register(collection: controller)
+
+        let batchId = await store.createBatch(inputFileId: "f1", endpoint: "/v1/chat/completions", totalRequests: 1)
+        // Leave in "validating" state (not in_progress)
+
+        try await app.test(.POST, "/v1/batches/\(batchId)/cancel") { res async in
+            #expect(res.status == .badRequest)
+        }
+    }
+
+    @Test("Cancel batch transitions to cancelled")
+    func cancelTransitionsToCancelled() async throws {
+        let app = try await Application.make(.testing)
+        defer { Task { try await app.asyncShutdown() } }
+        let svc = FakeBatchService(maxConcurrent: 8)
+        let store = BatchStore()
+        let controller = BatchAPIController(service: svc, store: store, modelID: "test-model")
+        try app.register(collection: controller)
+
+        let batchId = await store.createBatch(inputFileId: "f1", endpoint: "/v1/chat/completions", totalRequests: 2)
+        await store.markBatchInProgress(batchId)
+
+        try await app.test(.POST, "/v1/batches/\(batchId)/cancel") { res async in
+            #expect(res.status == .ok)
+            if let data = res.body.string.data(using: .utf8),
+               let obj = try? JSONDecoder().decode(BatchObject.self, from: data) {
+                #expect(obj.status == "cancelled")
+            }
+        }
+    }
+
+    @Test("Cancel nonexistent batch returns 404")
+    func cancelNonexistentReturns404() async throws {
+        let app = try await Application.make(.testing)
+        defer { Task { try await app.asyncShutdown() } }
+        let svc = FakeBatchService(maxConcurrent: 8)
+        let store = BatchStore()
+        let controller = BatchAPIController(service: svc, store: store, modelID: "test-model")
+        try app.register(collection: controller)
+
+        try await app.test(.POST, "/v1/batches/batch_nonexistent/cancel") { res async in
+            #expect(res.status == .notFound)
         }
     }
 }
