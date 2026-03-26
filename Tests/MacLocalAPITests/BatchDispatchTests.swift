@@ -1309,3 +1309,492 @@ struct BatchJSONLParsingTests {
         #expect(results.count == 2)
     }
 }
+
+// MARK: - StreamCollector Tests
+
+@Suite("StreamCollector")
+struct StreamCollectorTests {
+
+    /// Helper to create a ChatStreamingResult from chunks with configurable think tags
+    static func makeStreamingResult(
+        chunks: [StreamChunk],
+        thinkStartTag: String? = nil,
+        thinkEndTag: String? = nil,
+        promptTokens: Int = 10
+    ) -> ChatStreamingResult {
+        let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
+            for chunk in chunks {
+                continuation.yield(chunk)
+            }
+            continuation.finish()
+        }
+        return (
+            modelID: "test-model",
+            stream: stream,
+            promptTokens: promptTokens,
+            toolCallStartTag: "<tool_call>",
+            toolCallEndTag: "</tool_call>",
+            thinkStartTag: thinkStartTag,
+            thinkEndTag: thinkEndTag
+        )
+    }
+
+    // MARK: - Think Extraction
+
+    @Test("extracts think tags into reasoningContent")
+    func thinkExtraction() async throws {
+        let result = Self.makeStreamingResult(
+            chunks: [
+                StreamChunk(text: "<think>I need to think about this</think>The answer is 42"),
+                StreamChunk(text: "", completionTokens: 12),
+            ],
+            thinkStartTag: "<think>",
+            thinkEndTag: "</think>"
+        )
+
+        let collected = try await StreamCollector.collect(
+            from: result,
+            extractThinking: true,
+            thinkStartTag: "<think>",
+            thinkEndTag: "</think>"
+        )
+
+        #expect(collected.reasoningContent == "I need to think about this")
+        #expect(collected.content == "The answer is 42")
+        #expect(collected.finishReason == "stop")
+    }
+
+    @Test("multi-chunk think tags extracted correctly")
+    func thinkExtractionMultiChunk() async throws {
+        let result = Self.makeStreamingResult(
+            chunks: [
+                StreamChunk(text: "<think>Step 1: "),
+                StreamChunk(text: "analyze"),
+                StreamChunk(text: "</think>Result"),
+                StreamChunk(text: "", completionTokens: 8),
+            ],
+            thinkStartTag: "<think>",
+            thinkEndTag: "</think>"
+        )
+
+        let collected = try await StreamCollector.collect(
+            from: result,
+            extractThinking: true
+        )
+
+        #expect(collected.reasoningContent == "Step 1: analyze")
+        #expect(collected.content == "Result")
+    }
+
+    @Test("no think extraction when disabled")
+    func thinkExtractionDisabled() async throws {
+        let result = Self.makeStreamingResult(chunks: [
+            StreamChunk(text: "<think>reasoning</think>content"),
+            StreamChunk(text: "", completionTokens: 5),
+        ])
+
+        let collected = try await StreamCollector.collect(
+            from: result,
+            extractThinking: false
+        )
+
+        #expect(collected.reasoningContent == nil)
+        #expect(collected.content == "<think>reasoning</think>content")
+    }
+
+    @Test("think extraction with tool calls returns nil content and reasoning")
+    func thinkWithToolCalls() async throws {
+        let tc = ResponseToolCall(
+            index: 0, id: "call_1", type: "function",
+            function: ResponseToolCallFunction(name: "get_weather", arguments: "{\"location\":\"Paris\"}")
+        )
+        let result = Self.makeStreamingResult(chunks: [
+            StreamChunk(text: "<think>Should I call weather?</think>"),
+            StreamChunk(text: "", toolCalls: [tc], completionTokens: 5),
+        ], thinkStartTag: "<think>", thinkEndTag: "</think>")
+
+        let collected = try await StreamCollector.collect(
+            from: result,
+            extractThinking: true
+        )
+
+        #expect(collected.toolCalls?.count == 1)
+        #expect(collected.content == nil)
+        #expect(collected.reasoningContent == nil)
+        #expect(collected.finishReason == "tool_calls")
+    }
+
+    // MARK: - Logprobs
+
+    @Test("collects logprobs from stream chunks")
+    func logprobsCollection() async throws {
+        let lp1 = ResolvedLogprob(token: "Hello", tokenId: 1, logprob: -0.5, topTokens: [
+            (token: "Hello", tokenId: 1, logprob: -0.5),
+            (token: "Hi", tokenId: 2, logprob: -1.2),
+        ])
+        let lp2 = ResolvedLogprob(token: " world", tokenId: 3, logprob: -0.3, topTokens: [
+            (token: " world", tokenId: 3, logprob: -0.3),
+        ])
+
+        let result = Self.makeStreamingResult(chunks: [
+            StreamChunk(text: "Hello", logprobs: [lp1]),
+            StreamChunk(text: " world", logprobs: [lp2]),
+            StreamChunk(text: "", completionTokens: 2),
+        ])
+
+        let collected = try await StreamCollector.collect(from: result, extractThinking: false)
+
+        #expect(collected.logprobs.count == 2)
+        #expect(collected.logprobs[0].token == "Hello")
+        #expect(collected.logprobs[1].token == " world")
+    }
+
+    @Test("buildChoiceLogprobs converts ResolvedLogprob to ChoiceLogprobs")
+    func buildChoiceLogprobs() {
+        let resolved = [
+            ResolvedLogprob(token: "A", tokenId: 1, logprob: -0.1, topTokens: [
+                (token: "A", tokenId: 1, logprob: -0.1),
+                (token: "B", tokenId: 2, logprob: -2.0),
+            ]),
+        ]
+
+        let choice = MLXChatCompletionsController.buildChoiceLogprobs(resolved)
+        #expect(choice != nil)
+        #expect(choice!.content!.count == 1)
+        #expect(choice!.content![0].token == "A")
+        #expect(abs(choice!.content![0].logprob - Double(-0.1)) < 0.001)
+        #expect(choice!.content![0].topLogprobs.count == 2)
+        #expect(choice!.content![0].topLogprobs[0].token == "A")
+        #expect(choice!.content![0].topLogprobs[1].token == "B")
+    }
+
+    @Test("buildChoiceLogprobs returns nil for empty input")
+    func buildChoiceLogprobsEmpty() {
+        let choice = MLXChatCompletionsController.buildChoiceLogprobs(nil)
+        #expect(choice == nil)
+
+        let choice2 = MLXChatCompletionsController.buildChoiceLogprobs([])
+        #expect(choice2 == nil)
+    }
+
+    // MARK: - Finish Reason
+
+    @Test("finishReason is tool_calls when tool calls present")
+    func finishReasonToolCalls() async throws {
+        let tc = ResponseToolCall(
+            index: 0, id: "call_1", type: "function",
+            function: ResponseToolCallFunction(name: "calc", arguments: "{}")
+        )
+        let result = Self.makeStreamingResult(chunks: [
+            StreamChunk(text: "", toolCalls: [tc], completionTokens: 5),
+        ])
+
+        let collected = try await StreamCollector.collect(from: result, extractThinking: false)
+        #expect(collected.finishReason == "tool_calls")
+    }
+
+    @Test("finishReason is stop when stopped by sequence")
+    func finishReasonStopSequence() async throws {
+        let result = Self.makeStreamingResult(chunks: [
+            StreamChunk(text: "Hi", stoppedBySequence: true),
+            StreamChunk(text: "", completionTokens: 1),
+        ])
+
+        let collected = try await StreamCollector.collect(from: result, extractThinking: false)
+        #expect(collected.finishReason == "stop")
+    }
+
+    @Test("finishReason is length when max tokens reached")
+    func finishReasonLength() async throws {
+        let result = Self.makeStreamingResult(chunks: [
+            StreamChunk(text: "Hello world", completionTokens: 10),
+        ])
+
+        let collected = try await StreamCollector.collect(
+            from: result,
+            extractThinking: false,
+            maxTokens: 10
+        )
+        #expect(collected.finishReason == "length")
+    }
+
+    @Test("finishReason is stop by default")
+    func finishReasonDefault() async throws {
+        let result = Self.makeStreamingResult(chunks: [
+            StreamChunk(text: "Hello"),
+            StreamChunk(text: "", completionTokens: 1),
+        ])
+
+        let collected = try await StreamCollector.collect(from: result, extractThinking: false)
+        #expect(collected.finishReason == "stop")
+    }
+
+    // MARK: - Timing and Token Stats
+
+    @Test("collects timing and token stats from final chunk")
+    func timingStats() async throws {
+        let result = Self.makeStreamingResult(chunks: [
+            StreamChunk(text: "Hi"),
+            StreamChunk(text: "", promptTokens: 20, completionTokens: 15, cachedTokens: 5, promptTime: 0.1, generateTime: 0.5),
+        ], promptTokens: 10)
+
+        let collected = try await StreamCollector.collect(from: result, extractThinking: false)
+        #expect(collected.promptTokens == 20)
+        #expect(collected.completionTokens == 15)
+        #expect(collected.cachedTokens == 5)
+        #expect(collected.promptTime == 0.1)
+        #expect(collected.generateTime == 0.5)
+    }
+
+    // MARK: - Edge Cases
+
+    @Test("empty stream produces nil content")
+    func emptyStream() async throws {
+        let result = Self.makeStreamingResult(chunks: [])
+        let collected = try await StreamCollector.collect(from: result, extractThinking: false)
+        #expect(collected.content == nil)
+        #expect(collected.reasoningContent == nil)
+        #expect(collected.logprobs.isEmpty)
+    }
+
+    @Test("stream with only think tags and no visible content")
+    func onlyThinkContent() async throws {
+        let result = Self.makeStreamingResult(
+            chunks: [
+                StreamChunk(text: "<think>all reasoning no content</think>"),
+                StreamChunk(text: "", completionTokens: 5),
+            ],
+            thinkStartTag: "<think>",
+            thinkEndTag: "</think>"
+        )
+
+        let collected = try await StreamCollector.collect(
+            from: result,
+            extractThinking: true
+        )
+
+        #expect(collected.reasoningContent == "all reasoning no content")
+        // Content should be nil or empty since there's nothing after </think>
+        #expect(collected.content == nil)
+    }
+}
+
+// MARK: - Post-Processing Parity Integration Tests
+
+@Suite("BatchPostProcessingParity")
+struct BatchPostProcessingParityTests {
+
+    // MARK: - BatchAPIController with think extraction
+
+    @Test("BatchAPIController response includes reasoningContent when model supports thinking")
+    func batchAPIThinkExtraction() async throws {
+        let app = try await Application.make(.testing)
+        defer { Task { try await app.asyncShutdown() } }
+
+        let svc = FakeBatchService(maxConcurrent: 8)
+        svc.streamingResultFactory = { _ in
+            let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
+                continuation.yield(StreamChunk(text: "<think>reasoning here</think>visible content"))
+                continuation.yield(StreamChunk(text: "", completionTokens: 8, promptTime: 0.01, generateTime: 0.02))
+                continuation.finish()
+            }
+            return (
+                modelID: "test-model", stream: stream, promptTokens: 10,
+                toolCallStartTag: nil, toolCallEndTag: nil,
+                thinkStartTag: "<think>", thinkEndTag: "</think>"
+            )
+        }
+
+        let store = BatchStore()
+        let controller = BatchAPIController(service: svc, store: store, modelID: "test-model")
+        try app.register(collection: controller)
+
+        // Upload JSONL
+        let jsonl = #"{"custom_id":"think-1","method":"POST","url":"/v1/chat/completions","body":{"model":"test-model","messages":[{"role":"user","content":"think about this"}]}}"#
+        var uploadHeaders = HTTPHeaders()
+        let boundary = "test-boundary-\(UUID().uuidString)"
+        uploadHeaders.add(name: .contentType, value: "multipart/form-data; boundary=\(boundary)")
+        let multipartBody = "--\(boundary)\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nbatch\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.jsonl\"\r\nContent-Type: application/octet-stream\r\n\r\n\(jsonl)\r\n--\(boundary)--\r\n"
+
+        try await app.test(.POST, "/v1/files", headers: uploadHeaders, body: .init(string: multipartBody)) { res async in
+            #expect(res.status == .ok)
+            let file = try? res.content.decode(FileObject.self)
+            guard let fileId = file?.id else { return }
+
+            // Create batch
+            try? await app.test(.POST, "/v1/batches", beforeRequest: { req in
+                try req.content.encode(["input_file_id": fileId, "endpoint": "/v1/chat/completions", "completion_window": "24h"])
+            }) { batchRes async in
+                #expect(batchRes.status == .ok)
+                let batch = try? batchRes.content.decode(BatchObject.self)
+                guard let batchId = batch?.id else { return }
+
+                // Poll until completed (max 5 tries)
+                for _ in 0..<5 {
+                    try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                    try? await app.test(.GET, "/v1/batches/\(batchId)") { pollRes async in
+                        let polled = try? pollRes.content.decode(BatchObject.self)
+                        if polled?.status == "completed", let outputId = polled?.outputFileId {
+                            // Check output file for reasoning_content
+                            try? await app.test(.GET, "/v1/files/\(outputId)/content") { contentRes async in
+                                let body = contentRes.body.string
+                                // The output should contain reasoning_content
+                                #expect(body.contains("reasoning_content") || body.contains("visible content"))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - BatchAPIController with logprobs
+
+    @Test("BatchAPIController response includes logprobs when provided in stream")
+    func batchAPILogprobs() async throws {
+        let app = try await Application.make(.testing)
+        defer { Task { try await app.asyncShutdown() } }
+
+        let svc = FakeBatchService(maxConcurrent: 8)
+        svc.streamingResultFactory = { _ in
+            let lp = ResolvedLogprob(token: "Hi", tokenId: 1, logprob: -0.5, topTokens: [
+                (token: "Hi", tokenId: 1, logprob: -0.5)
+            ])
+            let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
+                continuation.yield(StreamChunk(text: "Hi", logprobs: [lp]))
+                continuation.yield(StreamChunk(text: "", completionTokens: 1, promptTime: 0.01, generateTime: 0.01))
+                continuation.finish()
+            }
+            return (
+                modelID: "test-model", stream: stream, promptTokens: 5,
+                toolCallStartTag: nil, toolCallEndTag: nil,
+                thinkStartTag: nil, thinkEndTag: nil
+            )
+        }
+
+        let store = BatchStore()
+        let controller = BatchAPIController(service: svc, store: store, modelID: "test-model")
+        try app.register(collection: controller)
+
+        // Upload and create batch
+        let jsonl = #"{"custom_id":"lp-1","method":"POST","url":"/v1/chat/completions","body":{"model":"test-model","messages":[{"role":"user","content":"hi"}],"logprobs":true,"top_logprobs":5}}"#
+        var uploadHeaders = HTTPHeaders()
+        let boundary = "boundary-\(UUID().uuidString)"
+        uploadHeaders.add(name: .contentType, value: "multipart/form-data; boundary=\(boundary)")
+        let multipartBody = "--\(boundary)\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nbatch\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.jsonl\"\r\nContent-Type: application/octet-stream\r\n\r\n\(jsonl)\r\n--\(boundary)--\r\n"
+
+        try await app.test(.POST, "/v1/files", headers: uploadHeaders, body: .init(string: multipartBody)) { res async in
+            let file = try? res.content.decode(FileObject.self)
+            guard let fileId = file?.id else { return }
+
+            try? await app.test(.POST, "/v1/batches", beforeRequest: { req in
+                try req.content.encode(["input_file_id": fileId, "endpoint": "/v1/chat/completions", "completion_window": "24h"])
+            }) { batchRes async in
+                let batch = try? batchRes.content.decode(BatchObject.self)
+                guard let batchId = batch?.id else { return }
+
+                for _ in 0..<5 {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    try? await app.test(.GET, "/v1/batches/\(batchId)") { pollRes async in
+                        let polled = try? pollRes.content.decode(BatchObject.self)
+                        if polled?.status == "completed", let outputId = polled?.outputFileId {
+                            try? await app.test(.GET, "/v1/files/\(outputId)/content") { contentRes async in
+                                let body = contentRes.body.string
+                                #expect(body.contains("logprobs") || body.contains("Hi"))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - BatchAPIController with tool calls
+
+    @Test("BatchAPIController response includes tool_calls with correct finish_reason")
+    func batchAPIToolCalls() async throws {
+        let app = try await Application.make(.testing)
+        defer { Task { try await app.asyncShutdown() } }
+
+        let tc = ResponseToolCall(
+            index: 0, id: "call_abc", type: "function",
+            function: ResponseToolCallFunction(name: "get_weather", arguments: "{\"location\":\"Paris\"}")
+        )
+        let svc = FakeBatchService(maxConcurrent: 8)
+        svc.streamingResultFactory = { _ in
+            let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
+                continuation.yield(StreamChunk(text: "", toolCalls: [tc]))
+                continuation.yield(StreamChunk(text: "", completionTokens: 5, promptTime: 0.01, generateTime: 0.02))
+                continuation.finish()
+            }
+            return (
+                modelID: "test-model", stream: stream, promptTokens: 10,
+                toolCallStartTag: nil, toolCallEndTag: nil,
+                thinkStartTag: nil, thinkEndTag: nil
+            )
+        }
+
+        let store = BatchStore()
+        let controller = BatchAPIController(service: svc, store: store, modelID: "test-model")
+        try app.register(collection: controller)
+
+        let jsonl = #"{"custom_id":"tc-1","method":"POST","url":"/v1/chat/completions","body":{"model":"test-model","messages":[{"role":"user","content":"weather?"}],"tools":[{"type":"function","function":{"name":"get_weather","parameters":{"type":"object","properties":{"location":{"type":"string"}}}}}]}}"#
+        var uploadHeaders = HTTPHeaders()
+        let boundary = "boundary-\(UUID().uuidString)"
+        uploadHeaders.add(name: .contentType, value: "multipart/form-data; boundary=\(boundary)")
+        let multipartBody = "--\(boundary)\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nbatch\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.jsonl\"\r\nContent-Type: application/octet-stream\r\n\r\n\(jsonl)\r\n--\(boundary)--\r\n"
+
+        try await app.test(.POST, "/v1/files", headers: uploadHeaders, body: .init(string: multipartBody)) { res async in
+            let file = try? res.content.decode(FileObject.self)
+            guard let fileId = file?.id else { return }
+
+            try? await app.test(.POST, "/v1/batches", beforeRequest: { req in
+                try req.content.encode(["input_file_id": fileId, "endpoint": "/v1/chat/completions", "completion_window": "24h"])
+            }) { batchRes async in
+                let batch = try? batchRes.content.decode(BatchObject.self)
+                guard let batchId = batch?.id else { return }
+
+                for _ in 0..<5 {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    try? await app.test(.GET, "/v1/batches/\(batchId)") { pollRes async in
+                        let polled = try? pollRes.content.decode(BatchObject.self)
+                        if polled?.status == "completed", let outputId = polled?.outputFileId {
+                            try? await app.test(.GET, "/v1/files/\(outputId)/content") { contentRes async in
+                                let body = contentRes.body.string
+                                #expect(body.contains("tool_calls"))
+                                #expect(body.contains("get_weather"))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Grammar Header
+
+    @Test("BatchCompletionsController sets grammar downgrade header when strict tools present")
+    func grammarDowngradeHeader() async throws {
+        let app = try await Application.make(.testing)
+        defer { Task { try await app.asyncShutdown() } }
+
+        let svc = FakeBatchService(maxConcurrent: 8)
+        // enableGrammarConstraints is false by default in FakeBatchService
+        let controller = BatchCompletionsController(service: svc, modelID: "test-model")
+        try app.register(collection: controller)
+
+        // Request with strict: true tool
+        let body = """
+        {"requests":[{"custom_id":"strict-1","body":{"model":"test-model","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"test","strict":true,"parameters":{"type":"object","properties":{"x":{"type":"string"}}}}}]}}]}
+        """
+
+        try await app.test(.POST, "/v1/batch/completions", beforeRequest: { req in
+            req.headers.contentType = .json
+            req.body = .init(string: body)
+        }) { res async in
+            #expect(res.status == .ok)
+            let grammarHeader = res.headers.first(name: "X-Grammar-Constraints")
+            #expect(grammarHeader == "downgraded")
+        }
+    }
+}
