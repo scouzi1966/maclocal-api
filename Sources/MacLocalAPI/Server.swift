@@ -260,6 +260,40 @@ class Server {
                 stop: stop
             )
             try app.register(collection: mlxController)
+
+            // Batch API endpoints
+            let batchStore = BatchStore()
+
+            let batchAPIController = BatchAPIController(
+                service: mlxModelService,
+                store: batchStore,
+                modelID: mlxModelID,
+                temperature: temperature,
+                topP: mlxTopP,
+                maxTokens: mlxMaxTokens,
+                repetitionPenalty: mlxRepetitionPenalty,
+                topK: mlxTopK,
+                minP: mlxMinP,
+                presencePenalty: mlxPresencePenalty,
+                seed: mlxSeed,
+                maxLogprobs: mlxMaxLogprobs
+            )
+            try app.register(collection: batchAPIController)
+
+            let batchCompletionsController = BatchCompletionsController(
+                service: mlxModelService,
+                modelID: mlxModelID,
+                temperature: temperature,
+                topP: mlxTopP,
+                maxTokens: mlxMaxTokens,
+                repetitionPenalty: mlxRepetitionPenalty,
+                topK: mlxTopK,
+                minP: mlxMinP,
+                presencePenalty: mlxPresencePenalty,
+                seed: mlxSeed,
+                maxLogprobs: mlxMaxLogprobs
+            )
+            try app.register(collection: batchCompletionsController)
         } else {
             let chatController = ChatCompletionsController(
                 streamingEnabled: streamingEnabled,

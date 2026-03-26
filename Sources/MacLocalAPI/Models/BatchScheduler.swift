@@ -97,6 +97,8 @@ actor BatchScheduler {
         var stopBuffer = ""
         var insideThink = false
         var stoppedBySequence = false
+        /// Set to true to signal this slot should stop generating.
+        var isCancelled = false
 
         init(
             continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation,
@@ -318,6 +320,37 @@ actor BatchScheduler {
     /// Release a reserved slot (call if request fails before reaching submit).
     nonisolated func releaseReservation() {
         _inFlightCount.withLock { $0 = max($0 - 1, 0) }
+    }
+
+    /// Atomically reserve N slots. Returns true if all N were reserved,
+    /// false if insufficient capacity (no slots reserved in that case).
+    nonisolated func tryReserveMultiple(count: Int) -> Bool {
+        _inFlightCount.withLock { current in
+            if current + count <= maxConcurrent {
+                current += count
+                return true
+            }
+            return false
+        }
+    }
+
+    /// Release N slot reservations at once.
+    nonisolated func releaseMultipleReservations(count: Int) {
+        _inFlightCount.withLock { current in
+            current = max(0, current - count)
+        }
+    }
+
+    /// Current number of active + pending slots (for teardown decisions).
+    nonisolated var activeSlotCount: Int {
+        _inFlightCount.withLock { $0 }
+    }
+
+    /// Cancel all slots matching the given IDs.
+    func cancelSlots(ids: Set<UUID>) {
+        for slot in slots where ids.contains(slot.id) {
+            slot.isCancelled = true
+        }
     }
 
     private var loopTask: Task<Void, Never>?
@@ -561,6 +594,13 @@ actor BatchScheduler {
                 for j in 0..<prevIDs.count {
                     guard let i = slots.firstIndex(where: { $0.id == prevIDs[j] }) else { continue }
                     let slot = slots[i]
+
+                    // Check for per-slot cancellation
+                    if slot.isCancelled {
+                        completedIndices.append(i)
+                        continue
+                    }
+
                     let tokenArray = prevTokens[j]
 
                     let token = tokenArray.item(Int.self)

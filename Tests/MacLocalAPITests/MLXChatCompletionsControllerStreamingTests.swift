@@ -625,6 +625,9 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
     func normalizeModel(_ raw: String) -> String { raw }
     func tryReserveSlot() -> Bool { true }
     func releaseSlot() {}
+    func ensureBatchMode(concurrency: Int) async throws {}
+    func releaseBatchReference() {}
+    func cancelBatchSlots(ids: Set<UUID>) async {}
     func startAPIProfile() {}
     func stopAPIProfile(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) -> AFMProfile {
         AFMProfile(gpuPowerAvgW: nil, gpuPowerPeakW: nil, gpuSamples: nil, memoryWeightsGiB: nil, memoryKvGiB: nil, memoryPeakGiB: nil, prefillTokS: nil, decodeTokS: nil, chip: nil, theoreticalBwGbs: nil, estBandwidthGbs: nil)

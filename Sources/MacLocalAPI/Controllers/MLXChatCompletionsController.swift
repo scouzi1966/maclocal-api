@@ -208,24 +208,84 @@ struct MLXChatCompletionsController: RouteCollection {
                     "\(Self.orange)[\(Self.timestamp())] MLX start: stream=false\n  prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens)\n  temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\n  top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none")\n  seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
                 ); fflush(stdout)
             }
-            let result = try await service.generate(
-                model: modelID,
-                messages: chatRequest.messages,
-                temperature: effectiveTemp,
-                maxTokens: effectiveMaxTokens,
-                topP: effectiveTopP,
-                repetitionPenalty: effectiveRepetitionPenalty,
-                topK: effectiveTopK,
-                minP: effectiveMinP,
-                presencePenalty: effectivePresencePenalty,
-                seed: effectiveSeed,
-                logprobs: chatRequest.logprobs,
-                topLogprobs: chatRequest.topLogprobs,
-                tools: effectiveTools,
-                stop: effectiveStop,
-                responseFormat: chatRequest.responseFormat,
-                chatTemplateKwargs: chatRequest.chatTemplateKwargs
-            )
+            let result: ChatGenerationResult
+            if service.maxConcurrent >= 2 {
+                // Batch mode: route through scheduler for batched decode
+                let streamResult: ChatStreamingResult = try await service.generateStreaming(
+                    model: modelID,
+                    messages: chatRequest.messages,
+                    temperature: effectiveTemp,
+                    maxTokens: effectiveMaxTokens,
+                    topP: effectiveTopP,
+                    repetitionPenalty: effectiveRepetitionPenalty,
+                    topK: effectiveTopK,
+                    minP: effectiveMinP,
+                    presencePenalty: effectivePresencePenalty,
+                    seed: effectiveSeed,
+                    logprobs: chatRequest.logprobs,
+                    topLogprobs: chatRequest.topLogprobs,
+                    tools: effectiveTools,
+                    stop: effectiveStop,
+                    responseFormat: chatRequest.responseFormat,
+                    chatTemplateKwargs: chatRequest.chatTemplateKwargs
+                )
+
+                // Collect stream into complete response
+                var fullText = ""
+                var allLogprobs: [ResolvedLogprob] = []
+                var finalToolCalls: [ResponseToolCall]? = nil
+                var promptTokens = streamResult.promptTokens
+                var completionTokens = 0
+                var cachedTokens = 0
+                var promptTime: Double = 0
+                var generateTime: Double = 0
+                var stoppedBySequence = false
+
+                for try await chunk in streamResult.stream {
+                    fullText += chunk.text
+                    if let lp = chunk.logprobs { allLogprobs.append(contentsOf: lp) }
+                    if let tc = chunk.toolCalls { finalToolCalls = tc }
+                    if let pt = chunk.promptTokens { promptTokens = pt }
+                    if let ct = chunk.completionTokens { completionTokens = ct }
+                    if let cached = chunk.cachedTokens { cachedTokens = cached }
+                    if let pt = chunk.promptTime { promptTime = pt }
+                    if let gt = chunk.generateTime { generateTime = gt }
+                    if let sbs = chunk.stoppedBySequence { stoppedBySequence = sbs }
+                }
+
+                result = (
+                    modelID: streamResult.modelID,
+                    content: fullText,
+                    promptTokens: promptTokens,
+                    completionTokens: completionTokens,
+                    tokenLogprobs: allLogprobs.isEmpty ? nil : allLogprobs,
+                    toolCalls: finalToolCalls,
+                    cachedTokens: cachedTokens,
+                    promptTime: promptTime,
+                    generateTime: generateTime,
+                    stoppedBySequence: stoppedBySequence
+                )
+            } else {
+                // Serial mode: use existing generate() path
+                result = try await service.generate(
+                    model: modelID,
+                    messages: chatRequest.messages,
+                    temperature: effectiveTemp,
+                    maxTokens: effectiveMaxTokens,
+                    topP: effectiveTopP,
+                    repetitionPenalty: effectiveRepetitionPenalty,
+                    topK: effectiveTopK,
+                    minP: effectiveMinP,
+                    presencePenalty: effectivePresencePenalty,
+                    seed: effectiveSeed,
+                    logprobs: chatRequest.logprobs,
+                    topLogprobs: chatRequest.topLogprobs,
+                    tools: effectiveTools,
+                    stop: effectiveStop,
+                    responseFormat: chatRequest.responseFormat,
+                    chatTemplateKwargs: chatRequest.chatTemplateKwargs
+                )
+            }
             let completionTok = result.completionTokens
             let promptTime = result.promptTime
             let generateTime = result.generateTime
@@ -255,7 +315,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     fflush(stdout)
                 }
 
-                let choiceLogprobs = buildChoiceLogprobs(result.tokenLogprobs)
+                let choiceLogprobs = Self.buildChoiceLogprobs(result.tokenLogprobs)
                 let timings = StreamTimings(prompt_n: result.promptTokens, prompt_ms: promptTime * 1000, predicted_n: completionTok, predicted_ms: generateTime * 1000)
                 let extended = wantExtended ? service.stopAPIProfileExtended(promptTokens: result.promptTokens, completionTokens: completionTok, promptTime: promptTime, generateTime: generateTime) : nil
                 let profile = wantExtended ? nil : (wantProfile ? service.stopAPIProfile(promptTokens: result.promptTokens, completionTokens: completionTok, promptTime: promptTime, generateTime: generateTime) : nil)
@@ -298,7 +358,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false\n  prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok)\n  prompt=\(String(format: "%.2f", promptTime))s gen=\(String(format: "%.2f", generateTime))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=\(stopReason)\(Self.reset)"); fflush(stdout)
             }
 
-            let choiceLogprobs = buildChoiceLogprobs(result.tokenLogprobs)
+            let choiceLogprobs = Self.buildChoiceLogprobs(result.tokenLogprobs)
             let timings = StreamTimings(prompt_n: result.promptTokens, prompt_ms: promptTime * 1000, predicted_n: completionTok, predicted_ms: generateTime * 1000)
             let extended = wantExtended ? service.stopAPIProfileExtended(promptTokens: result.promptTokens, completionTokens: completionTok, promptTime: promptTime, generateTime: generateTime) : nil
             let profile = wantExtended ? nil : (wantProfile ? service.stopAPIProfile(promptTokens: result.promptTokens, completionTokens: completionTok, promptTime: promptTime, generateTime: generateTime) : nil)
@@ -633,7 +693,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         let emitContent = extracted.content
                         let emitReasoning = extracted.reasoning
 
-                        let flushLogprobs = logprobBuffer.isEmpty ? nil : self.buildChoiceLogprobs(logprobBuffer)
+                        let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
 
                         // Emit a chunk whenever we have visible content, extracted reasoning,
                         // or buffered logprobs. Without this, per-token logprobs can be lost
@@ -675,7 +735,7 @@ struct MLXChatCompletionsController: RouteCollection {
                             pendingRawTag = nil
                         }
                     } else {
-                        let flushLogprobs = logprobBuffer.isEmpty ? nil : self.buildChoiceLogprobs(logprobBuffer)
+                        let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
                         logprobBuffer = []
                         let contentChunk = ChatCompletionStreamResponse(
                             id: streamId,
@@ -866,7 +926,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         remainingReasoning = nil
                     }
                     if remaining != nil || remainingReasoning != nil {
-                        let flushLogprobs = logprobBuffer.isEmpty ? nil : self.buildChoiceLogprobs(logprobBuffer)
+                        let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
                         logprobBuffer = []
                         let flushChunk = ChatCompletionStreamResponse(
                             id: streamId,
@@ -885,7 +945,7 @@ struct MLXChatCompletionsController: RouteCollection {
                             id: streamId,
                             model: res.modelID,
                             content: "",
-                            logprobs: self.buildChoiceLogprobs(logprobBuffer),
+                            logprobs: Self.buildChoiceLogprobs(logprobBuffer),
                             isFirst: false
                         )
                         logprobBuffer = []
@@ -1134,7 +1194,7 @@ struct MLXChatCompletionsController: RouteCollection {
     /// Extract `<think>...</think>` content from a streaming buffer.
     /// Returns any reasoning and regular content that can be flushed.
     /// The buffer retains incomplete tag fragments for the next call.
-    private static func extractThinkTags(
+    static func extractThinkTags(
         buffer: inout String,
         insideThinkBlock: inout Bool,
         startTag: String = "<think>",
@@ -1187,7 +1247,7 @@ struct MLXChatCompletionsController: RouteCollection {
     }
 
     /// Extract think tags from a complete (non-streaming) response.
-    private static func extractThinkContent(from text: String, startTag: String = "<think>", endTag: String = "</think>") -> (content: String, reasoning: String?) {
+    static func extractThinkContent(from text: String, startTag: String = "<think>", endTag: String = "</think>") -> (content: String, reasoning: String?) {
         guard text.contains(startTag) else { return (text, nil) }
         var buffer = text
         var inside = false
@@ -1341,7 +1401,7 @@ struct MLXChatCompletionsController: RouteCollection {
         }
     }
 
-    private func buildChoiceLogprobs(_ resolved: [ResolvedLogprob]?) -> ChoiceLogprobs? {
+    static func buildChoiceLogprobs(_ resolved: [ResolvedLogprob]?) -> ChoiceLogprobs? {
         guard let resolved, !resolved.isEmpty else { return nil }
         let content = resolved.map { entry in
             let topEntries = entry.topTokens.map { top in

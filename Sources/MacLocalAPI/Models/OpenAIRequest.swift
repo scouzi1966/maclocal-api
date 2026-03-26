@@ -387,3 +387,47 @@ enum AnyCodableValue: Codable, Sendable {
         }
     }
 }
+
+// MARK: - Batch API Types
+
+/// A single request entry in the SSE multiplex batch.
+struct BatchRequestItem: Content {
+    let customId: String
+    let body: ChatCompletionRequest
+
+    enum CodingKeys: String, CodingKey {
+        case customId = "custom_id"
+        case body
+    }
+}
+
+/// Request body for POST /v1/batch/completions (SSE multiplex).
+struct BatchCompletionRequest: Content {
+    let requests: [BatchRequestItem]
+}
+
+/// Request body for POST /v1/batches (OpenAI-compatible).
+struct BatchCreateRequest: Content {
+    let inputFileId: String
+    let endpoint: String
+    let completionWindow: String?
+
+    enum CodingKeys: String, CodingKey {
+        case inputFileId = "input_file_id"
+        case endpoint
+        case completionWindow = "completion_window"
+    }
+}
+
+/// A single line in the input JSONL file for batch processing.
+struct BatchInputLine: Codable {
+    let customId: String
+    let method: String
+    let url: String
+    let body: ChatCompletionRequest
+
+    enum CodingKeys: String, CodingKey {
+        case customId = "custom_id"
+        case method, url, body
+    }
+}
