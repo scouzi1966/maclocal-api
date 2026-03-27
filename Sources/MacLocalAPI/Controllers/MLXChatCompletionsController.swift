@@ -258,6 +258,33 @@ struct MLXChatCompletionsController: RouteCollection {
                     if let sbs = chunk.stoppedBySequence { stoppedBySequence = sbs }
                 }
 
+                // Fallback tool call parsing: if no tool calls were detected by
+                // streaming runtime but content contains tool call patterns, try
+                // full-text parsing (handles missing <tool_call> wrapper, etc.)
+                if finalToolCalls == nil && chatRequest.tools != nil && !fullText.isEmpty {
+                    let trimmed = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let looksLikeToolCall =
+                        fullText.contains("<function=") ||
+                        fullText.contains("<tool_call>") ||
+                        fullText.contains("[TOOL_CALLS]") ||
+                        (trimmed.hasPrefix("{") && trimmed.contains("\"name\""))
+                    if looksLikeToolCall {
+                        let (parsed, remaining) = ToolCallStreamingRuntime.parseCompletedToolCalls(
+                            from: fullText,
+                            toolCallParser: self.service.toolCallParser,
+                            tools: chatRequest.tools
+                        )
+                        if !parsed.isEmpty {
+                            finalToolCalls = MLXModelService.normalizeToolCalls(
+                                parsed,
+                                tools: chatRequest.tools,
+                                fixToolArgs: service.fixToolArgs
+                            )
+                            fullText = remaining
+                        }
+                    }
+                }
+
                 result = (
                     modelID: streamResult.modelID,
                     content: fullText,
@@ -815,7 +842,8 @@ struct MLXChatCompletionsController: RouteCollection {
                 if !hasToolCalls && (
                     (toolCallStartTag != nil && fullContent.contains(toolCallStartTag!)) ||
                     fullContent.contains("[TOOL_CALLS]") ||
-                    (chatRequest.tools != nil && looksLikeBareJsonToolCall)
+                    (chatRequest.tools != nil && looksLikeBareJsonToolCall) ||
+                    (chatRequest.tools != nil && fullContent.contains("<function="))
                 ) {
                     if self.veryVerbose {
                         print("\(Self.gold)[\(Self.timestamp())] SEND tool_call: token-level missed, trying fallback parser\(Self.reset)")
