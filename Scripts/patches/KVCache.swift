@@ -381,10 +381,16 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
             if var currentKeys = self.keys, var currentValues = self.values {
                 if previous != currentCapacity {
                     currentKeys = currentKeys[.ellipsis, ..<previous, 0...]
-                    currentValues = currentValues[.ellipsis, ..<previous, 0...]
+                    if currentValues.dim(3) > 0 {
+                        currentValues = currentValues[.ellipsis, ..<previous, 0...]
+                    }
                 }
                 self.keys = concatenated([currentKeys, newK], axis: 2)
-                self.values = concatenated([currentValues, newV], axis: 2)
+                if currentValues.dim(3) > 0 {
+                    self.values = concatenated([currentValues, newV], axis: 2)
+                } else {
+                    self.values = MLXArray.zeros([self.keys!.dim(0), currentValues.dim(1), self.keys!.dim(2), 0], dtype: currentValues.dtype)
+                }
             } else {
                 self.keys = newK
                 self.values = newV
@@ -396,10 +402,17 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
         self.offset += newTokens
 
         self.keys?[.ellipsis, previous ..< self.offset, 0...] = keys
-        self.values?[.ellipsis, previous ..< self.offset, 0...] = values
+        if values.dim(3) > 0 {
+            self.values?[.ellipsis, previous ..< self.offset, 0...] = values
+        }
 
         let returnedKeys = self.keys![.ellipsis, ..<self.offset, 0...]
-        let returnedValues = self.values![.ellipsis, ..<self.offset, 0...]
+        let returnedValues: MLXArray
+        if self.values!.dim(3) > 0 {
+            returnedValues = self.values![.ellipsis, ..<self.offset, 0...]
+        } else {
+            returnedValues = MLXArray.zeros([returnedKeys.dim(0), self.values!.dim(1), self.offset, 0], dtype: self.values!.dtype)
+        }
 
         return (returnedKeys, returnedValues)
     }
@@ -410,10 +423,12 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
             if offset == keys.dim(2) {
                 return [keys, values]
             } else {
-                return [
-                    keys[.ellipsis, ..<offset, 0...],
-                    values[.ellipsis, ..<offset, 0...],
-                ]
+                let kSlice = keys[.ellipsis, ..<offset, 0...]
+                // Handle zero-width values (e.g. GLM-5 DSA indexer stores keys only)
+                let vSlice = values.dim(3) > 0
+                    ? values[.ellipsis, ..<offset, 0...]
+                    : MLXArray.zeros([keys.dim(0), values.dim(1), offset, 0], dtype: values.dtype)
+                return [kSlice, vSlice]
             }
         }
         set {
@@ -450,7 +465,11 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
     public override func truncateToOffset() {
         guard let k = keys, let v = values, offset < k.dim(2) else { return }
         keys = k[.ellipsis, ..<offset, 0...]
-        values = v[.ellipsis, ..<offset, 0...]
+        if v.dim(3) > 0 {
+            values = v[.ellipsis, ..<offset, 0...]
+        } else {
+            values = MLXArray.zeros([k.dim(0), v.dim(1), offset, 0], dtype: v.dtype)
+        }
     }
 
     /// Convert to quantized cache for maximum efficiency
@@ -1187,11 +1206,23 @@ public class MambaCache: ArraysCache {
 
 /// Composite cache that manages multiple sub-caches
 public class CacheList: BaseKVCache {
-    private var caches: [KVCache]
+    public private(set) var caches: [KVCache]
 
     public init(_ caches: KVCache...) {
         self.caches = caches
         super.init()
+    }
+
+    public init(caches: [KVCache]) {
+        self.caches = caches
+        super.init()
+    }
+
+    public var count: Int { caches.count }
+
+    public override var offset: Int {
+        get { caches.map { $0.offset }.max() ?? 0 }
+        set { /* offset is derived from sub-caches */ }
     }
 
     public override func innerState() -> [MLXArray] {
@@ -1219,6 +1250,11 @@ public class CacheList: BaseKVCache {
         }
     }
 
+    public override var metaState: [String] {
+        get { caches.flatMap { $0.metaState } }
+        set { }
+    }
+
     public override var isTrimmable: Bool {
         caches.allSatisfy { $0.isTrimmable }
     }
@@ -1230,6 +1266,12 @@ public class CacheList: BaseKVCache {
             result = cache.trim(n)
         }
         return result
+    }
+
+    public override func truncateToOffset() {
+        for cache in caches {
+            cache.truncateToOffset()
+        }
     }
 }
 

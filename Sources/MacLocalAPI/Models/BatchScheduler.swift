@@ -832,7 +832,24 @@ actor BatchScheduler {
         let firstToken = tokenArray.item(Int.self)
         let prefillTime = Date().timeIntervalSince(prefillStart)
 
-        // Merge individual caches into batch
+        // CacheList models (GLM-5, FalconH1, BaichuanM1) can't be merged into
+        // BatchKVCacheSimple due to asymmetric K/V shapes and zero-width arrays.
+        // Run their full generation inline (prefill + decode) then return.
+        // See: https://github.com/scouzi1966/maclocal-api/issues/66
+        let hasCacheList = cache.contains { $0 is CacheList }
+        if hasCacheList {
+            runSerialGeneration(
+                req: req, cache: cache, modelState: result.state,
+                firstToken: tokenArray, inputTokens: inputTokens,
+                cachedTokens: cachedTokens, prefillStart: prefillStart, prefillTime: prefillTime,
+                cacheOutcome: cacheOutcome, cacheLookupTime: cacheLookupTime,
+                cacheRestoreTime: cacheRestoreTime, cacheTrimTime: cacheTrimTime,
+                cacheTruncateTime: cacheTruncateTime,
+                logitProcessor: logitProcessor, logitSampler: logitSampler
+            )
+            return
+        }
+
         mergeCacheIntoBatch(individualCache: cache, modelState: result.state)
 
         let slot = SlotState(
@@ -896,6 +913,86 @@ actor BatchScheduler {
         DebugLogger.log("[BatchScheduler] Prefilled slot \(slot.id.uuidString.prefix(8)) (B=\(slots.count), \(cachedTokens > 0 ? "cache hit \(cachedTokens) tokens" : "full prefill"), \(String(format: "%.0f", prefillTime * 1000))ms)")
     }
 
+    // MARK: - Serial Generation (CacheList models)
+
+    /// Run full generation for a CacheList model using the existing generate() API.
+    /// These models can't be merged into BatchKVCacheSimple due to asymmetric K/V shapes.
+    /// See: https://github.com/scouzi1966/maclocal-api/issues/66
+    private func runSerialGeneration(
+        req: PendingRequest, cache: [KVCache], modelState: LMOutput.State?,
+        firstToken: MLXArray, inputTokens: [Int],
+        cachedTokens: Int, prefillStart: Date, prefillTime: Double,
+        cacheOutcome: String, cacheLookupTime: Double?,
+        cacheRestoreTime: Double?, cacheTrimTime: Double?,
+        cacheTruncateTime: Double?,
+        logitProcessor: LogitProcessor?, logitSampler: LogitSampler
+    ) {
+        // Emit cached token count
+        if cachedTokens > 0 {
+            req.continuation.yield(StreamChunk(text: "", cachedTokens: cachedTokens))
+        }
+
+        print("[\(batchTs())] [BatchScheduler] CacheList serial generation: prompt=\(inputTokens.count) tokens")
+
+        // Build EOS set
+        var eosTokenIds = configuration.eosTokenIds
+        if let tokenizerEos = tokenizer.eosTokenId { eosTokenIds.insert(tokenizerEos) }
+        for token in configuration.extraEOSTokens {
+            if let id = tokenizer.convertTokenToId(token) { eosTokenIds.insert(id) }
+        }
+
+        // Decode loop — mirrors the batch decode step logic but for a single sequence
+        var processor = logitProcessor
+        var currentToken = firstToken
+        var state = modelState
+        var tokenCount = 0
+        let maxTokens = req.parameters.maxTokens ?? 4096
+        var detokenizer = NaiveStreamingDetokenizer(tokenizer: tokenizer)
+        let genStart = Date()
+
+        while tokenCount < maxTokens {
+            let tokenId = currentToken.item(Int.self)
+            if eosTokenIds.contains(tokenId) { break }
+
+            tokenCount += 1
+            detokenizer.append(token: tokenId)
+            if let chunk = detokenizer.next() {
+                req.continuation.yield(StreamChunk(text: chunk))
+            }
+
+            // Next token — shape [1, 1] (batch=1, seqLen=1)
+            let input = LMInput.Text(tokens: currentToken.reshaped([1, 1]))
+            let output = model(input, cache: cache, state: state)
+            state = output.state
+
+            let logits = output.logits[0, -1, 0...]
+            let processed = processor?.process(logits: logits) ?? logits
+            currentToken = logitSampler.sample(logits: processed)
+            processor?.didSample(token: currentToken)
+            asyncEval(currentToken)
+            _ = currentToken.item(Int.self)
+        }
+
+        let generateTime = Date().timeIntervalSince(genStart)
+        print("[\(batchTs())] [BatchScheduler] CacheList serial done: \(tokenCount) tokens, \(String(format: "%.1f", Double(tokenCount) / generateTime)) tok/s")
+
+        // Signal completion
+        req.continuation.yield(StreamChunk(
+            text: "",
+            promptTokens: inputTokens.count,
+            completionTokens: tokenCount,
+            cachedTokens: cachedTokens,
+            promptTime: prefillTime,
+            generateTime: generateTime,
+            stoppedBySequence: false
+        ))
+        req.continuation.finish()
+
+        // Skip prefix cache for CacheList models — their flattened state layout
+        // (4 arrays per layer) is incompatible with KVCacheSimple restore (expects 2).
+        // TODO: Support CacheList prefix caching (issue #66)
+    }
+
     // MARK: - Batched Prefill
 
     /// Prefill multiple requests in a single batched forward pass (B=N).
@@ -912,6 +1009,8 @@ actor BatchScheduler {
 
         // Verify cache types support batching (KVCacheSimple + MambaCache/ArraysCache only)
         let templateCache = model.newCache(parameters: requests[0].parameters)
+        // CacheList models (GLM-5, FalconH1, BaichuanM1) fall back to prefillOne —
+        // their sub-caches have heterogeneous shapes that can't be batched generically.
         let canBatch = templateCache.allSatisfy { $0 is KVCacheSimple || $0 is ArraysCache }
         if !canBatch {
             // Fall back to individual prefill for unsupported cache types (RotatingKVCache, etc.)
@@ -954,8 +1053,11 @@ actor BatchScheduler {
         // Phase 3: Create batched caches
         // Attention layers -> BatchKVCacheSimple with leftPadding (handles causal+padding masks)
         // SSM layers -> MambaCache with leftPadding (handles SSM masks)
+        // CacheList layers -> BatchCacheList (batches each sub-cache independently)
         let prefillCaches: [KVCache] = templateCache.map { layerCache in
-            if layerCache is ArraysCache {
+            if let cl = layerCache as? CacheList {
+                return BatchCacheList.forPrefill(template: cl, batchSize: B, leftPadding: leftPads) as KVCache
+            } else if layerCache is ArraysCache {
                 return MambaCache(leftPadding: leftPads) as KVCache
             } else {
                 return BatchKVCacheSimple(batchSize: B, leftPadding: leftPads) as KVCache
@@ -990,7 +1092,11 @@ actor BatchScheduler {
         // Phase 6: Extract individual caches per request (for prefix cache save in finishSlot)
         var perRequestCaches: [[KVCache]] = (0..<B).map { _ in [KVCache]() }
         for cache in prefillCaches {
-            if let bkvCache = cache as? BatchKVCacheSimple {
+            if let bclCache = cache as? BatchCacheList {
+                for i in 0..<B {
+                    perRequestCaches[i].append(bclCache.extract(i) as KVCache)
+                }
+            } else if let bkvCache = cache as? BatchKVCacheSimple {
                 for i in 0..<B {
                     let (k, v, _) = bkvCache.extract(i)
                     let individual = KVCacheSimple()
@@ -1082,26 +1188,28 @@ actor BatchScheduler {
     private func mergeCacheIntoBatch(individualCache: [KVCache], modelState: LMOutput.State?) {
         switch cacheMode {
         case .empty:
-            // B=0 → B=1: Keep individual caches if all are KVCacheSimple (zero overhead)
-            let allSimple = individualCache.allSatisfy { $0 is KVCacheSimple || $0 is ArraysCache }
+            // B=0 → B=1: Keep individual caches if all are simple types (zero overhead)
+            let allSimple = individualCache.allSatisfy { $0 is KVCacheSimple || $0 is ArraysCache || $0 is CacheList }
             if allSimple {
                 batchCaches = individualCache.map { layerCache in
-                    if layerCache is ArraysCache {
+                    if layerCache is ArraysCache && !(layerCache is CacheList) {
                         let copy = MambaCache()
                         copy.state = layerCache.state
                         return copy as KVCache
                     } else {
-                        return layerCache  // Keep as KVCacheSimple — zero batch overhead
+                        return layerCache  // Keep as KVCacheSimple or CacheList — zero batch overhead
                     }
                 }
                 cacheMode = .unbatched
             } else {
                 // QuantizedKVCache etc. — promote to BatchKVCacheSimple immediately
                 batchCaches = individualCache.map { layerCache in
-                    if layerCache is ArraysCache {
+                    if layerCache is ArraysCache && !(layerCache is CacheList) {
                         let copy = MambaCache()
                         copy.state = layerCache.state
                         return copy as KVCache
+                    } else if layerCache is CacheList {
+                        return BatchCacheList.merge([layerCache], leftPadding: [0]) as KVCache
                     } else {
                         return BatchKVCacheSimple.merge([layerCache]) as KVCache
                     }
@@ -1110,10 +1218,12 @@ actor BatchScheduler {
             }
 
         case .unbatched:
-            // B=1 → B≥2: Promote existing + new to BatchKVCacheSimple
+            // B=1 → B≥2: Promote existing + new to BatchKVCacheSimple/BatchCacheList
             Stream.gpu.synchronize()  // Ensure B=1 cache arrays are fully evaluated
             batchCaches = zip(batchCaches, individualCache).map { existing, new in
-                if let existingAC = existing as? ArraysCache,
+                if let existingCL = existing as? CacheList, new is CacheList {
+                    return BatchCacheList.merge([existingCL, new], leftPadding: [0, 0]) as KVCache
+                } else if let existingAC = existing as? ArraysCache,
                    let newAC = new as? ArraysCache {
                     existingAC.extend(other: newAC)
                     return existingAC as KVCache
@@ -1124,9 +1234,21 @@ actor BatchScheduler {
             cacheMode = .batched
 
         case .batched:
-            // B≥2 → B+1: Extend existing BatchKVCacheSimple
+            // B≥2 → B+1: Extend existing batch caches
             for layer in 0..<batchCaches.count where layer < individualCache.count {
-                if let batchAC = batchCaches[layer] as? ArraysCache,
+                if let batchBCL = batchCaches[layer] as? BatchCacheList,
+                   let newCL = individualCache[layer] as? CacheList {
+                    // Extend each sub-cache in the BatchCacheList
+                    for subIdx in 0..<batchBCL.count where subIdx < newCL.count {
+                        if let batchAC = batchBCL[subIdx] as? ArraysCache,
+                           let newAC = newCL[subIdx] as? ArraysCache {
+                            batchAC.extend(other: newAC)
+                        } else if let batchBKV = batchBCL[subIdx] as? BatchKVCacheSimple {
+                            let single = BatchKVCacheSimple.merge([newCL[subIdx]])
+                            batchBKV.extend(with: single)
+                        }
+                    }
+                } else if let batchAC = batchCaches[layer] as? ArraysCache,
                    let newAC = individualCache[layer] as? ArraysCache {
                     batchAC.extend(other: newAC)
                 } else {
@@ -1252,7 +1374,16 @@ actor BatchScheduler {
             case .batched:
                 let idxArray = MLXArray(keepIndices.map { Int32($0) })
                 for layer in 0..<batchCaches.count {
-                    if let bkvCache = batchCaches[layer] as? BatchKVCacheSimple {
+                    if let bclCache = batchCaches[layer] as? BatchCacheList {
+                        // Filter each sub-cache inside the CacheList
+                        for subIdx in 0..<bclCache.count {
+                            if let bkvSub = bclCache[subIdx] as? BatchKVCacheSimple {
+                                bkvSub.filter(keepIndices)
+                            } else if let acSub = bclCache[subIdx] as? ArraysCache {
+                                acSub.filter(batchIndices: idxArray)
+                            }
+                        }
+                    } else if let bkvCache = batchCaches[layer] as? BatchKVCacheSimple {
                         bkvCache.filter(keepIndices)
                     } else if let acCache = batchCaches[layer] as? ArraysCache {
                         acCache.filter(batchIndices: idxArray)

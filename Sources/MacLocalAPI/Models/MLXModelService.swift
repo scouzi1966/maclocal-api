@@ -2801,6 +2801,33 @@ final class MLXModelService: @unchecked Sendable {
             }
         }
 
+        // Fallback: bare <function=...></function> without <tool_call> wrapper
+        // Some models (e.g. Qwen3-Coder-Next) emit the XML function block directly,
+        // sometimes with a trailing </tool_call> but no opening <tool_call>.
+        if toolCalls.isEmpty {
+            let funcRegex = try! NSRegularExpression(
+                pattern: #"<function=([^>]+)>(.*?)</function>"#,
+                options: [.dotMatchesLineSeparators]
+            )
+            let funcMatches = funcRegex.matches(in: remaining, range: NSRange(remaining.startIndex..., in: remaining))
+            for match in funcMatches.reversed() {
+                let fullContent = String(remaining[Range(match.range, in: remaining)!])
+                if let tc = parseXMLFunction(fullContent) {
+                    if debugLogging {
+                        print("[\(ts())] [ToolCallParser] Bare XML function: \(tc.function.name)(\(tc.function.arguments.keys.joined(separator: ", ")))")
+                    }
+                    toolCalls.insert(tc, at: 0)
+                    if let fullRange = Range(match.range, in: remaining) {
+                        remaining.removeSubrange(fullRange)
+                    }
+                }
+            }
+            // Clean up orphaned </tool_call> tags
+            if !toolCalls.isEmpty {
+                remaining = remaining.replacingOccurrences(of: "</tool_call>", with: "")
+            }
+        }
+
         // Fallback: bare JSON tool call (no wrapper tags)
         // e.g. {"name":"get_weather","arguments":{"city":"Tokyo"}} or with "parameters"
         if toolCalls.isEmpty {
