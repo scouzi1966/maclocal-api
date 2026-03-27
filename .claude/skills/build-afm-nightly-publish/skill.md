@@ -248,6 +248,56 @@ nm -gU .build/arm64-apple-macosx/release/afm 2>/dev/null | wc -l
 # Unstripped has thousands
 ```
 
+#### Check 9: Relocated binary does NOT crash (pip install simulation)
+
+This is the most critical distribution check. SPM auto-generates `resource_bundle_accessor.swift` with a hardcoded absolute build path. If any code path calls `Bundle.module`, the binary will `fatalError` when installed via pip or Homebrew (because the build path no longer exists). This has shipped broken nightlies before.
+
+```bash
+# Simulate pip install: copy binary + loose metallib to a temp dir (NO SPM bundle directory)
+TMPDIR=$(mktemp -d)
+cp .build/arm64-apple-macosx/release/afm "$TMPDIR/"
+cp .build/arm64-apple-macosx/release/MacLocalAPI_MacLocalAPI.bundle/default.metallib "$TMPDIR/"
+
+# Must NOT crash with "could not load resource bundle" fatalError
+MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache \
+  "$TMPDIR/afm" mlx -m mlx-community/Qwen3.5-35B-A3B-4bit -s "hello" --max-tokens 5 2>&1 | head -3
+EXIT_CODE=${PIPESTATUS[0]}
+rm -rf "$TMPDIR"
+
+if [ "$EXIT_CODE" -ne 0 ]; then
+  echo "FAIL: Relocated binary crashed (exit $EXIT_CODE)"
+  echo "This means Bundle.module fatalError is still reachable."
+  echo "Check MLXMetalLibrary.swift — it must NOT call Bundle.module."
+else
+  echo "PASS: Relocated binary works"
+fi
+```
+
+**Why this matters:** This is the exact layout pip creates: `macafm_next/bin/afm` + `macafm_next/bin/default.metallib`. If this test fails, every pip user gets a crash on first run. **This check is non-negotiable — if it fails, do NOT publish.**
+
+**Root cause if it fails:** Someone added a `Bundle.module` call somewhere in the codebase. Search for it:
+```bash
+grep -r 'Bundle\.module' Sources/ --include='*.swift'
+# Must return ZERO results (only comments allowed)
+```
+
+#### Check 10: No Bundle.module calls in source code
+
+```bash
+# Bundle.module uses SPM's auto-generated accessor which fatalError's on relocated binaries.
+# It must NEVER be called from our code. Comments referencing it are OK.
+HITS=$(grep -r 'Bundle\.module' Sources/ --include='*.swift' | grep -v '//' | grep -v '^\s*//' | wc -l)
+if [ "$HITS" -gt 0 ]; then
+  echo "FAIL: Found $HITS Bundle.module call(s) in source code"
+  grep -rn 'Bundle\.module' Sources/ --include='*.swift' | grep -v '//'
+  echo "This WILL crash when installed via pip or Homebrew."
+else
+  echo "PASS: No Bundle.module calls"
+fi
+```
+
+**Why this matters:** Even a single `Bundle.module` call anywhere in the code path triggers the auto-generated `fatalError`. This is a regression guard — any future code that adds `Bundle.module` will be caught here before it ships.
+
 #### Present verification results
 
 | # | Check | What could go wrong | Result |
@@ -260,6 +310,8 @@ nm -gU .build/arm64-apple-macosx/release/afm 2>/dev/null | wc -l
 | 6 | WebUI assets present | missing → no browser UI | PASS/FAIL |
 | 7 | BuildInfo.swift clean | dirty working tree → accidental commit | PASS/FAIL |
 | 8 | Binary stripped, reasonable size | unstripped → bloated download | PASS/FAIL |
+| 9 | Relocated binary works (pip sim) | Bundle.module fatalError → crash on pip install | PASS/FAIL |
+| 10 | No Bundle.module in source | regression guard → future crash on relocated binary | PASS/FAIL |
 
 **If ANY check fails, STOP. Do not proceed to user testing or publishing.**
 
