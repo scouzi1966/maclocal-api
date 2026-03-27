@@ -18,9 +18,15 @@ public func computeDt(_ dt: MLXArray, _ dtBias: MLXArray, _ timeStepLimit: (Floa
 
 private func makeSSMKernel() -> MLXFast.MLXFastKernel? {
     let source = """
+            // Group index fix: n is flattened over batch*heads (grid.z = h * n_batches).
+            // Must derive batch and head separately before computing group.
+            // Original `g_idx = n / G` was wrong for batch > 0.
+            // Identified by Sourcery AI review (PR #69).
             auto n = thread_position_in_grid.z;
+            auto batch_idx = n / H;
             auto h_idx = n % H;
-            auto g_idx = n / G;
+            constexpr int headsPerGroup = H / G;
+            auto g_idx = h_idx / headsPerGroup;
             constexpr int n_per_t = Ds / 32;
 
             auto x = X + n * Dh;
@@ -29,9 +35,9 @@ private func makeSSMKernel() -> MLXFast.MLXFastKernel? {
             auto o_state = state_out + n * Dh * Ds;
 
             // C and B have shape [batch, group, state_dim]
-            // C and B need to be offset by group size
-            auto C_ = C + g_idx * Ds;
-            auto B_ = B + g_idx * Ds;
+            constexpr int groups = H / (H / G);  // = G
+            auto C_ = C + batch_idx * groups * Ds + g_idx * Ds;
+            auto B_ = B + batch_idx * groups * Ds + g_idx * Ds;
 
             auto ds_idx = thread_position_in_threadgroup.x;
             auto d_idx = thread_position_in_grid.y;
