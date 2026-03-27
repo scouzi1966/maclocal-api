@@ -470,7 +470,9 @@ This script handles everything:
 5. Updates `afm-next.rb` in the homebrew-afm tap (url, version, sha256)
 6. Commits and pushes the tap update
 7. Builds a nightly wheel (`macafm-next`) via `Scripts/build-nightly-wheel.sh`
-8. Uploads the wheel to the GitHub release and updates the PEP 503 index on kruks.ai via `Scripts/update-wheel-index.sh` (requires vesta-mac repo at `../vesta-mac` and `wrangler` for Cloudflare Pages deploy)
+8. Uploads the wheel to the GitHub release and updates the PEP 503 index on kruks.ai via `Scripts/update-wheel-index.sh`
+
+**Step 8 often fails in worktrees** because `../vesta-mac` resolves relative to the worktree, not the parent repo. If it fails, you MUST complete the wheel index update manually — see Step 4c below.
 
 ### Step 4b: Update README Release Link
 
@@ -499,6 +501,53 @@ After publishing, update the nightly release notes link in `README.md` to point 
    If already on `main`, just `git push origin main`.
 
 **Do not skip this step.** The README is the main page users see — it must always point to the latest nightly. A README update that only lands on a worktree branch is invisible to users.
+
+### Step 4c: Update kruks.ai Wheel Index (pip install)
+
+The kruks.ai website hosts a PEP 503 wheel index at `https://kruks.ai/afm/wheels/simple/` so users can `pip install macafm-next`. The site is deployed via Cloudflare Pages from the `vesta-mac` repo's `DEMO/` directory.
+
+**Architecture:** The `DEMO/` directory contains dated snapshots (e.g., `2026-03-16/`, `2026-03-27/`). Each is a complete copy of the site. Previous snapshots are **immutable** — never modify them. Always create a new dated copy, update it, and deploy the copy.
+
+**This step is mandatory.** Without it, `pip install macafm-next` serves stale wheels even though the GitHub release has the new one.
+
+```bash
+# 1. Ensure vesta-mac is cloned (auto-clone if missing)
+VESTA_DIR="${VESTA_DIR:-$(cd "$(git rev-parse --show-toplevel)/.." && pwd)/vesta-mac}"
+if [ ! -d "$VESTA_DIR" ] || ! git -C "$VESTA_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+  echo "vesta-mac missing or corrupted — cloning..."
+  rm -rf "$VESTA_DIR"
+  gh repo clone scouzi1966/vesta-mac "$VESTA_DIR"
+fi
+cd "$VESTA_DIR" && git checkout main && git pull origin main && cd -
+
+# 2. Create a new dated site snapshot from the latest existing one
+LATEST_SNAPSHOT=$(ls -d "$VESTA_DIR/DEMO"/20*/ 2>/dev/null | sort | tail -1 | sed 's|/$||')
+TODAY=$(date +%Y-%m-%d)
+NEW_SNAPSHOT="$VESTA_DIR/DEMO/$TODAY"
+if [ ! -d "$NEW_SNAPSHOT" ]; then
+  echo "Creating new site snapshot: $TODAY (from $(basename "$LATEST_SNAPSHOT"))"
+  cp -a "$LATEST_SNAPSHOT" "$NEW_SNAPSHOT"
+fi
+
+# 3. Run the wheel index update (updates the NEW snapshot, uploads wheel to GH release)
+VESTA_DIR="$VESTA_DIR" ./Scripts/update-wheel-index.sh \
+  dist/macafm_next-*.whl \
+  nightly-YYYYMMDD-SHORTSHA
+
+# 4. Push the vesta-mac changes
+cd "$VESTA_DIR" && git add -A && git commit -m "Add wheel for nightly-YYYYMMDD-SHORTSHA" && git push origin main && cd -
+
+# 5. Deploy to Cloudflare Pages (makes kruks.ai live with the new snapshot)
+cd "$VESTA_DIR/DEMO" && ./deploy.sh && cd -
+```
+
+**Verify after deploy:**
+```bash
+curl -sf https://kruks.ai/afm/wheels/simple/macafm-next/ | grep 'macafm_next'
+# Must show a link to the new wheel
+```
+
+**Do not skip this step.** The Homebrew tap works independently, but pip users will get stale wheels until this completes.
 
 ### Step 5: Verify & Report
 
