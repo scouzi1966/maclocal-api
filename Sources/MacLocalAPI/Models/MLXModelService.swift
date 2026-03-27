@@ -1007,6 +1007,11 @@ final class MLXModelService: @unchecked Sendable {
         var config = ModelConfiguration(directory: directory)
         // Auto-detect tool call format from model type (vendor LLMModelFactory lost this code)
         var detectedFormat = inferToolCallFormat(directory: directory)
+        if let fmt = detectedFormat {
+            print("[\(ts())] [ToolCallParser] Auto-detected format: \(fmt) (from model_type)")
+        } else {
+            print("[\(ts())] [ToolCallParser] No tool call format detected for this model")
+        }
         // --tool-call-parser override: force format for the specified parser
         if let parser = toolCallParser {
             switch parser {
@@ -1019,9 +1024,7 @@ final class MLXModelService: @unchecked Sendable {
             default:
                 break
             }
-            if debugLogging {
-                print("[\(ts())] [ToolCallParser] Forcing \(String(describing: detectedFormat)) format for \(parser) parser")
-            }
+            print("[\(ts())] [ToolCallParser] --tool-call-parser override: \(parser) → \(String(describing: detectedFormat))")
         }
         config.toolCallFormat = detectedFormat
         stage?(.loadingModel)
@@ -2797,6 +2800,36 @@ final class MLXModelService: @unchecked Sendable {
                     if !toolCalls.isEmpty {
                         remaining = ""
                     }
+                }
+            }
+        }
+
+        // Fallback: bare NAME[ARGS]{JSON} without [TOOL_CALLS] prefix
+        // Some models (e.g. Ministral) emit the Mistral format without the prefix.
+        if toolCalls.isEmpty {
+            let trimmed = remaining.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.contains("[ARGS]") {
+                let argsPattern = try! NSRegularExpression(
+                    pattern: #"([a-zA-Z_][a-zA-Z0-9_]*)\[ARGS\](\{[\s\S]*?\})(?:\s|$|\[)"#,
+                    options: [])
+                let matches = argsPattern.matches(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed))
+                for match in matches {
+                    if let nameRange = Range(match.range(at: 1), in: trimmed),
+                       let argsRange = Range(match.range(at: 2), in: trimmed) {
+                        let name = String(trimmed[nameRange])
+                        let argsStr = String(trimmed[argsRange])
+                        if let argsData = argsStr.data(using: .utf8),
+                           let argsDict = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any] {
+                            var args: [String: String] = [:]
+                            for (k, v) in argsDict {
+                                args[k] = "\(v)"
+                            }
+                            toolCalls.append(ToolCall(function: .init(name: name, arguments: args)))
+                        }
+                    }
+                }
+                if !toolCalls.isEmpty {
+                    remaining = ""
                 }
             }
         }
