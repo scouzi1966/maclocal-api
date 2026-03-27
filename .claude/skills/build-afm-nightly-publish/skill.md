@@ -108,6 +108,13 @@ Then run the full build:
 
 **Why this matters:** Stale ModuleCache can cause the compiler to use old .swiftmodule files from a previous build, meaning your patches compile but the binary links against the cached (unpatched) version. Stale `workspace-state.json` can resolve a different version of MLX Swift than what the pin specifies. Both failures are silent — the build succeeds, the binary runs, but behavior is wrong.
 
+**CRITICAL: NEVER rebuild the binary after the initial build-from-scratch.** The build script injects the git SHA into BuildInfo.swift, compiles, then restores it. If you run `swift build -c release` again (e.g., after fixing a bug), the binary gets the base version (`v0.9.8`) without the SHA suffix. The pip wheel and Homebrew tarball MUST contain the exact same binary with the exact same version string. If any code change is needed after the build:
+1. Make the code change and commit it
+2. Run `rm -rf .build` and `./Scripts/build-from-scratch.sh` again — full clean rebuild
+3. Re-run ALL verification checks (Step 2b)
+
+There is no shortcut. An incremental `swift build` after a code fix produces a binary with the wrong version. This has shipped broken version strings before.
+
 If the user passed `--skip-build`, skip the clean and build steps, but **still run all Step 2b verification checks** against the existing binary:
 ```bash
 test -x .build/arm64-apple-macosx/release/afm || test -x .build/release/afm
@@ -298,6 +305,27 @@ fi
 
 **Why this matters:** Even a single `Bundle.module` call anywhere in the code path triggers the auto-generated `fatalError`. This is a regression guard — any future code that adds `Bundle.module` will be caught here before it ships.
 
+#### Check 11: Binary version contains git SHA (not base version only)
+
+```bash
+BIN=".build/arm64-apple-macosx/release/afm"
+REPORTED=$($BIN --version 2>&1)
+SHORT_SHA=$(git rev-parse --short HEAD)
+echo "Binary reports: $REPORTED"
+echo "Expected SHA suffix: $SHORT_SHA"
+
+if echo "$REPORTED" | grep -qF "$SHORT_SHA"; then
+  echo "PASS: Version contains correct SHA"
+else
+  echo "FAIL: Version '$REPORTED' does not contain SHA '$SHORT_SHA'"
+  echo "This means the binary was built with an incremental 'swift build' instead of build-from-scratch.sh"
+  echo "The build script injects the SHA into BuildInfo.swift during compilation."
+  echo "STOP. Run 'rm -rf .build && ./Scripts/build-from-scratch.sh' — no shortcuts."
+fi
+```
+
+**Why this matters:** The Homebrew tarball and pip wheel MUST ship the exact same binary with the exact same version string (e.g., `v0.9.8-62395ab`). If the version shows only `v0.9.8` without a SHA, it means someone ran `swift build -c release` directly instead of `build-from-scratch.sh`. The build script injects the SHA into BuildInfo.swift, compiles, then restores it — an incremental build skips that injection. Users on different install channels seeing different version strings makes debugging impossible.
+
 #### Present verification results
 
 | # | Check | What could go wrong | Result |
@@ -312,6 +340,7 @@ fi
 | 8 | Binary stripped, reasonable size | unstripped → bloated download | PASS/FAIL |
 | 9 | Relocated binary works (pip sim) | Bundle.module fatalError → crash on pip install | PASS/FAIL |
 | 10 | No Bundle.module in source | regression guard → future crash on relocated binary | PASS/FAIL |
+| 11 | Binary version contains SHA | incremental build → brew and pip show different versions | PASS/FAIL |
 
 **If ANY check fails, STOP. Do not proceed to user testing or publishing.**
 
