@@ -42,7 +42,7 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 |---|---|---|
 | **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
 | **pip** | `pip install macafm` | `pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next` |
-| **Release notes** | [v0.9.7](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.7) | [v0.9.8-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260320-a0371cc) |
+| **Release notes** | [v0.9.7](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.7) | [v0.9.8-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260327-62395ab) |
 
 > [!NOTE]
 > The stable release (v0.9.7) and the latest nightly are currently at the same level. Either one will give you the same experience.
