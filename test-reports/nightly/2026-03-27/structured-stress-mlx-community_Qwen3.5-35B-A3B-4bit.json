@@ -1,0 +1,1985 @@
+{
+  "evalId": "eval-fLK-2026-03-27T18:22:41",
+  "results": {
+    "version": 3,
+    "timestamp": "2026-03-27T18:22:41.154Z",
+    "prompts": [
+      {
+        "id": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "raw": "{{prompt}}",
+        "label": "{{prompt}}",
+        "provider": "afm-api-json-schema-stress",
+        "metrics": {
+          "score": 4,
+          "testPassCount": 4,
+          "testFailCount": 0,
+          "testErrorCount": 0,
+          "assertPassCount": 5,
+          "assertFailCount": 0,
+          "totalLatencyMs": 6398,
+          "tokenUsage": {
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "total": 0,
+            "numRequests": 4,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0
+            },
+            "assertions": {
+              "total": 0,
+              "prompt": 0,
+              "completion": 0,
+              "cached": 0,
+              "numRequests": 0,
+              "completionDetails": {
+                "reasoning": 0,
+                "acceptedPrediction": 0,
+                "rejectedPrediction": 0
+              }
+            }
+          },
+          "namedScores": {},
+          "namedScoresCount": {},
+          "cost": 0
+        }
+      }
+    ],
+    "results": [
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json",
+                "value": {
+                  "type": "object",
+                  "required": [
+                    "vendor",
+                    "invoice_number",
+                    "invoice_date",
+                    "line_items",
+                    "tax",
+                    "total"
+                  ]
+                }
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains-json",
+                "value": {
+                  "type": "object",
+                  "properties": {
+                    "line_items": {
+                      "type": "array",
+                      "minItems": 2
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "id": "fbee9926-9dae-493a-8800-36847cd05f9a",
+        "latencyMs": 2173,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Extract an invoice from this note. Vendor Northwind Labs. Invoice INV-2049 dated 2026-03-15. Items: 2 ethernet adapters at 29.99 each, 1 docking station at 189.50. Tax 19.04. Total 268.52.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-api-json-schema-stress"
+        },
+        "response": {
+          "output": "{\n  \"vendor\": \"Northwind Labs\",\n  \"invoice_number\": \"INV-2049\",\n  \"invoice_date\": \"2026-03-15\",\n  \"line_items\": [\n    {\n      \"description\": \"ethernet adapters\",\n      \"quantity\": 2,\n      \"unit_price\": 29.99\n    },\n    {\n      \"description\": \"docking station\",\n      \"quantity\": 1,\n      \"unit_price\": 189.5\n    }\n  ],\n  \"tax\": 19.04,\n  \"total\": 268.52\n}",
+          "latencyMs": 2173,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Extract an invoice from this note. Vendor Northwind Labs. Invoice INV-2049 dated 2026-03-15. Items: 2 ethernet adapters at 29.99 each, 1 docking station at 189.50. Tax 19.04. Total 268.52."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                  "name": "invoice_extract",
+                  "strict": true,
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "vendor": {
+                        "type": "string"
+                      },
+                      "invoice_number": {
+                        "type": "string"
+                      },
+                      "invoice_date": {
+                        "type": "string"
+                      },
+                      "line_items": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "description": {
+                              "type": "string"
+                            },
+                            "quantity": {
+                              "type": "integer"
+                            },
+                            "unit_price": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "description",
+                            "quantity",
+                            "unit_price"
+                          ]
+                        }
+                      },
+                      "tax": {
+                        "type": "number"
+                      },
+                      "total": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "vendor",
+                      "invoice_number",
+                      "invoice_date",
+                      "line_items",
+                      "tax",
+                      "total"
+                    ]
+                  }
+                }
+              }
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\n  \"vendor\": \"Northwind Labs\",\n  \"invoice_number\": \"INV-2049\",\n  \"invoice_date\": \"2026-03-15\",\n  \"line_items\": [\n    {\n      \"description\": \"ethernet adapters\",\n      \"quantity\": 2,\n      \"unit_price\": 29.99\n    },\n    {\n      \"description\": \"docking station\",\n      \"quantity\": 1,\n      \"unit_price\": 189.5\n    }\n  ],\n  \"tax\": 19.04,\n  \"total\": 268.52\n}",
+                    "role": "assistant"
+                  },
+                  "index": 0,
+                  "finish_reason": "stop"
+                }
+              ],
+              "created": 1774635763,
+              "object": "chat.completion",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "id": "chatcmpl-30623622",
+              "usage": {
+                "completion_tokens_per_second": 113.64,
+                "prompt_tokens_per_second": 356.66,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_tokens": 151,
+                "total_time": 2.02,
+                "prompt_tokens": 246,
+                "total_tokens": 397,
+                "completion_time": 1.33,
+                "prompt_time": 0.69,
+                "peak_memory_gib": 19.4
+              },
+              "timings": {
+                "predicted_ms": 1328.8079500198364,
+                "prompt_n": 246,
+                "predicted_n": 151,
+                "prompt_ms": 689.7280216217041
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1067",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:22:43 GMT",
+              "x-grammar-constraints": "downgraded"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "stress/schema invoice extraction with nested arrays",
+          "metadata": {
+            "suite": "structured_stress",
+            "classification": "not_yet_classified",
+            "source": "structeval_inspired"
+          },
+          "vars": {
+            "prompt": "Extract an invoice from this note. Vendor Northwind Labs. Invoice INV-2049 dated 2026-03-15. Items: 2 ethernet adapters at 29.99 each, 1 docking station at 189.50. Tax 19.04. Total 268.52.",
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "invoice_extract",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "vendor": {
+                      "type": "string"
+                    },
+                    "invoice_number": {
+                      "type": "string"
+                    },
+                    "invoice_date": {
+                      "type": "string"
+                    },
+                    "line_items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "description": {
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "type": "integer"
+                          },
+                          "unit_price": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "description",
+                          "quantity",
+                          "unit_price"
+                        ]
+                      }
+                    },
+                    "tax": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "vendor",
+                    "invoice_number",
+                    "invoice_date",
+                    "line_items",
+                    "tax",
+                    "total"
+                  ]
+                }
+              }
+            }
+          },
+          "assert": [
+            {
+              "type": "is-json",
+              "value": {
+                "type": "object",
+                "required": [
+                  "vendor",
+                  "invoice_number",
+                  "invoice_date",
+                  "line_items",
+                  "tax",
+                  "total"
+                ]
+              }
+            },
+            {
+              "type": "contains-json",
+              "value": {
+                "type": "object",
+                "properties": {
+                  "line_items": {
+                    "type": "array",
+                    "minItems": 2
+                  }
+                }
+              }
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 0,
+        "vars": {
+          "prompt": "Extract an invoice from this note. Vendor Northwind Labs. Invoice INV-2049 dated 2026-03-15. Items: 2 ethernet adapters at 29.99 each, 1 docking station at 189.50. Tax 19.04. Total 268.52.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "invoice_extract",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "vendor": {
+                    "type": "string"
+                  },
+                  "invoice_number": {
+                    "type": "string"
+                  },
+                  "invoice_date": {
+                    "type": "string"
+                  },
+                  "line_items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "description": {
+                          "type": "string"
+                        },
+                        "quantity": {
+                          "type": "integer"
+                        },
+                        "unit_price": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "description",
+                        "quantity",
+                        "unit_price"
+                      ]
+                    }
+                  },
+                  "tax": {
+                    "type": "number"
+                  },
+                  "total": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "vendor",
+                  "invoice_number",
+                  "invoice_date",
+                  "line_items",
+                  "tax",
+                  "total"
+                ]
+              }
+            }
+          }
+        },
+        "metadata": {
+          "suite": "structured_stress",
+          "classification": "not_yet_classified",
+          "source": "structeval_inspired",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Extract an invoice from this note. Vendor Northwind Labs. Invoice INV-2049 dated 2026-03-15. Items: 2 ethernet adapters at 29.99 each, 1 docking station at 189.50. Tax 19.04. Total 268.52."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "invoice_extract",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "vendor": {
+                      "type": "string"
+                    },
+                    "invoice_number": {
+                      "type": "string"
+                    },
+                    "invoice_date": {
+                      "type": "string"
+                    },
+                    "line_items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "description": {
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "type": "integer"
+                          },
+                          "unit_price": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "description",
+                          "quantity",
+                          "unit_price"
+                        ]
+                      }
+                    },
+                    "tax": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "vendor",
+                    "invoice_number",
+                    "invoice_date",
+                    "line_items",
+                    "tax",
+                    "total"
+                  ]
+                }
+              }
+            }
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "message": {
+                  "content": "{\n  \"vendor\": \"Northwind Labs\",\n  \"invoice_number\": \"INV-2049\",\n  \"invoice_date\": \"2026-03-15\",\n  \"line_items\": [\n    {\n      \"description\": \"ethernet adapters\",\n      \"quantity\": 2,\n      \"unit_price\": 29.99\n    },\n    {\n      \"description\": \"docking station\",\n      \"quantity\": 1,\n      \"unit_price\": 189.5\n    }\n  ],\n  \"tax\": 19.04,\n  \"total\": 268.52\n}",
+                  "role": "assistant"
+                },
+                "index": 0,
+                "finish_reason": "stop"
+              }
+            ],
+            "created": 1774635763,
+            "object": "chat.completion",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "id": "chatcmpl-30623622",
+            "usage": {
+              "completion_tokens_per_second": 113.64,
+              "prompt_tokens_per_second": 356.66,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens": 151,
+              "total_time": 2.02,
+              "prompt_tokens": 246,
+              "total_tokens": 397,
+              "completion_time": 1.33,
+              "prompt_time": 0.69,
+              "peak_memory_gib": 19.4
+            },
+            "timings": {
+              "predicted_ms": 1328.8079500198364,
+              "prompt_n": 246,
+              "predicted_n": 151,
+              "prompt_ms": 689.7280216217041
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1067",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:22:43 GMT",
+            "x-grammar-constraints": "downgraded"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json",
+                "value": {
+                  "type": "object",
+                  "properties": {
+                    "severity": {
+                      "enum": [
+                        "sev0",
+                        "sev1",
+                        "sev2",
+                        "sev3"
+                      ]
+                    },
+                    "mitigation": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "id": "6c332f09-b801-4549-942e-d68ba3436f92",
+        "latencyMs": 694,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Return an incident object for this alert: checkout latency spiked to 12 seconds in us-east-1. Suspected culprit is payments-db connection pool exhaustion. Customer impact is severe. No mitigation yet.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-api-json-schema-stress"
+        },
+        "response": {
+          "output": "{\n  \"severity\": \"sev1\",\n  \"region\": \"us-east-1\",\n  \"suspected_cause\": \"payments-db connection pool exhaustion\",\n  \"mitigation\": null,\n  \"impacted_systems\": [\n    \"checkout\"\n  ]\n}",
+          "latencyMs": 694,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Return an incident object for this alert: checkout latency spiked to 12 seconds in us-east-1. Suspected culprit is payments-db connection pool exhaustion. Customer impact is severe. No mitigation yet."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                  "name": "incident_triage",
+                  "strict": true,
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "severity": {
+                        "type": "string",
+                        "enum": [
+                          "sev0",
+                          "sev1",
+                          "sev2",
+                          "sev3"
+                        ]
+                      },
+                      "region": {
+                        "type": "string"
+                      },
+                      "suspected_cause": {
+                        "type": "string"
+                      },
+                      "mitigation": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "impacted_systems": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "severity",
+                      "region",
+                      "suspected_cause",
+                      "mitigation",
+                      "impacted_systems"
+                    ]
+                  }
+                }
+              }
+            },
+            "responseBody": {
+              "timings": {
+                "predicted_ms": 553.367018699646,
+                "prompt_n": 192,
+                "predicted_n": 63,
+                "prompt_ms": 133.08894634246826
+              },
+              "created": 1774635764,
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "object": "chat.completion",
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\n  \"severity\": \"sev1\",\n  \"region\": \"us-east-1\",\n  \"suspected_cause\": \"payments-db connection pool exhaustion\",\n  \"mitigation\": null,\n  \"impacted_systems\": [\n    \"checkout\"\n  ]\n}",
+                    "role": "assistant"
+                  },
+                  "index": 0,
+                  "finish_reason": "stop"
+                }
+              ],
+              "id": "chatcmpl-B0B95EE6",
+              "usage": {
+                "prompt_time": 0.13,
+                "completion_tokens": 63,
+                "prompt_tokens": 192,
+                "completion_time": 0.55,
+                "prompt_tokens_per_second": 1442.64,
+                "peak_memory_gib": 19.3,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 0.69,
+                "total_tokens": 255,
+                "completion_tokens_per_second": 113.85
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "862",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:22:44 GMT",
+              "x-grammar-constraints": "downgraded"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "stress/schema incident triage with enums nullable and arrays",
+          "metadata": {
+            "suite": "structured_stress",
+            "classification": "not_yet_classified",
+            "source": "structeval_inspired"
+          },
+          "vars": {
+            "prompt": "Return an incident object for this alert: checkout latency spiked to 12 seconds in us-east-1. Suspected culprit is payments-db connection pool exhaustion. Customer impact is severe. No mitigation yet.",
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "incident_triage",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "severity": {
+                      "type": "string",
+                      "enum": [
+                        "sev0",
+                        "sev1",
+                        "sev2",
+                        "sev3"
+                      ]
+                    },
+                    "region": {
+                      "type": "string"
+                    },
+                    "suspected_cause": {
+                      "type": "string"
+                    },
+                    "mitigation": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "impacted_systems": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "severity",
+                    "region",
+                    "suspected_cause",
+                    "mitigation",
+                    "impacted_systems"
+                  ]
+                }
+              }
+            }
+          },
+          "assert": [
+            {
+              "type": "is-json",
+              "value": {
+                "type": "object",
+                "properties": {
+                  "severity": {
+                    "enum": [
+                      "sev0",
+                      "sev1",
+                      "sev2",
+                      "sev3"
+                    ]
+                  },
+                  "mitigation": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 1,
+        "vars": {
+          "prompt": "Return an incident object for this alert: checkout latency spiked to 12 seconds in us-east-1. Suspected culprit is payments-db connection pool exhaustion. Customer impact is severe. No mitigation yet.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "incident_triage",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "severity": {
+                    "type": "string",
+                    "enum": [
+                      "sev0",
+                      "sev1",
+                      "sev2",
+                      "sev3"
+                    ]
+                  },
+                  "region": {
+                    "type": "string"
+                  },
+                  "suspected_cause": {
+                    "type": "string"
+                  },
+                  "mitigation": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "impacted_systems": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "severity",
+                  "region",
+                  "suspected_cause",
+                  "mitigation",
+                  "impacted_systems"
+                ]
+              }
+            }
+          }
+        },
+        "metadata": {
+          "suite": "structured_stress",
+          "classification": "not_yet_classified",
+          "source": "structeval_inspired",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Return an incident object for this alert: checkout latency spiked to 12 seconds in us-east-1. Suspected culprit is payments-db connection pool exhaustion. Customer impact is severe. No mitigation yet."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "incident_triage",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "severity": {
+                      "type": "string",
+                      "enum": [
+                        "sev0",
+                        "sev1",
+                        "sev2",
+                        "sev3"
+                      ]
+                    },
+                    "region": {
+                      "type": "string"
+                    },
+                    "suspected_cause": {
+                      "type": "string"
+                    },
+                    "mitigation": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "impacted_systems": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "severity",
+                    "region",
+                    "suspected_cause",
+                    "mitigation",
+                    "impacted_systems"
+                  ]
+                }
+              }
+            }
+          },
+          "responseBody": {
+            "timings": {
+              "predicted_ms": 553.367018699646,
+              "prompt_n": 192,
+              "predicted_n": 63,
+              "prompt_ms": 133.08894634246826
+            },
+            "created": 1774635764,
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "object": "chat.completion",
+            "choices": [
+              {
+                "message": {
+                  "content": "{\n  \"severity\": \"sev1\",\n  \"region\": \"us-east-1\",\n  \"suspected_cause\": \"payments-db connection pool exhaustion\",\n  \"mitigation\": null,\n  \"impacted_systems\": [\n    \"checkout\"\n  ]\n}",
+                  "role": "assistant"
+                },
+                "index": 0,
+                "finish_reason": "stop"
+              }
+            ],
+            "id": "chatcmpl-B0B95EE6",
+            "usage": {
+              "prompt_time": 0.13,
+              "completion_tokens": 63,
+              "prompt_tokens": 192,
+              "completion_time": 0.55,
+              "prompt_tokens_per_second": 1442.64,
+              "peak_memory_gib": 19.3,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 0.69,
+              "total_tokens": 255,
+              "completion_tokens_per_second": 113.85
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "862",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:22:44 GMT",
+            "x-grammar-constraints": "downgraded"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json",
+                "value": {
+                  "type": "object",
+                  "required": [
+                    "customer",
+                    "organization",
+                    "priority",
+                    "issue",
+                    "reproduction_steps"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "id": "9480c730-bae7-42e6-b03d-9c21fcc7daeb",
+        "latencyMs": 1289,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Normalize this support request. Customer Emma Reed from Contoso reports they cannot export CSV reports after upgrading to version 4.2. Priority high. Reproduce by opening analytics, selecting last quarter, then export CSV.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-api-json-schema-stress"
+        },
+        "response": {
+          "output": "{\n  \"customer\": \"Emma Reed\",\n  \"organization\": \"Contoso\",\n  \"priority\": \"high\",\n  \"issue\": \"Cannot export CSV reports after upgrading to version 4.2\",\n  \"reproduction_steps\": [\n    {\n      \"order\": 1,\n      \"instruction\": \"Open analytics\"\n    },\n    {\n      \"order\": 2,\n      \"instruction\": \"Select last quarter\"\n    },\n    {\n      \"order\": 3,\n      \"instruction\": \"Attempt to export CSV\"\n    }\n  ]\n}",
+          "latencyMs": 1289,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Normalize this support request. Customer Emma Reed from Contoso reports they cannot export CSV reports after upgrading to version 4.2. Priority high. Reproduce by opening analytics, selecting last quarter, then export CSV."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                  "name": "support_ticket",
+                  "strict": true,
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "customer": {
+                        "type": "string"
+                      },
+                      "organization": {
+                        "type": "string"
+                      },
+                      "priority": {
+                        "type": "string",
+                        "enum": [
+                          "low",
+                          "medium",
+                          "high",
+                          "urgent"
+                        ]
+                      },
+                      "issue": {
+                        "type": "string"
+                      },
+                      "reproduction_steps": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "order": {
+                              "type": "integer"
+                            },
+                            "instruction": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "order",
+                            "instruction"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "customer",
+                      "organization",
+                      "priority",
+                      "issue",
+                      "reproduction_steps"
+                    ]
+                  }
+                }
+              }
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\n  \"customer\": \"Emma Reed\",\n  \"organization\": \"Contoso\",\n  \"priority\": \"high\",\n  \"issue\": \"Cannot export CSV reports after upgrading to version 4.2\",\n  \"reproduction_steps\": [\n    {\n      \"order\": 1,\n      \"instruction\": \"Open analytics\"\n    },\n    {\n      \"order\": 2,\n      \"instruction\": \"Select last quarter\"\n    },\n    {\n      \"order\": 3,\n      \"instruction\": \"Attempt to export CSV\"\n    }\n  ]\n}",
+                    "role": "assistant"
+                  },
+                  "index": 0,
+                  "finish_reason": "stop"
+                }
+              ],
+              "created": 1774635765,
+              "object": "chat.completion",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "id": "chatcmpl-2FAB5B4D",
+              "usage": {
+                "completion_tokens_per_second": 114.83,
+                "prompt_tokens_per_second": 1440.72,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_tokens": 131,
+                "total_time": 1.28,
+                "prompt_tokens": 202,
+                "total_tokens": 333,
+                "completion_time": 1.14,
+                "prompt_time": 0.14,
+                "peak_memory_gib": 19.3
+              },
+              "timings": {
+                "predicted_ms": 1140.841007232666,
+                "prompt_n": 202,
+                "predicted_n": 131,
+                "prompt_ms": 140.20800590515137
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1116",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:22:45 GMT",
+              "x-grammar-constraints": "downgraded"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "stress/schema refs and defs for support ticket",
+          "metadata": {
+            "suite": "structured_stress",
+            "classification": "not_yet_classified",
+            "source": "structeval_inspired"
+          },
+          "vars": {
+            "prompt": "Normalize this support request. Customer Emma Reed from Contoso reports they cannot export CSV reports after upgrading to version 4.2. Priority high. Reproduce by opening analytics, selecting last quarter, then export CSV.",
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "support_ticket",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "customer": {
+                      "type": "string"
+                    },
+                    "organization": {
+                      "type": "string"
+                    },
+                    "priority": {
+                      "type": "string",
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high",
+                        "urgent"
+                      ]
+                    },
+                    "issue": {
+                      "type": "string"
+                    },
+                    "reproduction_steps": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "order": {
+                            "type": "integer"
+                          },
+                          "instruction": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "order",
+                          "instruction"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "customer",
+                    "organization",
+                    "priority",
+                    "issue",
+                    "reproduction_steps"
+                  ]
+                }
+              }
+            }
+          },
+          "assert": [
+            {
+              "type": "is-json",
+              "value": {
+                "type": "object",
+                "required": [
+                  "customer",
+                  "organization",
+                  "priority",
+                  "issue",
+                  "reproduction_steps"
+                ]
+              }
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 2,
+        "vars": {
+          "prompt": "Normalize this support request. Customer Emma Reed from Contoso reports they cannot export CSV reports after upgrading to version 4.2. Priority high. Reproduce by opening analytics, selecting last quarter, then export CSV.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "support_ticket",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "customer": {
+                    "type": "string"
+                  },
+                  "organization": {
+                    "type": "string"
+                  },
+                  "priority": {
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high",
+                      "urgent"
+                    ]
+                  },
+                  "issue": {
+                    "type": "string"
+                  },
+                  "reproduction_steps": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "order": {
+                          "type": "integer"
+                        },
+                        "instruction": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "order",
+                        "instruction"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "customer",
+                  "organization",
+                  "priority",
+                  "issue",
+                  "reproduction_steps"
+                ]
+              }
+            }
+          }
+        },
+        "metadata": {
+          "suite": "structured_stress",
+          "classification": "not_yet_classified",
+          "source": "structeval_inspired",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Normalize this support request. Customer Emma Reed from Contoso reports they cannot export CSV reports after upgrading to version 4.2. Priority high. Reproduce by opening analytics, selecting last quarter, then export CSV."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "support_ticket",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "customer": {
+                      "type": "string"
+                    },
+                    "organization": {
+                      "type": "string"
+                    },
+                    "priority": {
+                      "type": "string",
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high",
+                        "urgent"
+                      ]
+                    },
+                    "issue": {
+                      "type": "string"
+                    },
+                    "reproduction_steps": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "order": {
+                            "type": "integer"
+                          },
+                          "instruction": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "order",
+                          "instruction"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "customer",
+                    "organization",
+                    "priority",
+                    "issue",
+                    "reproduction_steps"
+                  ]
+                }
+              }
+            }
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "message": {
+                  "content": "{\n  \"customer\": \"Emma Reed\",\n  \"organization\": \"Contoso\",\n  \"priority\": \"high\",\n  \"issue\": \"Cannot export CSV reports after upgrading to version 4.2\",\n  \"reproduction_steps\": [\n    {\n      \"order\": 1,\n      \"instruction\": \"Open analytics\"\n    },\n    {\n      \"order\": 2,\n      \"instruction\": \"Select last quarter\"\n    },\n    {\n      \"order\": 3,\n      \"instruction\": \"Attempt to export CSV\"\n    }\n  ]\n}",
+                  "role": "assistant"
+                },
+                "index": 0,
+                "finish_reason": "stop"
+              }
+            ],
+            "created": 1774635765,
+            "object": "chat.completion",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "id": "chatcmpl-2FAB5B4D",
+            "usage": {
+              "completion_tokens_per_second": 114.83,
+              "prompt_tokens_per_second": 1440.72,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens": 131,
+              "total_time": 1.28,
+              "prompt_tokens": 202,
+              "total_tokens": 333,
+              "completion_time": 1.14,
+              "prompt_time": 0.14,
+              "peak_memory_gib": 19.3
+            },
+            "timings": {
+              "predicted_ms": 1140.841007232666,
+              "prompt_n": 202,
+              "predicted_n": 131,
+              "prompt_ms": 140.20800590515137
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1116",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:22:45 GMT",
+            "x-grammar-constraints": "downgraded"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json",
+                "value": {
+                  "type": "object",
+                  "required": [
+                    "version",
+                    "engineering",
+                    "launch"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "id": "1176401c-5423-4f83-9e91-4083cd7838e2",
+        "latencyMs": 2242,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Return a release checklist for version 1.4. Include engineering tasks build release binary and run regression tests, and launch tasks publish notes and notify support.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-api-json-schema-stress"
+        },
+        "response": {
+          "output": "{\n  \"version\": \"1.4\",\n  \"engineering\": [\n    \"build release binary\",\n    \"run regression tests\"\n  ],\n  \"launch\": [\n    \"publish notes\",\n    \"notify support\"\n  ]\n}",
+          "latencyMs": 2242,
+          "metadata": {
+            "stderr": "MLX model: mlx-community/Qwen3.5-35B-A3B-4bit\nLoading MLX model: mlx-community/Qwen3.5-35B-A3B-4bit\n\r[/                       ]   --.-% checking cache | mem 0.02 GB | 0.0s[2026-03-27 14:22:45.462] MLX GPU: cache=1024MB wired=427622MB (system 512GB)\n[2026-03-27 14:22:45.463] [ToolCallParser] Auto-detected format: xmlFunction (from model_type)\n\r[-                       ]   --.-% loading model | mem 0.87 GB | 0.2s\r[\\                       ]   --.-% loading model | mem 6.20 GB | 0.4s\r[|                       ]   --.-% loading model | mem 11.83 GB | 0.6s\r[/                       ]   --.-% loading model | mem 17.47 GB | 0.8s[2026-03-27 14:22:46.365] [PrefixCache] Prefix caching disabled\n\r[done] ready | mem 18.35 GB | 1.0s\n[2026-03-27 14:22:46.366] [StructuredOutput] Disabling thinking for guided JSON on reasoning-capable model\n[2026-03-27 14:22:46.366] [XGrammar] strict: true on json_schema but --enable-grammar-constraints not set; best-effort\n[2026-03-27 14:22:46.386] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=138 | cached_tokens=0 | suffix_tokens=138 | layers=40 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]\n[2026-03-27 14:22:47.493] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=138 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=0.612s | overhead_share=0.000000\n[2026-03-27 14:22:47.493] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=138 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=0.612s | overhead_share=0.000000\n",
+            "transport": "cli-guided-json",
+            "binary": ".build/arm64-apple-macosx/release/afm",
+            "args": [
+              "mlx",
+              "-m",
+              "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "-s",
+              "Return a release checklist for version 1.4. Include engineering tasks build release binary and run regression tests, and launch tasks publish notes and notify support.",
+              "--guided-json",
+              "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"version\":{\"type\":\"string\"},\"engineering\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"launch\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"version\",\"engineering\",\"launch\"]}",
+              "--max-tokens",
+              "400",
+              "--temperature",
+              "0"
+            ]
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "stress/cli guided-json nested release checklist",
+          "provider": {
+            "id": "../../providers/afm_provider.mjs",
+            "label": "afm-cli-guided-json-stress",
+            "config": {
+              "transport": "cli-guided-json",
+              "binaryEnv": "AFM_BINARY",
+              "modelEnv": "AFM_MODEL",
+              "modelCacheEnv": "MACAFM_MLX_MODEL_CACHE",
+              "basePath": "/private/tmp/maclocal-api/.claude/worktrees/brave-davinci/Scripts/feature-promptfoo-agentic/datasets/quality"
+            }
+          },
+          "metadata": {
+            "suite": "structured_stress",
+            "classification": "not_yet_classified",
+            "source": "structeval_inspired"
+          },
+          "vars": {
+            "prompt": "Return a release checklist for version 1.4. Include engineering tasks build release binary and run regression tests, and launch tasks publish notes and notify support.",
+            "guided_json": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "version": {
+                  "type": "string"
+                },
+                "engineering": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "launch": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "version",
+                "engineering",
+                "launch"
+              ]
+            }
+          },
+          "assert": [
+            {
+              "type": "is-json",
+              "value": {
+                "type": "object",
+                "required": [
+                  "version",
+                  "engineering",
+                  "launch"
+                ]
+              }
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 3,
+        "vars": {
+          "prompt": "Return a release checklist for version 1.4. Include engineering tasks build release binary and run regression tests, and launch tasks publish notes and notify support.",
+          "guided_json": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "type": "string"
+              },
+              "engineering": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "launch": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "version",
+              "engineering",
+              "launch"
+            ]
+          }
+        },
+        "metadata": {
+          "suite": "structured_stress",
+          "classification": "not_yet_classified",
+          "source": "structeval_inspired",
+          "stderr": "MLX model: mlx-community/Qwen3.5-35B-A3B-4bit\nLoading MLX model: mlx-community/Qwen3.5-35B-A3B-4bit\n\r[/                       ]   --.-% checking cache | mem 0.02 GB | 0.0s[2026-03-27 14:22:45.462] MLX GPU: cache=1024MB wired=427622MB (system 512GB)\n[2026-03-27 14:22:45.463] [ToolCallParser] Auto-detected format: xmlFunction (from model_type)\n\r[-                       ]   --.-% loading model | mem 0.87 GB | 0.2s\r[\\                       ]   --.-% loading model | mem 6.20 GB | 0.4s\r[|                       ]   --.-% loading model | mem 11.83 GB | 0.6s\r[/                       ]   --.-% loading model | mem 17.47 GB | 0.8s[2026-03-27 14:22:46.365] [PrefixCache] Prefix caching disabled\n\r[done] ready | mem 18.35 GB | 1.0s\n[2026-03-27 14:22:46.366] [StructuredOutput] Disabling thinking for guided JSON on reasoning-capable model\n[2026-03-27 14:22:46.366] [XGrammar] strict: true on json_schema but --enable-grammar-constraints not set; best-effort\n[2026-03-27 14:22:46.386] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=138 | cached_tokens=0 | suffix_tokens=138 | layers=40 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]\n[2026-03-27 14:22:47.493] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=138 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=0.612s | overhead_share=0.000000\n[2026-03-27 14:22:47.493] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=138 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=0.612s | overhead_share=0.000000\n",
+          "transport": "cli-guided-json",
+          "binary": ".build/arm64-apple-macosx/release/afm",
+          "args": [
+            "mlx",
+            "-m",
+            "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "-s",
+            "Return a release checklist for version 1.4. Include engineering tasks build release binary and run regression tests, and launch tasks publish notes and notify support.",
+            "--guided-json",
+            "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"version\":{\"type\":\"string\"},\"engineering\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"launch\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"version\",\"engineering\",\"launch\"]}",
+            "--max-tokens",
+            "400",
+            "--temperature",
+            "0"
+          ],
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      }
+    ],
+    "stats": {
+      "successes": 4,
+      "failures": 0,
+      "errors": 0,
+      "tokenUsage": {
+        "prompt": 0,
+        "completion": 0,
+        "cached": 0,
+        "total": 0,
+        "numRequests": 4,
+        "completionDetails": {
+          "reasoning": 0,
+          "acceptedPrediction": 0,
+          "rejectedPrediction": 0
+        },
+        "assertions": {
+          "total": 0,
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "numRequests": 0,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0
+          }
+        }
+      },
+      "durationMs": 6433,
+      "evaluationDurationMs": 6433
+    }
+  },
+  "config": {
+    "tags": {},
+    "description": "AFM structured-output stress suite",
+    "prompts": [
+      "{{prompt}}"
+    ],
+    "providers": [
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-api-json-schema-stress",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_DEFAULT",
+          "modelEnv": "AFM_MODEL",
+          "extract": "content"
+        }
+      }
+    ],
+    "tests": [
+      {
+        "description": "stress/schema invoice extraction with nested arrays",
+        "metadata": {
+          "suite": "structured_stress",
+          "classification": "not_yet_classified",
+          "source": "structeval_inspired"
+        },
+        "vars": {
+          "prompt": "Extract an invoice from this note. Vendor Northwind Labs. Invoice INV-2049 dated 2026-03-15. Items: 2 ethernet adapters at 29.99 each, 1 docking station at 189.50. Tax 19.04. Total 268.52.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "invoice_extract",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "vendor": {
+                    "type": "string"
+                  },
+                  "invoice_number": {
+                    "type": "string"
+                  },
+                  "invoice_date": {
+                    "type": "string"
+                  },
+                  "line_items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "description": {
+                          "type": "string"
+                        },
+                        "quantity": {
+                          "type": "integer"
+                        },
+                        "unit_price": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "description",
+                        "quantity",
+                        "unit_price"
+                      ]
+                    }
+                  },
+                  "tax": {
+                    "type": "number"
+                  },
+                  "total": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "vendor",
+                  "invoice_number",
+                  "invoice_date",
+                  "line_items",
+                  "tax",
+                  "total"
+                ]
+              }
+            }
+          }
+        },
+        "assert": [
+          {
+            "type": "is-json",
+            "value": {
+              "type": "object",
+              "required": [
+                "vendor",
+                "invoice_number",
+                "invoice_date",
+                "line_items",
+                "tax",
+                "total"
+              ]
+            }
+          },
+          {
+            "type": "contains-json",
+            "value": {
+              "type": "object",
+              "properties": {
+                "line_items": {
+                  "type": "array",
+                  "minItems": 2
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "description": "stress/schema incident triage with enums nullable and arrays",
+        "metadata": {
+          "suite": "structured_stress",
+          "classification": "not_yet_classified",
+          "source": "structeval_inspired"
+        },
+        "vars": {
+          "prompt": "Return an incident object for this alert: checkout latency spiked to 12 seconds in us-east-1. Suspected culprit is payments-db connection pool exhaustion. Customer impact is severe. No mitigation yet.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "incident_triage",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "severity": {
+                    "type": "string",
+                    "enum": [
+                      "sev0",
+                      "sev1",
+                      "sev2",
+                      "sev3"
+                    ]
+                  },
+                  "region": {
+                    "type": "string"
+                  },
+                  "suspected_cause": {
+                    "type": "string"
+                  },
+                  "mitigation": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "impacted_systems": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "severity",
+                  "region",
+                  "suspected_cause",
+                  "mitigation",
+                  "impacted_systems"
+                ]
+              }
+            }
+          }
+        },
+        "assert": [
+          {
+            "type": "is-json",
+            "value": {
+              "type": "object",
+              "properties": {
+                "severity": {
+                  "enum": [
+                    "sev0",
+                    "sev1",
+                    "sev2",
+                    "sev3"
+                  ]
+                },
+                "mitigation": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "description": "stress/schema refs and defs for support ticket",
+        "metadata": {
+          "suite": "structured_stress",
+          "classification": "not_yet_classified",
+          "source": "structeval_inspired"
+        },
+        "vars": {
+          "prompt": "Normalize this support request. Customer Emma Reed from Contoso reports they cannot export CSV reports after upgrading to version 4.2. Priority high. Reproduce by opening analytics, selecting last quarter, then export CSV.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "support_ticket",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "customer": {
+                    "type": "string"
+                  },
+                  "organization": {
+                    "type": "string"
+                  },
+                  "priority": {
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high",
+                      "urgent"
+                    ]
+                  },
+                  "issue": {
+                    "type": "string"
+                  },
+                  "reproduction_steps": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "order": {
+                          "type": "integer"
+                        },
+                        "instruction": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "order",
+                        "instruction"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "customer",
+                  "organization",
+                  "priority",
+                  "issue",
+                  "reproduction_steps"
+                ]
+              }
+            }
+          }
+        },
+        "assert": [
+          {
+            "type": "is-json",
+            "value": {
+              "type": "object",
+              "required": [
+                "customer",
+                "organization",
+                "priority",
+                "issue",
+                "reproduction_steps"
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "description": "stress/cli guided-json nested release checklist",
+        "provider": {
+          "options": {
+            "id": "../../providers/afm_provider.mjs",
+            "config": {
+              "transport": "cli-guided-json",
+              "binaryEnv": "AFM_BINARY",
+              "modelEnv": "AFM_MODEL",
+              "modelCacheEnv": "MACAFM_MLX_MODEL_CACHE",
+              "basePath": "/private/tmp/maclocal-api/.claude/worktrees/brave-davinci/Scripts/feature-promptfoo-agentic/datasets/quality"
+            }
+          },
+          "config": {
+            "transport": "cli-guided-json",
+            "binaryEnv": "AFM_BINARY",
+            "modelEnv": "AFM_MODEL",
+            "modelCacheEnv": "MACAFM_MLX_MODEL_CACHE",
+            "basePath": "/private/tmp/maclocal-api/.claude/worktrees/brave-davinci/Scripts/feature-promptfoo-agentic/datasets/quality"
+          },
+          "label": "afm-cli-guided-json-stress"
+        },
+        "metadata": {
+          "suite": "structured_stress",
+          "classification": "not_yet_classified",
+          "source": "structeval_inspired"
+        },
+        "vars": {
+          "prompt": "Return a release checklist for version 1.4. Include engineering tasks build release binary and run regression tests, and launch tasks publish notes and notify support.",
+          "guided_json": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "type": "string"
+              },
+              "engineering": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "launch": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "version",
+              "engineering",
+              "launch"
+            ]
+          }
+        },
+        "assert": [
+          {
+            "type": "is-json",
+            "value": {
+              "type": "object",
+              "required": [
+                "version",
+                "engineering",
+                "launch"
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "scenarios": [],
+    "env": {},
+    "outputPath": [
+      "/Volumes/edata/promptfoo/data/maclocal-api/current/structured-stress-mlx-community_Qwen3.5-35B-A3B-4bit.json"
+    ],
+    "extensions": [],
+    "metadata": {},
+    "evaluateOptions": {}
+  },
+  "shareableUrl": null,
+  "metadata": {
+    "promptfooVersion": "0.120.26",
+    "nodeVersion": "v25.8.1",
+    "platform": "darwin",
+    "arch": "arm64",
+    "exportedAt": "2026-03-27T18:22:47.726Z",
+    "evaluationCreatedAt": "2026-03-27T18:22:41.154Z"
+  }
+}

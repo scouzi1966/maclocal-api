@@ -19,6 +19,7 @@ The publish script (`Scripts/publish-next.sh`) requires:
 - `gh` CLI authenticated with push access to `scouzi1966/maclocal-api`
 - `homebrew-afm` repo at `../homebrew-afm` (relative to repo root) or `TAP_DIR` env var — auto-cloned if missing
 - All build prerequisites from `/build-afm` (Xcode, Swift, Node.js, etc.)
+- `promptfoo` CLI (`npm install -g promptfoo` or `npx promptfoo`) — required for the promptfoo agentic eval suite
 
 ## Instructions
 
@@ -35,6 +36,10 @@ swift --version             # Swift 5.9+
 git --version
 node --version              # Node 18+
 npm --version
+
+# Promptfoo (required for agentic eval suite)
+command -v promptfoo && promptfoo --version 2>/dev/null | head -1
+# Must be installed (npm install -g promptfoo)
 
 # Publish prerequisites
 gh auth status              # must be authenticated
@@ -356,8 +361,58 @@ Then ask the test scope:
 1. "Assertions only (all tiers including unit)" — Run `/test-afm-assertions` with full tier (deterministic pass/fail tests, ~15 min/model)
 2. "Comprehensive only" — Run `/test-macafm` smart analysis (AI-scored quality evaluation)
 3. "Both" — Run assertions first, then comprehensive (most thorough, ~30 min/model)
+4. "Full nightly suite" — Run assertions + comprehensive + promptfoo agentic evals (most complete, ~60 min)
 
 Invoke the appropriate skill(s) with the selected model. Do NOT re-ask the model question — pass it through to the test skill(s).
+
+#### If test scope includes promptfoo
+
+Run the full promptfoo agentic eval suite after assertions/comprehensive complete:
+
+```bash
+AFM_MODEL=MODEL \
+AFM_BINARY=.build/arm64-apple-macosx/release/afm \
+MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache \
+./Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh all
+```
+
+This manages its own server lifecycle (starts/stops across 8 server profiles) and runs **~137 test cases across 16 configs**:
+- **Structured** (6+4 tests): `json_schema` response format and stress tests
+- **Tool calling** (7 tests × 3 profiles): default, adaptive-xml, adaptive-xml-grammar
+- **Tool call quality** (6 tests × 3 profiles): BFCL-inspired when-to-call decisions
+- **Grammar constraints** (17 tests × 8 server phases): schema/tools enforcement, concurrent, prefix-cache, mixed-strict, header assertions
+- **Agentic** (4 tests × 3 profiles): Multi-turn coding workflows
+- **Frameworks** (8 tests × 3 profiles): Agent framework tool schemas (OpenCode, Pi, OpenClaw, Hermes shapes)
+- **OpenCode** (37 tests × 3 profiles): Primary-source OpenCode built-in tools
+- **PI** (20 tests × 3 profiles): Pi coding-agent tools
+- **OpenClaw** (12 tests × 3 profiles): OpenClaw tool coverage
+- **Hermes** (12 tests × 3 profiles): Hermes agentic framework tools
+
+**Output**: JSON reports in `$AFM_PROMPTFOO_OUT_DIR` (default: `/Volumes/edata/promptfoo/data/maclocal-api/current/`).
+
+**Interpreting promptfoo results:**
+- **Server-side features** (structured, toolcall, grammar schema/tools/headers): Should be 100% pass. Failures here indicate server bugs.
+- **Concurrent grammar** failures: Known race condition in `--concurrent 2` grammar path — not a release blocker.
+- **OpenCode/PI/agentic** failures: Model quality at task complexity — the model can't always pick the right tool or produce correct arguments for complex multi-tool scenarios. Not server bugs.
+- **adaptive-xml profile** failures scoring lower than default: The adaptive-xml parser produces slightly different formatting that quality judges may score lower. Compare with default profile to confirm it's not a regression.
+
+To extract pass/fail summary from all result files:
+```bash
+python3 -c "
+import json, os, glob
+files = sorted(glob.glob('$AFM_PROMPTFOO_OUT_DIR/*MODEL_SLUG*.json'))
+total_pass = total_fail = 0
+for f in files:
+    name = os.path.basename(f).replace('-MODEL_SLUG.json','')
+    d = json.load(open(f))
+    stats = d.get('results', d).get('stats', {})
+    p, fa = stats.get('successes', 0), stats.get('failures', 0)
+    total_pass += p; total_fail += fa
+    status = 'PASS' if fa == 0 else f'FAIL ({fa})'
+    print(f'{name}: {p}/{p+fa} — {status}')
+print(f'\nTOTAL: {total_pass}/{total_pass+total_fail}')
+"
+```
 
 After tests complete, present results and ask:
 
