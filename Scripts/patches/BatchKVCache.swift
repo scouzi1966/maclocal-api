@@ -68,13 +68,20 @@ public class BatchKVCacheSimple: BaseKVCache {
 
             if let existingKeys = self.keys, let existingValues = self.values {
                 var ek = existingKeys
-                var ev = existingValues
                 if prev % step != 0 {
                     ek = ek[.ellipsis, ..<prev, 0...]
-                    ev = ev[.ellipsis, ..<prev, 0...]
                 }
                 self.keys = concatenated([ek, newK], axis: 2)
-                self.values = concatenated([ev, newV], axis: 2)
+                // Handle zero-width values (e.g. GLM-5 DSA indexer cache)
+                if existingValues.dim(3) > 0 {
+                    var ev = existingValues
+                    if prev % step != 0 {
+                        ev = ev[.ellipsis, ..<prev, 0...]
+                    }
+                    self.values = concatenated([ev, newV], axis: 2)
+                } else {
+                    self.values = MLXArray.zeros([newK.dim(0), newK.dim(1), self.keys!.dim(2), 0], dtype: existingValues.dtype)
+                }
             } else {
                 self.keys = newK
                 self.values = newV
@@ -85,10 +92,15 @@ public class BatchKVCacheSimple: BaseKVCache {
         _idx += newTokens
 
         self.keys![.ellipsis, prev ..< _idx, 0...] = newKeys
-        self.values![.ellipsis, prev ..< _idx, 0...] = newValues
+        if newValues.dim(3) > 0 {
+            self.values![.ellipsis, prev ..< _idx, 0...] = newValues
+        }
 
-        return (self.keys![.ellipsis, ..<_idx, 0...],
-                self.values![.ellipsis, ..<_idx, 0...])
+        let retKeys = self.keys![.ellipsis, ..<_idx, 0...]
+        let retValues = self.values!.dim(3) > 0
+            ? self.values![.ellipsis, ..<_idx, 0...]
+            : MLXArray.zeros([retKeys.dim(0), self.values!.dim(1), _idx, 0], dtype: self.values!.dtype)
+        return (retKeys, retValues)
     }
 
     // MARK: - State
@@ -96,9 +108,13 @@ public class BatchKVCacheSimple: BaseKVCache {
     public override var state: [MLXArray] {
         get {
             guard let k = keys, let v = values else { return [] }
+            let kSlice = k[.ellipsis, ..<_idx, 0...]
+            let vSlice = v.dim(3) > 0
+                ? v[.ellipsis, ..<_idx, 0...]
+                : MLXArray.zeros([k.dim(0), v.dim(1), _idx, 0], dtype: v.dtype)
             return [
-                k[.ellipsis, ..<_idx, 0...],
-                v[.ellipsis, ..<_idx, 0...],
+                kSlice,
+                vSlice,
                 perSeqOffset,
                 leftPadding,
             ]
@@ -184,7 +200,10 @@ public class BatchKVCacheSimple: BaseKVCache {
         if minPad > 0 {
             let mp = Int(minPad)
             keys = keys![.ellipsis, mp..., 0...]
-            values = values![.ellipsis, mp..., 0...]
+            // Handle zero-width values (e.g. GLM-5 DSA indexer cache)
+            if let v = values, v.dim(3) > 0 {
+                values = v[.ellipsis, mp..., 0...]
+            }
             _idx -= mp
             leftPadding = leftPadding - minPad
         }
@@ -218,9 +237,10 @@ public class BatchKVCacheSimple: BaseKVCache {
             var rk = k, rv = v, rp = pad, ro = off
             let left = maxIdx - idx
             if left > 0 {
-                let shape = [rk.dim(0), rk.dim(1), left, rk.dim(3)]
-                rk = concatenated([MLXArray.zeros(shape, dtype: rk.dtype), rk], axis: 2)
-                rv = concatenated([MLXArray.zeros(shape, dtype: rv.dtype), rv], axis: 2)
+                let kShape = [rk.dim(0), rk.dim(1), left, rk.dim(3)]
+                let vShape = [rv.dim(0), rv.dim(1), left, rv.dim(3)]
+                rk = concatenated([MLXArray.zeros(kShape, dtype: rk.dtype), rk], axis: 2)
+                rv = concatenated([MLXArray.zeros(vShape, dtype: rv.dtype), rv], axis: 2)
                 rp = rp + Int32(left)
             }
             return (rk, rv, rp, ro)
@@ -244,9 +264,16 @@ public class BatchKVCacheSimple: BaseKVCache {
             return (MLXArray([]), MLXArray([]), 0)
         }
         let padding = Int(leftPadding[index].item(Int32.self))
+        let tokenCount = _idx - padding
         let ek = MLX.contiguous(k[index ..< index + 1, 0..., padding ..< _idx, 0...])
-        let ev = MLX.contiguous(v[index ..< index + 1, 0..., padding ..< _idx, 0...])
-        return (ek, ev, _idx - padding)
+        // Handle zero-width values (e.g. GLM-5 DSA indexer cache stores keys only)
+        let ev: MLXArray
+        if v.dim(3) == 0 {
+            ev = MLXArray.zeros([1, v.dim(1), tokenCount, 0], dtype: v.dtype)
+        } else {
+            ev = MLX.contiguous(v[index ..< index + 1, 0..., padding ..< _idx, 0...])
+        }
+        return (ek, ev, tokenCount)
     }
 
     /// Create a BatchKVCacheSimple by merging individual per-sequence KVCache objects.
@@ -280,9 +307,10 @@ public class BatchKVCacheSimple: BaseKVCache {
             padding.append(padAmount)
 
             if padAmount > 0 {
-                let shape = [allKeys[i].dim(0), allKeys[i].dim(1), padAmount, allKeys[i].dim(3)]
-                let kPad = MLXArray.zeros(shape, dtype: allKeys[i].dtype)
-                let vPad = MLXArray.zeros(shape, dtype: allValues[i].dtype)
+                let kShape = [allKeys[i].dim(0), allKeys[i].dim(1), padAmount, allKeys[i].dim(3)]
+                let vShape = [allValues[i].dim(0), allValues[i].dim(1), padAmount, allValues[i].dim(3)]
+                let kPad = MLXArray.zeros(kShape, dtype: allKeys[i].dtype)
+                let vPad = MLXArray.zeros(vShape, dtype: allValues[i].dtype)
                 paddedKeys.append(concatenated([kPad, allKeys[i]], axis: 2))
                 paddedValues.append(concatenated([vPad, allValues[i]], axis: 2))
             } else {
@@ -297,5 +325,81 @@ public class BatchKVCacheSimple: BaseKVCache {
         batch._idx = maxLen
         batch.perSeqOffset = MLXArray(lengths.map { Int32($0) })
         return batch
+    }
+}
+
+// MARK: - BatchCacheList
+
+/// Batched wrapper for CacheList — holds a batched version of each sub-cache.
+/// Models using CacheList (GLM-5, FalconH1, BaichuanM1) have multiple sub-caches
+/// per layer (e.g. MLA attention + DSA indexer). This class batches each sub-cache
+/// independently so the model's forward pass can access them via subscript.
+///
+/// Subclasses CacheList so that model code doing `cache as? CacheList` succeeds
+/// and subscript access returns the batched sub-caches transparently.
+public class BatchCacheList: CacheList {
+    public private(set) var batchedCaches: [KVCache]
+
+    public init(batchedCaches: [KVCache]) {
+        self.batchedCaches = batchedCaches
+        super.init(caches: batchedCaches)
+    }
+
+    /// Extract a single sequence's CacheList from the batched structure.
+    public func extract(_ index: Int) -> CacheList {
+        let extracted: [KVCache] = batchedCaches.map { subCache in
+            if let bkv = subCache as? BatchKVCacheSimple {
+                let (k, v, _) = bkv.extract(index)
+                let individual = KVCacheSimple()
+                individual.state = [k, v]
+                return individual as KVCache
+            } else if let ac = subCache as? ArraysCache {
+                let individual = MambaCache()
+                if !ac.state.isEmpty {
+                    individual.state = ac.state.map { $0[index ..< index + 1] }
+                }
+                return individual as KVCache
+            } else {
+                return subCache
+            }
+        }
+        return CacheList(caches: extracted)
+    }
+
+    /// Create a BatchCacheList from individual CacheLists.
+    public static func merge(_ cacheLists: [KVCache], leftPadding: [Int]) -> BatchCacheList {
+        guard let first = cacheLists.first as? CacheList else {
+            fatalError("BatchCacheList.merge requires CacheList inputs")
+        }
+        let subCount = first.count
+        let batchedSubs: [KVCache] = (0..<subCount).map { subIdx in
+            let subCaches = cacheLists.map { ($0 as! CacheList)[subIdx] }
+            if subCaches.allSatisfy({ $0 is ArraysCache }) {
+                let batched = MambaCache(leftPadding: leftPadding)
+                // Merge states: stack along batch dimension
+                if let first = subCaches.first, !first.state.isEmpty {
+                    batched.state = (0..<first.state.count).map { stateIdx in
+                        concatenated(subCaches.map { $0.state[stateIdx] }, axis: 0)
+                    }
+                }
+                return batched as KVCache
+            } else {
+                return BatchKVCacheSimple.merge(subCaches) as KVCache
+            }
+        }
+        return BatchCacheList(batchedCaches: batchedSubs)
+    }
+
+    /// Create a BatchCacheList for prefill (empty, with left padding).
+    public static func forPrefill(template: CacheList, batchSize: Int, leftPadding: [Int]) -> BatchCacheList {
+        let batchedSubs: [KVCache] = (0..<template.count).map { subIdx in
+            let subCache = template[subIdx]
+            if subCache is ArraysCache {
+                return MambaCache(leftPadding: leftPadding) as KVCache
+            } else {
+                return BatchKVCacheSimple(batchSize: batchSize, leftPadding: leftPadding) as KVCache
+            }
+        }
+        return BatchCacheList(batchedCaches: batchedSubs)
     }
 }

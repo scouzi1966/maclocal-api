@@ -450,7 +450,10 @@ final class ToolCallStreamingRuntime {
             } else {
                 resolvedName = fuzzyMatchToolName(toolCall.function.name, candidates: validNames) ?? toolCall.function.name
             }
-            return ToolCall(function: .init(name: resolvedName, arguments: toolCall.function.arguments))
+            // Use .anyValue to convert JSONValue → plain types before re-init,
+            // otherwise JSONValue.from() double-wraps via String(describing:).
+            let plainArgs: [String: any Sendable] = toolCall.function.arguments.mapValues { $0.anyValue }
+            return ToolCall(function: .init(name: resolvedName, arguments: plainArgs))
         }
     }
 

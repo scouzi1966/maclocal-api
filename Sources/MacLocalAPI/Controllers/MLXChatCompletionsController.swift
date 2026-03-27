@@ -258,6 +258,40 @@ struct MLXChatCompletionsController: RouteCollection {
                     if let sbs = chunk.stoppedBySequence { stoppedBySequence = sbs }
                 }
 
+                // Fallback tool call parsing: if no tool calls were detected by
+                // streaming runtime but content contains tool call patterns, try
+                // full-text parsing (handles missing <tool_call> wrapper, etc.)
+                if finalToolCalls == nil && chatRequest.tools != nil && !fullText.isEmpty {
+                    let trimmed = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let parserName = self.service.toolCallParser ?? "auto"
+                    let looksLikeToolCall =
+                        fullText.contains("<function=") ||
+                        fullText.contains("<tool_call>") ||
+                        fullText.contains("[TOOL_CALLS]") ||
+                        fullText.contains("[ARGS]") ||
+                        (trimmed.hasPrefix("{") && trimmed.contains("\"name\""))
+                    if looksLikeToolCall {
+                        print("\(Self.gold)[\(Self.timestamp())] [ToolCallParser] Post-generation parse (parser=\(parserName))\(Self.reset)")
+                        fflush(stdout)
+                        let (parsed, remaining) = ToolCallStreamingRuntime.parseCompletedToolCalls(
+                            from: fullText,
+                            toolCallParser: self.service.toolCallParser,
+                            tools: chatRequest.tools
+                        )
+                        if !parsed.isEmpty {
+                            let names = parsed.map { $0.function.name }.joined(separator: ", ")
+                            print("\(Self.gold)[\(Self.timestamp())] [ToolCallParser] Parsed \(parsed.count) call(s): \(names) (parser=\(parserName))\(Self.reset)")
+                            fflush(stdout)
+                            finalToolCalls = MLXModelService.normalizeToolCalls(
+                                parsed,
+                                tools: chatRequest.tools,
+                                fixToolArgs: service.fixToolArgs
+                            )
+                            fullText = remaining
+                        }
+                    }
+                }
+
                 result = (
                     modelID: streamResult.modelID,
                     content: fullText,
@@ -812,21 +846,25 @@ struct MLXChatCompletionsController: RouteCollection {
                 // This handles edge cases where tags aren't single tokens.
                 let trimmedFull = fullContent.trimmingCharacters(in: .whitespacesAndNewlines)
                 let looksLikeBareJsonToolCall = trimmedFull.hasPrefix("{") && trimmedFull.contains("\"name\"")
+                let parserName = self.service.toolCallParser ?? "auto"
                 if !hasToolCalls && (
                     (toolCallStartTag != nil && fullContent.contains(toolCallStartTag!)) ||
                     fullContent.contains("[TOOL_CALLS]") ||
-                    (chatRequest.tools != nil && looksLikeBareJsonToolCall)
+                    fullContent.contains("[ARGS]") ||
+                    (chatRequest.tools != nil && looksLikeBareJsonToolCall) ||
+                    (chatRequest.tools != nil && fullContent.contains("<function="))
                 ) {
-                    if self.veryVerbose {
-                        print("\(Self.gold)[\(Self.timestamp())] SEND tool_call: token-level missed, trying fallback parser\(Self.reset)")
-                        fflush(stdout)
-                    }
+                    print("\(Self.gold)[\(Self.timestamp())] [ToolCallParser] Post-generation parse (parser=\(parserName))\(Self.reset)")
+                    fflush(stdout)
                     let (parsed, _) = ToolCallStreamingRuntime.parseCompletedToolCalls(
                         from: fullContent,
                         toolCallParser: self.service.toolCallParser,
                         tools: chatRequest.tools
                     )
                     if !parsed.isEmpty {
+                        let fallbackNames = parsed.map { $0.function.name }.joined(separator: ", ")
+                        print("\(Self.gold)[\(Self.timestamp())] [ToolCallParser] Parsed \(parsed.count) call(s): \(fallbackNames) (parser=\(parserName))\(Self.reset)")
+                        fflush(stdout)
                         for rtc in MLXModelService.normalizeToolCalls(
                             parsed,
                             startIndex: collectedToolCalls.count,
