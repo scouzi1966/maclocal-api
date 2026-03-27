@@ -3730,9 +3730,22 @@ final class MLXModelService: @unchecked Sendable {
                 }
             case "tool":
                 flushSystemParts()
-                // Tool result messages — use the vendor's .tool() factory
+                // Tool result messages — use the vendor's .tool() factory.
+                // Resolve function name from tool_call_id if not provided (OpenAI spec
+                // makes name optional, but some templates like Gemma require it).
+                var resolvedName = m.name
+                if resolvedName == nil, let callId = m.toolCallId {
+                    for prev in messages {
+                        if let tcs = prev.toolCalls {
+                            if let match = tcs.first(where: { $0.id == callId }) {
+                                resolvedName = match.function.name
+                                break
+                            }
+                        }
+                    }
+                }
                 let toolContent: String
-                if let name = m.name {
+                if let name = resolvedName {
                     toolContent = "<tool_response>\n{\"name\": \"\(name)\", \"content\": \(text)}\n</tool_response>"
                 } else {
                     toolContent = text
