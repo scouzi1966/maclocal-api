@@ -486,9 +486,19 @@ After publishing, update the nightly release notes link in `README.md` to point 
 2. Replace the old `nightly-*` tag in the URL with the new release tag (e.g., `nightly-20260312-a49c207`)
 3. If the base version changed, also update the link text (e.g., `v0.9.7-next` → `v0.9.8-next`)
 4. Commit with message: `Update nightly release link to YYYYMMDD-SHORTSHA`
-5. Push to remote
+5. **CRITICAL: Push to `main`, not just the current branch.** The README on `main` is what GitHub displays. If running from a worktree or feature branch, you MUST push to main:
+   ```bash
+   # If in a worktree, cherry-pick the README commit onto main in the parent repo:
+   REPO_ROOT=$(git rev-parse --show-toplevel)
+   PARENT_REPO=$(cd "$REPO_ROOT/.." && git rev-parse --show-toplevel 2>/dev/null || echo "$REPO_ROOT")
+   README_COMMIT=$(git rev-parse HEAD)
+   cd "$PARENT_REPO" && git fetch origin && git checkout main && git pull origin main && git cherry-pick "$README_COMMIT" && git push origin main
+   # Then return to the worktree
+   cd "$REPO_ROOT"
+   ```
+   If already on `main`, just `git push origin main`.
 
-**Do not skip this step.** The README is the main page users see — it must always point to the latest nightly.
+**Do not skip this step.** The README is the main page users see — it must always point to the latest nightly. A README update that only lands on a worktree branch is invisible to users.
 
 ### Step 5: Verify & Report
 
