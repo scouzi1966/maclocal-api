@@ -1,0 +1,4195 @@
+{
+  "evalId": "eval-XvF-2026-03-27T18:26:08",
+  "results": {
+    "version": 3,
+    "timestamp": "2026-03-27T18:26:08.355Z",
+    "prompts": [
+      {
+        "id": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "raw": "{{prompt}}",
+        "label": "{{prompt}}",
+        "provider": "afm-default-frameworks",
+        "metrics": {
+          "score": 8,
+          "testPassCount": 8,
+          "testFailCount": 0,
+          "testErrorCount": 0,
+          "assertPassCount": 8,
+          "assertFailCount": 0,
+          "totalLatencyMs": 12896,
+          "tokenUsage": {
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "total": 0,
+            "numRequests": 8,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0
+            },
+            "assertions": {
+              "total": 0,
+              "prompt": 0,
+              "completion": 0,
+              "cached": 0,
+              "numRequests": 0,
+              "completionDetails": {
+                "reasoning": 0,
+                "acceptedPrediction": 0,
+                "rejectedPrediction": 0
+              }
+            }
+          },
+          "namedScores": {},
+          "namedScoresCount": {},
+          "cost": 0
+        }
+      }
+    ],
+    "results": [
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'grep' &&\n  /PrefixCache Save complete/i.test(String(parsed.tool_calls[0].function.arguments.pattern || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "d61d0b3f-0f64-41ad-bbff-ef0fbfc569ea",
+        "latencyMs": 1465,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Find where PrefixCache Save complete is logged in the codebase.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-frameworks"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_QU2vc8yOb8hxv7gLUgd2k6we\",\"index\":0,\"function\":{\"arguments\":{\"pattern\":\"PrefixCache Save complete\"},\"name\":\"grep\"},\"type\":\"function\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 1465,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a coding agent using OpenCode-style tools. Prefer targeted search before opening files."
+                },
+                {
+                  "role": "user",
+                  "content": "Find where PrefixCache Save complete is logged in the codebase."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "grep",
+                    "description": "Search file contents",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "pattern": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": "string"
+                        },
+                        "include": {
+                          "type": "string"
+                        },
+                        "literal_text": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "pattern"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "view",
+                    "description": "View file contents",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "file_path": {
+                          "type": "string"
+                        },
+                        "offset": {
+                          "type": "integer"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "file_path"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "id": "call_QU2vc8yOb8hxv7gLUgd2k6we",
+                        "index": 0,
+                        "function": {
+                          "arguments": "{\"pattern\":\"PrefixCache Save complete\"}",
+                          "name": "grep"
+                        },
+                        "type": "function"
+                      }
+                    ]
+                  },
+                  "finish_reason": "tool_calls",
+                  "index": 0
+                }
+              ],
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "id": "chatcmpl-0F01A6EC",
+              "timings": {
+                "prompt_ms": 705.9590816497803,
+                "prompt_n": 352,
+                "predicted_n": 65,
+                "predicted_ms": 585.9489440917969
+              },
+              "created": 1774635969,
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "usage": {
+                "completion_tokens_per_second": 110.93,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens_per_second": 498.61,
+                "total_tokens": 417,
+                "prompt_tokens": 352,
+                "completion_time": 0.59,
+                "total_time": 1.29,
+                "completion_tokens": 65,
+                "peak_memory_gib": 19.6,
+                "prompt_time": 0.71
+              },
+              "object": "chat.completion"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "832",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:26:09 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "opencode: use grep before reading whole files",
+          "metadata": {
+            "suite": "framework_schemas",
+            "classification": "not_yet_classified",
+            "source": "opencode",
+            "framework": "OpenCode"
+          },
+          "vars": {
+            "prompt": "Find where PrefixCache Save complete is logged in the codebase.",
+            "system_prompt": "You are a coding agent using OpenCode-style tools. Prefer targeted search before opening files.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "grep",
+                  "description": "Search file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "pattern": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "include": {
+                        "type": "string"
+                      },
+                      "literal_text": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "pattern"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "view",
+                  "description": "View file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "file_path": {
+                        "type": "string"
+                      },
+                      "offset": {
+                        "type": "integer"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "file_path"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'grep' &&\n  /PrefixCache Save complete/i.test(String(parsed.tool_calls[0].function.arguments.pattern || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 0,
+        "vars": {
+          "prompt": "Find where PrefixCache Save complete is logged in the codebase.",
+          "system_prompt": "You are a coding agent using OpenCode-style tools. Prefer targeted search before opening files.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "grep",
+                "description": "Search file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "pattern": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "include": {
+                      "type": "string"
+                    },
+                    "literal_text": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "pattern"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "view",
+                "description": "View file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "file_path": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "file_path"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "opencode",
+          "framework": "OpenCode",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a coding agent using OpenCode-style tools. Prefer targeted search before opening files."
+              },
+              {
+                "role": "user",
+                "content": "Find where PrefixCache Save complete is logged in the codebase."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "grep",
+                  "description": "Search file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "pattern": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "include": {
+                        "type": "string"
+                      },
+                      "literal_text": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "pattern"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "view",
+                  "description": "View file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "file_path": {
+                        "type": "string"
+                      },
+                      "offset": {
+                        "type": "integer"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "file_path"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "id": "call_QU2vc8yOb8hxv7gLUgd2k6we",
+                      "index": 0,
+                      "function": {
+                        "arguments": "{\"pattern\":\"PrefixCache Save complete\"}",
+                        "name": "grep"
+                      },
+                      "type": "function"
+                    }
+                  ]
+                },
+                "finish_reason": "tool_calls",
+                "index": 0
+              }
+            ],
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "id": "chatcmpl-0F01A6EC",
+            "timings": {
+              "prompt_ms": 705.9590816497803,
+              "prompt_n": 352,
+              "predicted_n": 65,
+              "predicted_ms": 585.9489440917969
+            },
+            "created": 1774635969,
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "usage": {
+              "completion_tokens_per_second": 110.93,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens_per_second": 498.61,
+              "total_tokens": 417,
+              "prompt_tokens": 352,
+              "completion_time": 0.59,
+              "total_time": 1.29,
+              "completion_tokens": 65,
+              "peak_memory_gib": 19.6,
+              "prompt_time": 0.71
+            },
+            "object": "chat.completion"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "832",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:26:09 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'view' &&\n  /MLXModelService\\.swift$/.test(String(call.function.arguments.file_path || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "98213917-4baf-416e-ac9e-c3577565ab25",
+        "latencyMs": 1033,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Open Sources/MacLocalAPI/Models/MLXModelService.swift and inspect the restore path near the middle of the file.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-frameworks"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_tjbrgCNGUtMETuy5Jc2Z06ZO\",\"function\":{\"name\":\"view\",\"arguments\":{\"file_path\":\"Sources/MacLocalAPI/Models/MLXModelService.swift\"}},\"index\":0,\"type\":\"function\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 1033,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a coding agent using OpenCode-style tools."
+                },
+                {
+                  "role": "user",
+                  "content": "Open Sources/MacLocalAPI/Models/MLXModelService.swift and inspect the restore path near the middle of the file."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "view",
+                    "description": "View file contents",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "file_path": {
+                          "type": "string"
+                        },
+                        "offset": {
+                          "type": "integer"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "file_path"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "grep",
+                    "description": "Search file contents",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "pattern": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "pattern"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "id": "chatcmpl-BC83EB80",
+              "choices": [
+                {
+                  "message": {
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "id": "call_tjbrgCNGUtMETuy5Jc2Z06ZO",
+                        "function": {
+                          "name": "view",
+                          "arguments": "{\"file_path\":\"Sources\\/MacLocalAPI\\/Models\\/MLXModelService.swift\"}"
+                        },
+                        "index": 0,
+                        "type": "function"
+                      }
+                    ],
+                    "role": "assistant"
+                  },
+                  "index": 0,
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "timings": {
+                "prompt_n": 345,
+                "prompt_ms": 193.6739683151245,
+                "predicted_n": 91,
+                "predicted_ms": 829.3330669403076
+              },
+              "created": 1774635970,
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "usage": {
+                "completion_tokens_per_second": 109.73,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens_per_second": 1781.34,
+                "total_tokens": 436,
+                "prompt_tokens": 345,
+                "completion_time": 0.83,
+                "total_time": 1.02,
+                "completion_tokens": 91,
+                "peak_memory_gib": 19.5,
+                "prompt_time": 0.19
+              },
+              "object": "chat.completion"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "867",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:26:10 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "opencode: use view to inspect a specific file",
+          "metadata": {
+            "suite": "framework_schemas",
+            "classification": "not_yet_classified",
+            "source": "opencode",
+            "framework": "OpenCode"
+          },
+          "vars": {
+            "prompt": "Open Sources/MacLocalAPI/Models/MLXModelService.swift and inspect the restore path near the middle of the file.",
+            "system_prompt": "You are a coding agent using OpenCode-style tools.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "view",
+                  "description": "View file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "file_path": {
+                        "type": "string"
+                      },
+                      "offset": {
+                        "type": "integer"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "file_path"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "grep",
+                  "description": "Search file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "pattern": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "pattern"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'view' &&\n  /MLXModelService\\.swift$/.test(String(call.function.arguments.file_path || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 1,
+        "vars": {
+          "prompt": "Open Sources/MacLocalAPI/Models/MLXModelService.swift and inspect the restore path near the middle of the file.",
+          "system_prompt": "You are a coding agent using OpenCode-style tools.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "view",
+                "description": "View file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "file_path": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "file_path"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "grep",
+                "description": "Search file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "pattern": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pattern"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "opencode",
+          "framework": "OpenCode",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a coding agent using OpenCode-style tools."
+              },
+              {
+                "role": "user",
+                "content": "Open Sources/MacLocalAPI/Models/MLXModelService.swift and inspect the restore path near the middle of the file."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "view",
+                  "description": "View file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "file_path": {
+                        "type": "string"
+                      },
+                      "offset": {
+                        "type": "integer"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "file_path"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "grep",
+                  "description": "Search file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "pattern": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "pattern"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "id": "chatcmpl-BC83EB80",
+            "choices": [
+              {
+                "message": {
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "id": "call_tjbrgCNGUtMETuy5Jc2Z06ZO",
+                      "function": {
+                        "name": "view",
+                        "arguments": "{\"file_path\":\"Sources\\/MacLocalAPI\\/Models\\/MLXModelService.swift\"}"
+                      },
+                      "index": 0,
+                      "type": "function"
+                    }
+                  ],
+                  "role": "assistant"
+                },
+                "index": 0,
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "timings": {
+              "prompt_n": 345,
+              "prompt_ms": 193.6739683151245,
+              "predicted_n": 91,
+              "predicted_ms": 829.3330669403076
+            },
+            "created": 1774635970,
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "usage": {
+              "completion_tokens_per_second": 109.73,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens_per_second": 1781.34,
+              "total_tokens": 436,
+              "prompt_tokens": 345,
+              "completion_time": 0.83,
+              "total_time": 1.02,
+              "completion_tokens": 91,
+              "peak_memory_gib": 19.5,
+              "prompt_time": 0.19
+            },
+            "object": "chat.completion"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "867",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:26:10 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'diagnostics';\n"
+              }
+            }
+          ]
+        },
+        "id": "b43b15b3-4cdd-45e7-8c9d-7bdbb5b6e0d5",
+        "latencyMs": 1486,
+        "namedScores": {},
+        "prompt": {
+          "raw": "What should you do next?",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-frameworks"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"type\":\"function\",\"function\":{\"name\":\"diagnostics\",\"arguments\":{\"file_path\":\"Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift\"}},\"index\":0,\"id\":\"call_sM7gI4HvQYwxYgcjUTLTBkAw\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 1486,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a coding agent using OpenCode-style tools. After edits, prefer diagnostics before broader commands."
+                },
+                {
+                  "role": "user",
+                  "content": "Update the controller to add index to non-streaming tool calls."
+                },
+                {
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "id": "call_patch_1",
+                      "type": "function",
+                      "function": {
+                        "name": "patch",
+                        "arguments": "{\"file_path\":\"Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift\",\"diff\":\"...\"}"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "tool_call_id": "call_patch_1",
+                  "content": "Patch applied successfully"
+                },
+                {
+                  "role": "user",
+                  "content": "What should you do next?"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "diagnostics",
+                    "description": "Get diagnostics information",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "file_path": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "bash",
+                    "description": "Execute shell commands",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "command": {
+                          "type": "string"
+                        },
+                        "timeout": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "command"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "id": "chatcmpl-416CD30C",
+              "choices": [
+                {
+                  "index": 0,
+                  "finish_reason": "tool_calls",
+                  "message": {
+                    "tool_calls": [
+                      {
+                        "type": "function",
+                        "function": {
+                          "name": "diagnostics",
+                          "arguments": "{\"file_path\":\"Sources\\/MacLocalAPI\\/Controllers\\/MLXChatCompletionsController.swift\"}"
+                        },
+                        "index": 0,
+                        "id": "call_sM7gI4HvQYwxYgcjUTLTBkAw"
+                      }
+                    ],
+                    "role": "assistant",
+                    "content": null
+                  }
+                }
+              ],
+              "timings": {
+                "predicted_n": 130,
+                "prompt_n": 402,
+                "prompt_ms": 215.71695804595947,
+                "predicted_ms": 1259.8559856414795
+              },
+              "created": 1774635972,
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "usage": {
+                "completion_tokens_per_second": 103.19,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens_per_second": 1863.55,
+                "total_tokens": 532,
+                "completion_time": 1.26,
+                "prompt_tokens": 402,
+                "total_time": 1.48,
+                "completion_tokens": 130,
+                "peak_memory_gib": 19.6,
+                "prompt_time": 0.22
+              },
+              "object": "chat.completion"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "896",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:26:12 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "opencode: prefer diagnostics after code edit",
+          "metadata": {
+            "suite": "framework_schemas",
+            "classification": "not_yet_classified",
+            "source": "opencode",
+            "framework": "OpenCode"
+          },
+          "vars": {
+            "prompt": "What should you do next?",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a coding agent using OpenCode-style tools. After edits, prefer diagnostics before broader commands."
+              },
+              {
+                "role": "user",
+                "content": "Update the controller to add index to non-streaming tool calls."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "call_patch_1",
+                    "type": "function",
+                    "function": {
+                      "name": "patch",
+                      "arguments": "{\"file_path\":\"Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift\",\"diff\":\"...\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_patch_1",
+                "content": "Patch applied successfully"
+              },
+              {
+                "role": "user",
+                "content": "What should you do next?"
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "diagnostics",
+                  "description": "Get diagnostics information",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "file_path": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "bash",
+                  "description": "Execute shell commands",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      },
+                      "timeout": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'diagnostics';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 2,
+        "vars": {
+          "prompt": "What should you do next?",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a coding agent using OpenCode-style tools. After edits, prefer diagnostics before broader commands."
+            },
+            {
+              "role": "user",
+              "content": "Update the controller to add index to non-streaming tool calls."
+            },
+            {
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "id": "call_patch_1",
+                  "type": "function",
+                  "function": {
+                    "name": "patch",
+                    "arguments": "{\"file_path\":\"Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift\",\"diff\":\"...\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_patch_1",
+              "content": "Patch applied successfully"
+            },
+            {
+              "role": "user",
+              "content": "What should you do next?"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "diagnostics",
+                "description": "Get diagnostics information",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "file_path": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "bash",
+                "description": "Execute shell commands",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "timeout": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "opencode",
+          "framework": "OpenCode",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a coding agent using OpenCode-style tools. After edits, prefer diagnostics before broader commands."
+              },
+              {
+                "role": "user",
+                "content": "Update the controller to add index to non-streaming tool calls."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "call_patch_1",
+                    "type": "function",
+                    "function": {
+                      "name": "patch",
+                      "arguments": "{\"file_path\":\"Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift\",\"diff\":\"...\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_patch_1",
+                "content": "Patch applied successfully"
+              },
+              {
+                "role": "user",
+                "content": "What should you do next?"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "diagnostics",
+                  "description": "Get diagnostics information",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "file_path": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "bash",
+                  "description": "Execute shell commands",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      },
+                      "timeout": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "id": "chatcmpl-416CD30C",
+            "choices": [
+              {
+                "index": 0,
+                "finish_reason": "tool_calls",
+                "message": {
+                  "tool_calls": [
+                    {
+                      "type": "function",
+                      "function": {
+                        "name": "diagnostics",
+                        "arguments": "{\"file_path\":\"Sources\\/MacLocalAPI\\/Controllers\\/MLXChatCompletionsController.swift\"}"
+                      },
+                      "index": 0,
+                      "id": "call_sM7gI4HvQYwxYgcjUTLTBkAw"
+                    }
+                  ],
+                  "role": "assistant",
+                  "content": null
+                }
+              }
+            ],
+            "timings": {
+              "predicted_n": 130,
+              "prompt_n": 402,
+              "prompt_ms": 215.71695804595947,
+              "predicted_ms": 1259.8559856414795
+            },
+            "created": 1774635972,
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "usage": {
+              "completion_tokens_per_second": 103.19,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens_per_second": 1863.55,
+              "total_tokens": 532,
+              "completion_time": 1.26,
+              "prompt_tokens": 402,
+              "total_time": 1.48,
+              "completion_tokens": 130,
+              "peak_memory_gib": 19.6,
+              "prompt_time": 0.22
+            },
+            "object": "chat.completion"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "896",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:26:12 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read';\n"
+              }
+            }
+          ]
+        },
+        "id": "e77c8eff-72a7-4416-bd48-95ff5499fd53",
+        "latencyMs": 991,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Change the README to document the new promptfoo toolcall-quality suite.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-frameworks"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"name\":\"read\",\"arguments\":{\"filePath\":\"README.md\"}},\"index\":0,\"type\":\"function\",\"id\":\"call_uLOOwfa33p9lwdHQjTmtU8FP\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 991,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a Pi-style coding agent with only read, write, edit, and bash. Inspect before editing."
+                },
+                {
+                  "role": "user",
+                  "content": "Change the README to document the new promptfoo toolcall-quality suite."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "read",
+                    "description": "Read file contents",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "filePath": {
+                          "type": "string"
+                        },
+                        "offset": {
+                          "type": "integer"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "filePath"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "edit",
+                    "description": "Replace exact text in a file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "filePath": {
+                          "type": "string"
+                        },
+                        "oldText": {
+                          "type": "string"
+                        },
+                        "newText": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "filePath",
+                        "oldText",
+                        "newText"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "write",
+                    "description": "Write a whole file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "filePath": {
+                          "type": "string"
+                        },
+                        "content": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "filePath",
+                        "content"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "finish_reason": "tool_calls",
+                  "message": {
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "name": "read",
+                          "arguments": "{\"filePath\":\"README.md\"}"
+                        },
+                        "index": 0,
+                        "type": "function",
+                        "id": "call_uLOOwfa33p9lwdHQjTmtU8FP"
+                      }
+                    ],
+                    "content": null,
+                    "role": "assistant"
+                  },
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-31CAE549",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "timings": {
+                "prompt_n": 407,
+                "prompt_ms": 221.02892398834229,
+                "predicted_n": 83,
+                "predicted_ms": 760.248064994812
+              },
+              "created": 1774635973,
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "usage": {
+                "completion_tokens_per_second": 109.17,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens_per_second": 1841.39,
+                "total_tokens": 490,
+                "completion_time": 0.76,
+                "prompt_tokens": 407,
+                "total_time": 0.98,
+                "completion_tokens": 83,
+                "peak_memory_gib": 19.7,
+                "prompt_time": 0.22
+              },
+              "object": "chat.completion"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "818",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:26:13 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "pi: prefer read before edit for existing file changes",
+          "metadata": {
+            "suite": "framework_schemas",
+            "classification": "not_yet_classified",
+            "source": "pi",
+            "framework": "Pi"
+          },
+          "vars": {
+            "prompt": "Change the README to document the new promptfoo toolcall-quality suite.",
+            "system_prompt": "You are a Pi-style coding agent with only read, write, edit, and bash. Inspect before editing.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "read",
+                  "description": "Read file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "offset": {
+                        "type": "integer"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "filePath"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "edit",
+                  "description": "Replace exact text in a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "oldText": {
+                        "type": "string"
+                      },
+                      "newText": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "filePath",
+                      "oldText",
+                      "newText"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "write",
+                  "description": "Write a whole file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "content": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "filePath",
+                      "content"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 3,
+        "vars": {
+          "prompt": "Change the README to document the new promptfoo toolcall-quality suite.",
+          "system_prompt": "You are a Pi-style coding agent with only read, write, edit, and bash. Inspect before editing.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read",
+                "description": "Read file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "filePath"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "edit",
+                "description": "Replace exact text in a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "oldText": {
+                      "type": "string"
+                    },
+                    "newText": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "filePath",
+                    "oldText",
+                    "newText"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "write",
+                "description": "Write a whole file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "filePath",
+                    "content"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "pi",
+          "framework": "Pi",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a Pi-style coding agent with only read, write, edit, and bash. Inspect before editing."
+              },
+              {
+                "role": "user",
+                "content": "Change the README to document the new promptfoo toolcall-quality suite."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "read",
+                  "description": "Read file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "offset": {
+                        "type": "integer"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "filePath"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "edit",
+                  "description": "Replace exact text in a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "oldText": {
+                        "type": "string"
+                      },
+                      "newText": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "filePath",
+                      "oldText",
+                      "newText"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "write",
+                  "description": "Write a whole file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "content": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "filePath",
+                      "content"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "finish_reason": "tool_calls",
+                "message": {
+                  "tool_calls": [
+                    {
+                      "function": {
+                        "name": "read",
+                        "arguments": "{\"filePath\":\"README.md\"}"
+                      },
+                      "index": 0,
+                      "type": "function",
+                      "id": "call_uLOOwfa33p9lwdHQjTmtU8FP"
+                    }
+                  ],
+                  "content": null,
+                  "role": "assistant"
+                },
+                "index": 0
+              }
+            ],
+            "id": "chatcmpl-31CAE549",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "timings": {
+              "prompt_n": 407,
+              "prompt_ms": 221.02892398834229,
+              "predicted_n": 83,
+              "predicted_ms": 760.248064994812
+            },
+            "created": 1774635973,
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "usage": {
+              "completion_tokens_per_second": 109.17,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens_per_second": 1841.39,
+              "total_tokens": 490,
+              "completion_time": 0.76,
+              "prompt_tokens": 407,
+              "total_time": 0.98,
+              "completion_tokens": 83,
+              "peak_memory_gib": 19.7,
+              "prompt_time": 0.22
+            },
+            "object": "chat.completion"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "818",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:26:13 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nif (parsed.tool_calls.length === 1) {\n  return parsed.tool_calls[0].function.name === 'edit';\n}\nreturn parsed.tool_calls.length === 0 &&\n  /which file|file path|specify the file/i.test(parsed.content);\n"
+              }
+            }
+          ]
+        },
+        "id": "61511e3b-cb1a-4d6a-bced-e6650f4755ff",
+        "latencyMs": 1562,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Replace the phrase 'cache: MISS' with 'cache: MISS suffix=41' in the existing controller log line.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-frameworks"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"I'd be happy to help you replace that text, but I need to know which file contains the controller log line. Could you please specify the file path where this log line exists?\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 1562,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a Pi-style coding agent. Use edit for precise replacements in existing files."
+                },
+                {
+                  "role": "user",
+                  "content": "Replace the phrase 'cache: MISS' with 'cache: MISS suffix=41' in the existing controller log line."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "edit",
+                    "description": "Replace exact text in a file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "filePath": {
+                          "type": "string"
+                        },
+                        "oldText": {
+                          "type": "string"
+                        },
+                        "newText": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "filePath",
+                        "oldText",
+                        "newText"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "write",
+                    "description": "Write a whole file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "filePath": {
+                          "type": "string"
+                        },
+                        "content": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "filePath",
+                        "content"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "message": {
+                    "content": "I'd be happy to help you replace that text, but I need to know which file contains the controller log line. Could you please specify the file path where this log line exists?",
+                    "reasoning_content": "The user wants me to replace the phrase 'cache: MISS' with 'cache: MISS suffix=41' in an existing controller log line. However, they haven't specified which file contains this log line. I need to ask them to specify the file path before I can make the edit.\n\nActually, looking at this more carefully, the user is asking me to replace text in a file, but they haven't told me which file. I should ask them to specify the file path.",
+                    "role": "assistant"
+                  },
+                  "finish_reason": "stop",
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-DC8DB3C8",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "timings": {
+                "predicted_n": 140,
+                "predicted_ms": 1351.9010543823242,
+                "prompt_n": 362,
+                "prompt_ms": 200.34897327423096
+              },
+              "created": 1774635974,
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "usage": {
+                "completion_tokens_per_second": 103.56,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens_per_second": 1806.85,
+                "total_tokens": 502,
+                "completion_time": 1.35,
+                "prompt_tokens": 362,
+                "total_time": 1.55,
+                "completion_tokens": 140,
+                "peak_memory_gib": 19.6,
+                "prompt_time": 0.2
+              },
+              "object": "chat.completion"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1290",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:26:14 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "pi: use edit or ask for file path on surgical replacement",
+          "metadata": {
+            "suite": "framework_schemas",
+            "classification": "not_yet_classified",
+            "source": "pi",
+            "framework": "Pi"
+          },
+          "vars": {
+            "prompt": "Replace the phrase 'cache: MISS' with 'cache: MISS suffix=41' in the existing controller log line.",
+            "system_prompt": "You are a Pi-style coding agent. Use edit for precise replacements in existing files.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "edit",
+                  "description": "Replace exact text in a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "oldText": {
+                        "type": "string"
+                      },
+                      "newText": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "filePath",
+                      "oldText",
+                      "newText"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "write",
+                  "description": "Write a whole file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "content": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "filePath",
+                      "content"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nif (parsed.tool_calls.length === 1) {\n  return parsed.tool_calls[0].function.name === 'edit';\n}\nreturn parsed.tool_calls.length === 0 &&\n  /which file|file path|specify the file/i.test(parsed.content);\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 4,
+        "vars": {
+          "prompt": "Replace the phrase 'cache: MISS' with 'cache: MISS suffix=41' in the existing controller log line.",
+          "system_prompt": "You are a Pi-style coding agent. Use edit for precise replacements in existing files.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "edit",
+                "description": "Replace exact text in a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "oldText": {
+                      "type": "string"
+                    },
+                    "newText": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "filePath",
+                    "oldText",
+                    "newText"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "write",
+                "description": "Write a whole file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "filePath",
+                    "content"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "pi",
+          "framework": "Pi",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a Pi-style coding agent. Use edit for precise replacements in existing files."
+              },
+              {
+                "role": "user",
+                "content": "Replace the phrase 'cache: MISS' with 'cache: MISS suffix=41' in the existing controller log line."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "edit",
+                  "description": "Replace exact text in a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "oldText": {
+                        "type": "string"
+                      },
+                      "newText": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "filePath",
+                      "oldText",
+                      "newText"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "write",
+                  "description": "Write a whole file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "content": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "filePath",
+                      "content"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "message": {
+                  "content": "I'd be happy to help you replace that text, but I need to know which file contains the controller log line. Could you please specify the file path where this log line exists?",
+                  "reasoning_content": "The user wants me to replace the phrase 'cache: MISS' with 'cache: MISS suffix=41' in an existing controller log line. However, they haven't specified which file contains this log line. I need to ask them to specify the file path before I can make the edit.\n\nActually, looking at this more carefully, the user is asking me to replace text in a file, but they haven't told me which file. I should ask them to specify the file path.",
+                  "role": "assistant"
+                },
+                "finish_reason": "stop",
+                "index": 0
+              }
+            ],
+            "id": "chatcmpl-DC8DB3C8",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "timings": {
+              "predicted_n": 140,
+              "predicted_ms": 1351.9010543823242,
+              "prompt_n": 362,
+              "prompt_ms": 200.34897327423096
+            },
+            "created": 1774635974,
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "usage": {
+              "completion_tokens_per_second": 103.56,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens_per_second": 1806.85,
+              "total_tokens": 502,
+              "completion_time": 1.35,
+              "prompt_tokens": 362,
+              "total_time": 1.55,
+              "completion_tokens": 140,
+              "peak_memory_gib": 19.6,
+              "prompt_time": 0.2
+            },
+            "object": "chat.completion"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1290",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:26:14 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'session_search';\n"
+              }
+            }
+          ]
+        },
+        "id": "3825eb97-49fd-43b7-94f4-9530379eb92b",
+        "latencyMs": 925,
+        "namedScores": {},
+        "prompt": {
+          "raw": "What did we conclude last time about exact replay on recurrent-cache models?",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-frameworks"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"index\":0,\"type\":\"function\",\"function\":{\"arguments\":{\"query\":\"exact replay recurrent-cache models conclusion\"},\"name\":\"session_search\"},\"id\":\"call_LgrczuhkkrYB7SxaZVl0Gfeh\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 925,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are an OpenClaw-style agent with session persistence and memory."
+                },
+                {
+                  "role": "user",
+                  "content": "What did we conclude last time about exact replay on recurrent-cache models?"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "session_search",
+                    "description": "Search prior conversation history and saved sessions",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "query": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "query"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "send_message",
+                    "description": "Send a message to a chat channel",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "channel": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "channel",
+                        "text"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "type": "function",
+                        "function": {
+                          "arguments": "{\"query\":\"exact replay recurrent-cache models conclusion\"}",
+                          "name": "session_search"
+                        },
+                        "id": "call_LgrczuhkkrYB7SxaZVl0Gfeh"
+                      }
+                    ],
+                    "role": "assistant",
+                    "content": null
+                  },
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "id": "chatcmpl-2D458AC6",
+              "timings": {
+                "prompt_ms": 190.9710168838501,
+                "predicted_n": 80,
+                "predicted_ms": 723.701000213623,
+                "prompt_n": 334
+              },
+              "created": 1774635975,
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "usage": {
+                "completion_tokens_per_second": 110.54,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens_per_second": 1748.96,
+                "total_tokens": 414,
+                "completion_time": 0.72,
+                "prompt_tokens": 334,
+                "total_time": 0.91,
+                "completion_tokens": 80,
+                "peak_memory_gib": 19.5,
+                "prompt_time": 0.19
+              },
+              "object": "chat.completion"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "861",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:26:15 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "openclaw: choose session search for prior context recall",
+          "metadata": {
+            "suite": "framework_schemas",
+            "classification": "not_yet_classified",
+            "source": "openclaw",
+            "framework": "OpenClaw"
+          },
+          "vars": {
+            "prompt": "What did we conclude last time about exact replay on recurrent-cache models?",
+            "system_prompt": "You are an OpenClaw-style agent with session persistence and memory.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "session_search",
+                  "description": "Search prior conversation history and saved sessions",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "send_message",
+                  "description": "Send a message to a chat channel",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "channel": {
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "channel",
+                      "text"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'session_search';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 5,
+        "vars": {
+          "prompt": "What did we conclude last time about exact replay on recurrent-cache models?",
+          "system_prompt": "You are an OpenClaw-style agent with session persistence and memory.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "session_search",
+                "description": "Search prior conversation history and saved sessions",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "send_message",
+                "description": "Send a message to a chat channel",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "channel": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "channel",
+                    "text"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "openclaw",
+          "framework": "OpenClaw",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an OpenClaw-style agent with session persistence and memory."
+              },
+              {
+                "role": "user",
+                "content": "What did we conclude last time about exact replay on recurrent-cache models?"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "session_search",
+                  "description": "Search prior conversation history and saved sessions",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "send_message",
+                  "description": "Send a message to a chat channel",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "channel": {
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "channel",
+                      "text"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "type": "function",
+                      "function": {
+                        "arguments": "{\"query\":\"exact replay recurrent-cache models conclusion\"}",
+                        "name": "session_search"
+                      },
+                      "id": "call_LgrczuhkkrYB7SxaZVl0Gfeh"
+                    }
+                  ],
+                  "role": "assistant",
+                  "content": null
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "id": "chatcmpl-2D458AC6",
+            "timings": {
+              "prompt_ms": 190.9710168838501,
+              "predicted_n": 80,
+              "predicted_ms": 723.701000213623,
+              "prompt_n": 334
+            },
+            "created": 1774635975,
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "usage": {
+              "completion_tokens_per_second": 110.54,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens_per_second": 1748.96,
+              "total_tokens": 414,
+              "completion_time": 0.72,
+              "prompt_tokens": 334,
+              "total_time": 0.91,
+              "completion_tokens": 80,
+              "peak_memory_gib": 19.5,
+              "prompt_time": 0.19
+            },
+            "object": "chat.completion"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "861",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:26:15 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'clarify';\n"
+              }
+            }
+          ]
+        },
+        "id": "f5bd6342-4e90-46b9-ac72-6c903ef8dba1",
+        "latencyMs": 2815,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Book me a flight to Tokyo next month.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-frameworks"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"type\":\"function\",\"id\":\"call_3fpIBrUyY43o5P6pzDhXCvtL\",\"function\":{\"name\":\"clarify\",\"arguments\":{\"fields\":[\"travel_dates\",\"departure_city\",\"trip_type\",\"passengers\",\"preferences\",\"flight_type\"],\"question\":\"To book your flight to Tokyo, I need some additional details:\\n\\n1. What are your specific travel dates (departure and return if round-trip)?\\n2. Which city will you be departing from?\\n3. Is this a one-way or round-trip flight?\\n4. How many passengers will be traveling?\\n5. Do you have any preferences for airline, cabin class, or budget range?\\n6. Any preference for direct flights or are you open to connections?\"}},\"index\":0}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 2815,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a Hermes-style agent with clarify and delegation tools."
+                },
+                {
+                  "role": "user",
+                  "content": "Book me a flight to Tokyo next month."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "clarify",
+                    "description": "Ask a structured clarification question before acting",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "question": {
+                          "type": "string"
+                        },
+                        "fields": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "question"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "delegate_task",
+                    "description": "Delegate a task to a subagent",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "goal": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "goal"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "choices": [
+                {
+                  "finish_reason": "tool_calls",
+                  "index": 0,
+                  "message": {
+                    "role": "assistant",
+                    "tool_calls": [
+                      {
+                        "type": "function",
+                        "id": "call_3fpIBrUyY43o5P6pzDhXCvtL",
+                        "function": {
+                          "name": "clarify",
+                          "arguments": "{\"fields\":[\"travel_dates\",\"departure_city\",\"trip_type\",\"passengers\",\"preferences\",\"flight_type\"],\"question\":\"To book your flight to Tokyo, I need some additional details:\\n\\n1. What are your specific travel dates (departure and return if round-trip)?\\n2. Which city will you be departing from?\\n3. Is this a one-way or round-trip flight?\\n4. How many passengers will be traveling?\\n5. Do you have any preferences for airline, cabin class, or budget range?\\n6. Any preference for direct flights or are you open to connections?\"}"
+                        },
+                        "index": 0
+                      }
+                    ],
+                    "content": null
+                  }
+                }
+              ],
+              "id": "chatcmpl-4960C1CA",
+              "timings": {
+                "prompt_ms": 189.44799900054932,
+                "prompt_n": 331,
+                "predicted_ms": 2615.1089668273926,
+                "predicted_n": 293
+              },
+              "created": 1774635978,
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "usage": {
+                "completion_tokens_per_second": 112.04,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens_per_second": 1747.18,
+                "total_tokens": 624,
+                "completion_time": 2.62,
+                "prompt_tokens": 331,
+                "total_time": 2.8,
+                "completion_tokens": 293,
+                "peak_memory_gib": 19.5,
+                "prompt_time": 0.19
+              },
+              "object": "chat.completion"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1348",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:26:18 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "hermes: use clarify when key booking details are missing",
+          "metadata": {
+            "suite": "framework_schemas",
+            "classification": "not_yet_classified",
+            "source": "hermes",
+            "framework": "Hermes Agent"
+          },
+          "vars": {
+            "prompt": "Book me a flight to Tokyo next month.",
+            "system_prompt": "You are a Hermes-style agent with clarify and delegation tools.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "clarify",
+                  "description": "Ask a structured clarification question before acting",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "question": {
+                        "type": "string"
+                      },
+                      "fields": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "question"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "delegate_task",
+                  "description": "Delegate a task to a subagent",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "goal": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "goal"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'clarify';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 6,
+        "vars": {
+          "prompt": "Book me a flight to Tokyo next month.",
+          "system_prompt": "You are a Hermes-style agent with clarify and delegation tools.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "clarify",
+                "description": "Ask a structured clarification question before acting",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "question": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "question"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_task",
+                "description": "Delegate a task to a subagent",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "goal"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "hermes",
+          "framework": "Hermes Agent",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a Hermes-style agent with clarify and delegation tools."
+              },
+              {
+                "role": "user",
+                "content": "Book me a flight to Tokyo next month."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "clarify",
+                  "description": "Ask a structured clarification question before acting",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "question": {
+                        "type": "string"
+                      },
+                      "fields": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "question"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "delegate_task",
+                  "description": "Delegate a task to a subagent",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "goal": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "goal"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "choices": [
+              {
+                "finish_reason": "tool_calls",
+                "index": 0,
+                "message": {
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "type": "function",
+                      "id": "call_3fpIBrUyY43o5P6pzDhXCvtL",
+                      "function": {
+                        "name": "clarify",
+                        "arguments": "{\"fields\":[\"travel_dates\",\"departure_city\",\"trip_type\",\"passengers\",\"preferences\",\"flight_type\"],\"question\":\"To book your flight to Tokyo, I need some additional details:\\n\\n1. What are your specific travel dates (departure and return if round-trip)?\\n2. Which city will you be departing from?\\n3. Is this a one-way or round-trip flight?\\n4. How many passengers will be traveling?\\n5. Do you have any preferences for airline, cabin class, or budget range?\\n6. Any preference for direct flights or are you open to connections?\"}"
+                      },
+                      "index": 0
+                    }
+                  ],
+                  "content": null
+                }
+              }
+            ],
+            "id": "chatcmpl-4960C1CA",
+            "timings": {
+              "prompt_ms": 189.44799900054932,
+              "prompt_n": 331,
+              "predicted_ms": 2615.1089668273926,
+              "predicted_n": 293
+            },
+            "created": 1774635978,
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "usage": {
+              "completion_tokens_per_second": 112.04,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens_per_second": 1747.18,
+              "total_tokens": 624,
+              "completion_time": 2.62,
+              "prompt_tokens": 331,
+              "total_time": 2.8,
+              "completion_tokens": 293,
+              "peak_memory_gib": 19.5,
+              "prompt_time": 0.19
+            },
+            "object": "chat.completion"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1348",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:26:18 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'todo';\n"
+              }
+            }
+          ]
+        },
+        "id": "289a8b3c-1ffc-4dc7-80fa-09e9a53f3b84",
+        "latencyMs": 2619,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Plan the work to migrate our Promptfoo harness to nightly CI with classification and reporting.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-frameworks"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"arguments\":{\"action\":\"add\",\"items\":[\"Audit current Promptfoo harness setup and identify existing configurations\",\"Define classification criteria and rules for test results\",\"Set up nightly CI schedule (e.g., GitHub Actions cron or similar)\",\"Implement test result classification logic\",\"Create reporting dashboard or output format for results\",\"Set up alerting/notification system for failures\",\"Configure environment variables and secrets for CI\",\"Write documentation for the migration\",\"Test the full pipeline end-to-end\",\"Monitor and iterate on the first few runs\"]},\"name\":\"todo\"},\"type\":\"function\",\"index\":0,\"id\":\"call_beM4D1jxnW0OxcPCKpyrw9Cf\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 2619,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a Hermes-style agent. Use a todo/planning tool for multi-step execution plans."
+                },
+                {
+                  "role": "user",
+                  "content": "Plan the work to migrate our Promptfoo harness to nightly CI with classification and reporting."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "todo",
+                    "description": "Manage a structured task list",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "type": "string"
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "action"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "terminal",
+                    "description": "Run a shell command",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "command": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "command"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "message": {
+                    "content": null,
+                    "role": "assistant",
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "arguments": "{\"action\":\"add\",\"items\":[\"Audit current Promptfoo harness setup and identify existing configurations\",\"Define classification criteria and rules for test results\",\"Set up nightly CI schedule (e.g., GitHub Actions cron or similar)\",\"Implement test result classification logic\",\"Create reporting dashboard or output format for results\",\"Set up alerting\\/notification system for failures\",\"Configure environment variables and secrets for CI\",\"Write documentation for the migration\",\"Test the full pipeline end-to-end\",\"Monitor and iterate on the first few runs\"]}",
+                          "name": "todo"
+                        },
+                        "type": "function",
+                        "index": 0,
+                        "id": "call_beM4D1jxnW0OxcPCKpyrw9Cf"
+                      }
+                    ]
+                  },
+                  "index": 0,
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "id": "chatcmpl-3FBD1125",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "timings": {
+                "predicted_n": 271,
+                "predicted_ms": 2417.7730083465576,
+                "prompt_n": 339,
+                "prompt_ms": 191.71392917633057
+              },
+              "created": 1774635981,
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "usage": {
+                "completion_tokens_per_second": 112.09,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens_per_second": 1768.26,
+                "total_tokens": 610,
+                "prompt_tokens": 339,
+                "completion_time": 2.42,
+                "total_time": 2.61,
+                "completion_tokens": 271,
+                "peak_memory_gib": 19.5,
+                "prompt_time": 0.19
+              },
+              "object": "chat.completion"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1381",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:26:21 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "hermes: use todo to plan a multi-step migration",
+          "metadata": {
+            "suite": "framework_schemas",
+            "classification": "not_yet_classified",
+            "source": "hermes",
+            "framework": "Hermes Agent"
+          },
+          "vars": {
+            "prompt": "Plan the work to migrate our Promptfoo harness to nightly CI with classification and reporting.",
+            "system_prompt": "You are a Hermes-style agent. Use a todo/planning tool for multi-step execution plans.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "todo",
+                  "description": "Manage a structured task list",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string"
+                      },
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "terminal",
+                  "description": "Run a shell command",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'todo';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 7,
+        "vars": {
+          "prompt": "Plan the work to migrate our Promptfoo harness to nightly CI with classification and reporting.",
+          "system_prompt": "You are a Hermes-style agent. Use a todo/planning tool for multi-step execution plans.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "todo",
+                "description": "Manage a structured task list",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "terminal",
+                "description": "Run a shell command",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "hermes",
+          "framework": "Hermes Agent",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a Hermes-style agent. Use a todo/planning tool for multi-step execution plans."
+              },
+              {
+                "role": "user",
+                "content": "Plan the work to migrate our Promptfoo harness to nightly CI with classification and reporting."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "todo",
+                  "description": "Manage a structured task list",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string"
+                      },
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "terminal",
+                  "description": "Run a shell command",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "message": {
+                  "content": null,
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "function": {
+                        "arguments": "{\"action\":\"add\",\"items\":[\"Audit current Promptfoo harness setup and identify existing configurations\",\"Define classification criteria and rules for test results\",\"Set up nightly CI schedule (e.g., GitHub Actions cron or similar)\",\"Implement test result classification logic\",\"Create reporting dashboard or output format for results\",\"Set up alerting\\/notification system for failures\",\"Configure environment variables and secrets for CI\",\"Write documentation for the migration\",\"Test the full pipeline end-to-end\",\"Monitor and iterate on the first few runs\"]}",
+                        "name": "todo"
+                      },
+                      "type": "function",
+                      "index": 0,
+                      "id": "call_beM4D1jxnW0OxcPCKpyrw9Cf"
+                    }
+                  ]
+                },
+                "index": 0,
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "id": "chatcmpl-3FBD1125",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "timings": {
+              "predicted_n": 271,
+              "predicted_ms": 2417.7730083465576,
+              "prompt_n": 339,
+              "prompt_ms": 191.71392917633057
+            },
+            "created": 1774635981,
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "usage": {
+              "completion_tokens_per_second": 112.09,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens_per_second": 1768.26,
+              "total_tokens": 610,
+              "prompt_tokens": 339,
+              "completion_time": 2.42,
+              "total_time": 2.61,
+              "completion_tokens": 271,
+              "peak_memory_gib": 19.5,
+              "prompt_time": 0.19
+            },
+            "object": "chat.completion"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1381",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:26:21 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      }
+    ],
+    "stats": {
+      "successes": 8,
+      "failures": 0,
+      "errors": 0,
+      "tokenUsage": {
+        "prompt": 0,
+        "completion": 0,
+        "cached": 0,
+        "total": 0,
+        "numRequests": 8,
+        "completionDetails": {
+          "reasoning": 0,
+          "acceptedPrediction": 0,
+          "rejectedPrediction": 0
+        },
+        "assertions": {
+          "total": 0,
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "numRequests": 0,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0
+          }
+        }
+      },
+      "durationMs": 12943,
+      "evaluationDurationMs": 12943
+    }
+  },
+  "config": {
+    "tags": {},
+    "description": "AFM agent framework tool-schema suite",
+    "prompts": [
+      "{{prompt}}"
+    ],
+    "providers": [
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-default-frameworks",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_DEFAULT",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-adaptive-xml-frameworks",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_ADAPTIVE_XML",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-adaptive-xml-grammar-frameworks",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      }
+    ],
+    "tests": [
+      {
+        "description": "opencode: use grep before reading whole files",
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "opencode",
+          "framework": "OpenCode"
+        },
+        "vars": {
+          "prompt": "Find where PrefixCache Save complete is logged in the codebase.",
+          "system_prompt": "You are a coding agent using OpenCode-style tools. Prefer targeted search before opening files.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "grep",
+                "description": "Search file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "pattern": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "include": {
+                      "type": "string"
+                    },
+                    "literal_text": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "pattern"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "view",
+                "description": "View file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "file_path": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "file_path"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'grep' &&\n  /PrefixCache Save complete/i.test(String(parsed.tool_calls[0].function.arguments.pattern || ''));\n"
+          }
+        ]
+      },
+      {
+        "description": "opencode: use view to inspect a specific file",
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "opencode",
+          "framework": "OpenCode"
+        },
+        "vars": {
+          "prompt": "Open Sources/MacLocalAPI/Models/MLXModelService.swift and inspect the restore path near the middle of the file.",
+          "system_prompt": "You are a coding agent using OpenCode-style tools.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "view",
+                "description": "View file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "file_path": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "file_path"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "grep",
+                "description": "Search file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "pattern": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pattern"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'view' &&\n  /MLXModelService\\.swift$/.test(String(call.function.arguments.file_path || ''));\n"
+          }
+        ]
+      },
+      {
+        "description": "opencode: prefer diagnostics after code edit",
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "opencode",
+          "framework": "OpenCode"
+        },
+        "vars": {
+          "prompt": "What should you do next?",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a coding agent using OpenCode-style tools. After edits, prefer diagnostics before broader commands."
+            },
+            {
+              "role": "user",
+              "content": "Update the controller to add index to non-streaming tool calls."
+            },
+            {
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "id": "call_patch_1",
+                  "type": "function",
+                  "function": {
+                    "name": "patch",
+                    "arguments": "{\"file_path\":\"Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift\",\"diff\":\"...\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_patch_1",
+              "content": "Patch applied successfully"
+            },
+            {
+              "role": "user",
+              "content": "What should you do next?"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "diagnostics",
+                "description": "Get diagnostics information",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "file_path": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "bash",
+                "description": "Execute shell commands",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "timeout": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'diagnostics';\n"
+          }
+        ]
+      },
+      {
+        "description": "pi: prefer read before edit for existing file changes",
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "pi",
+          "framework": "Pi"
+        },
+        "vars": {
+          "prompt": "Change the README to document the new promptfoo toolcall-quality suite.",
+          "system_prompt": "You are a Pi-style coding agent with only read, write, edit, and bash. Inspect before editing.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read",
+                "description": "Read file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "filePath"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "edit",
+                "description": "Replace exact text in a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "oldText": {
+                      "type": "string"
+                    },
+                    "newText": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "filePath",
+                    "oldText",
+                    "newText"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "write",
+                "description": "Write a whole file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "filePath",
+                    "content"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read';\n"
+          }
+        ]
+      },
+      {
+        "description": "pi: use edit or ask for file path on surgical replacement",
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "pi",
+          "framework": "Pi"
+        },
+        "vars": {
+          "prompt": "Replace the phrase 'cache: MISS' with 'cache: MISS suffix=41' in the existing controller log line.",
+          "system_prompt": "You are a Pi-style coding agent. Use edit for precise replacements in existing files.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "edit",
+                "description": "Replace exact text in a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "oldText": {
+                      "type": "string"
+                    },
+                    "newText": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "filePath",
+                    "oldText",
+                    "newText"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "write",
+                "description": "Write a whole file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "filePath",
+                    "content"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nif (parsed.tool_calls.length === 1) {\n  return parsed.tool_calls[0].function.name === 'edit';\n}\nreturn parsed.tool_calls.length === 0 &&\n  /which file|file path|specify the file/i.test(parsed.content);\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw: choose session search for prior context recall",
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "openclaw",
+          "framework": "OpenClaw"
+        },
+        "vars": {
+          "prompt": "What did we conclude last time about exact replay on recurrent-cache models?",
+          "system_prompt": "You are an OpenClaw-style agent with session persistence and memory.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "session_search",
+                "description": "Search prior conversation history and saved sessions",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "send_message",
+                "description": "Send a message to a chat channel",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "channel": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "channel",
+                    "text"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'session_search';\n"
+          }
+        ]
+      },
+      {
+        "description": "hermes: use clarify when key booking details are missing",
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "hermes",
+          "framework": "Hermes Agent"
+        },
+        "vars": {
+          "prompt": "Book me a flight to Tokyo next month.",
+          "system_prompt": "You are a Hermes-style agent with clarify and delegation tools.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "clarify",
+                "description": "Ask a structured clarification question before acting",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "question": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "question"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_task",
+                "description": "Delegate a task to a subagent",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "goal"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'clarify';\n"
+          }
+        ]
+      },
+      {
+        "description": "hermes: use todo to plan a multi-step migration",
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "hermes",
+          "framework": "Hermes Agent"
+        },
+        "vars": {
+          "prompt": "Plan the work to migrate our Promptfoo harness to nightly CI with classification and reporting.",
+          "system_prompt": "You are a Hermes-style agent. Use a todo/planning tool for multi-step execution plans.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "todo",
+                "description": "Manage a structured task list",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "terminal",
+                "description": "Run a shell command",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'todo';\n"
+          }
+        ]
+      }
+    ],
+    "scenarios": [],
+    "env": {},
+    "outputPath": [
+      "/Volumes/edata/promptfoo/data/maclocal-api/current/frameworks-default-mlx-community_Qwen3.5-35B-A3B-4bit.json"
+    ],
+    "extensions": [],
+    "metadata": {},
+    "evaluateOptions": {}
+  },
+  "shareableUrl": null,
+  "metadata": {
+    "promptfooVersion": "0.120.26",
+    "nodeVersion": "v25.8.1",
+    "platform": "darwin",
+    "arch": "arm64",
+    "exportedAt": "2026-03-27T18:26:21.518Z",
+    "evaluationCreatedAt": "2026-03-27T18:26:08.355Z"
+  }
+}

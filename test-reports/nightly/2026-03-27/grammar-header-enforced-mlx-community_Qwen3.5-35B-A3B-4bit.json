@@ -1,0 +1,799 @@
+{
+  "evalId": "eval-BqH-2026-03-27T18:25:36",
+  "results": {
+    "version": 3,
+    "timestamp": "2026-03-27T18:25:36.681Z",
+    "prompts": [
+      {
+        "id": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "raw": "{{prompt}}",
+        "label": "{{prompt}}",
+        "provider": "afm-grammar-enabled-header",
+        "metrics": {
+          "score": 2,
+          "testPassCount": 2,
+          "testFailCount": 0,
+          "testErrorCount": 0,
+          "assertPassCount": 4,
+          "assertFailCount": 0,
+          "totalLatencyMs": 2483,
+          "tokenUsage": {
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "total": 0,
+            "numRequests": 2,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0
+            },
+            "assertions": {
+              "total": 0,
+              "prompt": 0,
+              "completion": 0,
+              "cached": 0,
+              "numRequests": 0,
+              "completionDetails": {
+                "reasoning": 0,
+                "acceptedPrediction": 0,
+                "rejectedPrediction": 0
+              }
+            }
+          },
+          "namedScores": {},
+          "namedScoresCount": {},
+          "cost": 0
+        }
+      }
+    ],
+    "results": [
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Header absent (grammar active or not requested)"
+            }
+          ]
+        },
+        "id": "cefb08ac-aa2c-4c01-977c-5fa80d31a4ff",
+        "latencyMs": 1200,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Return a color record for red, hex #FF0000.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-grammar-enabled-header"
+        },
+        "response": {
+          "output": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"color\\\":\\\"red\\\",\\\"hex\\\":\\\"#FF0000\\\"}\"},\"index\":0,\"finish_reason\":\"stop\"}],\"created\":1774635937,\"id\":\"chatcmpl-05F77B2D\",\"object\":\"chat.completion\",\"usage\":{\"prompt_time\":0.7,\"total_time\":0.85,\"completion_time\":0.15,\"completion_tokens\":14,\"total_tokens\":118,\"prompt_tokens\":104,\"peak_memory_gib\":19.1,\"prompt_tokens_details\":{\"cached_tokens\":0},\"completion_tokens_per_second\":93.09,\"prompt_tokens_per_second\":149.26},\"timings\":{\"prompt_ms\":696.7569589614868,\"predicted_ms\":150.4000425338745,\"prompt_n\":104,\"predicted_n\":14},\"model\":\"mlx-community/Qwen3.5-35B-A3B-4bit\",\"system_fingerprint\":\"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit\"}",
+          "latencyMs": 1200,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Return a color record for red, hex #FF0000."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                  "name": "color_record",
+                  "strict": true,
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "color": {
+                        "type": "string"
+                      },
+                      "hex": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "color",
+                      "hex"
+                    ]
+                  }
+                }
+              }
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": "{\"color\":\"red\",\"hex\":\"#FF0000\"}"
+                  },
+                  "index": 0,
+                  "finish_reason": "stop"
+                }
+              ],
+              "created": 1774635937,
+              "id": "chatcmpl-05F77B2D",
+              "object": "chat.completion",
+              "usage": {
+                "prompt_time": 0.7,
+                "total_time": 0.85,
+                "completion_time": 0.15,
+                "completion_tokens": 14,
+                "total_tokens": 118,
+                "prompt_tokens": 104,
+                "peak_memory_gib": 19.1,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_tokens_per_second": 93.09,
+                "prompt_tokens_per_second": 149.26
+              },
+              "timings": {
+                "prompt_ms": 696.7569589614868,
+                "predicted_ms": 150.4000425338745,
+                "prompt_n": 104,
+                "predicted_n": 14
+              },
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "694",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:25:37 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "header absent (grammar active) — json_schema strict:true",
+          "vars": {
+            "prompt": "Return a color record for red, hex #FF0000.",
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "color_record",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "color": {
+                      "type": "string"
+                    },
+                    "hex": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "color",
+                    "hex"
+                  ]
+                }
+              }
+            }
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "javascript",
+              "value": "file://judges/assert-grammar-header.mjs",
+              "config": {
+                "expectDowngraded": false
+              }
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 0,
+        "vars": {
+          "prompt": "Return a color record for red, hex #FF0000.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "color_record",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "color": {
+                    "type": "string"
+                  },
+                  "hex": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "color",
+                  "hex"
+                ]
+              }
+            }
+          }
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Return a color record for red, hex #FF0000."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "color_record",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "color": {
+                      "type": "string"
+                    },
+                    "hex": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "color",
+                    "hex"
+                  ]
+                }
+              }
+            }
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": "{\"color\":\"red\",\"hex\":\"#FF0000\"}"
+                },
+                "index": 0,
+                "finish_reason": "stop"
+              }
+            ],
+            "created": 1774635937,
+            "id": "chatcmpl-05F77B2D",
+            "object": "chat.completion",
+            "usage": {
+              "prompt_time": 0.7,
+              "total_time": 0.85,
+              "completion_time": 0.15,
+              "completion_tokens": 14,
+              "total_tokens": 118,
+              "prompt_tokens": 104,
+              "peak_memory_gib": 19.1,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens_per_second": 93.09,
+              "prompt_tokens_per_second": 149.26
+            },
+            "timings": {
+              "prompt_ms": 696.7569589614868,
+              "predicted_ms": 150.4000425338745,
+              "prompt_n": 104,
+              "predicted_n": 14
+            },
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "694",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:25:37 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Header absent (grammar active or not requested)"
+            }
+          ]
+        },
+        "id": "9e231b95-1450-49b5-ac0b-80e3a78828e5",
+        "latencyMs": 1283,
+        "namedScores": {},
+        "prompt": {
+          "raw": "What is the weather in Tokyo?",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-grammar-enabled-header"
+        },
+        "response": {
+          "output": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"message\":{\"tool_calls\":[{\"id\":\"call_3XmFyuQToH6YXCZOekD5FXHA\",\"index\":0,\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"location\\\":\\\"Tokyo\\\"}\"}}],\"role\":\"assistant\",\"content\":null},\"index\":0}],\"created\":1774635939,\"id\":\"chatcmpl-6909078B\",\"object\":\"chat.completion\",\"usage\":{\"prompt_time\":0.17,\"total_time\":1.2,\"total_tokens\":360,\"completion_tokens\":94,\"completion_time\":1.03,\"prompt_tokens\":266,\"peak_memory_gib\":19.4,\"prompt_tokens_details\":{\"cached_tokens\":0},\"completion_tokens_per_second\":91.7,\"prompt_tokens_per_second\":1524.25},\"timings\":{\"prompt_ms\":174.51202869415283,\"prompt_n\":266,\"predicted_ms\":1025.0999927520752,\"predicted_n\":94},\"model\":\"mlx-community/Qwen3.5-35B-A3B-4bit\",\"system_fingerprint\":\"afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit\"}",
+          "latencyMs": 1283,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "What is the weather in Tokyo?"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "description": "Get weather for a location",
+                    "strict": true,
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "location": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "location"
+                      ]
+                    }
+                  }
+                }
+              ],
+              "tool_choice": "required"
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "finish_reason": "tool_calls",
+                  "message": {
+                    "tool_calls": [
+                      {
+                        "id": "call_3XmFyuQToH6YXCZOekD5FXHA",
+                        "index": 0,
+                        "type": "function",
+                        "function": {
+                          "name": "get_weather",
+                          "arguments": "{\"location\":\"Tokyo\"}"
+                        }
+                      }
+                    ],
+                    "role": "assistant",
+                    "content": null
+                  },
+                  "index": 0
+                }
+              ],
+              "created": 1774635939,
+              "id": "chatcmpl-6909078B",
+              "object": "chat.completion",
+              "usage": {
+                "prompt_time": 0.17,
+                "total_time": 1.2,
+                "total_tokens": 360,
+                "completion_tokens": 94,
+                "completion_time": 1.03,
+                "prompt_tokens": 266,
+                "peak_memory_gib": 19.4,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_tokens_per_second": 91.7,
+                "prompt_tokens_per_second": 1524.25
+              },
+              "timings": {
+                "prompt_ms": 174.51202869415283,
+                "prompt_n": 266,
+                "predicted_ms": 1025.0999927520752,
+                "predicted_n": 94
+              },
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "820",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:25:39 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "header absent (grammar active) — tool strict:true",
+          "vars": {
+            "prompt": "What is the weather in Tokyo?",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "strict": true,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "required"
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "javascript",
+              "value": "file://judges/assert-grammar-header.mjs",
+              "config": {
+                "expectDowngraded": false
+              }
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 1,
+        "vars": {
+          "prompt": "What is the weather in Tokyo?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "required"
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "What is the weather in Tokyo?"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "strict": true,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "required"
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "finish_reason": "tool_calls",
+                "message": {
+                  "tool_calls": [
+                    {
+                      "id": "call_3XmFyuQToH6YXCZOekD5FXHA",
+                      "index": 0,
+                      "type": "function",
+                      "function": {
+                        "name": "get_weather",
+                        "arguments": "{\"location\":\"Tokyo\"}"
+                      }
+                    }
+                  ],
+                  "role": "assistant",
+                  "content": null
+                },
+                "index": 0
+              }
+            ],
+            "created": 1774635939,
+            "id": "chatcmpl-6909078B",
+            "object": "chat.completion",
+            "usage": {
+              "prompt_time": 0.17,
+              "total_time": 1.2,
+              "total_tokens": 360,
+              "completion_tokens": 94,
+              "completion_time": 1.03,
+              "prompt_tokens": 266,
+              "peak_memory_gib": 19.4,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens_per_second": 91.7,
+              "prompt_tokens_per_second": 1524.25
+            },
+            "timings": {
+              "prompt_ms": 174.51202869415283,
+              "prompt_n": 266,
+              "predicted_ms": 1025.0999927520752,
+              "predicted_n": 94
+            },
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "820",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:25:39 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      }
+    ],
+    "stats": {
+      "successes": 2,
+      "failures": 0,
+      "errors": 0,
+      "tokenUsage": {
+        "prompt": 0,
+        "completion": 0,
+        "cached": 0,
+        "total": 0,
+        "numRequests": 2,
+        "completionDetails": {
+          "reasoning": 0,
+          "acceptedPrediction": 0,
+          "rejectedPrediction": 0
+        },
+        "assertions": {
+          "total": 0,
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "numRequests": 0,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0
+          }
+        }
+      },
+      "durationMs": 2499,
+      "evaluationDurationMs": 2499
+    }
+  },
+  "config": {
+    "tags": {},
+    "description": "AFM grammar-constraints — no X-Grammar-Constraints header (grammar active)",
+    "prompts": [
+      "{{prompt}}"
+    ],
+    "providers": [
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-grammar-enabled-header",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_GRAMMAR",
+          "modelEnv": "AFM_MODEL",
+          "extract": "full_response"
+        }
+      }
+    ],
+    "tests": [
+      {
+        "description": "header absent (grammar active) — json_schema strict:true",
+        "vars": {
+          "prompt": "Return a color record for red, hex #FF0000.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "color_record",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "color": {
+                    "type": "string"
+                  },
+                  "hex": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "color",
+                  "hex"
+                ]
+              }
+            }
+          }
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "javascript",
+            "value": "file://judges/assert-grammar-header.mjs",
+            "config": {
+              "expectDowngraded": false
+            }
+          }
+        ]
+      },
+      {
+        "description": "header absent (grammar active) — tool strict:true",
+        "vars": {
+          "prompt": "What is the weather in Tokyo?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "required"
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "javascript",
+            "value": "file://judges/assert-grammar-header.mjs",
+            "config": {
+              "expectDowngraded": false
+            }
+          }
+        ]
+      }
+    ],
+    "scenarios": [],
+    "env": {},
+    "outputPath": [
+      "/Volumes/edata/promptfoo/data/maclocal-api/current/grammar-header-enforced-mlx-community_Qwen3.5-35B-A3B-4bit.json"
+    ],
+    "extensions": [],
+    "metadata": {},
+    "evaluateOptions": {}
+  },
+  "shareableUrl": null,
+  "metadata": {
+    "promptfooVersion": "0.120.26",
+    "nodeVersion": "v25.8.1",
+    "platform": "darwin",
+    "arch": "arm64",
+    "exportedAt": "2026-03-27T18:25:39.245Z",
+    "evaluationCreatedAt": "2026-03-27T18:25:36.681Z"
+  }
+}

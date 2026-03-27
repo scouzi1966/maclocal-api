@@ -32,7 +32,7 @@ Use this skill when the user asks to:
 |------|------|-------------|-----------|
 | **smoke** | ~2 min | Quick sanity check, any small model, CI | `test-assertions.sh --tier smoke` |
 | **standard** | ~15 min | After feature changes, mid-size model | `test-assertions.sh --tier standard` |
-| **full** | ~60 min | Release validation, production model | `test-assertions.sh --tier full` + `mlx-model-test.sh --smart` with `test-llm-comprehensive.txt` |
+| **full** | ~60 min | Release validation, production model | `test-assertions.sh --tier full` + `mlx-model-test.sh --smart` with `test-llm-comprehensive.txt` + promptfoo agentic evals |
 
 **Quick guide:**
 - "Just run a quick test" → smoke
@@ -189,12 +189,97 @@ curl http://127.0.0.1:9999/v1/chat/completions \
 - Short requests (<300ms): at least 1 sample (timer first-fires at 100ms)
 - `afm_profile` absent from response when header not sent (no null pollution)
 
-### 6. Review Reports
+### 6. Run Promptfoo Agentic Evals (full tier, or when validating tool calling / structured output)
+
+The promptfoo agentic eval suite tests AFM's tool-calling and structured-output across multiple server configurations and real-world agent framework schemas. It manages its own server lifecycle.
+
+**Prerequisites:** `promptfoo` CLI must be installed (`npm install -g promptfoo`).
+
+**Run the full suite:**
+```bash
+AFM_MODEL=MODEL \
+AFM_BINARY=.build/arm64-apple-macosx/release/afm \
+MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache \
+./Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh all
+```
+
+**Run individual suites:**
+```bash
+# Just structured output tests
+./Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh structured
+
+# Just tool calling (all 3 parser profiles)
+./Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh toolcall
+
+# Just grammar constraint validation (8 server phases)
+./Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh grammar-constraints
+
+# Just one agent framework
+./Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh opencode
+```
+
+**Available modes:** `all`, `structured`, `structured-stress`, `toolcall`, `toolcall-quality`, `grammar-constraints`, `agentic`, `frameworks`, `opencode`, `pi`, `openclaw`, `hermes`, `default`, `adaptive-xml`, `adaptive-xml-grammar`
+
+#### Suite Coverage (~137 test cases across 16 configs)
+
+| Suite | Tests | Profiles | What it validates |
+|-------|-------|----------|-------------------|
+| **structured** | 6 | 1 (api json_schema) | `response_format=json_schema` strict compliance |
+| **structured-stress** | 4 | 1 | Nested arrays, enums, nullable types in schema |
+| **toolcall** | 7 | 3 (default, adaptive-xml, grammar) | Basic tool call parsing: weather, time, multi-tool |
+| **toolcall-quality** | 6 | 3 | BFCL-inspired when-to-call decisions (should model use a tool?) |
+| **grammar-constraints** | 17 | 8 server phases | Schema + tool enforcement across: no-grammar, grammar-enabled, adaptive-xml, concurrent, prefix-cache, mixed-strict, header downgrade/enforce |
+| **agentic** | 4 | 3 | Multi-turn coding workflow tool chains |
+| **frameworks** | 8 | 3 | Agent framework tool shapes (OpenCode, Pi, OpenClaw, Hermes) |
+| **opencode** | 37 | 3 | OpenCode built-in tools (primary-source derived) |
+| **pi** | 20 | 3 | Pi coding-agent tools |
+| **openclaw** | 12 | 3 | OpenClaw tool coverage |
+| **hermes** | 12 | 3 | Hermes agentic framework tools |
+
+#### Server Profiles (managed automatically by the script)
+
+| Profile | AFM flags | Purpose |
+|---------|-----------|---------|
+| `default` | (none) | Baseline: auto-detected tool call format |
+| `adaptive-xml` | `--tool-call-parser afm_adaptive_xml` | Adaptive XML with JSON-in-XML fallback |
+| `adaptive-xml-grammar` | `--tool-call-parser afm_adaptive_xml --enable-grammar-constraints` | Adaptive XML + EBNF grammar enforcement |
+| `grammar-enabled` | `--enable-grammar-constraints` | Grammar without adaptive XML |
+| `grammar-enabled-adaptive-xml` | Both flags | Regression guard: grammar + adaptive XML |
+| `grammar-enabled-concurrent` | `--enable-grammar-constraints --concurrent 2` | Grammar under concurrency |
+| `grammar-enabled-prefix-cache` | `--enable-grammar-constraints --enable-prefix-caching` | Grammar + prefix caching interaction |
+| `grammar-enabled-concurrent-cache` | All three flags | Full feature stack |
+
+#### Custom Provider & Judges
+
+- **`providers/afm_provider.mjs`** — Custom promptfoo provider with two transports: `api` (OpenAI-compatible HTTP) and `cli-guided-json` (direct binary invocation). Supports extract modes: `content`, `tool_calls`, `normalized_message`, `full_response`. Captures `responseHeaders` for grammar header assertions.
+- **`judges/assert-grammar-header.mjs`** — Validates `X-Grammar-Constraints` response header: expects `"downgraded"` when grammar not available, absent when grammar active.
+- **`judges/classify-failures.mjs`** — Post-run AI-based failure classifier: categorizes each failure as `afm_bug` (server/protocol), `model_quality` (wrong tool/args), or `harness_bug` (false negative).
+
+#### Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AFM_MODEL` | `mlx-community/Qwen3.5-35B-A3B-4bit` | Model to test |
+| `AFM_BINARY` | `.build/arm64-apple-macosx/release/afm` | Binary path |
+| `AFM_PROMPTFOO_OUT_DIR` | `/Volumes/edata/promptfoo/data/maclocal-api/current` | Report output dir |
+| `AFM_PROMPTFOO_PORT` | `9999` | Server port |
+| `MACAFM_MLX_MODEL_CACHE` | (none) | Model cache dir |
+
+#### Output
+
+JSON reports per suite+profile in `$AFM_PROMPTFOO_OUT_DIR`:
+- `structured-MODEL_SLUG.json`
+- `toolcall-{default,adaptive-xml,adaptive-xml-grammar}-MODEL_SLUG.json`
+- `grammar-{schema,tools}-{no-grammar,grammar-enabled,adaptive-xml,concurrent,prefix-cache}-MODEL_SLUG.json`
+- `{agentic,frameworks,opencode,pi,openclaw,hermes}-{default,adaptive-xml,adaptive-xml-grammar}-MODEL_SLUG.json`
+
+### 7. Review Reports
 - Assertion report: `test-reports/assertions-report-*.html`
 - Smart analysis: `test-reports/smart-analysis-{tool}-*.md`
 - HTML report: `test-reports/mlx-model-report-*.html`
 - GPU profile: `/tmp/afm-gpu-profile.html` (+ `/tmp/afm-metal.trace` for Instruments)
 - JSONL data: `test-reports/assertions-report-*.jsonl`, `test-reports/mlx-model-report-*.jsonl`
+- Promptfoo evals: `$AFM_PROMPTFOO_OUT_DIR/{suite}-{profile}-MODEL_SLUG.json` (default: `/Volumes/edata/promptfoo/data/maclocal-api/current/`)
 
 ### 7. Stop Server (if we started it)
 ```bash
@@ -229,6 +314,27 @@ Known patterns where AI judges score incorrectly (see `references/interpreting-s
 - "Missing reasoning" when model doesn't support `<think>` — correct, not a bug
 - Thinking model consuming entire `max_tokens` budget on reasoning with empty visible content — model behavior, not a server bug
 - `[all]` baseline prompt scored low when it runs with a code/math test's high `max_tokens` and system prompt — irrelevant context for the baseline prompt
+
+### Promptfoo Eval Failures
+
+| Category | Typical pass rate | What failures mean |
+|----------|-------------------|-------------------|
+| **structured, structured-stress** | 100% | Server bug in `response_format` pipeline — investigate immediately |
+| **toolcall** (all profiles) | 100% | Server bug in tool call parsing — investigate immediately |
+| **toolcall-quality** | ~80% | Model chose wrong tool or missed when-to-call — model quality, not server |
+| **grammar-schema / grammar-tools** (non-concurrent) | 100% | Grammar constraint enforcement broken — server bug |
+| **grammar-schema / grammar-tools** (concurrent) | ~50-70% | Known race condition in `--concurrent 2` grammar path — not release blocker |
+| **grammar-header / grammar-mixed** | 100% | `X-Grammar-Constraints` header or mixed-strict wiring broken — server bug |
+| **agentic** | ~75-100% | Multi-turn failures are usually model quality; 0% pass = server bug |
+| **frameworks** | 100% | Framework tool shapes must parse correctly — server bug if failing |
+| **opencode** | ~70-80% | Complex 37-tool scenarios; model can't always pick correct tool — model quality |
+| **pi** | ~80-90% | Model prompt injection resistance varies — model quality |
+| **openclaw** | ~80-85% | Model quality on OpenClaw-specific schemas |
+| **hermes** | ~90-100% | Hermes format failures on adaptive-xml profiles = parser difference, not bug |
+
+**Key rule:** `structured`, `toolcall`, `grammar-*` (non-concurrent), `frameworks` suites should be **100% pass**. Any failure there is a server bug. Everything else has model-quality variance.
+
+**Post-run failure classification** (optional): Run `judges/classify-failures.mjs` on any result JSON to get AI-based `afm_bug` vs `model_quality` vs `harness_bug` classification.
 
 ### When to Escalate
 
@@ -321,6 +427,12 @@ python3 Scripts/benchmarks/benchmark_afm_vs_mlxlm.py --graph Scripts/benchmark-r
 | `Scripts/create-shader-template.py` | One-time: patches Metal System Trace template for per-kernel shader names |
 | `Tests/MacLocalAPITests/StreamingUsageChunkTests.swift` | Unit tests: streaming usage chunks, finish reasons, Foundation commonPrefixLength |
 | `Tests/MacLocalAPITests/ConcurrentBatchTests.swift` | Unit tests: RequestSlot, StreamChunk, BatchScheduler internals |
+| `Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh` | Promptfoo agentic eval orchestrator: 11 modes, 8 server profiles, 16 configs |
+| `Scripts/feature-promptfoo-agentic/providers/afm_provider.mjs` | Custom promptfoo provider: api + cli-guided-json transports, 4 extract modes |
+| `Scripts/feature-promptfoo-agentic/judges/assert-grammar-header.mjs` | Custom assertion: validates X-Grammar-Constraints response header |
+| `Scripts/feature-promptfoo-agentic/judges/classify-failures.mjs` | AI-based failure classifier: afm_bug vs model_quality vs harness_bug |
+| `Scripts/feature-promptfoo-agentic/promptfooconfig.*.yaml` | 16 promptfoo config files (~137 test cases total) |
+| `Scripts/feature-promptfoo-agentic/datasets/` | 16 YAML dataset files across structured, toolcall, grammar, agentic directories |
 
 ## Validation Checklist
 
@@ -363,3 +475,9 @@ python3 Scripts/benchmarks/benchmark_afm_vs_mlxlm.py --graph Scripts/benchmark-r
 - [ ] API profile: no header → no `afm_profile` fields in response (no null pollution)
 - [ ] API profile: streaming → profile SSE event before `[DONE]`
 - [ ] API profile: concurrent profiled requests → second skips gracefully
+- [ ] Promptfoo structured: 100% pass (json_schema + stress)
+- [ ] Promptfoo toolcall: 100% pass (all 3 profiles)
+- [ ] Promptfoo grammar-constraints (non-concurrent): 100% pass
+- [ ] Promptfoo frameworks: 100% pass (all 3 profiles)
+- [ ] Promptfoo opencode/pi/openclaw/hermes: >70% pass (model quality variance expected)
+- [ ] Promptfoo grammar-header: downgrade/enforce headers correct

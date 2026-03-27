@@ -1,0 +1,2793 @@
+{
+  "evalId": "eval-tK4-2026-03-27T18:23:29",
+  "results": {
+    "version": 3,
+    "timestamp": "2026-03-27T18:23:29.166Z",
+    "prompts": [
+      {
+        "id": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "raw": "{{prompt}}",
+        "label": "{{prompt}}",
+        "provider": "afm-default-quality",
+        "metrics": {
+          "score": 6,
+          "testPassCount": 6,
+          "testFailCount": 0,
+          "testErrorCount": 0,
+          "assertPassCount": 6,
+          "assertFailCount": 0,
+          "totalLatencyMs": 9943,
+          "tokenUsage": {
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "total": 0,
+            "numRequests": 6,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0
+            },
+            "assertions": {
+              "total": 0,
+              "prompt": 0,
+              "completion": 0,
+              "cached": 0,
+              "numRequests": 0,
+              "completionDetails": {
+                "reasoning": 0,
+                "acceptedPrediction": 0,
+                "rejectedPrediction": 0
+              }
+            }
+          },
+          "namedScores": {},
+          "namedScoresCount": {},
+          "cost": 0
+        }
+      }
+    ],
+    "results": [
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'get_weather' &&\n  parsed.tool_calls[0].function.arguments.location === 'Berlin';\n"
+              }
+            }
+          ]
+        },
+        "id": "be2f7286-fa5a-4b02-b116-67a010302eb8",
+        "latencyMs": 1672,
+        "namedScores": {},
+        "prompt": {
+          "raw": "What is the weather in Berlin right now?",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-quality"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"type\":\"function\",\"id\":\"call_7p4hX1GNTzIAGTW1bMuTypbe\",\"index\":0,\"function\":{\"name\":\"get_weather\",\"arguments\":{\"location\":\"Berlin\"}}}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 1672,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "What is the weather in Berlin right now?"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "description": "Get current weather for a city",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "location": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "location"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "get_time",
+                    "description": "Get current time in a city",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "location": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "location"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "finish_reason": "tool_calls",
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "type": "function",
+                        "id": "call_7p4hX1GNTzIAGTW1bMuTypbe",
+                        "index": 0,
+                        "function": {
+                          "name": "get_weather",
+                          "arguments": "{\"location\":\"Berlin\"}"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "usage": {
+                "prompt_tokens_per_second": 435.08,
+                "completion_tokens_per_second": 113.34,
+                "peak_memory_gib": 19.5,
+                "completion_tokens": 91,
+                "prompt_time": 0.71,
+                "prompt_tokens": 311,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 1.52,
+                "completion_time": 0.8,
+                "total_tokens": 402
+              },
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "timings": {
+                "predicted_ms": 802.8630018234253,
+                "prompt_n": 311,
+                "prompt_ms": 714.805006980896,
+                "predicted_n": 91
+              },
+              "id": "chatcmpl-4E75F734",
+              "created": 1774635810,
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "object": "chat.completion"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "819",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:23:30 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "bfcl: choose weather tool with exact city argument",
+          "metadata": {
+            "suite": "quality",
+            "classification": "not_yet_classified",
+            "source": "bfcl_inspired",
+            "use_case": "direct_tool_selection"
+          },
+          "vars": {
+            "prompt": "What is the weather in Berlin right now?",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get current weather for a city",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_time",
+                  "description": "Get current time in a city",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'get_weather' &&\n  parsed.tool_calls[0].function.arguments.location === 'Berlin';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 0,
+        "vars": {
+          "prompt": "What is the weather in Berlin right now?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get current weather for a city",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "get_time",
+                "description": "Get current time in a city",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "quality",
+          "classification": "not_yet_classified",
+          "source": "bfcl_inspired",
+          "use_case": "direct_tool_selection",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "What is the weather in Berlin right now?"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get current weather for a city",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_time",
+                  "description": "Get current time in a city",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "finish_reason": "tool_calls",
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "type": "function",
+                      "id": "call_7p4hX1GNTzIAGTW1bMuTypbe",
+                      "index": 0,
+                      "function": {
+                        "name": "get_weather",
+                        "arguments": "{\"location\":\"Berlin\"}"
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "usage": {
+              "prompt_tokens_per_second": 435.08,
+              "completion_tokens_per_second": 113.34,
+              "peak_memory_gib": 19.5,
+              "completion_tokens": 91,
+              "prompt_time": 0.71,
+              "prompt_tokens": 311,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.52,
+              "completion_time": 0.8,
+              "total_tokens": 402
+            },
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "timings": {
+              "predicted_ms": 802.8630018234253,
+              "prompt_n": 311,
+              "prompt_ms": 714.805006980896,
+              "predicted_n": 91
+            },
+            "id": "chatcmpl-4E75F734",
+            "created": 1774635810,
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "object": "chat.completion"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "819",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:23:30 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'create_calendar_event' &&\n  call.function.arguments.title === 'Team Lunch';\n"
+              }
+            }
+          ]
+        },
+        "id": "0aa9e88b-0ddf-46c1-af4b-f8d13d640918",
+        "latencyMs": 2228,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Schedule lunch with Maya tomorrow at 12:30 PM with title Team Lunch.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-quality"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":{\"attendees\":[\"Maya\"],\"date\":\"tomorrow\",\"time\":\"12:30 PM\",\"title\":\"Team Lunch\"},\"name\":\"create_calendar_event\"},\"type\":\"function\",\"id\":\"call_jqvtss3nSRwLLXcsTDdi6zK7\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 2228,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Schedule lunch with Maya tomorrow at 12:30 PM with title Team Lunch."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "create_calendar_event",
+                    "description": "Create a calendar event",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "title": {
+                          "type": "string"
+                        },
+                        "date": {
+                          "type": "string"
+                        },
+                        "time": {
+                          "type": "string"
+                        },
+                        "attendees": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "title",
+                        "date",
+                        "time"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "send_email",
+                    "description": "Send an email",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "to": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "body": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "to",
+                        "subject",
+                        "body"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "usage": {
+                "prompt_tokens_per_second": 1828.48,
+                "completion_tokens_per_second": 113.54,
+                "peak_memory_gib": 19.6,
+                "completion_tokens": 229,
+                "prompt_time": 0.2,
+                "prompt_tokens": 367,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 2.22,
+                "completion_time": 2.02,
+                "total_tokens": 596
+              },
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "function": {
+                          "arguments": "{\"attendees\":[\"Maya\"],\"date\":\"tomorrow\",\"time\":\"12:30 PM\",\"title\":\"Team Lunch\"}",
+                          "name": "create_calendar_event"
+                        },
+                        "type": "function",
+                        "id": "call_jqvtss3nSRwLLXcsTDdi6zK7"
+                      }
+                    ],
+                    "content": null
+                  },
+                  "index": 0,
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "timings": {
+                "predicted_ms": 2016.9059038162231,
+                "prompt_ms": 200.71303844451904,
+                "prompt_n": 367,
+                "predicted_n": 229
+              },
+              "id": "chatcmpl-40D0B30A",
+              "created": 1774635813,
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "object": "chat.completion"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "905",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:23:33 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "bfcl: choose create_calendar_event over send_email",
+          "metadata": {
+            "suite": "quality",
+            "classification": "not_yet_classified",
+            "source": "bfcl_inspired",
+            "use_case": "similar_tool_disambiguation"
+          },
+          "vars": {
+            "prompt": "Schedule lunch with Maya tomorrow at 12:30 PM with title Team Lunch.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "create_calendar_event",
+                  "description": "Create a calendar event",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string"
+                      },
+                      "date": {
+                        "type": "string"
+                      },
+                      "time": {
+                        "type": "string"
+                      },
+                      "attendees": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "date",
+                      "time"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "send_email",
+                  "description": "Send an email",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "to": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "subject": {
+                        "type": "string"
+                      },
+                      "body": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "to",
+                      "subject",
+                      "body"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'create_calendar_event' &&\n  call.function.arguments.title === 'Team Lunch';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 1,
+        "vars": {
+          "prompt": "Schedule lunch with Maya tomorrow at 12:30 PM with title Team Lunch.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "create_calendar_event",
+                "description": "Create a calendar event",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "title": {
+                      "type": "string"
+                    },
+                    "date": {
+                      "type": "string"
+                    },
+                    "time": {
+                      "type": "string"
+                    },
+                    "attendees": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "date",
+                    "time"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "send_email",
+                "description": "Send an email",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "to": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "subject": {
+                      "type": "string"
+                    },
+                    "body": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "to",
+                    "subject",
+                    "body"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "quality",
+          "classification": "not_yet_classified",
+          "source": "bfcl_inspired",
+          "use_case": "similar_tool_disambiguation",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Schedule lunch with Maya tomorrow at 12:30 PM with title Team Lunch."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "create_calendar_event",
+                  "description": "Create a calendar event",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string"
+                      },
+                      "date": {
+                        "type": "string"
+                      },
+                      "time": {
+                        "type": "string"
+                      },
+                      "attendees": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "date",
+                      "time"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "send_email",
+                  "description": "Send an email",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "to": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "subject": {
+                        "type": "string"
+                      },
+                      "body": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "to",
+                      "subject",
+                      "body"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "usage": {
+              "prompt_tokens_per_second": 1828.48,
+              "completion_tokens_per_second": 113.54,
+              "peak_memory_gib": 19.6,
+              "completion_tokens": 229,
+              "prompt_time": 0.2,
+              "prompt_tokens": 367,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 2.22,
+              "completion_time": 2.02,
+              "total_tokens": 596
+            },
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "function": {
+                        "arguments": "{\"attendees\":[\"Maya\"],\"date\":\"tomorrow\",\"time\":\"12:30 PM\",\"title\":\"Team Lunch\"}",
+                        "name": "create_calendar_event"
+                      },
+                      "type": "function",
+                      "id": "call_jqvtss3nSRwLLXcsTDdi6zK7"
+                    }
+                  ],
+                  "content": null
+                },
+                "index": 0,
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "timings": {
+              "predicted_ms": 2016.9059038162231,
+              "prompt_ms": 200.71303844451904,
+              "prompt_n": 367,
+              "predicted_n": 229
+            },
+            "id": "chatcmpl-40D0B30A",
+            "created": 1774635813,
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "object": "chat.completion"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "905",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:23:33 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 0 &&\n  /domain name system/i.test(parsed.content);\n"
+              }
+            }
+          ]
+        },
+        "id": "60f1a0bd-dcdd-4c9c-9e29-77aebd19b0fb",
+        "latencyMs": 1660,
+        "namedScores": {},
+        "prompt": {
+          "raw": "What does DNS stand for?",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-quality"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"DNS stands for **Domain Name System**.\\n\\nIt's a hierarchical and decentralized naming system that translates human-readable domain names (like www.example.com) into IP addresses (like 192.0.2.1) that computers use to identify each other on the Internet. Essentially, DNS acts like the phonebook of the Internet, allowing you to access websites using easy-to-remember names instead of having to remember numerical IP addresses.\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 1660,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "What does DNS stand for?"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "description": "Get weather for a location",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "location": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "location"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "create_calendar_event",
+                    "description": "Create a calendar event",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "title": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "title"
+                    ]
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "id": "chatcmpl-105C742B",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "usage": {
+                "total_tokens": 470,
+                "total_time": 1.65,
+                "peak_memory_gib": 19.5,
+                "completion_tokens_per_second": 114.05,
+                "completion_tokens": 168,
+                "completion_time": 1.47,
+                "prompt_tokens": 302,
+                "prompt_time": 0.18,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens_per_second": 1695.46
+              },
+              "timings": {
+                "predicted_n": 168,
+                "predicted_ms": 1472.9748964309692,
+                "prompt_ms": 178.12299728393555,
+                "prompt_n": 302
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "reasoning_content": "The user is asking about what DNS stands for. This is a general knowledge question about technology/IT terminology, not a request to use any of the available tools. I should provide the answer directly without making any tool calls.\n\nDNS stands for Domain Name System. It's a hierarchical decentralized naming system for computers, services, or any resource connected to the Internet or a private network.",
+                    "role": "assistant",
+                    "content": "DNS stands for **Domain Name System**.\n\nIt's a hierarchical and decentralized naming system that translates human-readable domain names (like www.example.com) into IP addresses (like 192.0.2.1) that computers use to identify each other on the Internet. Essentially, DNS acts like the phonebook of the Internet, allowing you to access websites using easy-to-remember names instead of having to remember numerical IP addresses."
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "created": 1774635814,
+              "object": "chat.completion"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1520",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:23:34 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "when2call: answer directly when tools are irrelevant",
+          "metadata": {
+            "suite": "quality",
+            "classification": "not_yet_classified",
+            "source": "when2call_inspired",
+            "use_case": "no_tool_direct_answer"
+          },
+          "vars": {
+            "prompt": "What does DNS stand for?",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "create_calendar_event",
+                  "description": "Create a calendar event",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "title"
+                  ]
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 0 &&\n  /domain name system/i.test(parsed.content);\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 2,
+        "vars": {
+          "prompt": "What does DNS stand for?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "create_calendar_event",
+                "description": "Create a calendar event",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "title": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "title"
+                ]
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "quality",
+          "classification": "not_yet_classified",
+          "source": "when2call_inspired",
+          "use_case": "no_tool_direct_answer",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "What does DNS stand for?"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "create_calendar_event",
+                  "description": "Create a calendar event",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "title"
+                  ]
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "id": "chatcmpl-105C742B",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "usage": {
+              "total_tokens": 470,
+              "total_time": 1.65,
+              "peak_memory_gib": 19.5,
+              "completion_tokens_per_second": 114.05,
+              "completion_tokens": 168,
+              "completion_time": 1.47,
+              "prompt_tokens": 302,
+              "prompt_time": 0.18,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens_per_second": 1695.46
+            },
+            "timings": {
+              "predicted_n": 168,
+              "predicted_ms": 1472.9748964309692,
+              "prompt_ms": 178.12299728393555,
+              "prompt_n": 302
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "reasoning_content": "The user is asking about what DNS stands for. This is a general knowledge question about technology/IT terminology, not a request to use any of the available tools. I should provide the answer directly without making any tool calls.\n\nDNS stands for Domain Name System. It's a hierarchical decentralized naming system for computers, services, or any resource connected to the Internet or a private network.",
+                  "role": "assistant",
+                  "content": "DNS stands for **Domain Name System**.\n\nIt's a hierarchical and decentralized naming system that translates human-readable domain names (like www.example.com) into IP addresses (like 192.0.2.1) that computers use to identify each other on the Internet. Essentially, DNS acts like the phonebook of the Internet, allowing you to access websites using easy-to-remember names instead of having to remember numerical IP addresses."
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "created": 1774635814,
+            "object": "chat.completion"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1520",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:23:34 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 0 &&\n  /(which restaurant|what restaurant|party size|how many people|what time)/i.test(parsed.content);\n"
+              }
+            }
+          ]
+        },
+        "id": "e9e7acca-2924-4e1b-964f-43d19ec47f01",
+        "latencyMs": 2117,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Book me a restaurant reservation for Friday night.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-quality"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"I'd be happy to help you book a restaurant reservation! However, I need a few more details to complete the booking:\\n\\n1. Which restaurant would you like to book?\\n2. What specific date is this for? (Please provide the full date, not just \\\"Friday\\\")\\n3. What time would you like to be seated?\\n4. How many people will be in your party?\\n\\nOnce you provide these details, I can make the reservation for you.\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 2117,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Book me a restaurant reservation for Friday night."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "book_restaurant",
+                    "description": "Book a restaurant reservation",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "restaurant_name": {
+                          "type": "string"
+                        },
+                        "date": {
+                          "type": "string"
+                        },
+                        "time": {
+                          "type": "string"
+                        },
+                        "party_size": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "restaurant_name",
+                        "date",
+                        "time",
+                        "party_size"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "usage": {
+                "prompt_tokens_per_second": 1684.21,
+                "completion_tokens_per_second": 113.86,
+                "peak_memory_gib": 19.4,
+                "completion_tokens": 220,
+                "prompt_time": 0.18,
+                "prompt_tokens": 296,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 2.11,
+                "completion_time": 1.93,
+                "total_tokens": 516
+              },
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "reasoning_content": "The user wants to book a restaurant reservation for Friday night, but they haven't provided all the required information. Looking at the book_restaurant function, I need:\n\n1. restaurant_name (required) - Not provided\n2. date (required) - They said \"Friday night\" but I need a specific date\n3. time (required) - They said \"Friday night\" but I need a specific time\n4. party_size (required) - Not provided\n\nSince I'm missing several required parameters, I need to ask the user for this information before I can make the reservation.",
+                    "role": "assistant",
+                    "content": "I'd be happy to help you book a restaurant reservation! However, I need a few more details to complete the booking:\n\n1. Which restaurant would you like to book?\n2. What specific date is this for? (Please provide the full date, not just \"Friday\")\n3. What time would you like to be seated?\n4. How many people will be in your party?\n\nOnce you provide these details, I can make the reservation for you."
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "timings": {
+                "predicted_n": 220,
+                "predicted_ms": 1932.2580099105835,
+                "prompt_ms": 175.7500171661377,
+                "prompt_n": 296
+              },
+              "id": "chatcmpl-CB0DBBC2",
+              "created": 1774635816,
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "object": "chat.completion"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1631",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:23:36 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "when2call: ask follow-up when required tool args are missing",
+          "metadata": {
+            "suite": "quality",
+            "classification": "not_yet_classified",
+            "source": "when2call_inspired",
+            "use_case": "follow_up_before_tool"
+          },
+          "vars": {
+            "prompt": "Book me a restaurant reservation for Friday night.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "book_restaurant",
+                  "description": "Book a restaurant reservation",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "restaurant_name": {
+                        "type": "string"
+                      },
+                      "date": {
+                        "type": "string"
+                      },
+                      "time": {
+                        "type": "string"
+                      },
+                      "party_size": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "restaurant_name",
+                      "date",
+                      "time",
+                      "party_size"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 0 &&\n  /(which restaurant|what restaurant|party size|how many people|what time)/i.test(parsed.content);\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 3,
+        "vars": {
+          "prompt": "Book me a restaurant reservation for Friday night.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "book_restaurant",
+                "description": "Book a restaurant reservation",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "restaurant_name": {
+                      "type": "string"
+                    },
+                    "date": {
+                      "type": "string"
+                    },
+                    "time": {
+                      "type": "string"
+                    },
+                    "party_size": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "restaurant_name",
+                    "date",
+                    "time",
+                    "party_size"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "quality",
+          "classification": "not_yet_classified",
+          "source": "when2call_inspired",
+          "use_case": "follow_up_before_tool",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Book me a restaurant reservation for Friday night."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "book_restaurant",
+                  "description": "Book a restaurant reservation",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "restaurant_name": {
+                        "type": "string"
+                      },
+                      "date": {
+                        "type": "string"
+                      },
+                      "time": {
+                        "type": "string"
+                      },
+                      "party_size": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "restaurant_name",
+                      "date",
+                      "time",
+                      "party_size"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "usage": {
+              "prompt_tokens_per_second": 1684.21,
+              "completion_tokens_per_second": 113.86,
+              "peak_memory_gib": 19.4,
+              "completion_tokens": 220,
+              "prompt_time": 0.18,
+              "prompt_tokens": 296,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 2.11,
+              "completion_time": 1.93,
+              "total_tokens": 516
+            },
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "reasoning_content": "The user wants to book a restaurant reservation for Friday night, but they haven't provided all the required information. Looking at the book_restaurant function, I need:\n\n1. restaurant_name (required) - Not provided\n2. date (required) - They said \"Friday night\" but I need a specific date\n3. time (required) - They said \"Friday night\" but I need a specific time\n4. party_size (required) - Not provided\n\nSince I'm missing several required parameters, I need to ask the user for this information before I can make the reservation.",
+                  "role": "assistant",
+                  "content": "I'd be happy to help you book a restaurant reservation! However, I need a few more details to complete the booking:\n\n1. Which restaurant would you like to book?\n2. What specific date is this for? (Please provide the full date, not just \"Friday\")\n3. What time would you like to be seated?\n4. How many people will be in your party?\n\nOnce you provide these details, I can make the reservation for you."
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "timings": {
+              "predicted_n": 220,
+              "predicted_ms": 1932.2580099105835,
+              "prompt_ms": 175.7500171661377,
+              "prompt_n": 296
+            },
+            "id": "chatcmpl-CB0DBBC2",
+            "created": 1774635816,
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "object": "chat.completion"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1631",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:23:36 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'get_account_balance' &&\n  String(parsed.tool_calls[0].function.arguments.customer_id) === '84192';\n"
+              }
+            }
+          ]
+        },
+        "id": "baa15035-f890-4fce-9995-8bd869acac05",
+        "latencyMs": 1077,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Check the account balance for customer 84192.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-quality"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":{\"customer_id\":\"84192\"},\"name\":\"get_account_balance\"},\"type\":\"function\",\"id\":\"call_lfVhZzLazVRVMJgDv7bjLoac\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 1077,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Check the account balance for customer 84192."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "get_account_balance",
+                    "description": "Look up a customer account balance",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "customer_id": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "customer_id"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "create_support_ticket",
+                    "description": "Create a customer support ticket",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "customer_id": {
+                          "type": "string"
+                        },
+                        "issue": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "customer_id",
+                        "issue"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "usage": {
+                "prompt_tokens_per_second": 1739.94,
+                "completion_tokens_per_second": 113.8,
+                "peak_memory_gib": 19.5,
+                "completion_tokens": 100,
+                "prompt_time": 0.19,
+                "prompt_tokens": 328,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 1.07,
+                "completion_time": 0.88,
+                "total_tokens": 428
+              },
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "function": {
+                          "arguments": "{\"customer_id\":\"84192\"}",
+                          "name": "get_account_balance"
+                        },
+                        "type": "function",
+                        "id": "call_lfVhZzLazVRVMJgDv7bjLoac"
+                      }
+                    ],
+                    "content": null
+                  },
+                  "index": 0,
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "timings": {
+                "predicted_ms": 878.756046295166,
+                "prompt_ms": 188.51196765899658,
+                "prompt_n": 328,
+                "predicted_n": 100
+              },
+              "id": "chatcmpl-6DC4895C",
+              "created": 1774635817,
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "object": "chat.completion"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "833",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:23:37 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "bfcl: select database lookup tool for account balance",
+          "metadata": {
+            "suite": "quality",
+            "classification": "not_yet_classified",
+            "source": "bfcl_inspired",
+            "use_case": "business_lookup"
+          },
+          "vars": {
+            "prompt": "Check the account balance for customer 84192.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_account_balance",
+                  "description": "Look up a customer account balance",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "customer_id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "customer_id"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "create_support_ticket",
+                  "description": "Create a customer support ticket",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "customer_id": {
+                        "type": "string"
+                      },
+                      "issue": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "customer_id",
+                      "issue"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'get_account_balance' &&\n  String(parsed.tool_calls[0].function.arguments.customer_id) === '84192';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 4,
+        "vars": {
+          "prompt": "Check the account balance for customer 84192.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_account_balance",
+                "description": "Look up a customer account balance",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "customer_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "customer_id"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "create_support_ticket",
+                "description": "Create a customer support ticket",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "customer_id": {
+                      "type": "string"
+                    },
+                    "issue": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "customer_id",
+                    "issue"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "quality",
+          "classification": "not_yet_classified",
+          "source": "bfcl_inspired",
+          "use_case": "business_lookup",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Check the account balance for customer 84192."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_account_balance",
+                  "description": "Look up a customer account balance",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "customer_id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "customer_id"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "create_support_ticket",
+                  "description": "Create a customer support ticket",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "customer_id": {
+                        "type": "string"
+                      },
+                      "issue": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "customer_id",
+                      "issue"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "usage": {
+              "prompt_tokens_per_second": 1739.94,
+              "completion_tokens_per_second": 113.8,
+              "peak_memory_gib": 19.5,
+              "completion_tokens": 100,
+              "prompt_time": 0.19,
+              "prompt_tokens": 328,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.07,
+              "completion_time": 0.88,
+              "total_tokens": 428
+            },
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "function": {
+                        "arguments": "{\"customer_id\":\"84192\"}",
+                        "name": "get_account_balance"
+                      },
+                      "type": "function",
+                      "id": "call_lfVhZzLazVRVMJgDv7bjLoac"
+                    }
+                  ],
+                  "content": null
+                },
+                "index": 0,
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "timings": {
+              "predicted_ms": 878.756046295166,
+              "prompt_ms": 188.51196765899658,
+              "prompt_n": 328,
+              "predicted_n": 100
+            },
+            "id": "chatcmpl-6DC4895C",
+            "created": 1774635817,
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "object": "chat.completion"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "833",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:23:37 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nif (parsed.tool_calls.length === 0) {\n  return /(which readme|what file|show me the file|need the current readme)/i.test(parsed.content);\n}\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read_file';\n"
+              }
+            }
+          ]
+        },
+        "id": "49dbd8f9-84a5-40ad-98b7-99be6a8cb7ed",
+        "latencyMs": 1189,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Update the README to match the new CLI behavior.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-quality"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":{\"path\":\"README.md\"},\"name\":\"read_file\"},\"type\":\"function\",\"id\":\"call_v7KBQg8FDX35heh5Z6F6ZYcM\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 1189,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Update the README to match the new CLI behavior."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "read_file",
+                    "description": "Read a file from the repository",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "apply_patch",
+                    "description": "Apply a patch to a repository file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "patch": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "patch"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "id": "chatcmpl-2497C566",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "usage": {
+                "total_tokens": 435,
+                "total_time": 1.18,
+                "peak_memory_gib": 19.5,
+                "completion_tokens_per_second": 114.77,
+                "completion_tokens": 114,
+                "completion_time": 0.99,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens": 321,
+                "prompt_time": 0.19,
+                "prompt_tokens_per_second": 1717.05
+              },
+              "timings": {
+                "predicted_ms": 993.2769536972046,
+                "prompt_ms": 186.9490146636963,
+                "prompt_n": 321,
+                "predicted_n": 114
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "function": {
+                          "arguments": "{\"path\":\"README.md\"}",
+                          "name": "read_file"
+                        },
+                        "type": "function",
+                        "id": "call_v7KBQg8FDX35heh5Z6F6ZYcM"
+                      }
+                    ],
+                    "content": null
+                  },
+                  "index": 0,
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "created": 1774635819,
+              "object": "chat.completion"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "821",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:23:39 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "when2call: clarify or inspect before ambiguous file action",
+          "metadata": {
+            "suite": "quality",
+            "classification": "not_yet_classified",
+            "source": "when2call_inspired",
+            "use_case": "clarification_or_inspection_before_file_mutation"
+          },
+          "vars": {
+            "prompt": "Update the README to match the new CLI behavior.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "read_file",
+                  "description": "Read a file from the repository",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply a patch to a repository file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "patch": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "patch"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nif (parsed.tool_calls.length === 0) {\n  return /(which readme|what file|show me the file|need the current readme)/i.test(parsed.content);\n}\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read_file';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 5,
+        "vars": {
+          "prompt": "Update the README to match the new CLI behavior.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read a file from the repository",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply a patch to a repository file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "patch": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "patch"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "quality",
+          "classification": "not_yet_classified",
+          "source": "when2call_inspired",
+          "use_case": "clarification_or_inspection_before_file_mutation",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Update the README to match the new CLI behavior."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "read_file",
+                  "description": "Read a file from the repository",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply a patch to a repository file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "patch": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "patch"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "id": "chatcmpl-2497C566",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "usage": {
+              "total_tokens": 435,
+              "total_time": 1.18,
+              "peak_memory_gib": 19.5,
+              "completion_tokens_per_second": 114.77,
+              "completion_tokens": 114,
+              "completion_time": 0.99,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens": 321,
+              "prompt_time": 0.19,
+              "prompt_tokens_per_second": 1717.05
+            },
+            "timings": {
+              "predicted_ms": 993.2769536972046,
+              "prompt_ms": 186.9490146636963,
+              "prompt_n": 321,
+              "predicted_n": 114
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "function": {
+                        "arguments": "{\"path\":\"README.md\"}",
+                        "name": "read_file"
+                      },
+                      "type": "function",
+                      "id": "call_v7KBQg8FDX35heh5Z6F6ZYcM"
+                    }
+                  ],
+                  "content": null
+                },
+                "index": 0,
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "created": 1774635819,
+            "object": "chat.completion"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "821",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:23:39 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      }
+    ],
+    "stats": {
+      "successes": 6,
+      "failures": 0,
+      "errors": 0,
+      "tokenUsage": {
+        "prompt": 0,
+        "completion": 0,
+        "cached": 0,
+        "total": 0,
+        "numRequests": 6,
+        "completionDetails": {
+          "reasoning": 0,
+          "acceptedPrediction": 0,
+          "rejectedPrediction": 0
+        },
+        "assertions": {
+          "total": 0,
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "numRequests": 0,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0
+          }
+        }
+      },
+      "durationMs": 9979,
+      "evaluationDurationMs": 9979
+    }
+  },
+  "config": {
+    "tags": {},
+    "description": "AFM tool-calling quality suite",
+    "prompts": [
+      "{{prompt}}"
+    ],
+    "providers": [
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-default-quality",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_DEFAULT",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-adaptive-xml-quality",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_ADAPTIVE_XML",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-adaptive-xml-grammar-quality",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      }
+    ],
+    "tests": [
+      {
+        "description": "bfcl: choose weather tool with exact city argument",
+        "metadata": {
+          "suite": "quality",
+          "classification": "not_yet_classified",
+          "source": "bfcl_inspired",
+          "use_case": "direct_tool_selection"
+        },
+        "vars": {
+          "prompt": "What is the weather in Berlin right now?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get current weather for a city",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "get_time",
+                "description": "Get current time in a city",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'get_weather' &&\n  parsed.tool_calls[0].function.arguments.location === 'Berlin';\n"
+          }
+        ]
+      },
+      {
+        "description": "bfcl: choose create_calendar_event over send_email",
+        "metadata": {
+          "suite": "quality",
+          "classification": "not_yet_classified",
+          "source": "bfcl_inspired",
+          "use_case": "similar_tool_disambiguation"
+        },
+        "vars": {
+          "prompt": "Schedule lunch with Maya tomorrow at 12:30 PM with title Team Lunch.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "create_calendar_event",
+                "description": "Create a calendar event",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "title": {
+                      "type": "string"
+                    },
+                    "date": {
+                      "type": "string"
+                    },
+                    "time": {
+                      "type": "string"
+                    },
+                    "attendees": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "date",
+                    "time"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "send_email",
+                "description": "Send an email",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "to": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "subject": {
+                      "type": "string"
+                    },
+                    "body": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "to",
+                    "subject",
+                    "body"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'create_calendar_event' &&\n  call.function.arguments.title === 'Team Lunch';\n"
+          }
+        ]
+      },
+      {
+        "description": "when2call: answer directly when tools are irrelevant",
+        "metadata": {
+          "suite": "quality",
+          "classification": "not_yet_classified",
+          "source": "when2call_inspired",
+          "use_case": "no_tool_direct_answer"
+        },
+        "vars": {
+          "prompt": "What does DNS stand for?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "create_calendar_event",
+                "description": "Create a calendar event",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "title": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "title"
+                ]
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 0 &&\n  /domain name system/i.test(parsed.content);\n"
+          }
+        ]
+      },
+      {
+        "description": "when2call: ask follow-up when required tool args are missing",
+        "metadata": {
+          "suite": "quality",
+          "classification": "not_yet_classified",
+          "source": "when2call_inspired",
+          "use_case": "follow_up_before_tool"
+        },
+        "vars": {
+          "prompt": "Book me a restaurant reservation for Friday night.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "book_restaurant",
+                "description": "Book a restaurant reservation",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "restaurant_name": {
+                      "type": "string"
+                    },
+                    "date": {
+                      "type": "string"
+                    },
+                    "time": {
+                      "type": "string"
+                    },
+                    "party_size": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "restaurant_name",
+                    "date",
+                    "time",
+                    "party_size"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 0 &&\n  /(which restaurant|what restaurant|party size|how many people|what time)/i.test(parsed.content);\n"
+          }
+        ]
+      },
+      {
+        "description": "bfcl: select database lookup tool for account balance",
+        "metadata": {
+          "suite": "quality",
+          "classification": "not_yet_classified",
+          "source": "bfcl_inspired",
+          "use_case": "business_lookup"
+        },
+        "vars": {
+          "prompt": "Check the account balance for customer 84192.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_account_balance",
+                "description": "Look up a customer account balance",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "customer_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "customer_id"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "create_support_ticket",
+                "description": "Create a customer support ticket",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "customer_id": {
+                      "type": "string"
+                    },
+                    "issue": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "customer_id",
+                    "issue"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'get_account_balance' &&\n  String(parsed.tool_calls[0].function.arguments.customer_id) === '84192';\n"
+          }
+        ]
+      },
+      {
+        "description": "when2call: clarify or inspect before ambiguous file action",
+        "metadata": {
+          "suite": "quality",
+          "classification": "not_yet_classified",
+          "source": "when2call_inspired",
+          "use_case": "clarification_or_inspection_before_file_mutation"
+        },
+        "vars": {
+          "prompt": "Update the README to match the new CLI behavior.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read a file from the repository",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply a patch to a repository file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "patch": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "patch"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nif (parsed.tool_calls.length === 0) {\n  return /(which readme|what file|show me the file|need the current readme)/i.test(parsed.content);\n}\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read_file';\n"
+          }
+        ]
+      }
+    ],
+    "scenarios": [],
+    "env": {},
+    "outputPath": [
+      "/Volumes/edata/promptfoo/data/maclocal-api/current/toolcall-quality-default-mlx-community_Qwen3.5-35B-A3B-4bit.json"
+    ],
+    "extensions": [],
+    "metadata": {},
+    "evaluateOptions": {}
+  },
+  "shareableUrl": null,
+  "metadata": {
+    "promptfooVersion": "0.120.26",
+    "nodeVersion": "v25.8.1",
+    "platform": "darwin",
+    "arch": "arm64",
+    "exportedAt": "2026-03-27T18:23:39.256Z",
+    "evaluationCreatedAt": "2026-03-27T18:23:29.166Z"
+  }
+}

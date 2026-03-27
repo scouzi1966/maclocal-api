@@ -1,0 +1,1983 @@
+{
+  "evalId": "eval-Gxf-2026-03-27T18:24:17",
+  "results": {
+    "version": 3,
+    "timestamp": "2026-03-27T18:24:17.432Z",
+    "prompts": [
+      {
+        "id": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "raw": "{{prompt}}",
+        "label": "{{prompt}}",
+        "provider": "afm-grammar-enabled",
+        "metrics": {
+          "score": 5,
+          "testPassCount": 5,
+          "testFailCount": 0,
+          "testErrorCount": 0,
+          "assertPassCount": 13,
+          "assertFailCount": 0,
+          "totalLatencyMs": 2741,
+          "tokenUsage": {
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "total": 0,
+            "numRequests": 5,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0
+            },
+            "assertions": {
+              "total": 0,
+              "prompt": 0,
+              "completion": 0,
+              "cached": 0,
+              "numRequests": 0,
+              "completionDetails": {
+                "reasoning": 0,
+                "acceptedPrediction": 0,
+                "rejectedPrediction": 0
+              }
+            }
+          },
+          "namedScores": {},
+          "namedScoresCount": {},
+          "cost": 0
+        }
+      }
+    ],
+    "results": [
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"name\""
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"age\""
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"occupation\""
+              }
+            }
+          ]
+        },
+        "id": "0c09c08e-6463-4290-80f5-063eadf0b431",
+        "latencyMs": 1235,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Return a person record for Alan Turing, age 41, occupation cryptographer.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-grammar-enabled"
+        },
+        "response": {
+          "output": "{\"name\":\"Alan Turing\",\"occupation\":\"cryptographer\",\"age\":41}",
+          "latencyMs": 1235,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Return a person record for Alan Turing, age 41, occupation cryptographer."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                  "name": "person_record",
+                  "strict": true,
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "age": {
+                        "type": "integer"
+                      },
+                      "occupation": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "age",
+                      "occupation"
+                    ]
+                  }
+                }
+              }
+            },
+            "responseBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "created": 1774635858,
+              "usage": {
+                "total_tokens": 130,
+                "prompt_time": 0.71,
+                "prompt_tokens": 114,
+                "completion_time": 0.17,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 0.88,
+                "completion_tokens_per_second": 93.8,
+                "peak_memory_gib": 19.1,
+                "completion_tokens": 16,
+                "prompt_tokens_per_second": 160.02
+              },
+              "id": "chatcmpl-8A9CA47B",
+              "object": "chat.completion",
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": "{\"name\":\"Alan Turing\",\"occupation\":\"cryptographer\",\"age\":41}"
+                  },
+                  "index": 0,
+                  "finish_reason": "stop"
+                }
+              ],
+              "timings": {
+                "predicted_n": 16,
+                "prompt_ms": 712.4090194702148,
+                "predicted_ms": 170.5719232559204,
+                "prompt_n": 114
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "725",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:24:18 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "json_schema strict:true — basic object",
+          "vars": {
+            "prompt": "Return a person record for Alan Turing, age 41, occupation cryptographer.",
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "person_record",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "age": {
+                      "type": "integer"
+                    },
+                    "occupation": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "age",
+                    "occupation"
+                  ]
+                }
+              }
+            }
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"name\""
+            },
+            {
+              "type": "contains",
+              "value": "\"age\""
+            },
+            {
+              "type": "contains",
+              "value": "\"occupation\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 0,
+        "vars": {
+          "prompt": "Return a person record for Alan Turing, age 41, occupation cryptographer.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "person_record",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "age": {
+                    "type": "integer"
+                  },
+                  "occupation": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "age",
+                  "occupation"
+                ]
+              }
+            }
+          }
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Return a person record for Alan Turing, age 41, occupation cryptographer."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "person_record",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "age": {
+                      "type": "integer"
+                    },
+                    "occupation": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "age",
+                    "occupation"
+                  ]
+                }
+              }
+            }
+          },
+          "responseBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "created": 1774635858,
+            "usage": {
+              "total_tokens": 130,
+              "prompt_time": 0.71,
+              "prompt_tokens": 114,
+              "completion_time": 0.17,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 0.88,
+              "completion_tokens_per_second": 93.8,
+              "peak_memory_gib": 19.1,
+              "completion_tokens": 16,
+              "prompt_tokens_per_second": 160.02
+            },
+            "id": "chatcmpl-8A9CA47B",
+            "object": "chat.completion",
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": "{\"name\":\"Alan Turing\",\"occupation\":\"cryptographer\",\"age\":41}"
+                },
+                "index": 0,
+                "finish_reason": "stop"
+              }
+            ],
+            "timings": {
+              "predicted_n": 16,
+              "prompt_ms": 712.4090194702148,
+              "predicted_ms": 170.5719232559204,
+              "prompt_n": 114
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "725",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:24:18 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"items\""
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"owner\""
+              }
+            }
+          ]
+        },
+        "id": "59c35b3f-de94-43b0-ada2-b33ca8da1fb4",
+        "latencyMs": 721,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Extract action items: Sarah drafts the email by Friday. Ben fixes the dashboard Tuesday. Priya confirms pricing this afternoon.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-grammar-enabled"
+        },
+        "response": {
+          "output": "{\"items\":[{\"owner\":\"Sarah\",\"task\":\"drafts the email\",\"due_date\":\"Friday\"},{\"owner\":\"Ben\",\"task\":\"fixes the dashboard\",\"due_date\":\"Tuesday\"},{\"owner\":\"Priya\",\"task\":\"confirms pricing\",\"due_date\":\"this afternoon\"}]}",
+          "latencyMs": 721,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Extract action items: Sarah drafts the email by Friday. Ben fixes the dashboard Tuesday. Priya confirms pricing this afternoon."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                  "name": "meeting_actions",
+                  "strict": true,
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "owner": {
+                              "type": "string"
+                            },
+                            "task": {
+                              "type": "string"
+                            },
+                            "due_date": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "owner",
+                            "task",
+                            "due_date"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "items"
+                    ]
+                  }
+                }
+              }
+            },
+            "responseBody": {
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "id": "chatcmpl-8036855B",
+              "object": "chat.completion",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "usage": {
+                "completion_tokens_per_second": 92.3,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 0.7,
+                "prompt_time": 0.13,
+                "prompt_tokens": 147,
+                "prompt_tokens_per_second": 1168.96,
+                "completion_tokens": 53,
+                "peak_memory_gib": 19.2,
+                "completion_time": 0.57,
+                "total_tokens": 200
+              },
+              "timings": {
+                "predicted_n": 53,
+                "prompt_ms": 125.75304508209229,
+                "predicted_ms": 574.2350816726685,
+                "prompt_n": 147
+              },
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": "{\"items\":[{\"owner\":\"Sarah\",\"task\":\"drafts the email\",\"due_date\":\"Friday\"},{\"owner\":\"Ben\",\"task\":\"fixes the dashboard\",\"due_date\":\"Tuesday\"},{\"owner\":\"Priya\",\"task\":\"confirms pricing\",\"due_date\":\"this afternoon\"}]}"
+                  },
+                  "index": 0,
+                  "finish_reason": "stop"
+                }
+              ],
+              "created": 1774635859
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "907",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:24:19 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "json_schema strict:true — nested array of objects",
+          "vars": {
+            "prompt": "Extract action items: Sarah drafts the email by Friday. Ben fixes the dashboard Tuesday. Priya confirms pricing this afternoon.",
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "meeting_actions",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "owner": {
+                            "type": "string"
+                          },
+                          "task": {
+                            "type": "string"
+                          },
+                          "due_date": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "owner",
+                          "task",
+                          "due_date"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"items\""
+            },
+            {
+              "type": "contains",
+              "value": "\"owner\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 1,
+        "vars": {
+          "prompt": "Extract action items: Sarah drafts the email by Friday. Ben fixes the dashboard Tuesday. Priya confirms pricing this afternoon.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "meeting_actions",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "owner": {
+                          "type": "string"
+                        },
+                        "task": {
+                          "type": "string"
+                        },
+                        "due_date": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "owner",
+                        "task",
+                        "due_date"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "items"
+                ]
+              }
+            }
+          }
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Extract action items: Sarah drafts the email by Friday. Ben fixes the dashboard Tuesday. Priya confirms pricing this afternoon."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "meeting_actions",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "owner": {
+                            "type": "string"
+                          },
+                          "task": {
+                            "type": "string"
+                          },
+                          "due_date": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "owner",
+                          "task",
+                          "due_date"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "responseBody": {
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "id": "chatcmpl-8036855B",
+            "object": "chat.completion",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "usage": {
+              "completion_tokens_per_second": 92.3,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 0.7,
+              "prompt_time": 0.13,
+              "prompt_tokens": 147,
+              "prompt_tokens_per_second": 1168.96,
+              "completion_tokens": 53,
+              "peak_memory_gib": 19.2,
+              "completion_time": 0.57,
+              "total_tokens": 200
+            },
+            "timings": {
+              "predicted_n": 53,
+              "prompt_ms": 125.75304508209229,
+              "predicted_ms": 574.2350816726685,
+              "prompt_n": 147
+            },
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": "{\"items\":[{\"owner\":\"Sarah\",\"task\":\"drafts the email\",\"due_date\":\"Friday\"},{\"owner\":\"Ben\",\"task\":\"fixes the dashboard\",\"due_date\":\"Tuesday\"},{\"owner\":\"Priya\",\"task\":\"confirms pricing\",\"due_date\":\"this afternoon\"}]}"
+                },
+                "index": 0,
+                "finish_reason": "stop"
+              }
+            ],
+            "created": 1774635859
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "907",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:24:19 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"sentiment\""
+              }
+            }
+          ]
+        },
+        "id": "c305d7ce-afc6-47fe-acdb-f418807c8e82",
+        "latencyMs": 252,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Classify this sentiment: 'The product exceeded all my expectations, truly wonderful!'",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-grammar-enabled"
+        },
+        "response": {
+          "output": "{\"sentiment\":\"positive\",\"confidence\":0.95}",
+          "latencyMs": 252,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Classify this sentiment: 'The product exceeded all my expectations, truly wonderful!'"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                  "name": "sentiment_result",
+                  "strict": true,
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "sentiment": {
+                        "type": "string",
+                        "enum": [
+                          "positive",
+                          "negative",
+                          "neutral"
+                        ]
+                      },
+                      "confidence": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "sentiment",
+                      "confidence"
+                    ]
+                  }
+                }
+              }
+            },
+            "responseBody": {
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "id": "chatcmpl-0C4D09C6",
+              "object": "chat.completion",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "usage": {
+                "completion_tokens_per_second": 93.11,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 0.25,
+                "prompt_time": 0.11,
+                "prompt_tokens": 115,
+                "prompt_tokens_per_second": 1072.92,
+                "completion_tokens": 13,
+                "peak_memory_gib": 19.1,
+                "completion_time": 0.14,
+                "total_tokens": 128
+              },
+              "timings": {
+                "predicted_n": 13,
+                "prompt_ms": 107.18393325805664,
+                "predicted_ms": 139.61899280548096,
+                "prompt_n": 115
+              },
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": "{\"sentiment\":\"positive\",\"confidence\":0.95}"
+                  },
+                  "index": 0,
+                  "finish_reason": "stop"
+                }
+              ],
+              "created": 1774635859
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "707",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:24:19 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "json_schema strict:true — enum constraint",
+          "vars": {
+            "prompt": "Classify this sentiment: 'The product exceeded all my expectations, truly wonderful!'",
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "sentiment_result",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "sentiment": {
+                      "type": "string",
+                      "enum": [
+                        "positive",
+                        "negative",
+                        "neutral"
+                      ]
+                    },
+                    "confidence": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "sentiment",
+                    "confidence"
+                  ]
+                }
+              }
+            }
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"sentiment\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 2,
+        "vars": {
+          "prompt": "Classify this sentiment: 'The product exceeded all my expectations, truly wonderful!'",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "sentiment_result",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "sentiment": {
+                    "type": "string",
+                    "enum": [
+                      "positive",
+                      "negative",
+                      "neutral"
+                    ]
+                  },
+                  "confidence": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "sentiment",
+                  "confidence"
+                ]
+              }
+            }
+          }
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Classify this sentiment: 'The product exceeded all my expectations, truly wonderful!'"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "sentiment_result",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "sentiment": {
+                      "type": "string",
+                      "enum": [
+                        "positive",
+                        "negative",
+                        "neutral"
+                      ]
+                    },
+                    "confidence": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "sentiment",
+                    "confidence"
+                  ]
+                }
+              }
+            }
+          },
+          "responseBody": {
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "id": "chatcmpl-0C4D09C6",
+            "object": "chat.completion",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "usage": {
+              "completion_tokens_per_second": 93.11,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 0.25,
+              "prompt_time": 0.11,
+              "prompt_tokens": 115,
+              "prompt_tokens_per_second": 1072.92,
+              "completion_tokens": 13,
+              "peak_memory_gib": 19.1,
+              "completion_time": 0.14,
+              "total_tokens": 128
+            },
+            "timings": {
+              "predicted_n": 13,
+              "prompt_ms": 107.18393325805664,
+              "predicted_ms": 139.61899280548096,
+              "prompt_n": 115
+            },
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": "{\"sentiment\":\"positive\",\"confidence\":0.95}"
+                },
+                "index": 0,
+                "finish_reason": "stop"
+              }
+            ],
+            "created": 1774635859
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "707",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:24:19 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"name\""
+              }
+            }
+          ]
+        },
+        "id": "d949d52f-2eed-4de2-ad85-9d6d370af460",
+        "latencyMs": 269,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Return a person record for Marie Curie, age 66, occupation physicist.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-grammar-enabled"
+        },
+        "response": {
+          "output": "{\"name\":\"Marie Curie\",\"age\":66,\"occupation\":\"physicist\"}",
+          "latencyMs": 269,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Return a person record for Marie Curie, age 66, occupation physicist."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                  "name": "person_record",
+                  "strict": false,
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "age": {
+                        "type": "integer"
+                      },
+                      "occupation": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "age",
+                      "occupation"
+                    ]
+                  }
+                }
+              }
+            },
+            "responseBody": {
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "id": "chatcmpl-FD41215D",
+              "object": "chat.completion",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "usage": {
+                "completion_tokens_per_second": 111.25,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 0.26,
+                "prompt_time": 0.1,
+                "prompt_tokens": 114,
+                "prompt_tokens_per_second": 1140.14,
+                "completion_tokens": 18,
+                "peak_memory_gib": 19.1,
+                "completion_time": 0.16,
+                "total_tokens": 132
+              },
+              "timings": {
+                "predicted_n": 18,
+                "prompt_ms": 99.98810291290283,
+                "predicted_ms": 161.8049144744873,
+                "prompt_n": 114
+              },
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": "{\"name\":\"Marie Curie\",\"age\":66,\"occupation\":\"physicist\"}"
+                  },
+                  "index": 0,
+                  "finish_reason": "stop"
+                }
+              ],
+              "created": 1774635859
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "723",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:24:19 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "json_schema strict:false — no grammar activation (control)",
+          "vars": {
+            "prompt": "Return a person record for Marie Curie, age 66, occupation physicist.",
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "person_record",
+                "strict": false,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "age": {
+                      "type": "integer"
+                    },
+                    "occupation": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "age",
+                    "occupation"
+                  ]
+                }
+              }
+            }
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"name\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 3,
+        "vars": {
+          "prompt": "Return a person record for Marie Curie, age 66, occupation physicist.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "person_record",
+              "strict": false,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "age": {
+                    "type": "integer"
+                  },
+                  "occupation": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "age",
+                  "occupation"
+                ]
+              }
+            }
+          }
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Return a person record for Marie Curie, age 66, occupation physicist."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "person_record",
+                "strict": false,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "age": {
+                      "type": "integer"
+                    },
+                    "occupation": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "age",
+                    "occupation"
+                  ]
+                }
+              }
+            }
+          },
+          "responseBody": {
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "id": "chatcmpl-FD41215D",
+            "object": "chat.completion",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "usage": {
+              "completion_tokens_per_second": 111.25,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 0.26,
+              "prompt_time": 0.1,
+              "prompt_tokens": 114,
+              "prompt_tokens_per_second": 1140.14,
+              "completion_tokens": 18,
+              "peak_memory_gib": 19.1,
+              "completion_time": 0.16,
+              "total_tokens": 132
+            },
+            "timings": {
+              "predicted_n": 18,
+              "prompt_ms": 99.98810291290283,
+              "predicted_ms": 161.8049144744873,
+              "prompt_n": 114
+            },
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": "{\"name\":\"Marie Curie\",\"age\":66,\"occupation\":\"physicist\"}"
+                },
+                "index": 0,
+                "finish_reason": "stop"
+              }
+            ],
+            "created": 1774635859
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "723",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:24:19 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"name\""
+              }
+            }
+          ]
+        },
+        "id": "04d58009-0cf9-4c9c-8326-9093d6e04c01",
+        "latencyMs": 264,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Return a person record for Nikola Tesla, age 86, occupation inventor.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-grammar-enabled"
+        },
+        "response": {
+          "output": "{\"name\":\"Nikola Tesla\",\"age\":86,\"occupation\":\"inventor\"}",
+          "latencyMs": 264,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Return a person record for Nikola Tesla, age 86, occupation inventor."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                  "name": "person_record",
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "age": {
+                        "type": "integer"
+                      },
+                      "occupation": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "age",
+                      "occupation"
+                    ]
+                  }
+                }
+              }
+            },
+            "responseBody": {
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "id": "chatcmpl-F9F99FC8",
+              "object": "chat.completion",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "usage": {
+                "completion_tokens_per_second": 115.52,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 0.26,
+                "prompt_time": 0.1,
+                "prompt_tokens": 113,
+                "prompt_tokens_per_second": 1120.83,
+                "completion_tokens": 18,
+                "peak_memory_gib": 19.1,
+                "completion_time": 0.16,
+                "total_tokens": 131
+              },
+              "timings": {
+                "predicted_n": 18,
+                "prompt_ms": 100.81803798675537,
+                "predicted_ms": 155.82001209259033,
+                "prompt_n": 113
+              },
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": "{\"name\":\"Nikola Tesla\",\"age\":86,\"occupation\":\"inventor\"}"
+                  },
+                  "index": 0,
+                  "finish_reason": "stop"
+                }
+              ],
+              "created": 1774635860
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "725",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 27 Mar 2026 18:24:20 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "json_schema no strict field — no grammar activation (control)",
+          "vars": {
+            "prompt": "Return a person record for Nikola Tesla, age 86, occupation inventor.",
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "person_record",
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "age": {
+                      "type": "integer"
+                    },
+                    "occupation": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "age",
+                    "occupation"
+                  ]
+                }
+              }
+            }
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"name\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 4,
+        "vars": {
+          "prompt": "Return a person record for Nikola Tesla, age 86, occupation inventor.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "person_record",
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "age": {
+                    "type": "integer"
+                  },
+                  "occupation": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "age",
+                  "occupation"
+                ]
+              }
+            }
+          }
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Return a person record for Nikola Tesla, age 86, occupation inventor."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "person_record",
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "age": {
+                      "type": "integer"
+                    },
+                    "occupation": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "age",
+                    "occupation"
+                  ]
+                }
+              }
+            }
+          },
+          "responseBody": {
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "id": "chatcmpl-F9F99FC8",
+            "object": "chat.completion",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "usage": {
+              "completion_tokens_per_second": 115.52,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 0.26,
+              "prompt_time": 0.1,
+              "prompt_tokens": 113,
+              "prompt_tokens_per_second": 1120.83,
+              "completion_tokens": 18,
+              "peak_memory_gib": 19.1,
+              "completion_time": 0.16,
+              "total_tokens": 131
+            },
+            "timings": {
+              "predicted_n": 18,
+              "prompt_ms": 100.81803798675537,
+              "predicted_ms": 155.82001209259033,
+              "prompt_n": 113
+            },
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": "{\"name\":\"Nikola Tesla\",\"age\":86,\"occupation\":\"inventor\"}"
+                },
+                "index": 0,
+                "finish_reason": "stop"
+              }
+            ],
+            "created": 1774635860
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "725",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 27 Mar 2026 18:24:20 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      }
+    ],
+    "stats": {
+      "successes": 5,
+      "failures": 0,
+      "errors": 0,
+      "tokenUsage": {
+        "prompt": 0,
+        "completion": 0,
+        "cached": 0,
+        "total": 0,
+        "numRequests": 5,
+        "completionDetails": {
+          "reasoning": 0,
+          "acceptedPrediction": 0,
+          "rejectedPrediction": 0
+        },
+        "assertions": {
+          "total": 0,
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "numRequests": 0,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0
+          }
+        }
+      },
+      "durationMs": 2766,
+      "evaluationDurationMs": 2766
+    }
+  },
+  "config": {
+    "tags": {},
+    "description": "AFM grammar-constraints strict wiring — structured output tests",
+    "prompts": [
+      "{{prompt}}"
+    ],
+    "providers": [
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-no-grammar",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_DEFAULT",
+          "modelEnv": "AFM_MODEL",
+          "extract": "content"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-grammar-enabled",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_GRAMMAR",
+          "modelEnv": "AFM_MODEL",
+          "extract": "content"
+        }
+      }
+    ],
+    "tests": [
+      {
+        "description": "json_schema strict:true — basic object",
+        "vars": {
+          "prompt": "Return a person record for Alan Turing, age 41, occupation cryptographer.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "person_record",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "age": {
+                    "type": "integer"
+                  },
+                  "occupation": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "age",
+                  "occupation"
+                ]
+              }
+            }
+          }
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"name\""
+          },
+          {
+            "type": "contains",
+            "value": "\"age\""
+          },
+          {
+            "type": "contains",
+            "value": "\"occupation\""
+          }
+        ]
+      },
+      {
+        "description": "json_schema strict:true — nested array of objects",
+        "vars": {
+          "prompt": "Extract action items: Sarah drafts the email by Friday. Ben fixes the dashboard Tuesday. Priya confirms pricing this afternoon.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "meeting_actions",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "owner": {
+                          "type": "string"
+                        },
+                        "task": {
+                          "type": "string"
+                        },
+                        "due_date": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "owner",
+                        "task",
+                        "due_date"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "items"
+                ]
+              }
+            }
+          }
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"items\""
+          },
+          {
+            "type": "contains",
+            "value": "\"owner\""
+          }
+        ]
+      },
+      {
+        "description": "json_schema strict:true — enum constraint",
+        "vars": {
+          "prompt": "Classify this sentiment: 'The product exceeded all my expectations, truly wonderful!'",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "sentiment_result",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "sentiment": {
+                    "type": "string",
+                    "enum": [
+                      "positive",
+                      "negative",
+                      "neutral"
+                    ]
+                  },
+                  "confidence": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "sentiment",
+                  "confidence"
+                ]
+              }
+            }
+          }
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"sentiment\""
+          }
+        ]
+      },
+      {
+        "description": "json_schema strict:false — no grammar activation (control)",
+        "vars": {
+          "prompt": "Return a person record for Marie Curie, age 66, occupation physicist.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "person_record",
+              "strict": false,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "age": {
+                    "type": "integer"
+                  },
+                  "occupation": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "age",
+                  "occupation"
+                ]
+              }
+            }
+          }
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"name\""
+          }
+        ]
+      },
+      {
+        "description": "json_schema no strict field — no grammar activation (control)",
+        "vars": {
+          "prompt": "Return a person record for Nikola Tesla, age 86, occupation inventor.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "person_record",
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "age": {
+                    "type": "integer"
+                  },
+                  "occupation": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "age",
+                  "occupation"
+                ]
+              }
+            }
+          }
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"name\""
+          }
+        ]
+      }
+    ],
+    "scenarios": [],
+    "env": {},
+    "outputPath": [
+      "/Volumes/edata/promptfoo/data/maclocal-api/current/grammar-schema-grammar-enabled-mlx-community_Qwen3.5-35B-A3B-4bit.json"
+    ],
+    "extensions": [],
+    "metadata": {},
+    "evaluateOptions": {}
+  },
+  "shareableUrl": null,
+  "metadata": {
+    "promptfooVersion": "0.120.26",
+    "nodeVersion": "v25.8.1",
+    "platform": "darwin",
+    "arch": "arm64",
+    "exportedAt": "2026-03-27T18:24:20.283Z",
+    "evaluationCreatedAt": "2026-03-27T18:24:17.432Z"
+  }
+}
