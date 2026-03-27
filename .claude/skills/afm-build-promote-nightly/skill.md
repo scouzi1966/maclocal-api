@@ -288,6 +288,42 @@ fi
 
 **If the binary version doesn't match `v${VERSION}`, STOP.** The build did not incorporate the version change.
 
+**Step 5g: Relocated binary check (MANDATORY — blocks pip/Homebrew install crash):**
+
+SPM auto-generates `resource_bundle_accessor.swift` with a hardcoded absolute build path. If any code calls `Bundle.module`, the binary will `fatalError` when relocated (pip install, Homebrew). This has shipped broken releases before. **This check is non-negotiable.**
+
+```bash
+# 1. Source code audit — Bundle.module must NEVER appear in non-comment source
+HITS=$(grep -r 'Bundle\.module' Sources/ --include='*.swift' | grep -v '^\s*//' | grep -v '// ' | wc -l | tr -d ' ')
+if [ "$HITS" -gt 0 ]; then
+  echo "FATAL: Found $HITS Bundle.module call(s) — will crash on pip/Homebrew install"
+  grep -rn 'Bundle\.module' Sources/ --include='*.swift' | grep -v '//'
+  echo "STOP. Remove all Bundle.module calls before proceeding."
+  exit 1
+fi
+echo "PASS: No Bundle.module calls in source"
+
+# 2. Runtime simulation — copy binary + loose metallib to temp dir (NO SPM bundle)
+TMPDIR=$(mktemp -d)
+cp "$BIN" "$TMPDIR/"
+cp "$(dirname "$BIN")/MacLocalAPI_MacLocalAPI.bundle/default.metallib" "$TMPDIR/"
+
+MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache \
+  "$TMPDIR/afm" mlx -m mlx-community/Qwen3.5-35B-A3B-4bit -s "hello" --max-tokens 5 2>&1 | head -3
+EXIT_CODE=${PIPESTATUS[0]}
+rm -rf "$TMPDIR"
+
+if [ "$EXIT_CODE" -ne 0 ]; then
+  echo "FATAL: Relocated binary crashed (exit $EXIT_CODE)"
+  echo "This means pip install and Homebrew install will crash on first run."
+  echo "STOP. Fix MLXMetalLibrary.swift before proceeding."
+  exit 1
+fi
+echo "PASS: Relocated binary runs without crash"
+```
+
+**If either check fails, STOP IMMEDIATELY. Do NOT package, publish, or release.** Every pip and Homebrew user will get a crash on first run.
+
 ### Step 6: Package Stable Tarball
 
 ```bash
