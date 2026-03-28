@@ -194,15 +194,42 @@ tailwind.config = {
       <div>
         <label class="block text-xs font-semibold text-muted uppercase tracking-wide mb-1.5">Binary Path</label>
         <div class="flex items-center gap-2">
+          <!-- Quick-select dropdown for known locations -->
+          <select @change="if($event.target.value) { binary.path = $event.target.value; $event.target.value = ''; onBinaryChange(); }"
+                  class="w-9 px-0 py-2 rounded-l-lg border border-r-0 border-border bg-surface-hover text-sm text-muted outline-none cursor-pointer appearance-none text-center hover:bg-border transition-colors"
+                  title="Quick select binary location">
+            <option value="">📂</option>
+            <optgroup label="── Build Output ──">
+              <option value=".build/arm64-apple-macosx/release/afm">Release build (arm64)</option>
+              <option value=".build/release/afm">Release build (short)</option>
+              <option value=".build/arm64-apple-macosx/debug/afm">Debug build</option>
+            </optgroup>
+            <optgroup label="── Homebrew ──">
+              <option value="/opt/homebrew/bin/afm">Homebrew stable (afm)</option>
+              <option value="/opt/homebrew/bin/afm-next">Homebrew nightly (afm-next)</option>
+            </optgroup>
+            <optgroup label="── pip Install ──">
+              <option value="" disabled>pip: run command below to find path</option>
+            </optgroup>
+          </select>
+          <!-- Text input for manual path or paste -->
           <input type="text" x-model="binary.path"
                  @change="onBinaryChange()"
-                 placeholder=".build/release/afm" spellcheck="false"
-                 class="flex-1 px-3 py-2 rounded-lg border border-border bg-surface text-sm font-mono text-gray-200 placeholder-faint outline-none focus:border-accent-blue transition-colors">
+                 placeholder="paste full path or select from 📂" spellcheck="false"
+                 class="flex-1 px-3 py-2 rounded-r-lg border border-border bg-surface text-sm font-mono text-gray-200 placeholder-faint outline-none focus:border-accent-blue transition-colors">
           <span x-show="binary.exists"
                 class="flex items-center gap-1 text-xs text-accent-green font-medium whitespace-nowrap">
             <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> Detected
           </span>
+          <span x-show="binary.path && !binary.exists"
+                class="flex items-center gap-1 text-xs text-accent-red font-medium whitespace-nowrap">
+            <i data-lucide="x-circle" class="w-3.5 h-3.5"></i> Not found
+          </span>
         </div>
+        <!-- pip path hint -->
+        <p class="text-[10px] text-faint mt-1 font-mono">
+          pip path: <code class="text-gray-500">python3 -c "import macafm_next; print(macafm_next.binary_path())"</code>
+        </p>
       </div>
 
       <!-- Model Select -->
@@ -254,6 +281,332 @@ tailwind.config = {
           </div>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- ────────────────────────────────────────────────────────── -->
+  <!-- AFM SERVER CONTROL                                          -->
+  <!-- ────────────────────────────────────────────────────────── -->
+  <section class="rounded-xl border border-border bg-surface-card p-5 animate-fade-in" style="animation-delay: 0.03s">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-2">
+        <i data-lucide="server" class="w-4 h-4 text-muted"></i>
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-muted">AFM Server</h2>
+        <!-- Status badge -->
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider"
+              :class="{
+                'bg-accent-green/20 text-accent-green': afmServer.status === 'running',
+                'bg-border text-faint': afmServer.status === 'stopped',
+                'bg-accent-yellow/20 text-accent-yellow': afmServer.status === 'starting',
+                'bg-accent-red/20 text-accent-red': afmServer.status === 'error',
+              }"
+              x-text="afmServer.status"></span>
+        <span x-show="afmServer.status === 'running'" class="text-[10px] text-faint font-mono"
+              x-text="'PID ' + afmServer.pid + ' · :' + afmServer.port"></span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button x-show="afmServer.status === 'stopped' || afmServer.status === 'error'"
+                @click="startAfmServer()"
+                :disabled="!binary.exists"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                :class="binary.exists
+                  ? 'bg-accent-green/20 border border-accent-green/40 text-accent-green hover:bg-accent-green/30'
+                  : 'bg-border border border-faint text-muted cursor-not-allowed'">
+          <i data-lucide="play" class="w-3 h-3"></i> Start
+        </button>
+        <button x-show="afmServer.status === 'running' || afmServer.status === 'starting'"
+                @click="stopAfmServer()"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent-red/20 border border-accent-red/40 text-accent-red hover:bg-accent-red/30 transition-all">
+          <i data-lucide="square" class="w-3 h-3"></i> Stop
+        </button>
+        <button @click="afmServer.showOptions = !afmServer.showOptions"
+                class="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs text-muted hover:text-gray-300 hover:bg-border transition-all"
+                :class="{ 'bg-accent-blue/10 text-accent-blue': afmServer.showOptions }">
+          <i data-lucide="sliders-horizontal" class="w-3 h-3"></i>
+          <span>Options</span>
+          <i data-lucide="chevron-down" class="w-3 h-3 transition-transform" :class="{ 'rotate-180': afmServer.showOptions }"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Server options panel -->
+    <div x-show="afmServer.showOptions"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 -translate-y-2" x-transition:enter-end="opacity-100 translate-y-0"
+         class="border-t border-border/50 pt-4 mt-2">
+      <div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-3">
+
+        <!-- Port -->
+        <label class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 min-w-[90px]">Port</span>
+          <input type="number" x-model.number="afmServer.opts.port"
+                 class="flex-1 text-xs bg-surface border border-border rounded-md px-2 py-1.5 text-gray-300 focus:border-accent-blue outline-none font-mono w-20"
+                 :disabled="afmServer.status === 'running'">
+        </label>
+
+        <!-- Hostname -->
+        <label class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 min-w-[90px]">Hostname</span>
+          <input type="text" x-model="afmServer.opts.hostname"
+                 class="flex-1 text-xs bg-surface border border-border rounded-md px-2 py-1.5 text-gray-300 focus:border-accent-blue outline-none font-mono"
+                 :disabled="afmServer.status === 'running'">
+        </label>
+
+        <!-- Max tokens -->
+        <label class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 min-w-[90px]">Max tokens</span>
+          <input type="number" x-model.number="afmServer.opts.maxTokens"
+                 class="flex-1 text-xs bg-surface border border-border rounded-md px-2 py-1.5 text-gray-300 focus:border-accent-blue outline-none font-mono w-20"
+                 :disabled="afmServer.status === 'running'">
+        </label>
+
+        <!-- Temperature -->
+        <label class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 min-w-[90px]">Temperature</span>
+          <input type="number" step="0.1" x-model.number="afmServer.opts.temperature"
+                 class="flex-1 text-xs bg-surface border border-border rounded-md px-2 py-1.5 text-gray-300 focus:border-accent-blue outline-none font-mono w-20"
+                 :disabled="afmServer.status === 'running'">
+        </label>
+
+        <!-- Top-p -->
+        <label class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 min-w-[90px]">Top-p</span>
+          <input type="number" step="0.05" x-model.number="afmServer.opts.topP"
+                 class="flex-1 text-xs bg-surface border border-border rounded-md px-2 py-1.5 text-gray-300 focus:border-accent-blue outline-none font-mono w-20"
+                 placeholder="1.0" :disabled="afmServer.status === 'running'">
+        </label>
+
+        <!-- Top-k -->
+        <label class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 min-w-[90px]">Top-k</span>
+          <input type="number" x-model.number="afmServer.opts.topK"
+                 class="flex-1 text-xs bg-surface border border-border rounded-md px-2 py-1.5 text-gray-300 focus:border-accent-blue outline-none font-mono w-20"
+                 placeholder="0" :disabled="afmServer.status === 'running'">
+        </label>
+
+        <!-- Min-p -->
+        <label class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 min-w-[90px]">Min-p</span>
+          <input type="number" step="0.01" x-model.number="afmServer.opts.minP"
+                 class="flex-1 text-xs bg-surface border border-border rounded-md px-2 py-1.5 text-gray-300 focus:border-accent-blue outline-none font-mono w-20"
+                 placeholder="0.0" :disabled="afmServer.status === 'running'">
+        </label>
+
+        <!-- Concurrent -->
+        <label class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 min-w-[90px]">Concurrent</span>
+          <input type="number" x-model.number="afmServer.opts.concurrent"
+                 class="flex-1 text-xs bg-surface border border-border rounded-md px-2 py-1.5 text-gray-300 focus:border-accent-blue outline-none font-mono w-20"
+                 placeholder="0" :disabled="afmServer.status === 'running'">
+        </label>
+
+        <!-- Seed -->
+        <label class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 min-w-[90px]">Seed</span>
+          <input type="number" x-model.number="afmServer.opts.seed"
+                 class="flex-1 text-xs bg-surface border border-border rounded-md px-2 py-1.5 text-gray-300 focus:border-accent-blue outline-none font-mono w-20"
+                 placeholder="none" :disabled="afmServer.status === 'running'">
+        </label>
+
+        <!-- Presence penalty -->
+        <label class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 min-w-[90px]">Presence pen.</span>
+          <input type="number" step="0.1" x-model.number="afmServer.opts.presencePenalty"
+                 class="flex-1 text-xs bg-surface border border-border rounded-md px-2 py-1.5 text-gray-300 focus:border-accent-blue outline-none font-mono w-20"
+                 placeholder="0.0" :disabled="afmServer.status === 'running'">
+        </label>
+
+        <!-- Repetition penalty -->
+        <label class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 min-w-[90px]">Repetition pen.</span>
+          <input type="number" step="0.1" x-model.number="afmServer.opts.repetitionPenalty"
+                 class="flex-1 text-xs bg-surface border border-border rounded-md px-2 py-1.5 text-gray-300 focus:border-accent-blue outline-none font-mono w-20"
+                 placeholder="1.0" :disabled="afmServer.status === 'running'">
+        </label>
+
+        <!-- Max KV size -->
+        <label class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 min-w-[90px]">Max KV size</span>
+          <input type="number" x-model.number="afmServer.opts.maxKvSize"
+                 class="flex-1 text-xs bg-surface border border-border rounded-md px-2 py-1.5 text-gray-300 focus:border-accent-blue outline-none font-mono w-20"
+                 placeholder="auto" :disabled="afmServer.status === 'running'">
+        </label>
+
+        <!-- KV bits -->
+        <label class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 min-w-[90px]">KV bits</span>
+          <select x-model="afmServer.opts.kvBits"
+                  class="flex-1 text-xs bg-surface border border-border rounded-md px-2 py-1.5 text-gray-300 focus:border-accent-blue outline-none"
+                  :disabled="afmServer.status === 'running'">
+            <option value="">default (fp16)</option>
+            <option value="4">4-bit</option>
+            <option value="8">8-bit</option>
+          </select>
+        </label>
+
+        <!-- Prefill step size -->
+        <label class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 min-w-[90px]">Prefill step</span>
+          <input type="number" x-model.number="afmServer.opts.prefillStepSize"
+                 class="flex-1 text-xs bg-surface border border-border rounded-md px-2 py-1.5 text-gray-300 focus:border-accent-blue outline-none font-mono w-20"
+                 placeholder="2048" :disabled="afmServer.status === 'running'">
+        </label>
+
+        <!-- Tool call parser -->
+        <label class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 min-w-[90px]">Tool parser</span>
+          <select x-model="afmServer.opts.toolCallParser"
+                  class="flex-1 text-xs bg-surface border border-border rounded-md px-2 py-1.5 text-gray-300 focus:border-accent-blue outline-none"
+                  :disabled="afmServer.status === 'running'">
+            <option value="">auto-detect</option>
+            <option value="afm_adaptive_xml">afm_adaptive_xml</option>
+            <option value="hermes">hermes</option>
+            <option value="llama3_json">llama3_json</option>
+            <option value="qwen3_xml">qwen3_xml</option>
+            <option value="gemma">gemma</option>
+            <option value="mistral">mistral</option>
+          </select>
+        </label>
+
+        <!-- Stop sequences -->
+        <label class="flex items-center gap-2 col-span-2">
+          <span class="text-xs text-gray-400 min-w-[90px]">Stop seqs</span>
+          <input type="text" x-model="afmServer.opts.stop"
+                 class="flex-1 text-xs bg-surface border border-border rounded-md px-2 py-1.5 text-gray-300 focus:border-accent-blue outline-none font-mono"
+                 placeholder="comma-separated (e.g. ###,END)" :disabled="afmServer.status === 'running'">
+        </label>
+      </div>
+
+      <!-- Toggle flags row -->
+      <div class="flex flex-wrap gap-x-5 gap-y-2 mt-4 pt-3 border-t border-border/30">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" class="custom-checkbox" x-model="afmServer.opts.enablePrefixCaching"
+                 :disabled="afmServer.status === 'running'">
+          <span class="text-xs text-gray-400">Prefix caching</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" class="custom-checkbox" x-model="afmServer.opts.enableGrammarConstraints"
+                 :disabled="afmServer.status === 'running'">
+          <span class="text-xs text-gray-400">Grammar constraints</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" class="custom-checkbox" x-model="afmServer.opts.noThink"
+                 :disabled="afmServer.status === 'running'">
+          <span class="text-xs text-gray-400">Disable thinking</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" class="custom-checkbox" x-model="afmServer.opts.noStreaming"
+                 :disabled="afmServer.status === 'running'">
+          <span class="text-xs text-gray-400">No streaming</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" class="custom-checkbox" x-model="afmServer.opts.raw"
+                 :disabled="afmServer.status === 'running'">
+          <span class="text-xs text-gray-400">Raw mode</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" class="custom-checkbox" x-model="afmServer.opts.vlm"
+                 :disabled="afmServer.status === 'running'">
+          <span class="text-xs text-gray-400">Vision (VLM)</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" class="custom-checkbox" x-model="afmServer.opts.webui"
+                 :disabled="afmServer.status === 'running'">
+          <span class="text-xs text-gray-400">WebUI</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" class="custom-checkbox" x-model="afmServer.opts.verbose"
+                 :disabled="afmServer.status === 'running'">
+          <span class="text-xs text-gray-400">Verbose</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" class="custom-checkbox" x-model="afmServer.opts.gpuProfile"
+                 :disabled="afmServer.status === 'running'">
+          <span class="text-xs text-gray-400">GPU profile</span>
+        </label>
+      </div>
+
+      <!-- Generated command preview -->
+      <div class="mt-4 pt-3 border-t border-border/30">
+        <div class="flex items-center gap-2 mb-1.5">
+          <i data-lucide="terminal" class="w-3 h-3 text-faint"></i>
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-faint">Command Preview</span>
+        </div>
+        <pre class="text-[11px] text-gray-400 bg-surface rounded-md px-3 py-2 overflow-x-auto font-mono whitespace-pre-wrap break-all"
+             x-text="buildAfmCommand()"></pre>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ────────────────────────────────────────────────────────── -->
+  <!-- AFM SERVER LOG                                              -->
+  <!-- ────────────────────────────────────────────────────────── -->
+  <section x-show="afmServer.status === 'running' || afmServer.logLines.length > 0"
+           x-transition:enter="transition ease-out duration-300"
+           x-transition:enter-start="opacity-0 translate-y-2" x-transition:enter-end="opacity-100 translate-y-0"
+           class="rounded-xl border border-border bg-surface-card p-5 animate-fade-in" style="animation-delay: 0.04s">
+    <div class="flex items-center justify-between mb-3">
+      <div class="flex items-center gap-2">
+        <i data-lucide="terminal" class="w-4 h-4 text-muted"></i>
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-muted">Server Output</h2>
+        <span class="px-1.5 py-0.5 rounded-full text-[10px] font-semibold"
+              :class="afmServer.status === 'running' ? 'bg-accent-green/20 text-accent-green' : 'bg-border text-faint'"
+              x-text="afmServer.status"></span>
+        <span class="text-[10px] text-faint font-mono" x-text="afmServer.logLines.length + ' lines'"></span>
+      </div>
+      <div class="flex items-center gap-2">
+        <!-- Filter -->
+        <select x-model="afmServer.logFilter"
+                class="text-[11px] bg-surface border border-border rounded px-2 py-1 text-gray-400 outline-none cursor-pointer">
+          <option value="">All output</option>
+          <option value="error">Errors only</option>
+          <option value="warn">Warnings + Errors</option>
+          <option value="info">Info</option>
+          <option value="cache">Cache events</option>
+          <option value="tool">Tool calls</option>
+          <option value="request">Requests</option>
+        </select>
+        <!-- Auto-scroll toggle -->
+        <label class="flex items-center gap-1.5 cursor-pointer">
+          <input type="checkbox" class="custom-checkbox !w-3 !h-3" x-model="afmServer.autoScroll">
+          <span class="text-[10px] text-faint">Auto-scroll</span>
+        </label>
+        <!-- Clear -->
+        <button @click="afmServer.logLines = []"
+                class="text-[10px] text-faint hover:text-muted px-1.5 py-0.5 rounded hover:bg-border transition-colors">
+          Clear
+        </button>
+      </div>
+    </div>
+
+    <!-- Log viewer -->
+    <div class="bg-surface rounded-lg border border-border/50 overflow-hidden">
+      <div class="max-h-80 overflow-y-auto px-4 py-3 font-mono text-[11px] leading-[1.6] space-y-0"
+           x-ref="serverLog">
+        <template x-for="(line, i) in filteredLogLines()" :key="i">
+          <div class="whitespace-pre-wrap break-all py-[1px] border-b border-border/10"
+               :class="{
+                 'text-accent-red': line.includes('error') || line.includes('Error') || line.includes('FATAL'),
+                 'text-accent-yellow': !line.includes('error') && !line.includes('Error') && (line.includes('warning') || line.includes('Warning') || line.includes('WARN')),
+                 'text-accent-blue': line.includes('[INFO]') || line.includes('info'),
+                 'text-accent-green': line.includes('Server started') || line.includes('ready') || line.includes('Health'),
+                 'text-gray-500': !line.includes('error') && !line.includes('Error') && !line.includes('warning') && !line.includes('Warning') && !line.includes('[INFO]') && !line.includes('Server started'),
+               }"
+               x-text="line"></div>
+        </template>
+        <div x-show="afmServer.logLines.length === 0" class="text-faint text-center py-8">
+          Waiting for server output...
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick stats from log -->
+    <div x-show="afmServer.logLines.length > 0" class="flex items-center gap-4 mt-3 text-[10px] text-faint font-mono">
+      <span x-text="'Requests: ' + afmServer.logLines.filter(l => l.includes('POST /v1') || l.includes('GET /v1')).length"></span>
+      <span x-text="'Errors: ' + afmServer.logLines.filter(l => l.toLowerCase().includes('error')).length"
+            :class="afmServer.logLines.filter(l => l.toLowerCase().includes('error')).length > 0 ? 'text-accent-red' : ''"></span>
+      <span x-text="'Cache hits: ' + afmServer.logLines.filter(l => l.includes('reuse_ratio') && !l.includes('0.000')).length"></span>
     </div>
   </section>
 
@@ -367,13 +720,14 @@ tailwind.config = {
                 <!-- Select option -->
                 <template x-if="opt.type === 'select'">
                   <label class="flex items-center gap-2.5 w-full">
-                    <span class="text-xs text-gray-400 whitespace-nowrap min-w-[60px]" x-text="opt.label"></span>
-                    <select class="flex-1 text-xs bg-surface border border-border rounded-md px-2 py-1 text-gray-300 focus:border-accent-blue focus:ring-1 focus:ring-accent-blue/30 outline-none appearance-none cursor-pointer"
+                    <span class="text-xs text-gray-400 whitespace-nowrap min-w-[90px]" x-text="opt.label"></span>
+                    <select class="flex-1 text-xs bg-surface border border-border rounded-md px-2 py-1.5 text-gray-300 focus:border-accent-blue focus:ring-1 focus:ring-accent-blue/30 outline-none cursor-pointer"
                             :value="getSuiteOpt(id, opt.key, opt.default)"
                             @change="setSuiteOpt(id, opt.key, $event.target.value)"
                             :disabled="running">
-                      <template x-for="v in opt.values" :key="v">
-                        <option :value="v" x-text="v"></option>
+                      <template x-for="v in opt.values" :key="typeof v === 'object' ? v.v : v">
+                        <option :value="typeof v === 'object' ? v.v : v"
+                                x-text="typeof v === 'object' ? v.l : v"></option>
                       </template>
                     </select>
                   </label>
@@ -755,56 +1109,132 @@ document.addEventListener('alpine:init', () => {
       { key: 'relocated', label: 'Relocated' },
       { key: 'bundle_module', label: 'Bundle.module' },
     ],
+    // ── AFM Server ─────────────────────────────────────────────
+    afmServer: {
+      status: 'stopped',  // stopped, starting, running, error
+      pid: null,
+      port: 9998,
+      showOptions: false,
+      logLines: [],
+      logFilter: '',
+      autoScroll: true,
+      opts: {
+        port: 9998,
+        hostname: '127.0.0.1',
+        maxTokens: 8192,
+        temperature: null,
+        topP: null,
+        topK: null,
+        minP: null,
+        concurrent: 0,
+        seed: null,
+        presencePenalty: null,
+        repetitionPenalty: null,
+        maxKvSize: null,
+        kvBits: '',
+        prefillStepSize: null,
+        toolCallParser: '',
+        stop: '',
+        enablePrefixCaching: true,
+        enableGrammarConstraints: true,
+        noThink: false,
+        noStreaming: false,
+        raw: false,
+        vlm: false,
+        webui: false,
+        verbose: false,
+        gpuProfile: false,
+      },
+    },
+
     suites: {},
     selected: new Set(),
     suiteOptions: {},      // suite_id -> { key: value } user-configured options
     expandedOptions: new Set(),
     suiteOptionDefs: {
-      'assertions-smoke': [
-        { key: 'section', type: 'text', label: 'Section', default: '', placeholder: 'e.g. 5 (tools only)' },
+      'assertions': [
+        { key: 'tier', type: 'select', label: 'Tier', default: 'standard', values: [
+          {v: 'smoke', l: 'Smoke (~2 min) — basic checks'},
+          {v: 'standard', l: 'Standard (~5 min) — + cache, concurrent, XML, grammar, batch'},
+          {v: 'full', l: 'Full (~15 min) — + performance (TTFT, tok/s, long context)'},
+        ]},
+        { key: 'section', type: 'select', label: 'Section', default: '', values: [
+          {v: '', l: 'All sections'},
+          {v: '0', l: '0 — Preflight'},
+          {v: '1', l: '1 — Server basics'},
+          {v: '2', l: '2 — Stop sequences (10 variants)'},
+          {v: '3', l: '3 — Logprobs (schema, top_logprobs, streaming)'},
+          {v: '4', l: '4 — Think extraction'},
+          {v: '5', l: '5 — Tool calling (basic, streaming, multi-tool)'},
+          {v: '6', l: '6 — Prompt cache (prefix matching)'},
+          {v: '7', l: '7 — Concurrent (2 and 3 simultaneous)'},
+          {v: '8', l: '8 — Error handling (HTTP, CORS, json_object)'},
+          {v: '10', l: '10 — Kwargs (enable_thinking control)'},
+          {v: '11', l: '11 — XML Tools (10 deep validation tests)'},
+          {v: '12', l: '12 — Adaptive XML (14 tests: JSON-in-XML, coercion)'},
+          {v: '13', l: '13 — Grammar constraints (8 tests)'},
+          {v: '14', l: '14 — Strict wiring validation'},
+          {v: '15', l: '15 — Batch dispatch API (11 tests)'},
+          {v: '9', l: '9 — Performance (TTFT, tok/s, 2K/4K context)'},
+        ]},
         { key: 'grammar', type: 'toggle', label: 'Grammar constraints', default: true },
-      ],
-      'assertions-standard': [
-        { key: 'section', type: 'text', label: 'Section', default: '', placeholder: 'e.g. 11 (XML tools)' },
-        { key: 'grammar', type: 'toggle', label: 'Grammar constraints', default: true },
-      ],
-      'assertions-full': [
-        { key: 'section', type: 'text', label: 'Section', default: '', placeholder: 'e.g. 9 (perf only)' },
-        { key: 'grammar', type: 'toggle', label: 'Grammar constraints', default: true },
-      ],
-      'assertions-grammar': [
-        { key: 'tier', type: 'select', label: 'Tier', default: 'full', values: ['smoke', 'standard', 'full'] },
-        { key: 'forced_parser', type: 'select', label: 'Forced parser', default: 'qwen3_xml', values: ['qwen3_xml', 'hermes', 'none'] },
+        { key: 'also_forced_parser', type: 'select', label: 'Also test with', default: '', values: [
+          {v: '', l: 'Auto-detect only'},
+          {v: 'qwen3_xml', l: '+ forced qwen3_xml (re-run with forced parser)'},
+          {v: 'hermes', l: '+ forced hermes'},
+        ]},
       ],
       'smart-analysis': [
         { key: 'judge', type: 'select', label: 'AI Judge', default: 'claude', values: ['claude', 'codex', 'claude,codex'] },
-        { key: 'batch_mode', type: 'select', label: 'Batch mode', default: '1', values: ['0', '1'] },
-        { key: 'tests', type: 'text', label: 'Tests', default: '', placeholder: 'e.g. 1,5,10 (empty=all)' },
+        { key: 'batch_mode', type: 'select', label: 'Batch mode', default: '1', values: [
+          {v: '1', l: '1 — test-by-test (reliable)'},
+          {v: '0', l: '0 — one swoop (may fail on large suites)'},
+        ]},
+        { key: 'tests', type: 'text', label: 'Tests', default: '', placeholder: 'e.g. 1,5,10 (empty = all 91)' },
       ],
       'promptfoo': [
-        { key: 'mode', type: 'select', label: 'Suite', default: 'all', values: ['all', 'structured', 'structured-stress', 'toolcall', 'toolcall-quality', 'grammar-constraints', 'agentic', 'frameworks', 'opencode', 'pi', 'openclaw', 'hermes'] },
+        { key: 'mode', type: 'select', label: 'Suite', default: 'all', values: [
+          {v: 'all', l: 'All suites (~137 tests)'},
+          {v: 'structured', l: 'Structured (6 tests)'},
+          {v: 'structured-stress', l: 'Structured stress (4 tests)'},
+          {v: 'toolcall', l: 'Tool calling (7 × 3 profiles)'},
+          {v: 'toolcall-quality', l: 'Tool call quality (6 × 3 profiles)'},
+          {v: 'grammar-constraints', l: 'Grammar constraints (17 × 8 phases)'},
+          {v: 'agentic', l: 'Agentic workflows (4 × 3 profiles)'},
+          {v: 'frameworks', l: 'Framework schemas (8 × 3 profiles)'},
+          {v: 'opencode', l: 'OpenCode tools (37 × 3 profiles)'},
+          {v: 'pi', l: 'Pi tools (20 × 3 profiles)'},
+          {v: 'openclaw', l: 'OpenClaw tools (12 × 3 profiles)'},
+          {v: 'hermes', l: 'Hermes tools (12 × 3 profiles)'},
+        ]},
       ],
       'batch-correctness': [
-        { key: 'batch_sizes', type: 'text', label: 'Batch sizes', default: '1,2,4,8', placeholder: '1,2,4,8' },
-        { key: 'concurrent', type: 'text', label: 'Max concurrent', default: '8', placeholder: '8' },
+        { key: 'batch_sizes', type: 'select', label: 'Batch sizes', default: '1,2,4,8', values: [
+          '1,2,4,8', '1,2,4', '1,2', '1,4,8', '2,4,8', '4,8', '8',
+        ]},
+        { key: 'concurrent', type: 'select', label: 'Max concurrent', default: '8', values: ['4', '8', '12', '16', '24', '32'] },
       ],
       'batch-mixed': [
-        { key: 'batch_sizes', type: 'text', label: 'Batch sizes', default: '1,2,4,8', placeholder: '1,2,4,8' },
-        { key: 'concurrent', type: 'text', label: 'Max concurrent', default: '8', placeholder: '8' },
+        { key: 'batch_sizes', type: 'select', label: 'Batch sizes', default: '1,2,4,8', values: [
+          '1,2,4,8', '1,2,4', '1,2', '1,4,8', '2,4,8', '4,8', '8',
+        ]},
+        { key: 'concurrent', type: 'select', label: 'Max concurrent', default: '8', values: ['4', '8', '12', '16', '24', '32'] },
       ],
       'batch-multiturn': [
-        { key: 'batch_sizes', type: 'text', label: 'Batch sizes', default: '1,2,4,8', placeholder: '1,2,4,8' },
-        { key: 'concurrent', type: 'text', label: 'Max concurrent', default: '8', placeholder: '8' },
+        { key: 'batch_sizes', type: 'select', label: 'Batch sizes', default: '1,2,4,8', values: [
+          '1,2,4,8', '1,2,4', '1,2', '1,4,8', '2,4,8', '4,8', '8',
+        ]},
+        { key: 'concurrent', type: 'select', label: 'Max concurrent', default: '8', values: ['4', '8', '12', '16', '24', '32'] },
         { key: 'prefix_caching', type: 'toggle', label: 'Prefix caching', default: true },
       ],
       'openai-compat': [
-        { key: 'port', type: 'text', label: 'Port', default: '9999', placeholder: '9999' },
+        { key: 'port', type: 'select', label: 'Port', default: '9999', values: ['9998', '9999', '9877'] },
       ],
       'guided-json': [
-        { key: 'port', type: 'text', label: 'Port', default: '9999', placeholder: '9999' },
+        { key: 'port', type: 'select', label: 'Port', default: '9999', values: ['9998', '9999', '9877'] },
       ],
       'gpu-profile': [
-        { key: 'max_tokens', type: 'text', label: 'Max tokens', default: '4096', placeholder: '4096' },
+        { key: 'max_tokens', type: 'select', label: 'Max tokens', default: '4096', values: ['512', '1024', '2048', '4096', '8192', '16384'] },
       ],
     },
     running: false,
@@ -831,7 +1261,16 @@ document.addEventListener('alpine:init', () => {
     get selectedCount() { return this.selected.size; },
     get estimatedMinutes() {
       let total = 0;
-      this.selected.forEach(id => { if (this.suites[id]) total += this.suites[id].estMin; });
+      this.selected.forEach(id => {
+        if (id === 'assertions') {
+          const tier = this.getSuiteOpt('assertions', 'tier', 'standard');
+          const forced = this.getSuiteOpt('assertions', 'also_forced_parser', '');
+          const tierMins = { smoke: 2, standard: 5, full: 15 };
+          total += forced ? (tierMins[tier] || 5) * 2 + 5 : (tierMins[tier] || 5);
+        } else if (this.suites[id]) {
+          total += this.suites[id].estMin;
+        }
+      });
       return total;
     },
     get allPreflightPassed() {
@@ -876,6 +1315,103 @@ document.addEventListener('alpine:init', () => {
       this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
     },
 
+    // ── AFM Server Control ──────────────────────────────────
+    buildAfmCommand() {
+      const o = this.afmServer.opts;
+      let cmd = `${this.binary.path || 'afm'} mlx -m ${this.selectedModel || 'MODEL'}`;
+      cmd += ` --port ${o.port}`;
+      if (o.hostname !== '127.0.0.1') cmd += ` -H ${o.hostname}`;
+      if (o.maxTokens && o.maxTokens !== 8192) cmd += ` --max-tokens ${o.maxTokens}`;
+      if (o.temperature != null && o.temperature !== '') cmd += ` -t ${o.temperature}`;
+      if (o.topP != null && o.topP !== '') cmd += ` --top-p ${o.topP}`;
+      if (o.topK != null && o.topK !== '' && o.topK > 0) cmd += ` --top-k ${o.topK}`;
+      if (o.minP != null && o.minP !== '' && o.minP > 0) cmd += ` --min-p ${o.minP}`;
+      if (o.concurrent > 1) cmd += ` --concurrent ${o.concurrent}`;
+      if (o.seed != null && o.seed !== '') cmd += ` --seed ${o.seed}`;
+      if (o.presencePenalty != null && o.presencePenalty !== '' && o.presencePenalty > 0) cmd += ` --presence-penalty ${o.presencePenalty}`;
+      if (o.repetitionPenalty != null && o.repetitionPenalty !== '' && o.repetitionPenalty > 0) cmd += ` --repetition-penalty ${o.repetitionPenalty}`;
+      if (o.maxKvSize != null && o.maxKvSize !== '') cmd += ` --max-kv-size ${o.maxKvSize}`;
+      if (o.kvBits) cmd += ` --kv-bits ${o.kvBits}`;
+      if (o.prefillStepSize != null && o.prefillStepSize !== '') cmd += ` --prefill-step-size ${o.prefillStepSize}`;
+      if (o.toolCallParser) cmd += ` --tool-call-parser ${o.toolCallParser}`;
+      if (o.stop) cmd += ` --stop "${o.stop}"`;
+      if (o.enablePrefixCaching) cmd += ' --enable-prefix-caching';
+      if (o.enableGrammarConstraints) cmd += ' --enable-grammar-constraints';
+      if (o.noThink) cmd += ' --no-think';
+      if (o.noStreaming) cmd += ' --no-streaming';
+      if (o.raw) cmd += ' --raw';
+      if (o.vlm) cmd += ' --vlm';
+      if (o.webui) cmd += ' --webui';
+      if (o.verbose) cmd += ' -v';
+      if (o.gpuProfile) cmd += ' --gpu-profile';
+      return cmd;
+    },
+
+    async startAfmServer() {
+      if (this.afmServer.status === 'running') return;
+      this.afmServer.status = 'starting';
+      this.afmServer.logLines = [];
+      this.afmServer.port = this.afmServer.opts.port;
+
+      const res = await this.apiFetch('/api/afm/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          binary: this.binary.path,
+          model: this.selectedModel,
+          opts: this.afmServer.opts,
+        }),
+      });
+      if (res && res.pid) {
+        this.afmServer.pid = res.pid;
+        this.afmServer.status = 'running';
+        this.toast('AFM server started on :' + this.afmServer.port, 'success');
+        // Start polling for log lines
+        this._pollServerLogs();
+      } else {
+        this.afmServer.status = 'error';
+        this.toast('Failed to start AFM server: ' + (res?.error || 'unknown'), 'error');
+      }
+    },
+
+    async stopAfmServer() {
+      const res = await this.apiFetch('/api/afm/stop', { method: 'POST' });
+      this.afmServer.status = 'stopped';
+      this.afmServer.pid = null;
+      this.toast('AFM server stopped', 'info');
+    },
+
+    filteredLogLines() {
+      const f = this.afmServer.logFilter;
+      if (!f) return this.afmServer.logLines;
+      const filters = {
+        'error':   l => /error|Error|FATAL|exception|crash/i.test(l),
+        'warn':    l => /error|Error|FATAL|warn|Warning/i.test(l),
+        'info':    l => /\[INFO\]|info/i.test(l),
+        'cache':   l => /cache|Cache|reuse_ratio|cached_tokens|PrefixCache|RadixTree/i.test(l),
+        'tool':    l => /tool_call|ToolCall|tool_choice|function=|<tool_call>/i.test(l),
+        'request': l => /POST \/v1|GET \/v1|request-id|method:/i.test(l),
+      };
+      const fn = filters[f];
+      return fn ? this.afmServer.logLines.filter(fn) : this.afmServer.logLines;
+    },
+
+    async _pollServerLogs() {
+      while (this.afmServer.status === 'running') {
+        const res = await this.apiFetch('/api/afm/logs');
+        if (res && res.lines) {
+          this.afmServer.logLines = res.lines;
+          if (this.afmServer.autoScroll) {
+            this.$nextTick(() => {
+              const el = this.$refs.serverLog;
+              if (el) el.scrollTop = el.scrollHeight;
+            });
+          }
+        }
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    },
+
     // ── API Calls ────────────────────────────────────────────
     async apiFetch(path, opts = {}) {
       try {
@@ -910,58 +1446,23 @@ document.addEventListener('alpine:init', () => {
     },
 
     async fetchSuites() {
-      const data = await this.apiFetch('/api/suites');
-      if (data && Array.isArray(data)) {
-        const s = {};
-        data.forEach(d => {
-          s[d.id] = {
-            label: d.label,
-            desc: this._suiteDescs[d.id] || '',
-            est: d.est_minutes < 1 ? '~' + Math.round(d.est_minutes * 60) + 's' : '~' + d.est_minutes + ' min',
-            estMin: d.est_minutes,
-            port: d.port,
-            needsServer: d.needs_server,
-          };
-        });
-        this.suites = s;
-      } else {
-        // Fallback to hardcoded
-        this.suites = this._fallbackSuites;
-      }
+      // Always use our unified suite list (the server has the 4 assertion variants,
+      // but the UI merges them into one card with tier/section/parser options)
+      this.suites = this._uiSuites;
       this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
     },
 
-    // Suite descriptions (not returned from API)
-    _suiteDescs: {
-      'unit': 'Swift unit tests (XML parsing, batch, KV cache)',
-      'assertions-smoke': 'Server, completion, stop, logprobs, think, tools',
-      'assertions-standard': '+ streaming, cache, concurrent, XML, grammar, batch',
-      'assertions-full': '+ performance (TTFT, tok/s, long context)',
-      'assertions-grammar': 'Full tier x 2 with grammar constraints',
-      'smart-analysis': '91 variants with Claude AI judge',
-      'promptfoo': '137 tests x 8 server profiles',
-      'batch-correctness': 'Known-answer at B={1,2,4,8}',
-      'batch-mixed': 'Short+long decode with GPU metrics',
-      'batch-multiturn': 'Prefix cache under concurrency',
-      'openai-compat': 'Python SDK compatibility matrix',
-      'guided-json': 'json_schema response format fixtures',
-      'gpu-profile': 'Bandwidth, power, shader kernels',
-    },
-
-    _fallbackSuites: {
-      'unit':                { label: 'Unit Tests',                   desc: 'Swift unit tests (XML parsing, batch, KV cache)',          est: '~5s',     estMin: 0.08, port: null },
-      'assertions-smoke':    { label: 'Assertions (smoke)',           desc: 'Server, completion, stop, logprobs, think, tools',         est: '~2 min',  estMin: 2,    port: 9998 },
-      'assertions-standard': { label: 'Assertions (standard)',        desc: '+ streaming, cache, concurrent, XML, grammar, batch',      est: '~5 min',  estMin: 5,    port: 9998 },
-      'assertions-full':     { label: 'Assertions (full)',            desc: '+ performance (TTFT, tok/s, long context)',                est: '~15 min', estMin: 15,   port: 9998 },
-      'assertions-grammar':  { label: 'Grammar + Forced Parser',     desc: 'Full tier x 2 with grammar constraints',                   est: '~30 min', estMin: 30,   port: 9998 },
-      'smart-analysis':      { label: 'Smart Analysis',              desc: '91 variants with Claude AI judge',                         est: '~60 min', estMin: 60,   port: 9877 },
-      'promptfoo':           { label: 'Promptfoo Evals',             desc: '137 tests x 8 server profiles',                            est: '~90 min', estMin: 90,   port: 9999 },
-      'batch-correctness':   { label: 'Batch Correctness',           desc: 'Known-answer at B={1,2,4,8}',                              est: '~12 min', estMin: 12,   port: 9999 },
-      'batch-mixed':         { label: 'Batch Mixed',                 desc: 'Short+long decode with GPU metrics',                       est: '~20 min', estMin: 20,   port: 9999 },
-      'batch-multiturn':     { label: 'Batch Multiturn',             desc: 'Prefix cache under concurrency',                           est: '~20 min', estMin: 20,   port: 9999 },
-      'openai-compat':       { label: 'OpenAI Compat',               desc: 'Python SDK compatibility matrix',                          est: '~8 min',  estMin: 8,    port: 9999 },
-      'guided-json':         { label: 'Guided JSON',                 desc: 'json_schema response format fixtures',                     est: '~12 min', estMin: 12,   port: 9999 },
-      'gpu-profile':         { label: 'GPU Profile',                 desc: 'Bandwidth, power, shader kernels',                         est: '~1 min',  estMin: 1,    port: null },
+    _uiSuites: {
+      'unit':              { label: 'Unit Tests',          desc: '261 Swift tests: XML parsing, batch scheduler, KV cache, type coercion, EBNF grammar',  est: '~5s',     estMin: 0.08, port: null },
+      'assertions':        { label: 'Assertions',          desc: 'Deterministic pass/fail: stop, logprobs, think, tools, cache, concurrent, XML, grammar, batch, perf',  est: '~5 min',  estMin: 5,    port: 9998 },
+      'smart-analysis':    { label: 'Smart Analysis',      desc: '91 test variants across samplers, stop, JSON, tools, code, math — scored by Claude AI judge',  est: '~60 min', estMin: 60,   port: 9877 },
+      'promptfoo':         { label: 'Promptfoo Evals',     desc: 'Structured output, tool calling, grammar constraints, agentic workflows across 8 server profiles',  est: '~90 min', estMin: 90,   port: 9999 },
+      'batch-correctness': { label: 'Batch Correctness',   desc: 'Known-answer questions at batch sizes 1, 2, 4, 8 — validates KV cache isolation',  est: '~12 min', estMin: 12,   port: 9999 },
+      'batch-mixed':       { label: 'Batch Mixed',         desc: 'Short + long decode mix under concurrency with GPU power/utilization metrics',  est: '~20 min', estMin: 20,   port: 9999 },
+      'batch-multiturn':   { label: 'Batch Multiturn',     desc: 'Multi-turn conversations with prefix cache reuse under concurrency',  est: '~20 min', estMin: 20,   port: 9999 },
+      'openai-compat':     { label: 'OpenAI Compat',       desc: 'OpenAI Python SDK: non-stream, stream, logprobs, usage chunk, vllm bench',  est: '~8 min',  estMin: 8,    port: 9999 },
+      'guided-json':       { label: 'Guided JSON',         desc: 'response_format: json_schema with real-world Pydantic fixtures and edge cases',  est: '~12 min', estMin: 12,   port: 9999 },
+      'gpu-profile':       { label: 'GPU Profile',         desc: 'DRAM bandwidth, GPU power, Metal shader kernel names, interactive HTML report',  est: '~1 min',  estMin: 1,    port: null },
     },
 
     // ── Preflight ────────────────────────────────────────────
@@ -1040,10 +1541,7 @@ document.addEventListener('alpine:init', () => {
     suiteIcon(id) {
       const icons = {
         'unit': 'box',
-        'assertions-smoke': 'zap',
-        'assertions-standard': 'shield-check',
-        'assertions-full': 'shield',
-        'assertions-grammar': 'braces',
+        'assertions': 'shield-check',
         'smart-analysis': 'brain',
         'promptfoo': 'target',
         'batch-correctness': 'layers',
@@ -1060,8 +1558,22 @@ document.addEventListener('alpine:init', () => {
     async startRun() {
       if (this.running || this.selectedCount === 0) return;
 
+      // Translate unified suite IDs to server-side IDs
       const suites = [];
-      this.selected.forEach(s => suites.push(s));
+      this.selected.forEach(s => {
+        if (s === 'assertions') {
+          // Map unified assertions card to the right server suite based on options
+          const tier = this.getSuiteOpt('assertions', 'tier', 'standard');
+          const forcedParser = this.getSuiteOpt('assertions', 'also_forced_parser', '');
+          if (forcedParser) {
+            suites.push('assertions-grammar');  // uses multi.sh with forced parser
+          } else {
+            suites.push('assertions-' + tier);  // uses single tier
+          }
+        } else {
+          suites.push(s);
+        }
+      });
 
       this.running = true;
       this.runId = Date.now().toString(36);

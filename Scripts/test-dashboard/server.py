@@ -24,9 +24,10 @@ import tempfile
 import threading
 import time
 import urllib.parse
+import urllib.request
 import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from typing import Any, Optional
+from typing import Any, IO, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +250,8 @@ _active_procs: list[subprocess.Popen] = []
 _active_threads: list[threading.Thread] = []
 _stop_requested = threading.Event()
 _promptfoo_proc: Optional[subprocess.Popen] = None
+_user_afm_proc: Optional[subprocess.Popen] = None
+_user_afm_log: Optional[IO] = None
 
 # JSONL log file handle for current run
 _log_lock = threading.Lock()
@@ -961,6 +964,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif path.startswith("/api/results/"):
             run_id = path.split("/api/results/", 1)[1]
             self._serve_result(run_id)
+        elif path == "/api/afm/logs":
+            self._handle_afm_logs()
         elif path.startswith("/api/reports/"):
             rel = path.split("/api/reports/", 1)[1]
             self._serve_report_file(rel)
@@ -977,6 +982,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._handle_stop()
         elif path == "/api/promptfoo-view":
             self._handle_promptfoo_view()
+        elif path == "/api/afm/start":
+            self._handle_afm_start()
+        elif path == "/api/afm/stop":
+            self._handle_afm_stop()
         else:
             self._not_found()
 
@@ -1179,6 +1188,187 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except FileNotFoundError:
             self._json_response({"error": "promptfoo not found in PATH"}, 500)
 
+    # ── AFM Server Management ────────────────────────────────────────────
+
+    def _handle_afm_start(self):
+        """Start AFM server with user-specified options."""
+        global _user_afm_proc, _user_afm_log
+
+        if _user_afm_proc and _user_afm_proc.poll() is None:
+            self._json_response({"error": "AFM server already running", "pid": _user_afm_proc.pid}, 409)
+            return
+
+        body = self._read_body()
+        try:
+            data = json.loads(body) if body else {}
+        except json.JSONDecodeError:
+            self._json_response({"error": "Invalid JSON"}, 400)
+            return
+
+        binary = data.get("binary", "")
+        model = data.get("model", "")
+        opts = data.get("opts", {})
+
+        if not binary or not model:
+            self._json_response({"error": "Required: binary, model"}, 400)
+            return
+
+        # Build command from options
+        cmd = [binary, "mlx", "-m", model]
+        cmd.extend(["--port", str(opts.get("port", 9998))])
+
+        hostname = opts.get("hostname", "127.0.0.1")
+        if hostname != "127.0.0.1":
+            cmd.extend(["-H", hostname])
+
+        max_tokens = opts.get("maxTokens")
+        if max_tokens and max_tokens != 8192:
+            cmd.extend(["--max-tokens", str(max_tokens)])
+
+        temp = opts.get("temperature")
+        if temp is not None and temp != "":
+            cmd.extend(["-t", str(temp)])
+
+        top_p = opts.get("topP")
+        if top_p is not None and top_p != "":
+            cmd.extend(["--top-p", str(top_p)])
+
+        top_k = opts.get("topK")
+        if top_k and int(top_k) > 0:
+            cmd.extend(["--top-k", str(top_k)])
+
+        min_p = opts.get("minP")
+        if min_p and float(min_p) > 0:
+            cmd.extend(["--min-p", str(min_p)])
+
+        concurrent = opts.get("concurrent")
+        if concurrent and int(concurrent) > 1:
+            cmd.extend(["--concurrent", str(concurrent)])
+
+        seed = opts.get("seed")
+        if seed is not None and seed != "":
+            cmd.extend(["--seed", str(seed)])
+
+        presence = opts.get("presencePenalty")
+        if presence and float(presence) > 0:
+            cmd.extend(["--presence-penalty", str(presence)])
+
+        rep = opts.get("repetitionPenalty")
+        if rep and float(rep) > 0:
+            cmd.extend(["--repetition-penalty", str(rep)])
+
+        max_kv = opts.get("maxKvSize")
+        if max_kv:
+            cmd.extend(["--max-kv-size", str(max_kv)])
+
+        kv_bits = opts.get("kvBits")
+        if kv_bits:
+            cmd.extend(["--kv-bits", str(kv_bits)])
+
+        prefill = opts.get("prefillStepSize")
+        if prefill:
+            cmd.extend(["--prefill-step-size", str(prefill)])
+
+        parser = opts.get("toolCallParser")
+        if parser:
+            cmd.extend(["--tool-call-parser", parser])
+
+        stop = opts.get("stop")
+        if stop:
+            cmd.extend(["--stop", stop])
+
+        if opts.get("enablePrefixCaching"):
+            cmd.append("--enable-prefix-caching")
+        if opts.get("enableGrammarConstraints"):
+            cmd.append("--enable-grammar-constraints")
+        if opts.get("noThink"):
+            cmd.append("--no-think")
+        if opts.get("noStreaming"):
+            cmd.append("--no-streaming")
+        if opts.get("raw"):
+            cmd.append("--raw")
+        if opts.get("vlm"):
+            cmd.append("--vlm")
+        if opts.get("webui"):
+            cmd.append("--webui")
+        if opts.get("verbose"):
+            cmd.append("-v")
+        if opts.get("gpuProfile"):
+            cmd.append("--gpu-profile")
+
+        # Start the server
+        env = os.environ.copy()
+        env["MACAFM_MLX_MODEL_CACHE"] = MODEL_CACHE
+
+        log_path = os.path.join(LOG_DIR, "afm-server.log")
+        _user_afm_log = open(log_path, "w")
+
+        try:
+            _user_afm_proc = subprocess.Popen(
+                cmd,
+                stdout=_user_afm_log,
+                stderr=subprocess.STDOUT,
+                env=env,
+                cwd=REPO_ROOT,
+            )
+            _emit_sse({
+                "type": "trigger",
+                "action": "user_started_afm_server",
+                "command": " ".join(cmd),
+                "pid": _user_afm_proc.pid,
+            })
+
+            # Wait for health
+            port = opts.get("port", 9998)
+            healthy = False
+            for _ in range(120):
+                if _user_afm_proc.poll() is not None:
+                    break
+                try:
+                    r = urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1)
+                    if r.status == 200:
+                        healthy = True
+                        break
+                except Exception:
+                    pass
+                time.sleep(1)
+
+            if healthy:
+                self._json_response({
+                    "pid": _user_afm_proc.pid,
+                    "port": port,
+                    "command": " ".join(cmd),
+                    "status": "running",
+                })
+            else:
+                _kill_proc(_user_afm_proc)
+                self._json_response({"error": "Server failed to start (health check timeout)"}, 500)
+
+        except Exception as e:
+            self._json_response({"error": str(e)}, 500)
+
+    def _handle_afm_stop(self):
+        """Stop user-started AFM server."""
+        global _user_afm_proc, _user_afm_log
+        if _user_afm_proc and _user_afm_proc.poll() is None:
+            _kill_proc(_user_afm_proc)
+            _emit_sse({"type": "trigger", "action": "user_stopped_afm_server"})
+        _user_afm_proc = None
+        if _user_afm_log:
+            _user_afm_log.close()
+            _user_afm_log = None
+        self._json_response({"status": "stopped"})
+
+    def _handle_afm_logs(self):
+        """Return recent AFM server log lines."""
+        log_path = os.path.join(LOG_DIR, "afm-server.log")
+        lines = []
+        if os.path.isfile(log_path):
+            with open(log_path, "r") as f:
+                lines = f.readlines()[-500:]  # last 500 lines
+        running = _user_afm_proc is not None and _user_afm_proc.poll() is None
+        self._json_response({"lines": [l.rstrip() for l in lines], "running": running})
+
     # ── Results / Suites ─────────────────────────────────────────────────
 
     def _serve_result(self, run_id: str):
@@ -1293,6 +1483,9 @@ def _signal_handler(signum, frame):
 
     if _promptfoo_proc and _promptfoo_proc.poll() is None:
         _kill_proc(_promptfoo_proc)
+
+    if _user_afm_proc and _user_afm_proc.poll() is None:
+        _kill_proc(_user_afm_proc)
 
     _close_log()
     sys.exit(0)
