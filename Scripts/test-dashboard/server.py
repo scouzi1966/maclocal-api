@@ -29,6 +29,47 @@ import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Any, IO, Optional
 
+try:
+    from openai import OpenAI as _OpenAI
+    _HAS_OPENAI = True
+except ImportError:
+    _HAS_OPENAI = False
+
+
+def _openai_client(port: int) -> Any:
+    """Create an OpenAI client pointing at the local AFM server."""
+    if not _HAS_OPENAI:
+        return None
+    return _OpenAI(base_url=f"http://127.0.0.1:{port}/v1", api_key="not-needed")
+
+
+def _wait_for_server(port: int, timeout: float = 120.0, poll: float = 1.0,
+                     proc: Optional[subprocess.Popen] = None) -> bool:
+    """Wait for AFM server to be ready using OpenAI SDK (preferred) or raw HTTP fallback."""
+    deadline = time.monotonic() + timeout
+    client = _openai_client(port)
+
+    while time.monotonic() < deadline:
+        if _stop_requested.is_set():
+            return False
+        if proc and proc.poll() is not None:
+            return False
+        try:
+            if client:
+                # Use the SDK — this is itself an API compatibility test
+                models = client.models.list()
+                if models.data:
+                    return True
+            else:
+                # Fallback to raw HTTP if openai not installed
+                r = urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2)
+                if r.status == 200:
+                    return True
+        except Exception:
+            pass
+        time.sleep(poll)
+    return False
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -405,8 +446,10 @@ def _check_metallib(binary: str) -> dict:
 
 
 def _check_relocated(binary: str) -> dict:
-    """Copy binary + metallib to a temp dir and verify it runs."""
+    """Copy binary + metallib to a temp dir, start it, and verify via OpenAI SDK."""
     tmpdir = None
+    proc = None
+    test_port = 19876  # ephemeral port for relocated test
     try:
         tmpdir = tempfile.mkdtemp(prefix="afm-relocate-")
         dst_bin = os.path.join(tmpdir, "afm")
@@ -427,26 +470,53 @@ def _check_relocated(binary: str) -> dict:
 
         env = os.environ.copy()
         env["MACAFM_MLX_MODEL_CACHE"] = MODEL_CACHE
-        result = subprocess.run(
-            [
-                dst_bin, "mlx",
-                "-m", "mlx-community/SmolLM3-3B-4bit",
-                "-s", "hello",
-                "--max-tokens", "3",
-            ],
-            capture_output=True, text=True, timeout=120,
+
+        # Start the relocated binary as a server
+        proc = subprocess.Popen(
+            [dst_bin, "mlx", "-m", "mlx-community/SmolLM3-3B-4bit",
+             "--port", str(test_port), "--max-tokens", "16"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             cwd=tmpdir, env=env,
         )
-        if result.returncode == 0:
-            return {"status": "pass"}
-        return {
-            "status": "fail",
-            "returncode": result.returncode,
-            "stderr": result.stderr[:500],
-        }
+
+        # Wait for it to be ready
+        if not _wait_for_server(test_port, timeout=60, poll=1.0, proc=proc):
+            return {"status": "fail", "error": "Relocated server failed to start"}
+
+        # Use OpenAI SDK to send a completion request (the real test)
+        client = _openai_client(test_port)
+        if client:
+            response = client.chat.completions.create(
+                model="mlx-community/SmolLM3-3B-4bit",
+                messages=[{"role": "user", "content": "Say hi"}],
+                max_tokens=5,
+            )
+            if response.choices and response.choices[0].message.content:
+                return {"status": "pass", "response": response.choices[0].message.content[:50]}
+            return {"status": "fail", "error": "Empty response from relocated binary"}
+        else:
+            # Fallback: raw HTTP if openai not installed
+            import json as _json
+            req_data = _json.dumps({
+                "model": "mlx-community/SmolLM3-3B-4bit",
+                "messages": [{"role": "user", "content": "Say hi"}],
+                "max_tokens": 5,
+            }).encode()
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{test_port}/v1/chat/completions",
+                data=req_data,
+                headers={"Content-Type": "application/json"},
+            )
+            resp = urllib.request.urlopen(req, timeout=30)
+            if resp.status == 200:
+                return {"status": "pass"}
+            return {"status": "fail", "error": f"HTTP {resp.status}"}
+
     except Exception as e:
         return {"status": "fail", "error": str(e)}
     finally:
+        if proc and proc.poll() is None:
+            _kill_proc(proc)
         if tmpdir and os.path.isdir(tmpdir):
             shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -539,23 +609,8 @@ def _start_afm_server(binary: str, model: str, port: int,
     drain_t = threading.Thread(target=_drain, daemon=True)
     drain_t.start()
 
-    # Poll for health
-    import urllib.request
-    health_url = f"http://127.0.0.1:{port}/health"
-    deadline = time.monotonic() + HEALTH_TIMEOUT
-    healthy = False
-    while time.monotonic() < deadline:
-        if _stop_requested.is_set():
-            proc.terminate()
-            return proc
-        try:
-            req = urllib.request.urlopen(health_url, timeout=2)
-            if req.status == 200:
-                healthy = True
-                break
-        except Exception:
-            pass
-        time.sleep(HEALTH_POLL_INTERVAL)
+    # Wait for server readiness (uses OpenAI SDK if available)
+    healthy = _wait_for_server(port, timeout=HEALTH_TIMEOUT, poll=HEALTH_POLL_INTERVAL, proc=proc)
 
     if healthy:
         _emit_sse({"type": "server_ready", "port": port})
@@ -1318,20 +1373,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "pid": _user_afm_proc.pid,
             })
 
-            # Wait for health
+            # Wait for server readiness (uses OpenAI SDK if available)
             port = opts.get("port", 9998)
-            healthy = False
-            for _ in range(120):
-                if _user_afm_proc.poll() is not None:
-                    break
-                try:
-                    r = urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1)
-                    if r.status == 200:
-                        healthy = True
-                        break
-                except Exception:
-                    pass
-                time.sleep(1)
+            healthy = _wait_for_server(port, timeout=120, poll=1.0, proc=_user_afm_proc)
 
             if healthy:
                 self._json_response({

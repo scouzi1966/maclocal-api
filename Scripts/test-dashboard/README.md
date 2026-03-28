@@ -19,7 +19,7 @@ python3 Scripts/test-dashboard/server.py
 
 ## Architecture
 
-- `server.py` — Lightweight Python HTTP server (stdlib only, no pip dependencies)
+- `server.py` — Python HTTP server (uses `openai` SDK when available, falls back to raw HTTP)
 - `index.html` — Self-contained SPA (vanilla HTML/CSS/JS, no build step)
 
 The server spawns test scripts as subprocesses, parses their output, and streams events to the browser via SSE.
@@ -42,6 +42,14 @@ Monitor from a coding agent:
 ```bash
 tail -f test-reports/dashboard-logs/LATEST.jsonl | jq 'select(.type == "test_result")'
 ```
+
+## Dependencies
+
+```bash
+pip install openai  # recommended — used for health checks and preflight validation
+```
+
+The server works without `openai` (falls back to raw HTTP), but with it installed, every interaction with AFM goes through the same SDK that users use — making the dashboard itself an API compatibility test.
 
 ## Options
 
