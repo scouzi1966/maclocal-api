@@ -189,46 +189,64 @@ tailwind.config = {
       <i data-lucide="settings-2" class="w-4 h-4 text-muted"></i>
       <h2 class="text-xs font-semibold uppercase tracking-wider text-muted">Configuration</h2>
     </div>
+    <!-- Row 1: Project Root -->
+    <div class="mb-4">
+      <label class="block text-xs font-semibold text-muted uppercase tracking-wide mb-1.5">Project Root</label>
+      <div class="flex items-center gap-2">
+        <input type="text" x-model="projectRoot"
+               @change="onProjectRootChange()"
+               placeholder="/path/to/maclocal-api" spellcheck="false"
+               class="flex-1 px-3 py-2 rounded-lg border border-border bg-surface text-sm font-mono text-gray-200 placeholder-faint outline-none focus:border-accent-blue transition-colors">
+        <span x-show="projectRootValid"
+              class="flex items-center gap-1 text-xs text-accent-green font-medium whitespace-nowrap">
+          <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i>
+        </span>
+        <span x-show="projectRoot && !projectRootValid"
+              class="flex items-center gap-1 text-xs text-accent-red font-medium whitespace-nowrap">
+          <i data-lucide="x-circle" class="w-3.5 h-3.5"></i>
+        </span>
+      </div>
+      <p class="text-[10px] text-faint mt-1">
+        Repo root containing <code class="text-gray-500">Scripts/</code>, <code class="text-gray-500">.build/</code>, and test harnesses. Auto-detected from server.
+      </p>
+    </div>
+
+    <!-- Row 2: Binary + Model + Pre-flight -->
     <div class="grid grid-cols-1 md:grid-cols-[1fr_280px_auto] gap-5 items-end">
       <!-- Binary Path -->
       <div>
-        <label class="block text-xs font-semibold text-muted uppercase tracking-wide mb-1.5">Binary Path</label>
+        <label class="block text-xs font-semibold text-muted uppercase tracking-wide mb-1.5">Binary</label>
         <div class="flex items-center gap-2">
-          <!-- Quick-select dropdown for known locations -->
+          <!-- Quick-select dropdown -->
           <select @change="if($event.target.value) { binary.path = $event.target.value; $event.target.value = ''; onBinaryChange(); }"
                   class="w-9 px-0 py-2 rounded-l-lg border border-r-0 border-border bg-surface-hover text-sm text-muted outline-none cursor-pointer appearance-none text-center hover:bg-border transition-colors"
-                  title="Quick select binary location">
-            <option value="">📂</option>
-            <optgroup label="── Build Output ──">
-              <option value=".build/arm64-apple-macosx/release/afm">Release build (arm64)</option>
-              <option value=".build/release/afm">Release build (short)</option>
-              <option value=".build/arm64-apple-macosx/debug/afm">Debug build</option>
+                  title="Quick select binary">
+            <option value="">▾</option>
+            <optgroup label="── Project Build ──">
+              <option :value="projectRoot + '/.build/arm64-apple-macosx/release/afm'">Release build (arm64)</option>
+              <option :value="projectRoot + '/.build/release/afm'">Release build (short)</option>
+              <option :value="projectRoot + '/.build/arm64-apple-macosx/debug/afm'">Debug build</option>
             </optgroup>
-            <optgroup label="── Homebrew ──">
-              <option value="/opt/homebrew/bin/afm">Homebrew stable (afm)</option>
-              <option value="/opt/homebrew/bin/afm-next">Homebrew nightly (afm-next)</option>
-            </optgroup>
-            <optgroup label="── pip Install ──">
-              <option value="" disabled>pip: run command below to find path</option>
+            <optgroup label="── Installed ──">
+              <option value="/opt/homebrew/bin/afm">Homebrew stable</option>
+              <option value="/opt/homebrew/bin/afm-next">Homebrew nightly</option>
             </optgroup>
           </select>
-          <!-- Text input for manual path or paste -->
           <input type="text" x-model="binary.path"
                  @change="onBinaryChange()"
-                 placeholder="paste full path or select from 📂" spellcheck="false"
+                 placeholder="auto from project root, or paste full path" spellcheck="false"
                  class="flex-1 px-3 py-2 rounded-r-lg border border-border bg-surface text-sm font-mono text-gray-200 placeholder-faint outline-none focus:border-accent-blue transition-colors">
           <span x-show="binary.exists"
                 class="flex items-center gap-1 text-xs text-accent-green font-medium whitespace-nowrap">
-            <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> Detected
+            <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> <span x-text="binary.version" class="font-mono"></span>
           </span>
           <span x-show="binary.path && !binary.exists"
                 class="flex items-center gap-1 text-xs text-accent-red font-medium whitespace-nowrap">
             <i data-lucide="x-circle" class="w-3.5 h-3.5"></i> Not found
           </span>
         </div>
-        <!-- pip path hint -->
         <p class="text-[10px] text-faint mt-1 font-mono">
-          pip path: <code class="text-gray-500">python3 -c "import macafm_next; print(macafm_next.binary_path())"</code>
+          pip: <code class="text-gray-500">python3 -c "import macafm_next; print(macafm_next.binary_path())"</code>
         </p>
       </div>
 
@@ -1098,6 +1116,8 @@ tailwind.config = {
 document.addEventListener('alpine:init', () => {
   Alpine.data('dashboard', () => ({
     // ── State ──────────────────────────────────────────────────
+    projectRoot: '',
+    projectRootValid: false,
     binary: { path: '', version: '', exists: false },
     models: [],
     selectedModel: '',
@@ -1424,7 +1444,33 @@ document.addEventListener('alpine:init', () => {
       }
     },
 
+    async fetchProjectRoot() {
+      const data = await this.apiFetch('/api/project-root');
+      if (data && data.path) {
+        this.projectRoot = data.path;
+        this.projectRootValid = data.valid || false;
+      }
+    },
+
+    async onProjectRootChange() {
+      // Validate the project root
+      const data = await this.apiFetch('/api/project-root?path=' + encodeURIComponent(this.projectRoot));
+      if (data) {
+        this.projectRootValid = data.valid || false;
+        if (this.projectRootValid) {
+          // Auto-set binary to default build path if binary is empty or was a relative path
+          if (!this.binary.path || this.binary.path.startsWith('.build')) {
+            this.binary.path = this.projectRoot + '/.build/arm64-apple-macosx/release/afm';
+            this.onBinaryChange();
+          }
+        }
+      }
+    },
+
     async fetchBinary() {
+      // First get project root
+      await this.fetchProjectRoot();
+
       const data = await this.apiFetch('/api/binary');
       if (data) {
         this.binary = { path: data.path || '', version: data.version || '', exists: data.exists || false };

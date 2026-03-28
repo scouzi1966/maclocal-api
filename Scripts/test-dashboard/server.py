@@ -1000,6 +1000,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
         if path == "/" or path == "/index.html":
             self._serve_file("index.html", "text/html")
+        elif path == "/api/project-root":
+            override = query.get("path", "")
+            if override:
+                valid = os.path.isdir(os.path.join(override, "Scripts"))
+                self._json_response({"path": override, "valid": valid})
+            else:
+                self._json_response({"path": REPO_ROOT, "valid": True})
         elif path == "/api/binary":
             self._json_response(_detect_binary())
         elif path == "/api/models":
