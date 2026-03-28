@@ -473,6 +473,52 @@ The user will make code changes (or ask you to). After changes are made:
 
 This loop repeats until the user selects "Publish" or "Cancel". Each iteration is a full clean rebuild — never do an incremental build for a release.
 
+#### Before publishing: archive test reports to main
+
+When the user selects "Publish" (from any path), all test reports from this build session MUST be committed and pushed to `main` before the release is created. This ensures every nightly has a permanent test record on the main branch.
+
+```bash
+# 1. Collect all reports into test-reports/nightly/YYYY-MM-DD/
+TODAY=$(date +%Y-%m-%d)
+NIGHTLY_DIR="test-reports/nightly/$TODAY"
+mkdir -p "$NIGHTLY_DIR"
+
+# 2. Copy today's assertion reports
+cp test-reports/assertions-report-*.html test-reports/assertions-report-*.jsonl "$NIGHTLY_DIR/" 2>/dev/null
+cp test-reports/multi-assertions-report-*.html test-reports/multi-assertions-report-*.jsonl "$NIGHTLY_DIR/" 2>/dev/null
+
+# 3. Copy smart analysis reports
+cp test-reports/smart-analysis-*.md "$NIGHTLY_DIR/" 2>/dev/null
+cp test-reports/mlx-model-report-*.html test-reports/mlx-model-report-*.jsonl "$NIGHTLY_DIR/" 2>/dev/null
+
+# 4. Copy promptfoo results (from the output directory)
+PROMPTFOO_DIR="${AFM_PROMPTFOO_OUT_DIR:-/Volumes/edata/promptfoo/data/maclocal-api/current}"
+cp "$PROMPTFOO_DIR"/*-mlx-community_*.json "$NIGHTLY_DIR/" 2>/dev/null
+
+# 5. Create SUMMARY.md with pass/fail table (see test-reports/nightly/2026-03-27/SUMMARY.md for format)
+```
+
+Write a `SUMMARY.md` in the nightly directory with: binary version, model tested, platform, and a pass/fail table for every test suite run.
+
+Then commit and push to `main`:
+
+```bash
+# If in a worktree, commit locally then cherry-pick to main
+git add "$NIGHTLY_DIR/"
+git commit -m "Add nightly test reports for $TODAY"
+
+# Push to main (not just the worktree branch)
+REPO_ROOT=$(git rev-parse --show-toplevel)
+PARENT_REPO=$(cd "$REPO_ROOT/.." && git rev-parse --show-toplevel 2>/dev/null || echo "$REPO_ROOT")
+REPORT_COMMIT=$(git rev-parse HEAD)
+cd "$PARENT_REPO" && git fetch origin && git checkout main && git pull origin main && git cherry-pick "$REPORT_COMMIT" && git push origin main
+cd "$REPO_ROOT"
+```
+
+If already on `main`, just `git add`, `git commit`, `git push origin main`.
+
+**Do not skip this step.** Every nightly must have its test reports archived on `main` at `test-reports/nightly/YYYY-MM-DD/`. Without this, there is no record of what was tested before publishing.
+
 #### Version and changelog selection
 
 Before publishing, ask the user **two questions** via AskUserQuestion:
