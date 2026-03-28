@@ -1,1888 +1,1595 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AFM Test Dashboard</title>
+
+<!-- Tailwind CSS (CDN Play) -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Alpine.js + Collapse plugin -->
+<script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+
+<!-- Lucide Icons -->
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+
+<!-- Marked (Markdown) -->
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        surface: { DEFAULT: '#0d1117', card: '#161b22', hover: '#1c2128', raised: '#21262d' },
+        border: { DEFAULT: '#30363d', focus: '#58a6ff', muted: '#21262d' },
+        accent: {
+          blue: '#58a6ff', 'blue-dim': '#1f6feb',
+          green: '#3fb950', 'green-dim': '#238636', 'green-bg': '#0d2818',
+          red: '#f85149', 'red-dim': '#da3633', 'red-bg': '#2d1215',
+          yellow: '#d29922', 'yellow-dim': '#9e6a03', 'yellow-bg': '#2d2400',
+          purple: '#d2a8ff', 'purple-dim': '#8957e5',
+          orange: '#ffa657',
+        },
+        muted: '#8b949e',
+        faint: '#484f58',
+      },
+      fontFamily: {
+        mono: ['"SF Mono"', 'Menlo', 'Monaco', '"Cascadia Code"', 'monospace'],
+        sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Helvetica', 'Arial', 'sans-serif'],
+      },
+      animation: {
+        'pulse-slow': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'fade-in': 'fadeIn 0.3s ease-out forwards',
+        'slide-in-right': 'slideInRight 0.3s ease-out forwards',
+        'slide-up': 'slideUp 0.4s ease-out forwards',
+        'progress-stripe': 'progressStripe 1s linear infinite',
+        'glow-pulse': 'glowPulse 2s ease-in-out infinite',
+      },
+      keyframes: {
+        fadeIn: { '0%': { opacity: '0', transform: 'translateY(8px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+        slideInRight: { '0%': { transform: 'translateX(100%)' }, '100%': { transform: 'translateX(0)' } },
+        slideUp: { '0%': { opacity: '0', transform: 'translateY(16px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+        progressStripe: { '0%': { backgroundPosition: '1rem 0' }, '100%': { backgroundPosition: '0 0' } },
+        glowPulse: { '0%, 100%': { boxShadow: '0 0 8px rgba(88, 166, 255, 0.3)' }, '50%': { boxShadow: '0 0 20px rgba(88, 166, 255, 0.6)' } },
+      },
+    },
+  },
+};
+</script>
+
 <style>
-  /* ── Reset & Base ───────────────────────────────────────────────── */
-  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-  html { font-size: 14px; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    background: #0d1117;
-    color: #e6edf3;
-    line-height: 1.5;
-    min-height: 100vh;
-  }
-  a { color: #58a6ff; text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  code, .mono {
-    font-family: "SF Mono", "Menlo", "Monaco", "Cascadia Code", monospace;
-    font-size: 0.9em;
-  }
-
-  /* ── Color Tokens ───────────────────────────────────────────────── */
-  :root {
-    --bg: #0d1117;
-    --surface: #161b22;
-    --surface-raised: #1c2128;
-    --border: #30363d;
-    --border-muted: #21262d;
-    --text: #e6edf3;
-    --text-muted: #8b949e;
-    --text-faint: #484f58;
-    --blue: #58a6ff;
-    --blue-dim: #1f6feb;
-    --green: #3fb950;
-    --green-dim: #238636;
-    --green-bg: #0d2818;
-    --red: #f85149;
-    --red-dim: #da3633;
-    --red-bg: #2d1215;
-    --yellow: #d29922;
-    --yellow-dim: #9e6a03;
-    --yellow-bg: #2d2400;
-    --purple: #d2a8ff;
-    --purple-dim: #8957e5;
-    --orange: #ffa657;
-  }
-
-  /* ── Layout Shell ───────────────────────────────────────────────── */
-  .app {
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 1.5rem;
-    position: relative;
-  }
-
-  /* ── Header ─────────────────────────────────────────────────────── */
-  .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1.25rem 1.5rem;
-    background: linear-gradient(135deg, #1a1f2e 0%, var(--surface) 100%);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    margin-bottom: 1.5rem;
-  }
-  .header-left h1 {
-    font-size: 1.5rem;
-    font-weight: 700;
-    background: linear-gradient(90deg, #58a6ff, #bc8cff);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-  .header-left .subtitle {
-    color: var(--text-muted);
-    font-size: 0.85rem;
-    margin-top: 0.15rem;
-  }
-  .version-badge {
-    display: inline-block;
-    padding: 0.1rem 0.5rem;
-    border-radius: 10px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    background: #1a1a2e;
-    color: var(--purple);
-    border: 1px solid var(--purple-dim);
-    margin-left: 0.5rem;
-  }
-  .header-right { display: flex; gap: 0.75rem; align-items: center; }
-
-  /* ── Buttons ────────────────────────────────────────────────────── */
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text);
-    font-size: 0.85rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-    font-family: inherit;
-    white-space: nowrap;
-  }
-  .btn:hover { background: var(--surface-raised); border-color: var(--text-faint); }
-  .btn:active { transform: scale(0.98); }
-  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-  .btn-primary {
-    background: var(--blue-dim);
-    border-color: var(--blue);
-    color: #fff;
-    font-weight: 600;
-    font-size: 0.95rem;
-    padding: 0.65rem 1.5rem;
-  }
-  .btn-primary:hover { background: #2a6dc7; }
-  .btn-primary:disabled { background: var(--border); border-color: var(--text-faint); color: var(--text-muted); }
-  .btn-danger {
-    background: var(--red-bg);
-    border-color: var(--red-dim);
-    color: var(--red);
-  }
-  .btn-danger:hover { background: #3d1518; }
-
-  /* ── Panels ─────────────────────────────────────────────────────── */
-  .panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 1.25rem 1.5rem;
-    margin-bottom: 1.25rem;
-  }
-  .panel-title {
-    font-size: 0.8rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text-muted);
-    margin-bottom: 1rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .panel-title .count {
-    padding: 0.1rem 0.45rem;
-    border-radius: 10px;
-    font-size: 0.7rem;
-    background: var(--border-muted);
-    color: var(--text-muted);
-  }
-
-  /* ── Setup Panel ────────────────────────────────────────────────── */
-  .setup-grid {
-    display: grid;
-    grid-template-columns: 1fr 280px 220px;
-    gap: 1.25rem;
-    align-items: start;
-  }
-  .field-group label {
-    display: block;
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    margin-bottom: 0.4rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .field-group input,
-  .field-group select {
-    width: 100%;
-    padding: 0.55rem 0.75rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: var(--bg);
-    color: var(--text);
-    font-size: 0.9rem;
-    font-family: "SF Mono", "Menlo", monospace;
-    outline: none;
-    transition: border-color 0.15s;
-  }
-  .field-group input:focus,
-  .field-group select:focus { border-color: var(--blue); }
-  .field-group select { cursor: pointer; }
-  .field-group select option { background: var(--surface); }
-  .input-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .input-row input { flex: 1; }
-
-  /* ── Pre-flight Dots ────────────────────────────────────────────── */
-  .preflight-container { text-align: center; }
-  .preflight-dots {
-    display: flex;
-    gap: 0.75rem;
-    justify-content: center;
-    margin-top: 0.25rem;
-  }
-  .preflight-dot {
-    position: relative;
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    background: var(--border-muted);
-    transition: background 0.3s;
-    cursor: default;
-  }
-  .preflight-dot.pass { background: var(--green); box-shadow: 0 0 8px rgba(63, 185, 80, 0.35); }
-  .preflight-dot.fail { background: var(--red); box-shadow: 0 0 8px rgba(248, 81, 73, 0.35); }
-  .preflight-dot.warn { background: var(--yellow); box-shadow: 0 0 8px rgba(210, 153, 34, 0.35); }
-  .preflight-dot.checking {
-    background: var(--border);
-    animation: dot-pulse 1s ease-in-out infinite;
-  }
-  @keyframes dot-pulse {
-    0%, 100% { opacity: 0.5; }
-    50% { opacity: 1; }
-  }
-  .tooltip {
-    display: none;
-    position: absolute;
-    bottom: calc(100% + 8px);
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--surface-raised);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.5rem 0.75rem;
-    font-size: 0.75rem;
-    color: var(--text);
-    white-space: nowrap;
-    z-index: 100;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-    pointer-events: none;
-  }
-  .tooltip::after {
-    content: '';
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 5px solid transparent;
-    border-top-color: var(--border);
-  }
-  .preflight-dot:hover .tooltip { display: block; }
-
-  /* ── Suite Selection Grid ───────────────────────────────────────── */
-  .suite-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-    gap: 0.75rem;
-  }
-  .suite-card {
-    position: relative;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.85rem 1rem;
-    background: var(--bg);
-    cursor: pointer;
-    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
-    user-select: none;
-  }
-  .suite-card:hover { border-color: var(--text-faint); background: var(--surface); }
-  .suite-card.selected {
-    border-color: var(--blue);
-    background: rgba(88, 166, 255, 0.06);
-    box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.15);
-  }
-  .suite-card-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.3rem;
-  }
-  .suite-card-header input[type="checkbox"] {
-    width: 16px;
-    height: 16px;
-    accent-color: var(--blue);
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .suite-card-name {
-    font-weight: 600;
-    font-size: 0.9rem;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .suite-card-desc {
-    font-size: 0.78rem;
-    color: var(--text-muted);
-    margin-left: 1.65rem;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    line-height: 1.35;
-    margin-bottom: 0.4rem;
-  }
-  .suite-card-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-left: 1.65rem;
-  }
-  .suite-card-est {
-    font-size: 0.75rem;
-    color: var(--text-faint);
-    font-family: "SF Mono", monospace;
-  }
-  .port-badge {
-    font-size: 0.65rem;
-    padding: 0.1rem 0.4rem;
-    border-radius: 4px;
-    background: var(--border-muted);
-    color: var(--text-faint);
-    font-family: "SF Mono", monospace;
-  }
-
-  /* ── Select All & Run Controls ──────────────────────────────────── */
-  .controls-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 1rem;
-  }
-  .select-all-label {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    cursor: pointer;
-    font-size: 0.85rem;
-    color: var(--text-muted);
-  }
-  .select-all-label input[type="checkbox"] {
-    width: 16px;
-    height: 16px;
-    accent-color: var(--blue);
-    cursor: pointer;
-  }
-  .run-controls {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-  }
-  .est-total {
-    font-size: 0.8rem;
-    color: var(--text-faint);
-    font-family: "SF Mono", monospace;
-  }
-
-  /* ── Progress View ──────────────────────────────────────────────── */
-  .progress-section { display: none; }
-  .progress-section.visible { display: block; }
-
-  .summary-bar {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    gap: 1.5rem;
-    padding: 0.75rem 1.25rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    margin-bottom: 1rem;
-    backdrop-filter: blur(8px);
-    flex-wrap: wrap;
-  }
-  .summary-stat {
-    font-size: 0.85rem;
-    font-weight: 500;
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
-  .summary-stat .val { font-family: "SF Mono", monospace; font-weight: 700; }
-  .summary-stat.running .val { color: var(--blue); }
-  .summary-stat.passed .val { color: var(--green); }
-  .summary-stat.failed .val { color: var(--red); }
-  .summary-stat.time .val { color: var(--text-muted); }
-
-  /* ── Suite Progress Items ───────────────────────────────────────── */
-  .suite-progress-item {
-    border: 1px solid var(--border-muted);
-    border-radius: 8px;
-    margin-bottom: 0.6rem;
-    overflow: hidden;
-    transition: border-color 0.2s;
-  }
-  .suite-progress-item.active { border-color: var(--blue); }
-  .suite-progress-item.done-pass { border-color: var(--green-dim); }
-  .suite-progress-item.done-fail { border-color: var(--red-dim); }
-
-  .suite-progress-header {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1rem;
-    cursor: pointer;
-    user-select: none;
-    transition: background 0.15s;
-  }
-  .suite-progress-header:hover { background: var(--surface); }
-  .suite-progress-icon { font-size: 1.1rem; flex-shrink: 0; width: 1.5rem; text-align: center; }
-  .suite-progress-icon.spinning {
-    display: inline-block;
-    animation: spin 1s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .suite-progress-name { font-weight: 600; font-size: 0.9rem; flex: 1; }
-  .suite-progress-stats {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    font-family: "SF Mono", monospace;
-    display: flex;
-    gap: 0.75rem;
-    align-items: center;
-  }
-  .suite-progress-time { color: var(--text-faint); }
-
-  /* ── Mini progress bar in suite header ──────────────────────────── */
-  .mini-progress {
-    width: 120px;
-    height: 6px;
-    background: var(--border-muted);
-    border-radius: 3px;
-    overflow: hidden;
-    flex-shrink: 0;
-  }
-  .mini-progress-fill {
-    height: 100%;
-    border-radius: 3px;
-    background: var(--blue);
-    transition: width 0.3s ease;
-  }
-  .suite-progress-item.done-pass .mini-progress-fill { background: var(--green); }
-  .suite-progress-item.done-fail .mini-progress-fill { background: var(--red); }
-
-  /* ── Suite Detail (expandable) ──────────────────────────────────── */
-  .suite-detail {
-    display: none;
-    border-top: 1px solid var(--border-muted);
-    background: var(--bg);
-    max-height: 400px;
-    overflow-y: auto;
-  }
-  .suite-detail.open { display: block; }
-  .test-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.5rem;
-    padding: 0.45rem 1rem 0.45rem 2.5rem;
-    font-size: 0.8rem;
-    border-bottom: 1px solid var(--border-muted);
-    transition: background 0.1s;
-  }
-  .test-item:last-child { border-bottom: none; }
-  .test-item:hover { background: var(--surface); }
-  .test-icon { flex-shrink: 0; width: 1.2rem; text-align: center; }
-  .test-name { flex: 1; word-break: break-word; }
-  .test-duration {
-    color: var(--text-faint);
-    font-family: "SF Mono", monospace;
-    font-size: 0.75rem;
-    flex-shrink: 0;
-  }
-  .test-group-badge {
-    display: inline-block;
-    padding: 0.05rem 0.4rem;
-    border-radius: 4px;
-    font-size: 0.65rem;
-    font-weight: 500;
-    background: #1a1f2e;
-    color: var(--text-faint);
-    border: 1px solid var(--border);
-    flex-shrink: 0;
-    margin-left: 0.25rem;
-  }
-  .test-failure {
-    margin: 0.25rem 0 0.35rem 2.5rem;
-    padding: 0.5rem 0.75rem;
-    background: var(--red-bg);
-    border: 1px solid var(--red-dim);
-    border-radius: 6px;
-    font-size: 0.78rem;
-    font-family: "SF Mono", monospace;
-    color: var(--red);
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-  .test-failure .label { color: var(--text-muted); font-weight: 600; display: block; margin-bottom: 0.15rem; }
-  .test-failure .expected { color: var(--green); }
-  .test-failure .actual { color: var(--red); }
-
-  /* ── Stdout Tail ────────────────────────────────────────────────── */
-  .stdout-tail {
-    margin: 0.25rem 1rem 0.5rem 2.5rem;
-    padding: 0.5rem 0.75rem;
-    background: #010409;
-    border: 1px solid var(--border-muted);
-    border-radius: 6px;
-    font-size: 0.72rem;
-    font-family: "SF Mono", monospace;
-    color: var(--text-faint);
-    max-height: 180px;
-    overflow-y: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
-    line-height: 1.4;
-  }
-  .stdout-tail:empty { display: none; }
-
-  /* ── Results Table ──────────────────────────────────────────────── */
-  .results-section { display: none; }
-  .results-section.visible { display: block; }
-
-  .results-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.85rem;
-  }
-  .results-table th {
-    background: var(--surface-raised);
-    color: var(--text-muted);
-    font-weight: 600;
-    text-transform: uppercase;
-    font-size: 0.7rem;
-    letter-spacing: 0.06em;
-    padding: 0.65rem 1rem;
-    text-align: left;
-    border-bottom: 2px solid var(--border);
-    position: sticky;
-    top: 0;
-  }
-  .results-table td {
-    padding: 0.65rem 1rem;
-    border-bottom: 1px solid var(--border-muted);
-    vertical-align: middle;
-  }
-  .results-table tbody tr { cursor: pointer; transition: background 0.1s; }
-  .results-table tbody tr:hover { background: var(--surface); }
-  .results-table tr.rate-100 td:first-child { border-left: 3px solid var(--green); }
-  .results-table tr.rate-high td:first-child { border-left: 3px solid var(--yellow); }
-  .results-table tr.rate-low td:first-child { border-left: 3px solid var(--red); }
-
-  .rate-pill {
-    display: inline-block;
-    padding: 0.15rem 0.5rem;
-    border-radius: 10px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    font-family: "SF Mono", monospace;
-  }
-  .rate-pill.perfect { background: var(--green-bg); color: var(--green); }
-  .rate-pill.high { background: var(--yellow-bg); color: var(--yellow); }
-  .rate-pill.low { background: var(--red-bg); color: var(--red); }
-
-  .action-bar {
-    display: flex;
-    gap: 0.75rem;
-    margin-top: 1.25rem;
-    flex-wrap: wrap;
-  }
-
-  /* ── History Sidebar ────────────────────────────────────────────── */
-  .history-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.5);
-    z-index: 50;
-  }
-  .history-overlay.open { display: block; }
-  .history-panel {
-    position: fixed;
-    top: 0;
-    right: 0;
-    width: 380px;
-    height: 100vh;
-    background: var(--surface);
-    border-left: 1px solid var(--border);
-    z-index: 51;
-    transform: translateX(100%);
-    transition: transform 0.25s ease;
-    display: flex;
-    flex-direction: column;
-  }
-  .history-overlay.open .history-panel { transform: translateX(0); }
-  .history-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1rem 1.25rem;
-    border-bottom: 1px solid var(--border);
-  }
-  .history-header h3 { font-size: 1rem; font-weight: 600; }
-  .history-close {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    font-size: 1.25rem;
-    cursor: pointer;
-    padding: 0.25rem;
-    line-height: 1;
-  }
-  .history-close:hover { color: var(--text); }
-  .history-list {
-    flex: 1;
-    overflow-y: auto;
-    padding: 0.75rem;
-  }
-  .history-item {
-    padding: 0.75rem 1rem;
-    border: 1px solid var(--border-muted);
-    border-radius: 8px;
-    margin-bottom: 0.5rem;
-    cursor: pointer;
-    transition: border-color 0.15s, background 0.15s;
-  }
-  .history-item:hover { border-color: var(--text-faint); background: var(--surface-raised); }
-  .history-item.selected { border-color: var(--blue); background: rgba(88, 166, 255, 0.06); }
-  .history-date { font-size: 0.8rem; color: var(--text-muted); font-family: "SF Mono", monospace; }
-  .history-suites { font-size: 0.75rem; color: var(--text-faint); margin-top: 0.2rem; }
-  .history-summary {
-    display: flex;
-    gap: 0.75rem;
-    margin-top: 0.35rem;
-    font-size: 0.78rem;
-  }
-  .history-summary .pass { color: var(--green); }
-  .history-summary .fail { color: var(--red); }
-  .history-summary .dur { color: var(--text-faint); }
-  .history-compare-bar {
-    padding: 0.75rem 1.25rem;
-    border-top: 1px solid var(--border);
-    display: none;
-  }
-  .history-compare-bar.visible { display: flex; gap: 0.5rem; align-items: center; justify-content: center; }
-  .history-empty {
-    text-align: center;
-    padding: 3rem 1rem;
-    color: var(--text-faint);
-    font-size: 0.85rem;
-  }
-
-  /* ── Spinner ────────────────────────────────────────────────────── */
-  .spinner {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    border: 2px solid var(--border);
-    border-top-color: var(--blue);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-
-  /* ── Notification Toast ─────────────────────────────────────────── */
-  .toast {
-    position: fixed;
-    bottom: 1.5rem;
-    right: 1.5rem;
-    padding: 0.75rem 1.25rem;
-    border-radius: 8px;
-    font-size: 0.85rem;
-    font-weight: 500;
-    z-index: 200;
-    transform: translateY(120%);
-    transition: transform 0.3s ease;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-  }
-  .toast.show { transform: translateY(0); }
-  .toast.success { background: var(--green-bg); border: 1px solid var(--green-dim); color: var(--green); }
-  .toast.error { background: var(--red-bg); border: 1px solid var(--red-dim); color: var(--red); }
-  .toast.info { background: #0d1a30; border: 1px solid var(--blue-dim); color: var(--blue); }
-
-  /* ── Scrollbar ──────────────────────────────────────────────────── */
-  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  /* Base scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+  ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #484f58; }
 
-  .hidden { display: none !important; }
-
-  /* ── Responsive ─────────────────────────────────────────────────── */
-  @media (max-width: 960px) {
-    .setup-grid { grid-template-columns: 1fr; }
-    .suite-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
-    .history-panel { width: 100%; }
+  /* Custom checkbox */
+  .custom-checkbox {
+    appearance: none; -webkit-appearance: none;
+    width: 18px; height: 18px; border: 2px solid #30363d; border-radius: 4px;
+    background: #0d1117; cursor: pointer; position: relative;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
   }
+  .custom-checkbox:checked {
+    background: #1f6feb; border-color: #58a6ff;
+  }
+  .custom-checkbox:checked::after {
+    content: ''; position: absolute; top: 2px; left: 5px;
+    width: 5px; height: 9px; border: solid white; border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  .custom-checkbox:hover { border-color: #58a6ff; }
+
+  /* Animated progress bar stripes */
+  .progress-animated {
+    background-image: linear-gradient(
+      45deg, rgba(255,255,255,0.1) 25%, transparent 25%,
+      transparent 50%, rgba(255,255,255,0.1) 50%,
+      rgba(255,255,255,0.1) 75%, transparent 75%, transparent
+    );
+    background-size: 1rem 1rem;
+  }
+
+  /* Glassmorphism card */
+  .glass-card {
+    background: rgba(22, 27, 34, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* Spinner */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner-icon { animation: spin 1s linear infinite; }
+
+  /* Toast stack */
+  .toast-container { position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 200; display: flex; flex-direction: column-reverse; gap: 0.5rem; }
+
+  /* Ensure select styling */
+  select option { background: #161b22; color: #e6edf3; }
+
+  /* Transition helpers */
+  [x-cloak] { display: none !important; }
 </style>
 </head>
-<body>
 
-<div class="app" id="app">
+<body class="bg-surface text-gray-200 font-sans min-h-screen antialiased" x-data="dashboard" x-cloak>
 
-  <!-- ─── Header ─────────────────────────────────────────────────── -->
-  <header class="header">
-    <div class="header-left">
-      <h1>AFM Test Dashboard</h1>
-      <div class="subtitle" id="header-subtitle">Production Release Validation</div>
+<!-- ============================================================ -->
+<!-- TOAST NOTIFICATIONS                                          -->
+<!-- ============================================================ -->
+<div class="toast-container">
+  <template x-for="(t, i) in toasts" :key="t.id">
+    <div x-show="t.visible"
+         x-transition:enter="transition ease-out duration-300"
+         x-transition:enter-start="opacity-0 translate-y-4"
+         x-transition:enter-end="opacity-100 translate-y-0"
+         x-transition:leave="transition ease-in duration-200"
+         x-transition:leave-start="opacity-100 translate-y-0"
+         x-transition:leave-end="opacity-0 translate-y-4"
+         :class="{
+           'bg-accent-green-bg border-accent-green-dim text-accent-green': t.type === 'success',
+           'bg-accent-red-bg border-accent-red-dim text-accent-red': t.type === 'error',
+           'bg-[#0d1a30] border-accent-blue-dim text-accent-blue': t.type === 'info',
+           'bg-accent-yellow-bg border-accent-yellow-dim text-accent-yellow': t.type === 'warning',
+         }"
+         class="px-4 py-3 rounded-lg border text-sm font-medium shadow-lg shadow-black/30 max-w-sm flex items-center gap-2">
+      <i :data-lucide="t.type === 'success' ? 'check-circle-2' : t.type === 'error' ? 'x-circle' : t.type === 'warning' ? 'alert-triangle' : 'info'"
+         class="w-4 h-4 flex-shrink-0"></i>
+      <span x-text="t.message"></span>
     </div>
-    <div class="header-right">
-      <button class="btn" id="btn-history" title="Run History">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.705 8.005a.75.75 0 0 1 .834.656 5.5 5.5 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.07-1.07A7 7 0 0 1 1.049 8.84a.75.75 0 0 1 .656-.834ZM14.295 7.995a.75.75 0 0 1-.834-.656 5.5 5.5 0 0 0-9.592-2.97l1.204 1.204a.25.25 0 0 1-.177.427H1.25a.25.25 0 0 1-.25-.25V2.104a.25.25 0 0 1 .427-.177l1.07 1.07A7 7 0 0 1 14.951 7.16a.75.75 0 0 1-.656.834Z"/></svg>
+  </template>
+</div>
+
+<!-- ============================================================ -->
+<!-- MAIN APP SHELL                                               -->
+<!-- ============================================================ -->
+<div class="max-w-[1360px] mx-auto px-4 py-5 space-y-4">
+
+  <!-- ────────────────────────────────────────────────────────── -->
+  <!-- HEADER                                                     -->
+  <!-- ────────────────────────────────────────────────────────── -->
+  <header class="flex items-center justify-between px-5 py-4 rounded-xl border border-border bg-gradient-to-br from-[#1a1f2e] to-surface-card">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-accent-blue to-accent-purple flex items-center justify-center">
+        <i data-lucide="diamond" class="w-4 h-4 text-white"></i>
+      </div>
+      <div>
+        <h1 class="text-xl font-bold bg-gradient-to-r from-accent-blue to-accent-purple bg-clip-text text-transparent">
+          AFM Test Dashboard
+        </h1>
+        <p class="text-xs text-muted mt-0.5">Production Release Validation</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <span x-show="binary.version"
+            class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#1a1a2e] text-accent-purple border border-accent-purple-dim font-mono"
+            x-text="binary.version"></span>
+      <button @click="showHistory = true"
+              class="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-surface-card text-sm font-medium text-gray-300 hover:bg-surface-hover hover:border-faint transition-all duration-150 active:scale-[0.98]">
+        <i data-lucide="history" class="w-4 h-4"></i>
         History
       </button>
     </div>
   </header>
 
-  <!-- ─── Setup Panel ────────────────────────────────────────────── -->
-  <section class="panel" id="setup-panel">
-    <div class="panel-title">Configuration</div>
-    <div class="setup-grid">
-      <div class="field-group">
-        <label for="binary-path">Binary Path</label>
-        <div class="input-row">
-          <input type="text" id="binary-path" placeholder=".build/release/afm" spellcheck="false">
-          <span class="version-badge hidden" id="binary-version"></span>
+  <!-- ────────────────────────────────────────────────────────── -->
+  <!-- CONFIGURATION BAR                                          -->
+  <!-- ────────────────────────────────────────────────────────── -->
+  <section class="rounded-xl border border-border bg-surface-card p-5 animate-fade-in">
+    <div class="flex items-center gap-2 mb-4">
+      <i data-lucide="settings-2" class="w-4 h-4 text-muted"></i>
+      <h2 class="text-xs font-semibold uppercase tracking-wider text-muted">Configuration</h2>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-[1fr_280px_auto] gap-5 items-end">
+      <!-- Binary Path -->
+      <div>
+        <label class="block text-xs font-semibold text-muted uppercase tracking-wide mb-1.5">Binary Path</label>
+        <div class="flex items-center gap-2">
+          <input type="text" x-model="binary.path"
+                 @change="onBinaryChange()"
+                 placeholder=".build/release/afm" spellcheck="false"
+                 class="flex-1 px-3 py-2 rounded-lg border border-border bg-surface text-sm font-mono text-gray-200 placeholder-faint outline-none focus:border-accent-blue transition-colors">
+          <span x-show="binary.exists"
+                class="flex items-center gap-1 text-xs text-accent-green font-medium whitespace-nowrap">
+            <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> Detected
+          </span>
         </div>
       </div>
-      <div class="field-group">
-        <label for="model-select">Model</label>
-        <select id="model-select">
-          <option value="" disabled selected>Loading models...</option>
+
+      <!-- Model Select -->
+      <div>
+        <label class="block text-xs font-semibold text-muted uppercase tracking-wide mb-1.5">Model</label>
+        <select x-model="selectedModel"
+                class="w-full px-3 py-2 rounded-lg border border-border bg-surface text-sm font-mono text-gray-200 outline-none focus:border-accent-blue transition-colors cursor-pointer">
+          <option value="" disabled x-text="models.length === 0 ? 'Loading models...' : 'Select a model...'"></option>
+          <template x-for="m in models" :key="m.id">
+            <option :value="m.id" x-text="m.id + (m.size_gb ? ' (' + m.size_gb + ' GB)' : '')"></option>
+          </template>
         </select>
       </div>
-      <div class="field-group preflight-container">
-        <label>Pre-flight</label>
-        <div class="preflight-dots" id="preflight-dots">
-          <div class="preflight-dot" id="pf-version" data-check="version">
-            <div class="tooltip">Version: not checked</div>
-          </div>
-          <div class="preflight-dot" id="pf-metallib" data-check="metallib">
-            <div class="tooltip">Metal lib: not checked</div>
-          </div>
-          <div class="preflight-dot" id="pf-relocated" data-check="relocated">
-            <div class="tooltip">Relocated: not checked</div>
-          </div>
-          <div class="preflight-dot" id="pf-bundle" data-check="bundle_module">
-            <div class="tooltip">Bundle module: not checked</div>
+
+      <!-- Preflight -->
+      <div class="flex flex-col items-center gap-1.5">
+        <label class="text-xs font-semibold text-muted uppercase tracking-wide">Pre-flight</label>
+        <div class="flex items-center gap-2">
+          <template x-for="check in preflightChecks" :key="check.key">
+            <div class="relative group">
+              <div class="w-7 h-7 rounded-full transition-all duration-300 cursor-default flex items-center justify-center"
+                   :class="{
+                     'bg-border-muted': !preflight[check.key],
+                     'bg-accent-green shadow-[0_0_8px_rgba(63,185,80,0.35)]': preflight[check.key]?.status === 'pass',
+                     'bg-accent-red shadow-[0_0_8px_rgba(248,81,73,0.35)]': preflight[check.key]?.status === 'fail',
+                     'bg-accent-yellow shadow-[0_0_8px_rgba(210,153,34,0.35)]': preflight[check.key]?.status === 'warn',
+                     'bg-border animate-pulse-slow': preflightRunning && !preflight[check.key],
+                   }">
+                <i x-show="preflight[check.key]?.status === 'pass'" data-lucide="check" class="w-3.5 h-3.5 text-white"></i>
+                <i x-show="preflight[check.key]?.status === 'fail'" data-lucide="x" class="w-3.5 h-3.5 text-white"></i>
+                <i x-show="preflight[check.key]?.status === 'warn'" data-lucide="alert-triangle" class="w-3 h-3 text-white"></i>
+              </div>
+              <!-- Tooltip -->
+              <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 rounded-md bg-surface-raised border border-border text-xs text-gray-200 whitespace-nowrap shadow-lg shadow-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none z-50">
+                <span class="font-medium" x-text="check.label + ': '"></span>
+                <span x-text="preflight[check.key] ? (preflight[check.key].value || preflight[check.key].status || 'checking...') : 'not checked'"></span>
+                <div class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-border"></div>
+              </div>
+            </div>
+          </template>
+          <button x-show="!preflightRunning && binary.path"
+                  @click="runPreflight()"
+                  class="ml-1 p-1.5 rounded-md text-muted hover:text-accent-blue hover:bg-surface-hover transition-all"
+                  title="Re-run pre-flight checks">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+          </button>
+          <div x-show="preflightRunning" class="ml-1">
+            <i data-lucide="loader-2" class="w-4 h-4 text-accent-blue spinner-icon"></i>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ─── Suite Selection ────────────────────────────────────────── -->
-  <section class="panel" id="suites-panel">
-    <div class="controls-bar">
-      <div style="display:flex;align-items:center;gap:1rem;">
-        <div class="panel-title" style="margin-bottom:0;">Test Suites</div>
-        <label class="select-all-label">
-          <input type="checkbox" id="select-all">
+  <!-- ────────────────────────────────────────────────────────── -->
+  <!-- TEST SUITES SELECTION                                      -->
+  <!-- ────────────────────────────────────────────────────────── -->
+  <section class="rounded-xl border border-border bg-surface-card p-5 animate-fade-in" style="animation-delay: 0.05s">
+    <!-- Controls bar -->
+    <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+      <div class="flex items-center gap-4">
+        <div class="flex items-center gap-2">
+          <i data-lucide="test-tubes" class="w-4 h-4 text-muted"></i>
+          <h2 class="text-xs font-semibold uppercase tracking-wider text-muted">Test Suites</h2>
+          <span class="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-border-muted text-muted"
+                x-text="Object.keys(suites).length"></span>
+        </div>
+        <label class="flex items-center gap-2 cursor-pointer text-sm text-muted hover:text-gray-300 transition-colors select-none"
+               :class="{ 'pointer-events-none opacity-50': running }">
+          <input type="checkbox"
+                 class="custom-checkbox"
+                 :checked="selectedCount === Object.keys(suites).length && selectedCount > 0"
+                 :indeterminate.prop="selectedCount > 0 && selectedCount < Object.keys(suites).length"
+                 @change="$event.target.checked ? selectAll() : deselectAll()">
           Select All
         </label>
       </div>
-      <div class="run-controls">
-        <span class="est-total" id="est-total"></span>
-        <button class="btn btn-danger hidden" id="btn-stop">Stop</button>
-        <button class="btn btn-primary" id="btn-run" disabled>Run Selected</button>
+      <div class="flex items-center gap-3">
+        <span x-show="selectedCount > 0"
+              class="text-xs text-faint font-mono"
+              x-text="'Est. ' + formatDuration(estimatedMinutes * 60)">
+        </span>
+
+        <!-- Stop button -->
+        <button x-show="running" @click="stopRun()"
+                class="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-red-bg border border-accent-red-dim text-accent-red text-sm font-semibold hover:bg-[#3d1518] transition-all active:scale-[0.98]">
+          <i data-lucide="square" class="w-3.5 h-3.5"></i>
+          Stop
+        </button>
+
+        <!-- Run button -->
+        <button x-show="!running" @click="startRun()"
+                :disabled="!canRun"
+                class="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all active:scale-[0.98]"
+                :class="canRun
+                  ? 'bg-accent-blue-dim border border-accent-blue text-white hover:bg-[#2a6dc7] shadow-lg shadow-accent-blue/20'
+                  : 'bg-border border border-faint text-muted cursor-not-allowed'">
+          <i data-lucide="play" class="w-4 h-4"></i>
+          <span x-text="selectedCount > 0 ? 'Run ' + selectedCount + ' Suite' + (selectedCount !== 1 ? 's' : '') : 'Select Tests'"></span>
+        </button>
       </div>
     </div>
-    <div class="suite-grid" id="suite-grid"></div>
+
+    <!-- Suite Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+      <template x-for="(def, id) in suites" :key="id">
+        <div @click="!running && toggleSuite(id)"
+             class="relative rounded-lg border p-4 cursor-pointer transition-all duration-200 select-none group"
+             :class="{
+               'border-accent-blue bg-accent-blue/[0.06] shadow-[0_0_0_1px_rgba(88,166,255,0.15)] scale-[1.01]': selected.has(id),
+               'border-border bg-surface hover:border-faint hover:bg-surface-card hover:shadow-md hover:shadow-black/20 hover:-translate-y-0.5': !selected.has(id),
+               'pointer-events-none opacity-60': running,
+             }">
+          <!-- Top row: checkbox + icon + name -->
+          <div class="flex items-center gap-2.5 mb-2">
+            <input type="checkbox"
+                   class="custom-checkbox"
+                   :checked="selected.has(id)"
+                   @click.stop="toggleSuite(id)"
+                   :disabled="running">
+            <i :data-lucide="suiteIcon(id)" class="w-4 h-4 flex-shrink-0"
+               :class="selected.has(id) ? 'text-accent-blue' : 'text-faint group-hover:text-muted'"></i>
+            <span class="font-semibold text-sm truncate"
+                  :class="selected.has(id) ? 'text-gray-100' : 'text-gray-300'"
+                  x-text="def.label"></span>
+          </div>
+          <!-- Description -->
+          <p class="text-xs text-muted leading-relaxed ml-[42px] mb-3 line-clamp-2" x-text="def.desc"></p>
+          <!-- Footer: est + port + options toggle -->
+          <div class="flex items-center justify-between ml-[42px]">
+            <span class="text-[11px] text-faint font-mono" x-text="def.est"></span>
+            <div class="flex items-center gap-2">
+              <span x-show="def.port"
+                    class="text-[10px] px-1.5 py-0.5 rounded bg-border-muted text-faint font-mono"
+                    x-text="':' + def.port"></span>
+              <button x-show="suiteOptionDefs[id]"
+                      @click.stop="toggleSuiteOptions(id)"
+                      class="text-[10px] px-1.5 py-0.5 rounded text-faint hover:text-muted hover:bg-border-muted transition-colors"
+                      :class="{ 'bg-accent-blue/10 text-accent-blue': expandedOptions.has(id) }">
+                <i data-lucide="settings-2" class="w-3 h-3 inline-block"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Per-suite options panel (expandable) -->
+          <div x-show="expandedOptions.has(id) && suiteOptionDefs[id]"
+               x-transition:enter="transition ease-out duration-200"
+               x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0"
+               @click.stop
+               class="mt-3 pt-3 border-t border-border/50 space-y-2 ml-[42px]">
+            <template x-for="opt in (suiteOptionDefs[id] || [])" :key="opt.key">
+              <div class="flex items-center gap-2">
+                <!-- Toggle option -->
+                <template x-if="opt.type === 'toggle'">
+                  <label class="flex items-center gap-2 cursor-pointer w-full">
+                    <input type="checkbox"
+                           class="custom-checkbox !w-3.5 !h-3.5"
+                           :checked="getSuiteOpt(id, opt.key, opt.default)"
+                           @change="setSuiteOpt(id, opt.key, $event.target.checked)"
+                           :disabled="running">
+                    <span class="text-[11px] text-muted" x-text="opt.label"></span>
+                  </label>
+                </template>
+                <!-- Select option -->
+                <template x-if="opt.type === 'select'">
+                  <label class="flex items-center gap-2 w-full">
+                    <span class="text-[11px] text-muted whitespace-nowrap" x-text="opt.label + ':'"></span>
+                    <select class="flex-1 text-[11px] bg-surface border border-border rounded px-1.5 py-0.5 text-gray-300 focus:border-accent-blue outline-none"
+                            :value="getSuiteOpt(id, opt.key, opt.default)"
+                            @change="setSuiteOpt(id, opt.key, $event.target.value)"
+                            :disabled="running">
+                      <template x-for="v in opt.values" :key="v">
+                        <option :value="v" x-text="v"></option>
+                      </template>
+                    </select>
+                  </label>
+                </template>
+                <!-- Text option -->
+                <template x-if="opt.type === 'text'">
+                  <label class="flex items-center gap-2 w-full">
+                    <span class="text-[11px] text-muted whitespace-nowrap" x-text="opt.label + ':'"></span>
+                    <input type="text"
+                           class="flex-1 text-[11px] bg-surface border border-border rounded px-1.5 py-0.5 text-gray-300 focus:border-accent-blue outline-none font-mono"
+                           :value="getSuiteOpt(id, opt.key, opt.default)"
+                           @input="setSuiteOpt(id, opt.key, $event.target.value)"
+                           :placeholder="opt.placeholder || ''"
+                           :disabled="running">
+                  </label>
+                </template>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+    </div>
   </section>
 
-  <!-- ─── Progress ───────────────────────────────────────────────── -->
-  <section class="panel progress-section" id="progress-section">
-    <div class="panel-title">Progress</div>
-    <div class="summary-bar" id="summary-bar">
-      <div class="summary-stat running">
-        <span>Running:</span>
-        <span class="val" id="sum-running">0/0</span>
+  <!-- ────────────────────────────────────────────────────────── -->
+  <!-- PROGRESS SECTION                                           -->
+  <!-- ────────────────────────────────────────────────────────── -->
+  <section x-show="showProgressSection" x-transition:enter="transition ease-out duration-300"
+           x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0"
+           class="rounded-xl border border-border bg-surface-card p-5 space-y-4">
+
+    <div class="flex items-center gap-2 mb-1">
+      <i data-lucide="activity" class="w-4 h-4 text-muted"></i>
+      <h2 class="text-xs font-semibold uppercase tracking-wider text-muted">Progress</h2>
+    </div>
+
+    <!-- Overall progress bar + stats (sticky) -->
+    <div class="sticky top-0 z-10 rounded-lg border border-border bg-surface-card/95 backdrop-blur-md p-4 space-y-3">
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <div class="flex items-center gap-5 text-sm">
+          <span class="flex items-center gap-1.5">
+            <span class="text-muted">Suites:</span>
+            <span class="font-mono font-bold text-accent-blue" x-text="completedSuiteCount + '/' + suiteOrder.length"></span>
+          </span>
+          <span class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-accent-green"></span>
+            <span class="font-mono font-bold text-accent-green" x-text="overallPassed"></span>
+          </span>
+          <span x-show="overallFailed > 0" class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-accent-red"></span>
+            <span class="font-mono font-bold text-accent-red" x-text="overallFailed"></span>
+          </span>
+          <span class="flex items-center gap-1.5 text-muted">
+            <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+            <span class="font-mono font-bold" x-text="formatDuration(elapsed)"></span>
+          </span>
+        </div>
+        <span x-show="running" class="flex items-center gap-1.5 text-xs text-accent-blue">
+          <i data-lucide="loader-2" class="w-3.5 h-3.5 spinner-icon"></i>
+          Running...
+        </span>
       </div>
-      <div class="summary-stat passed">
-        <span>Passed:</span>
-        <span class="val" id="sum-passed">0</span>
-      </div>
-      <div class="summary-stat failed">
-        <span>Failed:</span>
-        <span class="val" id="sum-failed">0</span>
-      </div>
-      <div class="summary-stat time">
-        <span>Elapsed:</span>
-        <span class="val" id="sum-time">0s</span>
+      <!-- Progress bar -->
+      <div class="w-full h-2.5 rounded-full bg-border-muted overflow-hidden">
+        <div class="h-full rounded-full transition-all duration-500 ease-out"
+             :class="running ? 'progress-animated animate-progress-stripe' : ''"
+             :style="'width: ' + overallPercent + '%; background: linear-gradient(90deg, ' + (overallFailed > 0 ? '#f85149' : '#3fb950') + ', ' + (overallFailed > 0 ? '#da3633' : '#238636') + ');'">
+        </div>
       </div>
     </div>
-    <div id="progress-list"></div>
+
+    <!-- Per-suite progress items -->
+    <div class="space-y-2">
+      <template x-for="id in suiteOrder" :key="id">
+        <div class="rounded-lg border overflow-hidden transition-all duration-200"
+             :class="{
+               'border-accent-blue bg-accent-blue/[0.03]': progress[id]?.status === 'running',
+               'border-accent-green-dim/50': progress[id]?.status === 'pass',
+               'border-accent-red-dim/50': progress[id]?.status === 'fail',
+               'border-border-muted': !progress[id] || progress[id]?.status === 'pending',
+             }">
+          <!-- Suite header (click to expand) -->
+          <div @click="toggleExpanded(id)"
+               class="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-surface-hover/50 transition-colors select-none">
+            <!-- Status icon -->
+            <div class="w-6 h-6 flex items-center justify-center flex-shrink-0">
+              <template x-if="!progress[id] || progress[id]?.status === 'pending'">
+                <i data-lucide="circle-dashed" class="w-5 h-5 text-faint"></i>
+              </template>
+              <template x-if="progress[id]?.status === 'running'">
+                <i data-lucide="loader-2" class="w-5 h-5 text-accent-blue spinner-icon"></i>
+              </template>
+              <template x-if="progress[id]?.status === 'pass'">
+                <i data-lucide="check-circle-2" class="w-5 h-5 text-accent-green"></i>
+              </template>
+              <template x-if="progress[id]?.status === 'fail'">
+                <i data-lucide="x-circle" class="w-5 h-5 text-accent-red"></i>
+              </template>
+              <template x-if="progress[id]?.status === 'skipped'">
+                <i data-lucide="skip-forward" class="w-5 h-5 text-faint"></i>
+              </template>
+            </div>
+
+            <!-- Suite name -->
+            <span class="font-semibold text-sm flex-1" x-text="suites[id]?.label || id"></span>
+
+            <!-- Mini progress bar -->
+            <div x-show="progress[id]?.status === 'running' && progress[id]?.total > 0"
+                 class="w-24 h-1.5 rounded-full bg-border-muted overflow-hidden flex-shrink-0">
+              <div class="h-full rounded-full bg-accent-blue transition-all duration-300"
+                   :style="'width: ' + suitePercent(id) + '%'"></div>
+            </div>
+
+            <!-- Stats -->
+            <div class="flex items-center gap-3 text-xs font-mono text-muted flex-shrink-0">
+              <span x-show="progress[id] && (progress[id].passed > 0 || progress[id].failed > 0)"
+                    x-text="progress[id]?.passed + '/' + (progress[id]?.passed + progress[id]?.failed + (progress[id]?.total > 0 ? progress[id]?.total - progress[id]?.passed - progress[id]?.failed : 0))">
+              </span>
+              <span x-show="progress[id]?.elapsed > 0" class="text-faint" x-text="formatDuration(progress[id]?.elapsed || 0)"></span>
+            </div>
+
+            <!-- Chevron -->
+            <i data-lucide="chevron-down" class="w-4 h-4 text-faint transition-transform duration-200 flex-shrink-0"
+               :class="expandedSuites.has(id) ? 'rotate-180' : ''"></i>
+          </div>
+
+          <!-- Expanded detail -->
+          <div x-show="expandedSuites.has(id)" x-collapse
+               class="border-t border-border-muted bg-surface">
+
+            <!-- Test list -->
+            <div x-show="progress[id]?.tests?.length > 0" class="max-h-[350px] overflow-y-auto">
+              <template x-for="(test, ti) in (progress[id]?.tests || [])" :key="ti">
+                <div>
+                  <div class="flex items-start gap-2 px-4 py-2 text-sm border-b border-border-muted/50 hover:bg-surface-card/50 transition-colors">
+                    <span class="flex-shrink-0 mt-0.5">
+                      <i x-show="test.status === 'pass'" data-lucide="check" class="w-3.5 h-3.5 text-accent-green"></i>
+                      <i x-show="test.status === 'fail'" data-lucide="x" class="w-3.5 h-3.5 text-accent-red"></i>
+                      <i x-show="test.status === 'running'" data-lucide="loader-2" class="w-3.5 h-3.5 text-accent-blue spinner-icon"></i>
+                    </span>
+                    <span class="flex-1 text-xs break-words" :class="test.status === 'fail' ? 'text-accent-red' : 'text-gray-300'" x-text="test.name"></span>
+                    <span x-show="test.group" class="text-[10px] px-1.5 py-0.5 rounded bg-border-muted text-faint font-mono flex-shrink-0" x-text="test.group"></span>
+                    <span x-show="test.duration > 0" class="text-[11px] font-mono text-faint flex-shrink-0" x-text="formatMs(test.duration)"></span>
+                  </div>
+                  <!-- Failure detail -->
+                  <div x-show="test.status === 'fail' && (test.expected || test.actual || test.message)"
+                       class="mx-4 mb-2 mt-1 p-3 rounded-md bg-accent-red-bg border border-accent-red-dim/50 text-xs font-mono">
+                    <template x-if="test.expected">
+                      <div class="mb-1"><span class="text-muted font-semibold">Expected: </span><span class="text-accent-green" x-text="test.expected"></span></div>
+                    </template>
+                    <template x-if="test.actual">
+                      <div class="mb-1"><span class="text-muted font-semibold">Actual: </span><span class="text-accent-red" x-text="test.actual"></span></div>
+                    </template>
+                    <template x-if="test.message && !test.expected && !test.actual">
+                      <div class="text-accent-red" x-text="test.message"></div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <!-- Stdout viewer -->
+            <div x-show="progress[id]?.stdout?.length > 0"
+                 class="border-t border-border-muted">
+              <div @click="progress[id]._showStdout = !progress[id]._showStdout"
+                   class="flex items-center gap-2 px-4 py-2 cursor-pointer hover:bg-surface-card/50 text-xs text-muted">
+                <i data-lucide="terminal" class="w-3 h-3"></i>
+                <span>Output</span>
+                <span class="font-mono text-faint" x-text="'(' + (progress[id]?.stdout?.length || 0) + ' lines)'"></span>
+                <i data-lucide="chevron-down" class="w-3 h-3 ml-auto transition-transform"
+                   :class="progress[id]?._showStdout ? 'rotate-180' : ''"></i>
+              </div>
+              <div x-show="progress[id]?._showStdout"
+                   class="px-4 pb-3 max-h-44 overflow-y-auto">
+                <pre class="text-[11px] font-mono text-faint leading-relaxed whitespace-pre-wrap break-words"
+                     x-text="(progress[id]?.stdout || []).join('\n')"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
   </section>
 
-  <!-- ─── Results ────────────────────────────────────────────────── -->
-  <section class="panel results-section" id="results-section">
-    <div class="panel-title">Results</div>
-    <table class="results-table" id="results-table">
-      <thead>
-        <tr>
-          <th>Suite</th>
-          <th>Passed</th>
-          <th>Total</th>
-          <th>Rate</th>
-          <th>Duration</th>
-        </tr>
-      </thead>
-      <tbody id="results-tbody"></tbody>
-    </table>
-    <div class="action-bar" id="action-bar">
-      <button class="btn" id="btn-promptfoo-ui" title="Open Promptfoo evaluation viewer">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1.75V13.5h13.75a.75.75 0 0 1 0 1.5H.75a.75.75 0 0 1-.75-.75V1.75a.75.75 0 0 1 1.5 0Zm14.28 2.53-5.25 5.25a.75.75 0 0 1-1.06 0L7 7.06 4.28 9.78a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l3.25-3.25a.75.75 0 0 1 1.06 0L10 7.94l4.72-4.72a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042Z"/></svg>
-        Open Promptfoo UI
+  <!-- ────────────────────────────────────────────────────────── -->
+  <!-- RESULTS SECTION                                            -->
+  <!-- ────────────────────────────────────────────────────────── -->
+  <section x-show="showResultsSection" x-transition:enter="transition ease-out duration-300"
+           x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0"
+           class="rounded-xl border border-border bg-surface-card p-5 space-y-5">
+
+    <div class="flex items-center gap-2">
+      <i data-lucide="bar-chart-3" class="w-4 h-4 text-muted"></i>
+      <h2 class="text-xs font-semibold uppercase tracking-wider text-muted">Results</h2>
+    </div>
+
+    <!-- Metric cards -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div class="rounded-lg border border-border bg-surface p-4">
+        <div class="text-xs text-muted mb-1">Total Tests</div>
+        <div class="text-2xl font-bold font-mono text-gray-100" x-text="overallPassed + overallFailed"></div>
+      </div>
+      <div class="rounded-lg border border-border bg-surface p-4">
+        <div class="text-xs text-muted mb-1">Pass Rate</div>
+        <div class="text-2xl font-bold font-mono"
+             :class="overallFailed === 0 ? 'text-accent-green' : 'text-accent-yellow'"
+             x-text="((overallPassed + overallFailed) > 0 ? Math.round(overallPassed / (overallPassed + overallFailed) * 100) : 0) + '%'"></div>
+      </div>
+      <div class="rounded-lg border border-border bg-surface p-4">
+        <div class="text-xs text-muted mb-1">Duration</div>
+        <div class="text-2xl font-bold font-mono text-gray-100" x-text="formatDuration(elapsed)"></div>
+      </div>
+      <div class="rounded-lg border border-border bg-surface p-4">
+        <div class="text-xs text-muted mb-1">Suites Run</div>
+        <div class="text-2xl font-bold font-mono text-gray-100" x-text="suiteOrder.length"></div>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="rounded-lg border border-border bg-surface p-4">
+        <div class="text-xs text-muted mb-3 font-semibold uppercase tracking-wide">Pass / Fail</div>
+        <div class="flex justify-center" style="height: 200px;">
+          <canvas x-ref="donutChart"></canvas>
+        </div>
+      </div>
+      <div class="rounded-lg border border-border bg-surface p-4">
+        <div class="text-xs text-muted mb-3 font-semibold uppercase tracking-wide">Suite Duration</div>
+        <div style="height: 200px;">
+          <canvas x-ref="barChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results table -->
+    <div class="rounded-lg border border-border overflow-hidden">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="bg-surface-raised">
+            <th class="text-left px-4 py-3 text-xs font-semibold text-muted uppercase tracking-wide">Suite</th>
+            <th class="text-right px-4 py-3 text-xs font-semibold text-muted uppercase tracking-wide">Passed</th>
+            <th class="text-right px-4 py-3 text-xs font-semibold text-muted uppercase tracking-wide">Failed</th>
+            <th class="text-right px-4 py-3 text-xs font-semibold text-muted uppercase tracking-wide">Rate</th>
+            <th class="text-right px-4 py-3 text-xs font-semibold text-muted uppercase tracking-wide">Duration</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="id in suiteOrder" :key="id">
+            <tr class="border-t border-border-muted hover:bg-surface-hover/50 transition-colors cursor-pointer"
+                @click="toggleExpanded(id)"
+                :class="{
+                  'border-l-2 border-l-accent-green': progress[id]?.status === 'pass',
+                  'border-l-2 border-l-accent-red': progress[id]?.status === 'fail',
+                }">
+              <td class="px-4 py-3 font-medium" x-text="suites[id]?.label || id"></td>
+              <td class="px-4 py-3 text-right font-mono text-accent-green" x-text="progress[id]?.passed || 0"></td>
+              <td class="px-4 py-3 text-right font-mono" :class="progress[id]?.failed > 0 ? 'text-accent-red' : 'text-faint'" x-text="progress[id]?.failed || 0"></td>
+              <td class="px-4 py-3 text-right">
+                <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold font-mono"
+                      :class="{
+                        'bg-accent-green-bg text-accent-green': suitePassRate(id) === 100,
+                        'bg-accent-yellow-bg text-accent-yellow': suitePassRate(id) >= 80 && suitePassRate(id) < 100,
+                        'bg-accent-red-bg text-accent-red': suitePassRate(id) < 80,
+                      }"
+                      x-text="suitePassRate(id) + '%'"></span>
+              </td>
+              <td class="px-4 py-3 text-right font-mono text-muted" x-text="formatDuration(progress[id]?.elapsed || 0)"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Action bar -->
+    <div class="flex flex-wrap gap-3 pt-1">
+      <button @click="openPromptfooUI()"
+              class="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-surface-card text-sm text-gray-300 hover:bg-surface-hover hover:border-faint transition-all">
+        <i data-lucide="line-chart" class="w-4 h-4"></i> Promptfoo UI
       </button>
-      <button class="btn" id="btn-view-reports" title="Open HTML report files">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"/></svg>
-        View Reports
+      <button @click="viewReports()"
+              class="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-surface-card text-sm text-gray-300 hover:bg-surface-hover hover:border-faint transition-all">
+        <i data-lucide="file-text" class="w-4 h-4"></i> Reports
       </button>
-      <button class="btn" id="btn-export" title="Download run data as JSONL">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14ZM7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06Z"/></svg>
-        Export JSONL
+      <button @click="exportJSONL()"
+              class="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-surface-card text-sm text-gray-300 hover:bg-surface-hover hover:border-faint transition-all">
+        <i data-lucide="download" class="w-4 h-4"></i> Export JSONL
       </button>
-      <button class="btn" id="btn-run-again" title="Run tests again with same config">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.705 8.005a.75.75 0 0 1 .834.656 5.5 5.5 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.07-1.07A7 7 0 0 1 1.049 8.84a.75.75 0 0 1 .656-.834ZM14.295 7.995a.75.75 0 0 1-.834-.656 5.5 5.5 0 0 0-9.592-2.97l1.204 1.204a.25.25 0 0 1-.177.427H1.25a.25.25 0 0 1-.25-.25V2.104a.25.25 0 0 1 .427-.177l1.07 1.07A7 7 0 0 1 14.951 7.16a.75.75 0 0 1-.656.834Z"/></svg>
-        Run Again
+      <button @click="runAgain()"
+              class="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-surface-card text-sm text-gray-300 hover:bg-surface-hover hover:border-faint transition-all">
+        <i data-lucide="rotate-ccw" class="w-4 h-4"></i> Run Again
       </button>
     </div>
   </section>
 
 </div>
 
-<!-- ─── History Overlay ────────────────────────────────────────────── -->
-<div class="history-overlay" id="history-overlay">
-  <div class="history-panel">
-    <div class="history-header">
-      <h3>Run History</h3>
-      <button class="history-close" id="history-close" aria-label="Close">&times;</button>
+<!-- ============================================================ -->
+<!-- HISTORY SIDEBAR (slide-in overlay)                           -->
+<!-- ============================================================ -->
+<div x-show="showHistory" class="fixed inset-0 z-50" x-cloak>
+  <!-- Backdrop -->
+  <div @click="showHistory = false"
+       x-show="showHistory"
+       x-transition:enter="transition ease-out duration-200"
+       x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+       x-transition:leave="transition ease-in duration-150"
+       x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+       class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+  <!-- Panel -->
+  <div x-show="showHistory"
+       x-transition:enter="transition ease-out duration-300"
+       x-transition:enter-start="translate-x-full" x-transition:enter-end="translate-x-0"
+       x-transition:leave="transition ease-in duration-200"
+       x-transition:leave-start="translate-x-0" x-transition:leave-end="translate-x-full"
+       class="absolute top-0 right-0 w-[400px] max-w-full h-full bg-surface-card border-l border-border flex flex-col shadow-2xl shadow-black/50">
+    <!-- Header -->
+    <div class="flex items-center justify-between px-5 py-4 border-b border-border">
+      <div class="flex items-center gap-2">
+        <i data-lucide="history" class="w-4 h-4 text-muted"></i>
+        <h3 class="text-sm font-semibold">Run History</h3>
+        <span class="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-border-muted text-muted" x-text="history.length"></span>
+      </div>
+      <button @click="showHistory = false" class="p-1 rounded-md text-muted hover:text-gray-200 hover:bg-surface-hover transition-all">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
     </div>
-    <div class="history-list" id="history-list">
-      <div class="history-empty">No previous runs</div>
-    </div>
-    <div class="history-compare-bar" id="history-compare-bar">
-      <span style="font-size:0.8rem;color:var(--text-muted)">Select 2 runs to compare</span>
-      <button class="btn" id="btn-compare" disabled>Compare</button>
+    <!-- List -->
+    <div class="flex-1 overflow-y-auto p-4 space-y-2">
+      <template x-if="history.length === 0">
+        <div class="text-center py-12 text-muted text-sm">
+          <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-3 text-faint"></i>
+          <p>No previous runs</p>
+        </div>
+      </template>
+      <template x-for="(run, i) in history" :key="run.id">
+        <div @click="loadHistoryRun(run)"
+             class="rounded-lg border border-border-muted p-4 cursor-pointer hover:border-faint hover:bg-surface-hover transition-all group">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-xs font-mono text-muted" x-text="formatHistoryDate(run.date)"></span>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                  :class="run.totalFailed === 0 ? 'bg-accent-green-bg text-accent-green' : 'bg-accent-red-bg text-accent-red'"
+                  x-text="run.totalFailed === 0 ? 'PASS' : run.totalFailed + ' FAIL'"></span>
+          </div>
+          <div class="text-xs text-faint mb-2 truncate" x-text="(run.suites || []).join(', ')"></div>
+          <div class="flex items-center gap-4 text-xs">
+            <span class="text-accent-green font-mono" x-text="run.totalPassed + ' passed'"></span>
+            <span x-show="run.totalFailed > 0" class="text-accent-red font-mono" x-text="run.totalFailed + ' failed'"></span>
+            <span class="text-faint font-mono ml-auto" x-text="run.duration ? formatDuration(run.duration) : ''"></span>
+          </div>
+        </div>
+      </template>
     </div>
   </div>
 </div>
 
-<!-- ─── Toast ──────────────────────────────────────────────────────── -->
-<div class="toast" id="toast"></div>
+<!-- ============================================================ -->
+<!-- KEYBOARD SHORTCUT LISTENER                                   -->
+<!-- ============================================================ -->
+<div x-data @keydown.escape.window="showHistory = false"
+     @keydown.meta.enter.window="canRun && startRun()"
+     @keydown.ctrl.enter.window="canRun && startRun()">
+</div>
 
+<!-- ============================================================ -->
+<!-- ALPINE.JS APPLICATION                                        -->
+<!-- ============================================================ -->
 <script>
-/* ════════════════════════════════════════════════════════════════════
-   AFM Test Dashboard  --  Vanilla JS SPA
-   ════════════════════════════════════════════════════════════════════ */
+document.addEventListener('alpine:init', () => {
+  Alpine.data('dashboard', () => ({
+    // ── State ──────────────────────────────────────────────────
+    binary: { path: '', version: '', exists: false },
+    models: [],
+    selectedModel: '',
+    preflight: { version: null, metallib: null, relocated: null, bundle_module: null },
+    preflightRunning: false,
+    preflightChecks: [
+      { key: 'version', label: 'Version' },
+      { key: 'metallib', label: 'Metallib' },
+      { key: 'relocated', label: 'Relocated' },
+      { key: 'bundle_module', label: 'Bundle.module' },
+    ],
+    suites: {},
+    selected: new Set(),
+    suiteOptions: {},      // suite_id -> { key: value } user-configured options
+    expandedOptions: new Set(),
+    suiteOptionDefs: {
+      'assertions-smoke': [
+        { key: 'section', type: 'text', label: 'Section', default: '', placeholder: 'e.g. 5 (tools only)' },
+        { key: 'grammar', type: 'toggle', label: 'Grammar constraints', default: true },
+      ],
+      'assertions-standard': [
+        { key: 'section', type: 'text', label: 'Section', default: '', placeholder: 'e.g. 11 (XML tools)' },
+        { key: 'grammar', type: 'toggle', label: 'Grammar constraints', default: true },
+      ],
+      'assertions-full': [
+        { key: 'section', type: 'text', label: 'Section', default: '', placeholder: 'e.g. 9 (perf only)' },
+        { key: 'grammar', type: 'toggle', label: 'Grammar constraints', default: true },
+      ],
+      'assertions-grammar': [
+        { key: 'tier', type: 'select', label: 'Tier', default: 'full', values: ['smoke', 'standard', 'full'] },
+        { key: 'forced_parser', type: 'select', label: 'Forced parser', default: 'qwen3_xml', values: ['qwen3_xml', 'hermes', 'none'] },
+      ],
+      'smart-analysis': [
+        { key: 'judge', type: 'select', label: 'AI Judge', default: 'claude', values: ['claude', 'codex', 'claude,codex'] },
+        { key: 'batch_mode', type: 'select', label: 'Batch mode', default: '1', values: ['0', '1'] },
+        { key: 'tests', type: 'text', label: 'Tests', default: '', placeholder: 'e.g. 1,5,10 (empty=all)' },
+      ],
+      'promptfoo': [
+        { key: 'mode', type: 'select', label: 'Suite', default: 'all', values: ['all', 'structured', 'structured-stress', 'toolcall', 'toolcall-quality', 'grammar-constraints', 'agentic', 'frameworks', 'opencode', 'pi', 'openclaw', 'hermes'] },
+      ],
+      'batch-correctness': [
+        { key: 'batch_sizes', type: 'text', label: 'Batch sizes', default: '1,2,4,8', placeholder: '1,2,4,8' },
+        { key: 'concurrent', type: 'text', label: 'Max concurrent', default: '8', placeholder: '8' },
+      ],
+      'batch-mixed': [
+        { key: 'batch_sizes', type: 'text', label: 'Batch sizes', default: '1,2,4,8', placeholder: '1,2,4,8' },
+        { key: 'concurrent', type: 'text', label: 'Max concurrent', default: '8', placeholder: '8' },
+      ],
+      'batch-multiturn': [
+        { key: 'batch_sizes', type: 'text', label: 'Batch sizes', default: '1,2,4,8', placeholder: '1,2,4,8' },
+        { key: 'concurrent', type: 'text', label: 'Max concurrent', default: '8', placeholder: '8' },
+        { key: 'prefix_caching', type: 'toggle', label: 'Prefix caching', default: true },
+      ],
+      'openai-compat': [
+        { key: 'port', type: 'text', label: 'Port', default: '9999', placeholder: '9999' },
+      ],
+      'guided-json': [
+        { key: 'port', type: 'text', label: 'Port', default: '9999', placeholder: '9999' },
+      ],
+      'gpu-profile': [
+        { key: 'max_tokens', type: 'text', label: 'Max tokens', default: '4096', placeholder: '4096' },
+      ],
+    },
+    running: false,
+    runId: null,
+    suiteOrder: [],
+    progress: {},      // id -> { status, passed, failed, total, tests, stdout, elapsed, _showStdout }
+    overallPassed: 0,
+    overallFailed: 0,
+    elapsed: 0,
+    startTime: null,
+    _timerInterval: null,
+    eventSource: null,
+    expandedSuites: new Set(),
+    showProgressSection: false,
+    showResultsSection: false,
+    showHistory: false,
+    history: [],
+    toasts: [],
+    _toastId: 0,
+    _donutChart: null,
+    _barChart: null,
 
-// ─── Suite Definitions ───────────────────────────────────────────────
-var SUITES = {
-  'unit':                { label: 'Unit Tests',             desc: 'Swift unit tests (XML parsing, batch, KV cache)',              est: '~5s',     estMin: 0.08, port: null },
-  'assertions-smoke':    { label: 'Assertions (smoke)',     desc: 'Server, completion, stop, logprobs, think, tools',             est: '~2 min',  estMin: 2,    port: 9998 },
-  'assertions-standard': { label: 'Assertions (standard)',  desc: '+ streaming, cache, concurrent, XML, grammar, batch',          est: '~5 min',  estMin: 5,    port: 9998 },
-  'assertions-full':     { label: 'Assertions (full)',      desc: '+ performance (TTFT, tok/s, long context)',                    est: '~15 min', estMin: 15,   port: 9998 },
-  'assertions-grammar':  { label: 'Grammar + Forced Parser',desc: 'Full tier x 2 with grammar constraints',                      est: '~30 min', estMin: 30,   port: 9998 },
-  'smart-analysis':      { label: 'Smart Analysis',         desc: '91 variants with Claude AI judge',                            est: '~60 min', estMin: 60,   port: 9877 },
-  'promptfoo':           { label: 'Promptfoo Evals',        desc: '137 tests x 8 server profiles',                               est: '~90 min', estMin: 90,   port: 9999 },
-  'batch-correctness':   { label: 'Batch Correctness',      desc: 'Known-answer at B={1,2,4,8}',                                 est: '~12 min', estMin: 12,   port: 9999 },
-  'batch-mixed':         { label: 'Batch Mixed',            desc: 'Short+long decode with GPU metrics',                          est: '~20 min', estMin: 20,   port: 9999 },
-  'batch-multiturn':     { label: 'Batch Multiturn',        desc: 'Prefix cache under concurrency',                              est: '~20 min', estMin: 20,   port: 9999 },
-  'openai-compat':       { label: 'OpenAI Compat',          desc: 'Python SDK compatibility matrix',                             est: '~8 min',  estMin: 8,    port: 9999 },
-  'guided-json':         { label: 'Guided JSON',            desc: 'json_schema response format fixtures',                        est: '~12 min', estMin: 12,   port: 9999 },
-  'gpu-profile':         { label: 'GPU Profile',            desc: 'Bandwidth, power, shader kernels',                            est: '~1 min',  estMin: 1,    port: null },
-};
-
-// ─── State ───────────────────────────────────────────────────────────
-var state = {
-  binary:   { path: '', version: '', exists: false },
-  model:    '',
-  models:   [],
-  preflight: { version: null, metallib: null, relocated: null, bundle_module: null },
-  preflightOk: false,
-  selectedSuites: new Set(),
-  runId:    null,
-  running:  false,
-  startTime: null,
-  timerInterval: null,
-  suiteOrder: [],
-  suiteResults: {},
-  totalPassed: 0,
-  totalFailed: 0,
-  completedSuites: 0,
-  eventSource: null,
-  expandedSuites: new Set(),
-  history: [],
-  historySelected: new Set(),
-};
-
-// ─── DOM refs ────────────────────────────────────────────────────────
-function $(sel) { return document.querySelector(sel); }
-function $$(sel) { return document.querySelectorAll(sel); }
-
-// ─── Utility ─────────────────────────────────────────────────────────
-function escHtml(str) {
-  if (!str) return '';
-  var d = document.createElement('div');
-  d.textContent = String(str);
-  return d.innerHTML;
-}
-
-function formatDuration(seconds) {
-  if (seconds < 60) return Math.round(seconds) + 's';
-  var m = Math.floor(seconds / 60);
-  var s = Math.round(seconds % 60);
-  if (m < 60) return s > 0 ? m + 'm ' + s + 's' : m + 'm';
-  var h = Math.floor(m / 60);
-  var rm = m % 60;
-  return rm > 0 ? h + 'h ' + rm + 'm' : h + 'h';
-}
-
-function formatMs(ms) {
-  if (ms < 1000) return Math.round(ms) + 'ms';
-  return (ms / 1000).toFixed(1) + 's';
-}
-
-function estimateTotal() {
-  var total = 0;
-  state.selectedSuites.forEach(function(id) {
-    if (SUITES[id]) total += SUITES[id].estMin;
-  });
-  return total;
-}
-
-function showToast(msg, type, duration) {
-  type = type || 'info';
-  duration = duration || 3500;
-  var el = $('#toast');
-  el.textContent = msg;
-  el.className = 'toast ' + type;
-  requestAnimationFrame(function() { el.classList.add('show'); });
-  clearTimeout(el._timer);
-  el._timer = setTimeout(function() { el.classList.remove('show'); }, duration);
-}
-
-// ─── Safe DOM building helpers ───────────────────────────────────────
-function createEl(tag, attrs, children) {
-  var el = document.createElement(tag);
-  if (attrs) {
-    Object.keys(attrs).forEach(function(k) {
-      if (k === 'className') el.className = attrs[k];
-      else if (k === 'textContent') el.textContent = attrs[k];
-      else if (k === 'style' && typeof attrs[k] === 'object') {
-        Object.keys(attrs[k]).forEach(function(p) { el.style[p] = attrs[k][p]; });
-      } else if (k.indexOf('data-') === 0) el.setAttribute(k, attrs[k]);
-      else el.setAttribute(k, attrs[k]);
-    });
-  }
-  if (children) {
-    if (!Array.isArray(children)) children = [children];
-    children.forEach(function(c) {
-      if (!c) return;
-      if (typeof c === 'string') el.appendChild(document.createTextNode(c));
-      else el.appendChild(c);
-    });
-  }
-  return el;
-}
-
-// ─── API Calls ───────────────────────────────────────────────────────
-function apiFetch(path, opts) {
-  opts = opts || {};
-  return fetch(path, Object.assign({ signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined }, opts))
-    .then(function(res) {
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return res.json();
-    })
-    .catch(function(e) {
-      console.warn('API ' + path + ': ' + e.message);
-      return null;
-    });
-}
-
-function fetchBinary() {
-  apiFetch('/api/binary').then(function(data) {
-    if (data) {
-      state.binary.path = data.path || '';
-      state.binary.version = data.version || '';
-      state.binary.exists = data.exists || false;
-      $('#binary-path').value = state.binary.path;
-      if (state.binary.version) {
-        var badge = $('#binary-version');
-        badge.textContent = state.binary.version;
-        badge.classList.remove('hidden');
-      }
-    } else {
-      $('#binary-path').value = '.build/release/afm';
-      $('#binary-path').placeholder = 'Enter binary path (API offline)';
-    }
-  });
-}
-
-function fetchModels() {
-  var sel = $('#model-select');
-  apiFetch('/api/models').then(function(data) {
-    sel.textContent = '';
-    if (data && data.models && data.models.length > 0) {
-      state.models = data.models;
-      var defaultOpt = document.createElement('option');
-      defaultOpt.value = '';
-      defaultOpt.disabled = true;
-      defaultOpt.selected = true;
-      defaultOpt.textContent = 'Select a model...';
-      sel.appendChild(defaultOpt);
-      data.models.forEach(function(m) {
-        var opt = document.createElement('option');
-        opt.value = m.id || m.name;
-        opt.textContent = m.name + (m.size ? ' (' + m.size + ')' : '');
-        sel.appendChild(opt);
+    // ── Computed ──────────────────────────────────────────────
+    get selectedCount() { return this.selected.size; },
+    get estimatedMinutes() {
+      let total = 0;
+      this.selected.forEach(id => { if (this.suites[id]) total += this.suites[id].estMin; });
+      return total;
+    },
+    get allPreflightPassed() {
+      return this.preflightChecks.every(c => {
+        const r = this.preflight[c.key];
+        return r && (r.status === 'pass' || r.status === 'warn');
       });
-    } else {
-      var opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = 'No models (API offline)';
-      sel.appendChild(opt);
-    }
-  });
-}
-
-function runPreflight(binaryPath) {
-  var checks = ['version', 'metallib', 'relocated', 'bundle_module'];
-  checks.forEach(function(c) { setPreflightDot(c, 'checking', c + ': checking...'); });
-
-  apiFetch('/api/preflight?binary=' + encodeURIComponent(binaryPath)).then(function(data) {
-    if (data) {
-      state.preflight = data;
-      checks.forEach(function(c) {
-        var result = data[c];
-        if (!result) { setPreflightDot(c, '', c + ': unknown'); return; }
-        var status = result.status || (result.ok ? 'pass' : 'fail');
-        setPreflightDot(c, status, c + ': ' + (result.message || status));
+    },
+    get canRun() {
+      return this.selectedCount > 0 && !this.running;
+    },
+    get completedSuiteCount() {
+      let c = 0;
+      this.suiteOrder.forEach(id => {
+        const p = this.progress[id];
+        if (p && (p.status === 'pass' || p.status === 'fail' || p.status === 'skipped')) c++;
       });
-      state.preflightOk = checks.every(function(c) {
-        var r = data[c];
-        return r && (r.status === 'pass' || r.status === 'warn' || r.ok);
+      return c;
+    },
+    get overallPercent() {
+      const total = this.suiteOrder.length;
+      if (total === 0) return 0;
+      let done = 0;
+      let partial = 0;
+      this.suiteOrder.forEach(id => {
+        const p = this.progress[id];
+        if (!p) return;
+        if (p.status === 'pass' || p.status === 'fail' || p.status === 'skipped') {
+          done++;
+        } else if (p.status === 'running' && p.total > 0) {
+          partial += (p.passed + p.failed) / p.total;
+        }
       });
-    } else {
-      checks.forEach(function(c) { setPreflightDot(c, 'warn', c + ': skipped (API offline)'); });
-      state.preflightOk = true;
-    }
-    updateRunButton();
-  });
-}
+      return Math.min(100, Math.round(((done + partial) / total) * 100));
+    },
 
-function setPreflightDot(check, status, message) {
-  var dotId = check === 'bundle_module' ? 'pf-bundle' : 'pf-' + check;
-  var dot = document.getElementById(dotId);
-  if (!dot) return;
-  dot.className = 'preflight-dot' + (status ? ' ' + status : '');
-  var tip = dot.querySelector('.tooltip');
-  if (tip) tip.textContent = message;
-}
+    // ── Init ─────────────────────────────────────────────────
+    async init() {
+      this.loadHistory();
+      this.loadSelectedPreference();
+      await Promise.all([this.fetchBinary(), this.fetchModels(), this.fetchSuites()]);
+      this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
+    },
 
-// ─── Run Management ──────────────────────────────────────────────────
-function startRun() {
-  var suites = [];
-  state.selectedSuites.forEach(function(s) { suites.push(s); });
-  if (suites.length === 0) return;
-
-  state.running = true;
-  state.runId = Date.now().toString(36);
-  state.startTime = Date.now();
-  state.suiteOrder = suites;
-  state.suiteResults = {};
-  state.totalPassed = 0;
-  state.totalFailed = 0;
-  state.completedSuites = 0;
-  state.expandedSuites.clear();
-
-  suites.forEach(function(id) {
-    state.suiteResults[id] = {
-      status: 'pending',
-      passed: 0,
-      failed: 0,
-      total: 0,
-      tests: [],
-      stdout: [],
-      elapsed: 0,
-      startTime: null,
-    };
-  });
-
-  updateRunButton();
-  showProgress();
-  renderProgress();
-  startTimer();
-
-  var body = {
-    binary: state.binary.path || $('#binary-path').value,
-    model: state.model || $('#model-select').value,
-    suites: suites,
-    runId: state.runId,
-  };
-
-  apiFetch('/api/run', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  }).then(function(res) {
-    if (res && res.ok) {
-      connectSSE();
-    } else {
-      simulateRun(suites);
-    }
-  });
-}
-
-function stopRun() {
-  if (!state.running) return;
-  apiFetch('/api/stop', { method: 'POST' });
-  finishRun(true);
-  showToast('Run stopped', 'error');
-}
-
-// ─── SSE ─────────────────────────────────────────────────────────────
-function connectSSE() {
-  if (state.eventSource) { state.eventSource.close(); }
-  state.eventSource = new EventSource('/api/events');
-
-  state.eventSource.onmessage = function(event) {
-    try {
-      var data = JSON.parse(event.data);
-      handleEvent(data);
-    } catch (e) {
-      console.warn('SSE parse error:', e);
-    }
-  };
-
-  state.eventSource.onerror = function() {
-    if (state.running) {
-      setTimeout(function() {
-        if (state.running) connectSSE();
-      }, 2000);
-    }
-  };
-}
-
-function handleEvent(ev) {
-  var suite = ev.suite || ev.suite_id;
-  var sr = suite ? state.suiteResults[suite] : null;
-
-  switch (ev.type) {
-    case 'suite_start':
-      if (sr) {
-        sr.status = 'running';
-        sr.total = ev.total || 0;
-        sr.startTime = Date.now();
-        state.expandedSuites.add(suite);
+    // ── API Calls ────────────────────────────────────────────
+    async apiFetch(path, opts = {}) {
+      try {
+        const res = await fetch(path, { ...opts, signal: AbortSignal.timeout?.(10000) });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return await res.json();
+      } catch (e) {
+        console.warn('API ' + path + ':', e.message);
+        return null;
       }
-      break;
+    },
 
-    case 'test_pass':
-      if (sr) {
-        sr.passed++;
-        state.totalPassed++;
-        sr.tests.push({
-          name: ev.name || ev.test,
-          status: 'pass',
-          duration: ev.duration || 0,
-          group: ev.group || '',
+    async fetchBinary() {
+      const data = await this.apiFetch('/api/binary');
+      if (data) {
+        this.binary = { path: data.path || '', version: data.version || '', exists: data.exists || false };
+        if (this.binary.exists && this.binary.path) {
+          this.runPreflight();
+        }
+      }
+    },
+
+    async fetchModels() {
+      const data = await this.apiFetch('/api/models');
+      if (data && Array.isArray(data)) {
+        this.models = data;
+        // Auto-select first model
+        if (this.models.length > 0 && !this.selectedModel) {
+          this.selectedModel = this.models[0].id;
+        }
+      }
+    },
+
+    async fetchSuites() {
+      const data = await this.apiFetch('/api/suites');
+      if (data && Array.isArray(data)) {
+        const s = {};
+        data.forEach(d => {
+          s[d.id] = {
+            label: d.label,
+            desc: this._suiteDescs[d.id] || '',
+            est: d.est_minutes < 1 ? '~' + Math.round(d.est_minutes * 60) + 's' : '~' + d.est_minutes + ' min',
+            estMin: d.est_minutes,
+            port: d.port,
+            needsServer: d.needs_server,
+          };
         });
-      }
-      break;
-
-    case 'test_fail':
-      if (sr) {
-        sr.failed++;
-        state.totalFailed++;
-        sr.tests.push({
-          name: ev.name || ev.test,
-          status: 'fail',
-          duration: ev.duration || 0,
-          group: ev.group || '',
-          expected: ev.expected || '',
-          actual: ev.actual || '',
-          message: ev.message || '',
-        });
-      }
-      break;
-
-    case 'suite_end':
-      if (sr) {
-        sr.status = sr.failed > 0 ? 'fail' : 'pass';
-        sr.elapsed = ev.duration || (sr.startTime ? (Date.now() - sr.startTime) / 1000 : 0);
-        sr.total = sr.passed + sr.failed + (ev.skipped || 0);
-        state.completedSuites++;
-        state.expandedSuites.delete(suite);
-      }
-      break;
-
-    case 'stdout':
-      if (sr) {
-        sr.stdout.push(ev.line || ev.text || '');
-        if (sr.stdout.length > 50) sr.stdout = sr.stdout.slice(-50);
-      }
-      break;
-
-    case 'log':
-      console.log('[dashboard]', ev.message || ev.text);
-      break;
-
-    case 'done':
-      finishRun(false);
-      return;
-  }
-  renderProgress();
-}
-
-// ─── Simulation (offline/demo mode) ─────────────────────────────────
-function simulateRun(suites) {
-  showToast('Running in demo mode (API offline)', 'info');
-  var suiteIdx = 0;
-
-  function runNextSuite() {
-    if (suiteIdx >= suites.length || !state.running) {
-      finishRun(false);
-      return;
-    }
-
-    var id = suites[suiteIdx];
-    var sr = state.suiteResults[id];
-    var testCount = 5 + Math.floor(Math.random() * 20);
-
-    sr.status = 'running';
-    sr.total = testCount;
-    sr.startTime = Date.now();
-    state.expandedSuites.add(id);
-    renderProgress();
-
-    var testIdx = 0;
-    var testInterval = setInterval(function() {
-      if (!state.running || testIdx >= testCount) {
-        clearInterval(testInterval);
-        sr.status = sr.failed > 0 ? 'fail' : 'pass';
-        sr.elapsed = (Date.now() - sr.startTime) / 1000;
-        state.completedSuites++;
-        state.expandedSuites.delete(id);
-        renderProgress();
-        suiteIdx++;
-        setTimeout(runNextSuite, 200);
-        return;
-      }
-
-      var isFail = Math.random() < 0.05;
-      var name = 'test_' + id + '_' + (testIdx + 1);
-      var dur = 50 + Math.random() * 800;
-
-      if (isFail) {
-        sr.failed++;
-        state.totalFailed++;
-        sr.tests.push({
-          name: name, status: 'fail', duration: dur,
-          group: 'Demo',
-          expected: 'expected value',
-          actual: 'actual value',
-          message: 'Simulated failure for demo',
-        });
+        this.suites = s;
       } else {
-        sr.passed++;
-        state.totalPassed++;
-        sr.tests.push({ name: name, status: 'pass', duration: dur, group: 'Demo' });
+        // Fallback to hardcoded
+        this.suites = this._fallbackSuites;
       }
+      this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
+    },
 
-      var ts = new Date().toISOString().slice(11, 19);
-      sr.stdout.push('[' + ts + '] ' + (isFail ? 'FAIL' : 'PASS') + ' ' + name + ' (' + dur.toFixed(0) + 'ms)');
-      if (sr.stdout.length > 50) sr.stdout = sr.stdout.slice(-50);
+    // Suite descriptions (not returned from API)
+    _suiteDescs: {
+      'unit': 'Swift unit tests (XML parsing, batch, KV cache)',
+      'assertions-smoke': 'Server, completion, stop, logprobs, think, tools',
+      'assertions-standard': '+ streaming, cache, concurrent, XML, grammar, batch',
+      'assertions-full': '+ performance (TTFT, tok/s, long context)',
+      'assertions-grammar': 'Full tier x 2 with grammar constraints',
+      'smart-analysis': '91 variants with Claude AI judge',
+      'promptfoo': '137 tests x 8 server profiles',
+      'batch-correctness': 'Known-answer at B={1,2,4,8}',
+      'batch-mixed': 'Short+long decode with GPU metrics',
+      'batch-multiturn': 'Prefix cache under concurrency',
+      'openai-compat': 'Python SDK compatibility matrix',
+      'guided-json': 'json_schema response format fixtures',
+      'gpu-profile': 'Bandwidth, power, shader kernels',
+    },
 
-      testIdx++;
-      renderProgress();
-    }, 120);
-  }
+    _fallbackSuites: {
+      'unit':                { label: 'Unit Tests',                   desc: 'Swift unit tests (XML parsing, batch, KV cache)',          est: '~5s',     estMin: 0.08, port: null },
+      'assertions-smoke':    { label: 'Assertions (smoke)',           desc: 'Server, completion, stop, logprobs, think, tools',         est: '~2 min',  estMin: 2,    port: 9998 },
+      'assertions-standard': { label: 'Assertions (standard)',        desc: '+ streaming, cache, concurrent, XML, grammar, batch',      est: '~5 min',  estMin: 5,    port: 9998 },
+      'assertions-full':     { label: 'Assertions (full)',            desc: '+ performance (TTFT, tok/s, long context)',                est: '~15 min', estMin: 15,   port: 9998 },
+      'assertions-grammar':  { label: 'Grammar + Forced Parser',     desc: 'Full tier x 2 with grammar constraints',                   est: '~30 min', estMin: 30,   port: 9998 },
+      'smart-analysis':      { label: 'Smart Analysis',              desc: '91 variants with Claude AI judge',                         est: '~60 min', estMin: 60,   port: 9877 },
+      'promptfoo':           { label: 'Promptfoo Evals',             desc: '137 tests x 8 server profiles',                            est: '~90 min', estMin: 90,   port: 9999 },
+      'batch-correctness':   { label: 'Batch Correctness',           desc: 'Known-answer at B={1,2,4,8}',                              est: '~12 min', estMin: 12,   port: 9999 },
+      'batch-mixed':         { label: 'Batch Mixed',                 desc: 'Short+long decode with GPU metrics',                       est: '~20 min', estMin: 20,   port: 9999 },
+      'batch-multiturn':     { label: 'Batch Multiturn',             desc: 'Prefix cache under concurrency',                           est: '~20 min', estMin: 20,   port: 9999 },
+      'openai-compat':       { label: 'OpenAI Compat',               desc: 'Python SDK compatibility matrix',                          est: '~8 min',  estMin: 8,    port: 9999 },
+      'guided-json':         { label: 'Guided JSON',                 desc: 'json_schema response format fixtures',                     est: '~12 min', estMin: 12,   port: 9999 },
+      'gpu-profile':         { label: 'GPU Profile',                 desc: 'Bandwidth, power, shader kernels',                         est: '~1 min',  estMin: 1,    port: null },
+    },
 
-  setTimeout(runNextSuite, 300);
-}
-
-// ─── Timer ───────────────────────────────────────────────────────────
-function startTimer() {
-  stopTimer();
-  state.timerInterval = setInterval(function() {
-    if (!state.running) return;
-    var elapsed = (Date.now() - state.startTime) / 1000;
-    $('#sum-time').textContent = formatDuration(elapsed);
-  }, 1000);
-}
-
-function stopTimer() {
-  if (state.timerInterval) { clearInterval(state.timerInterval); state.timerInterval = null; }
-}
-
-// ─── Finish Run ──────────────────────────────────────────────────────
-function finishRun(stopped) {
-  state.running = false;
-  stopTimer();
-  if (state.eventSource) { state.eventSource.close(); state.eventSource = null; }
-
-  state.suiteOrder.forEach(function(id) {
-    var sr = state.suiteResults[id];
-    if (sr && sr.status === 'pending') sr.status = stopped ? 'skipped' : 'pass';
-    if (sr && sr.status === 'running') sr.status = stopped ? 'skipped' : (sr.failed > 0 ? 'fail' : 'pass');
-  });
-
-  updateRunButton();
-  renderProgress();
-  showResults();
-  renderResults();
-
-  var entry = {
-    id: state.runId,
-    date: new Date().toISOString(),
-    binary: state.binary.path || $('#binary-path').value,
-    model: state.model || $('#model-select').value,
-    suites: state.suiteOrder.slice(),
-    totalPassed: state.totalPassed,
-    totalFailed: state.totalFailed,
-    duration: state.startTime ? (Date.now() - state.startTime) / 1000 : 0,
-    results: JSON.parse(JSON.stringify(state.suiteResults)),
-    stopped: stopped,
-  };
-  state.history.unshift(entry);
-  if (state.history.length > 50) state.history = state.history.slice(0, 50);
-  saveHistory();
-
-  if (!stopped) {
-    var allPassed = state.totalFailed === 0;
-    showToast(
-      allPassed
-        ? 'All ' + state.totalPassed + ' tests passed'
-        : state.totalFailed + ' failure' + (state.totalFailed !== 1 ? 's' : '') + ' out of ' + (state.totalPassed + state.totalFailed) + ' tests',
-      allPassed ? 'success' : 'error',
-      5000
-    );
-  }
-}
-
-// ─── UI State Toggles ────────────────────────────────────────────────
-function showProgress() {
-  $('#progress-section').classList.add('visible');
-  $('#results-section').classList.remove('visible');
-}
-
-function showResults() {
-  $('#results-section').classList.add('visible');
-}
-
-function updateRunButton() {
-  var btn = $('#btn-run');
-  var stop = $('#btn-stop');
-  if (state.running) {
-    btn.classList.add('hidden');
-    stop.classList.remove('hidden');
-  } else {
-    btn.classList.remove('hidden');
-    stop.classList.add('hidden');
-    btn.disabled = state.selectedSuites.size === 0;
-  }
-}
-
-// ─── Render: Suite Grid ──────────────────────────────────────────────
-function renderSuiteGrid() {
-  var grid = $('#suite-grid');
-  grid.textContent = '';
-
-  Object.keys(SUITES).forEach(function(id) {
-    var def = SUITES[id];
-    var card = createEl('div', {
-      className: 'suite-card' + (state.selectedSuites.has(id) ? ' selected' : ''),
-      'data-suite': id,
-    });
-
-    // Header row with checkbox + name
-    var header = createEl('div', { className: 'suite-card-header' });
-    var cb = createEl('input', { type: 'checkbox', 'data-suite': id });
-    if (state.selectedSuites.has(id)) cb.checked = true;
-    var nameSpan = createEl('span', { className: 'suite-card-name', textContent: def.label });
-    header.appendChild(cb);
-    header.appendChild(nameSpan);
-
-    // Description
-    var descDiv = createEl('div', { className: 'suite-card-desc', textContent: def.desc });
-
-    // Footer with est + port
-    var footer = createEl('div', { className: 'suite-card-footer' });
-    footer.appendChild(createEl('span', { className: 'suite-card-est', textContent: def.est }));
-    if (def.port) {
-      footer.appendChild(createEl('span', { className: 'port-badge', textContent: ':' + def.port }));
-    }
-
-    card.appendChild(header);
-    card.appendChild(descDiv);
-    card.appendChild(footer);
-
-    card.addEventListener('click', function(e) {
-      if (state.running) return;
-      if (e.target.tagName === 'INPUT') return;
-      cb.checked = !cb.checked;
-      toggleSuite(id, cb.checked);
-    });
-
-    cb.addEventListener('change', function(e) {
-      if (state.running) { e.preventDefault(); return; }
-      toggleSuite(id, e.target.checked);
-    });
-
-    grid.appendChild(card);
-  });
-}
-
-function toggleSuite(id, selected) {
-  if (selected) state.selectedSuites.add(id);
-  else state.selectedSuites.delete(id);
-  updateSuiteCardVisuals();
-  updateEstTotal();
-  updateRunButton();
-  updateSelectAll();
-}
-
-function updateSuiteCardVisuals() {
-  $$('.suite-card').forEach(function(card) {
-    var id = card.getAttribute('data-suite');
-    var cb = card.querySelector('input[type="checkbox"]');
-    if (state.selectedSuites.has(id)) {
-      card.classList.add('selected');
-      cb.checked = true;
-    } else {
-      card.classList.remove('selected');
-      cb.checked = false;
-    }
-  });
-}
-
-function updateEstTotal() {
-  var total = estimateTotal();
-  var el = $('#est-total');
-  el.textContent = state.selectedSuites.size === 0 ? '' : 'Est. ' + formatDuration(total * 60);
-}
-
-function updateSelectAll() {
-  var all = Object.keys(SUITES).length;
-  var sel = state.selectedSuites.size;
-  var cb = $('#select-all');
-  cb.checked = sel === all;
-  cb.indeterminate = sel > 0 && sel < all;
-}
-
-// ─── Render: Progress ────────────────────────────────────────────────
-function renderProgress() {
-  var total = state.suiteOrder.length;
-  $('#sum-running').textContent = state.completedSuites + '/' + total;
-  $('#sum-passed').textContent = state.totalPassed;
-  $('#sum-failed').textContent = state.totalFailed;
-
-  var list = $('#progress-list');
-  list.textContent = '';
-
-  state.suiteOrder.forEach(function(id) {
-    var sr = state.suiteResults[id];
-    var def = SUITES[id] || { label: id };
-    if (!sr) return;
-
-    var isActive = sr.status === 'running';
-    var isDonePass = sr.status === 'pass';
-    var isDoneFail = sr.status === 'fail';
-
-    var item = createEl('div', {
-      className: 'suite-progress-item'
-        + (isActive ? ' active' : '')
-        + (isDonePass ? ' done-pass' : '')
-        + (isDoneFail ? ' done-fail' : ''),
-    });
-
-    var pct = sr.total > 0 ? Math.round(((sr.passed + sr.failed) / sr.total) * 100) : 0;
-
-    // Build header
-    var header = createEl('div', { className: 'suite-progress-header', 'data-suite': id });
-
-    // Icon
-    var iconText, iconClass = 'suite-progress-icon';
-    if (sr.status === 'pending')   iconText = '\u23F3';
-    else if (sr.status === 'running') { iconText = '\uD83D\uDD04'; iconClass += ' spinning'; }
-    else if (sr.status === 'pass')    iconText = '\u2705';
-    else if (sr.status === 'fail')    iconText = '\u274C';
-    else if (sr.status === 'skipped') iconText = '\u23ED\uFE0F';
-    else iconText = '\u2022';
-
-    header.appendChild(createEl('span', { className: iconClass, textContent: iconText }));
-    header.appendChild(createEl('span', { className: 'suite-progress-name', textContent: def.label }));
-
-    if (sr.status !== 'pending') {
-      // Mini progress bar
-      var miniProg = createEl('div', { className: 'mini-progress' });
-      var fillWidth = (sr.status === 'pass' || sr.status === 'fail') ? 100 : pct;
-      var fill = createEl('div', { className: 'mini-progress-fill' });
-      fill.style.width = fillWidth + '%';
-      miniProg.appendChild(fill);
-      header.appendChild(miniProg);
-
-      // Stats
-      var stats = createEl('span', { className: 'suite-progress-stats' });
-      var passSpan = createEl('span', { textContent: sr.passed });
-      passSpan.style.color = 'var(--green)';
-      stats.appendChild(passSpan);
-      stats.appendChild(document.createTextNode('/' + (sr.passed + sr.failed)));
-      if (sr.total) stats.appendChild(document.createTextNode('/' + sr.total));
-      if (sr.failed > 0) {
-        var failSpan = createEl('span', { textContent: ' ' + sr.failed + ' fail' });
-        failSpan.style.color = 'var(--red)';
-        failSpan.style.marginLeft = '0.5rem';
-        stats.appendChild(failSpan);
-      }
-      header.appendChild(stats);
-    } else {
-      var pendingSpan = createEl('span', {
-        className: 'suite-progress-stats',
-        textContent: 'pending',
-      });
-      pendingSpan.style.color = 'var(--text-faint)';
-      header.appendChild(pendingSpan);
-    }
-
-    // Time
-    var timeText = '';
-    if (sr.elapsed) timeText = formatDuration(sr.elapsed);
-    else if (sr.startTime) timeText = formatDuration((Date.now() - sr.startTime) / 1000);
-    header.appendChild(createEl('span', { className: 'suite-progress-time', textContent: timeText }));
-
-    item.appendChild(header);
-
-    // Detail section
-    var isExpanded = state.expandedSuites.has(id);
-    var detail = createEl('div', {
-      className: 'suite-detail' + (isExpanded ? ' open' : ''),
-      id: 'detail-' + id,
-    });
-
-    // Test items
-    sr.tests.forEach(function(t) {
-      var testIcon = t.status === 'pass' ? '\u2705' : '\u274C';
-      var testItem = createEl('div', { className: 'test-item' });
-      testItem.appendChild(createEl('span', { className: 'test-icon', textContent: testIcon }));
-      testItem.appendChild(createEl('span', { className: 'test-name', textContent: t.name }));
-      if (t.group) {
-        testItem.appendChild(createEl('span', { className: 'test-group-badge', textContent: t.group }));
-      }
-      testItem.appendChild(createEl('span', { className: 'test-duration', textContent: formatMs(t.duration) }));
-      detail.appendChild(testItem);
-
-      if (t.status === 'fail') {
-        var failBox = createEl('div', { className: 'test-failure' });
-        if (t.expected) {
-          failBox.appendChild(createEl('span', { className: 'label', textContent: 'Expected:' }));
-          failBox.appendChild(createEl('span', { className: 'expected', textContent: t.expected }));
-          failBox.appendChild(document.createTextNode('\n'));
+    // ── Preflight ────────────────────────────────────────────
+    async runPreflight() {
+      if (!this.binary.path) return;
+      this.preflightRunning = true;
+      this.preflight = { version: null, metallib: null, relocated: null, bundle_module: null };
+      const data = await this.apiFetch('/api/preflight?binary=' + encodeURIComponent(this.binary.path));
+      if (data && !data.error) {
+        this.preflight = data;
+        // Normalize: ensure each has a status
+        for (const key of ['version', 'metallib', 'relocated', 'bundle_module']) {
+          if (this.preflight[key] && !this.preflight[key].status) {
+            this.preflight[key].status = this.preflight[key].ok ? 'pass' : 'fail';
+          }
         }
-        if (t.actual) {
-          failBox.appendChild(createEl('span', { className: 'label', textContent: 'Actual:' }));
-          failBox.appendChild(createEl('span', { className: 'actual', textContent: t.actual }));
-          failBox.appendChild(document.createTextNode('\n'));
-        }
-        if (t.message) {
-          failBox.appendChild(document.createTextNode(t.message));
-        }
-        detail.appendChild(failBox);
-      }
-    });
-
-    // Stdout tail
-    if (sr.stdout.length > 0) {
-      var stdoutEl = createEl('div', {
-        className: 'stdout-tail',
-        textContent: sr.stdout.slice(-20).join('\n'),
-      });
-      detail.appendChild(stdoutEl);
-    }
-
-    item.appendChild(detail);
-
-    // Toggle expand on header click
-    header.addEventListener('click', function() {
-      if (detail.classList.contains('open')) {
-        detail.classList.remove('open');
-        state.expandedSuites.delete(id);
       } else {
-        detail.classList.add('open');
-        state.expandedSuites.add(id);
+        // Offline: mark as warn
+        for (const key of ['version', 'metallib', 'relocated', 'bundle_module']) {
+          this.preflight[key] = { status: 'warn', value: 'skipped (offline)' };
+        }
       }
-    });
+      this.preflightRunning = false;
+    },
 
-    list.appendChild(item);
-  });
+    onBinaryChange() {
+      this.binary.exists = !!this.binary.path;
+      if (this.binary.path) this.runPreflight();
+    },
 
-  // Auto-scroll stdout tails
-  list.querySelectorAll('.stdout-tail').forEach(function(el) {
-    el.scrollTop = el.scrollHeight;
-  });
-}
-
-// ─── Render: Results ─────────────────────────────────────────────────
-function renderResults() {
-  var tbody = $('#results-tbody');
-  tbody.textContent = '';
-
-  state.suiteOrder.forEach(function(id) {
-    var sr = state.suiteResults[id];
-    var def = SUITES[id] || { label: id };
-    if (!sr) return;
-
-    var total = sr.passed + sr.failed;
-    var rate = total > 0 ? Math.round((sr.passed / total) * 100) : 0;
-    var rateClass = 'low';
-    if (rate === 100) rateClass = 'perfect';
-    else if (rate >= 80) rateClass = 'high';
-
-    var rowClass = 'rate-low';
-    if (rate === 100) rowClass = 'rate-100';
-    else if (rate >= 80) rowClass = 'rate-high';
-
-    var tr = createEl('tr', { className: rowClass });
-
-    var tdName = createEl('td');
-    tdName.appendChild(createEl('strong', { textContent: def.label }));
-
-    var tdPassed = createEl('td', { textContent: String(sr.passed) });
-    tdPassed.style.color = 'var(--green)';
-    tdPassed.style.fontFamily = "'SF Mono', monospace";
-
-    var tdTotal = createEl('td', { textContent: String(total) });
-    tdTotal.style.fontFamily = "'SF Mono', monospace";
-
-    var tdRate = createEl('td');
-    tdRate.appendChild(createEl('span', {
-      className: 'rate-pill ' + rateClass,
-      textContent: rate + '%',
-    }));
-
-    var tdDur = createEl('td', {
-      className: 'mono',
-      textContent: sr.elapsed ? formatDuration(sr.elapsed) : '-',
-    });
-    tdDur.style.color = 'var(--text-muted)';
-
-    tr.appendChild(tdName);
-    tr.appendChild(tdPassed);
-    tr.appendChild(tdTotal);
-    tr.appendChild(tdRate);
-    tr.appendChild(tdDur);
-
-    tr.addEventListener('click', function() {
-      state.expandedSuites.add(id);
-      renderProgress();
-      var detail = document.getElementById('detail-' + id);
-      if (detail) {
-        detail.classList.add('open');
-        detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // ── Suite Selection ──────────────────────────────────────
+    // ── Suite Options ──────────────────────────────────────────
+    toggleSuiteOptions(id) {
+      if (this.expandedOptions.has(id)) {
+        this.expandedOptions.delete(id);
+      } else {
+        this.expandedOptions.add(id);
       }
-    });
+      // Force reactivity
+      this.expandedOptions = new Set(this.expandedOptions);
+      this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
+    },
+    getSuiteOpt(suiteId, key, defaultVal) {
+      if (this.suiteOptions[suiteId] && this.suiteOptions[suiteId][key] !== undefined) {
+        return this.suiteOptions[suiteId][key];
+      }
+      return defaultVal;
+    },
+    setSuiteOpt(suiteId, key, value) {
+      if (!this.suiteOptions[suiteId]) this.suiteOptions[suiteId] = {};
+      this.suiteOptions[suiteId][key] = value;
+      // Force reactivity on nested object
+      this.suiteOptions = { ...this.suiteOptions };
+    },
 
-    tbody.appendChild(tr);
-  });
-}
+    toggleSuite(id) {
+      if (this.selected.has(id)) {
+        this.selected.delete(id);
+      } else {
+        this.selected.add(id);
+      }
+      // Force reactivity
+      this.selected = new Set(this.selected);
+      this.saveSelectedPreference();
+    },
+    selectAll() {
+      Object.keys(this.suites).forEach(id => this.selected.add(id));
+      this.selected = new Set(this.selected);
+      this.saveSelectedPreference();
+    },
+    deselectAll() {
+      this.selected = new Set();
+      this.saveSelectedPreference();
+    },
 
-// ─── History ─────────────────────────────────────────────────────────
-function saveHistory() {
-  try { localStorage.setItem('afm-dashboard-history', JSON.stringify(state.history)); }
-  catch (e) { /* storage full */ }
-}
-
-function loadHistory() {
-  try {
-    var raw = localStorage.getItem('afm-dashboard-history');
-    if (raw) state.history = JSON.parse(raw);
-  } catch (e) { state.history = []; }
-}
-
-function renderHistory() {
-  var list = $('#history-list');
-  list.textContent = '';
-
-  if (state.history.length === 0) {
-    list.appendChild(createEl('div', { className: 'history-empty', textContent: 'No previous runs' }));
-    return;
-  }
-
-  state.history.forEach(function(entry) {
-    var item = createEl('div', {
-      className: 'history-item' + (state.historySelected.has(entry.id) ? ' selected' : ''),
-      'data-id': entry.id,
-    });
-
-    var date = new Date(entry.date);
-    var dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-
-    var dateDiv = createEl('div', { className: 'history-date' });
-    dateDiv.appendChild(document.createTextNode(dateStr));
-    if (entry.stopped) {
-      var stoppedSpan = createEl('span', { textContent: ' (stopped)' });
-      stoppedSpan.style.color = 'var(--yellow)';
-      dateDiv.appendChild(stoppedSpan);
-    }
-
-    var suiteLabels = entry.suites.map(function(s) {
-      return SUITES[s] ? SUITES[s].label : s;
-    }).join(', ');
-
-    var suitesDiv = createEl('div', { className: 'history-suites', textContent: suiteLabels });
-
-    var summaryDiv = createEl('div', { className: 'history-summary' });
-    summaryDiv.appendChild(createEl('span', { className: 'pass', textContent: entry.totalPassed + ' passed' }));
-    summaryDiv.appendChild(createEl('span', { className: 'fail', textContent: entry.totalFailed + ' failed' }));
-    summaryDiv.appendChild(createEl('span', { className: 'dur', textContent: formatDuration(entry.duration) }));
-
-    item.appendChild(dateDiv);
-    item.appendChild(suitesDiv);
-    item.appendChild(summaryDiv);
-
-    item.addEventListener('click', function() { loadHistoryRun(entry); });
-    list.appendChild(item);
-  });
-}
-
-function loadHistoryRun(entry) {
-  state.suiteOrder = entry.suites;
-  state.suiteResults = entry.results;
-  state.totalPassed = entry.totalPassed;
-  state.totalFailed = entry.totalFailed;
-  state.completedSuites = entry.suites.length;
-  state.startTime = new Date(entry.date).getTime();
-  state.expandedSuites.clear();
-
-  showProgress();
-  renderProgress();
-  showResults();
-  renderResults();
-  closeHistory();
-
-  showToast('Loaded run from ' + new Date(entry.date).toLocaleString(), 'info');
-}
-
-function openHistory() {
-  renderHistory();
-  $('#history-overlay').classList.add('open');
-}
-
-function closeHistory() {
-  $('#history-overlay').classList.remove('open');
-}
-
-// ─── Action Buttons ──────────────────────────────────────────────────
-function openPromptfooView() {
-  apiFetch('/api/promptfoo-view', { method: 'POST' }).then(function(data) {
-    if (data && data.url) {
-      window.open(data.url, '_blank');
-    } else {
-      showToast('Could not open Promptfoo UI (API offline)', 'error');
-    }
-  });
-}
-
-function viewReports() {
-  window.open('/test-reports/', '_blank');
-}
-
-function exportJsonl() {
-  var lines = [];
-  state.suiteOrder.forEach(function(id) {
-    var sr = state.suiteResults[id];
-    if (!sr) return;
-    sr.tests.forEach(function(t) {
-      var obj = {
-        suite: id,
-        test: t.name,
-        status: t.status,
-        duration_ms: Math.round(t.duration),
-        group: t.group || null,
+    suiteIcon(id) {
+      const icons = {
+        'unit': 'box',
+        'assertions-smoke': 'zap',
+        'assertions-standard': 'shield-check',
+        'assertions-full': 'shield',
+        'assertions-grammar': 'braces',
+        'smart-analysis': 'brain',
+        'promptfoo': 'target',
+        'batch-correctness': 'layers',
+        'batch-mixed': 'shuffle',
+        'batch-multiturn': 'messages-square',
+        'openai-compat': 'plug',
+        'guided-json': 'file-json',
+        'gpu-profile': 'cpu',
       };
-      if (t.expected) obj.expected = t.expected;
-      if (t.actual) obj.actual = t.actual;
-      if (t.message) obj.message = t.message;
-      lines.push(JSON.stringify(obj));
-    });
-  });
-  var blob = new Blob([lines.join('\n') + '\n'], { type: 'application/jsonl' });
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement('a');
-  a.href = url;
-  a.download = 'afm-run-' + (state.runId || 'export') + '.jsonl';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  showToast('JSONL exported', 'success');
-}
+      return icons[id] || 'test-tube';
+    },
 
-function runAgain() {
-  $('#progress-section').classList.remove('visible');
-  $('#results-section').classList.remove('visible');
-  state.running = false;
-  state.expandedSuites.clear();
-  updateRunButton();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
+    // ── Run Management ───────────────────────────────────────
+    async startRun() {
+      if (this.running || this.selectedCount === 0) return;
 
-// ─── Event Bindings ──────────────────────────────────────────────────
-function bindEvents() {
-  $('#select-all').addEventListener('change', function(e) {
-    if (state.running) return;
-    var allIds = Object.keys(SUITES);
-    if (e.target.checked) {
-      allIds.forEach(function(id) { state.selectedSuites.add(id); });
-    } else {
-      state.selectedSuites.clear();
-    }
-    updateSuiteCardVisuals();
-    updateEstTotal();
-    updateRunButton();
-  });
+      const suites = [];
+      this.selected.forEach(s => suites.push(s));
 
-  $('#btn-run').addEventListener('click', startRun);
-  $('#btn-stop').addEventListener('click', stopRun);
+      this.running = true;
+      this.runId = Date.now().toString(36);
+      this.startTime = Date.now();
+      this.suiteOrder = suites;
+      this.overallPassed = 0;
+      this.overallFailed = 0;
+      this.elapsed = 0;
+      this.expandedSuites = new Set();
+      this.showProgressSection = true;
+      this.showResultsSection = false;
 
-  var pfTimeout;
-  $('#binary-path').addEventListener('input', function() {
-    clearTimeout(pfTimeout);
-    pfTimeout = setTimeout(function() {
-      var path = $('#binary-path').value.trim();
-      if (path) runPreflight(path);
-    }, 600);
-  });
+      // Init progress for each suite
+      const p = {};
+      suites.forEach(id => {
+        p[id] = {
+          status: 'pending', passed: 0, failed: 0, total: 0,
+          tests: [], stdout: [], elapsed: 0, startTime: null,
+          _showStdout: false,
+        };
+      });
+      this.progress = p;
 
-  $('#model-select').addEventListener('change', function(e) {
-    state.model = e.target.value;
-  });
+      this.startTimer();
+      this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
 
-  $('#btn-history').addEventListener('click', openHistory);
-  $('#history-close').addEventListener('click', closeHistory);
-  $('#history-overlay').addEventListener('click', function(e) {
-    if (e.target === e.currentTarget) closeHistory();
-  });
+      // Collect per-suite options (only for selected suites that have options configured)
+      const options = {};
+      suites.forEach(id => {
+        const defs = this.suiteOptionDefs[id];
+        if (defs) {
+          const opts = {};
+          defs.forEach(def => {
+            const val = this.getSuiteOpt(id, def.key, def.default);
+            if (val !== def.default && val !== '' && val !== false) {
+              opts[def.key] = val;
+            }
+            // Always send toggles that are explicitly set
+            if (def.type === 'toggle' && this.suiteOptions[id] && this.suiteOptions[id][def.key] !== undefined) {
+              opts[def.key] = this.suiteOptions[id][def.key];
+            }
+          });
+          if (Object.keys(opts).length > 0) options[id] = opts;
+        }
+      });
 
-  $('#btn-promptfoo-ui').addEventListener('click', openPromptfooView);
-  $('#btn-view-reports').addEventListener('click', viewReports);
-  $('#btn-export').addEventListener('click', exportJsonl);
-  $('#btn-run-again').addEventListener('click', runAgain);
+      const body = {
+        binary: this.binary.path,
+        model: this.selectedModel,
+        suites: suites,
+        options: options,
+      };
 
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') closeHistory();
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !state.running && state.selectedSuites.size > 0) {
-      e.preventDefault();
-      startRun();
-    }
-  });
-}
+      const res = await this.apiFetch('/api/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
 
-// ─── Init ────────────────────────────────────────────────────────────
-function init() {
-  loadHistory();
-  renderSuiteGrid();
-  bindEvents();
-  updateEstTotal();
-  updateRunButton();
+      if (res && res.run_id) {
+        this.runId = res.run_id;
+        this.connectSSE();
+      } else {
+        // Offline demo mode
+        this.toast('Running in demo mode (API offline)', 'info');
+        this.simulateRun(suites);
+      }
+    },
 
-  fetchBinary();
-  fetchModels();
+    async stopRun() {
+      if (!this.running) return;
+      await this.apiFetch('/api/stop', { method: 'POST' });
+      this.finishRun(true);
+      this.toast('Run stopped', 'error');
+    },
 
-  setTimeout(function() {
-    var path = $('#binary-path').value.trim();
-    if (path) runPreflight(path);
-  }, 1500);
-}
+    // ── SSE ──────────────────────────────────────────────────
+    connectSSE() {
+      if (this.eventSource) this.eventSource.close();
+      this.eventSource = new EventSource('/api/events');
 
-document.addEventListener('DOMContentLoaded', init);
+      this.eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          this.handleEvent(data);
+        } catch (e) {
+          console.warn('SSE parse error:', e);
+        }
+      };
+
+      this.eventSource.onerror = () => {
+        if (this.running) {
+          setTimeout(() => { if (this.running) this.connectSSE(); }, 2000);
+        }
+      };
+    },
+
+    handleEvent(ev) {
+      const suite = ev.suite || ev.suite_id;
+      const sr = suite ? this.progress[suite] : null;
+
+      switch (ev.type) {
+        case 'suite_start':
+          if (sr) {
+            sr.status = 'running';
+            sr.total = ev.total || 0;
+            sr.startTime = Date.now();
+            this.expandedSuites.add(suite);
+            this.expandedSuites = new Set(this.expandedSuites);
+          }
+          break;
+
+        case 'test_pass':
+          if (sr) {
+            sr.passed++;
+            this.overallPassed++;
+            sr.tests.push({
+              name: ev.name || ev.test || '',
+              status: 'pass',
+              duration: ev.duration || 0,
+              group: ev.group || '',
+            });
+          }
+          break;
+
+        case 'test_fail':
+          if (sr) {
+            sr.failed++;
+            this.overallFailed++;
+            sr.tests.push({
+              name: ev.name || ev.test || '',
+              status: 'fail',
+              duration: ev.duration || 0,
+              group: ev.group || '',
+              expected: ev.expected || '',
+              actual: ev.actual || '',
+              message: ev.message || ev.error || '',
+            });
+            this.toast('FAIL: ' + (ev.name || ev.test || 'Unknown test'), 'error', 5000);
+          }
+          break;
+
+        case 'suite_end':
+          if (sr) {
+            sr.status = sr.failed > 0 ? 'fail' : 'pass';
+            sr.elapsed = ev.duration_s || ev.duration || (sr.startTime ? (Date.now() - sr.startTime) / 1000 : 0);
+            sr.total = sr.passed + sr.failed + (ev.skipped || 0);
+            // Collapse after completion
+            this.expandedSuites.delete(suite);
+            this.expandedSuites = new Set(this.expandedSuites);
+          }
+          break;
+
+        case 'stdout':
+          if (sr) {
+            sr.stdout.push(ev.line || ev.text || '');
+            if (sr.stdout.length > 100) sr.stdout = sr.stdout.slice(-100);
+          }
+          break;
+
+        case 'server_log':
+          // Could display server logs separately, for now add to relevant suites
+          break;
+
+        case 'server_ready':
+          this.toast('Server ready on port ' + (ev.port || ''), 'success');
+          break;
+
+        case 'server_timeout':
+          this.toast('Server timed out on port ' + (ev.port || ''), 'error');
+          break;
+
+        case 'done':
+          this.finishRun(false);
+          return;
+      }
+
+      // Trigger reactivity
+      this.progress = { ...this.progress };
+      this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
+    },
+
+    // ── Timer ────────────────────────────────────────────────
+    startTimer() {
+      this.stopTimer();
+      this._timerInterval = setInterval(() => {
+        if (!this.running || !this.startTime) return;
+        this.elapsed = (Date.now() - this.startTime) / 1000;
+        // Update running suite elapsed
+        this.suiteOrder.forEach(id => {
+          const p = this.progress[id];
+          if (p && p.status === 'running' && p.startTime) {
+            p.elapsed = (Date.now() - p.startTime) / 1000;
+          }
+        });
+      }, 1000);
+    },
+    stopTimer() {
+      if (this._timerInterval) { clearInterval(this._timerInterval); this._timerInterval = null; }
+    },
+
+    // ── Finish Run ───────────────────────────────────────────
+    finishRun(stopped) {
+      this.running = false;
+      this.stopTimer();
+      if (this.eventSource) { this.eventSource.close(); this.eventSource = null; }
+
+      this.suiteOrder.forEach(id => {
+        const sr = this.progress[id];
+        if (!sr) return;
+        if (sr.status === 'pending') sr.status = stopped ? 'skipped' : 'pass';
+        if (sr.status === 'running') sr.status = stopped ? 'skipped' : (sr.failed > 0 ? 'fail' : 'pass');
+      });
+      this.progress = { ...this.progress };
+
+      this.showResultsSection = true;
+      this.$nextTick(() => {
+        this.renderCharts();
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+      });
+
+      // Save to history
+      const entry = {
+        id: this.runId,
+        date: new Date().toISOString(),
+        binary: this.binary.path,
+        model: this.selectedModel,
+        suites: [...this.suiteOrder],
+        totalPassed: this.overallPassed,
+        totalFailed: this.overallFailed,
+        duration: this.elapsed,
+        stopped: stopped,
+      };
+      this.history.unshift(entry);
+      if (this.history.length > 50) this.history = this.history.slice(0, 50);
+      this.saveHistory();
+
+      if (!stopped) {
+        const allPassed = this.overallFailed === 0;
+        this.toast(
+          allPassed
+            ? 'All ' + this.overallPassed + ' tests passed'
+            : this.overallFailed + ' failure' + (this.overallFailed !== 1 ? 's' : '') + ' out of ' + (this.overallPassed + this.overallFailed),
+          allPassed ? 'success' : 'error',
+          6000
+        );
+      }
+    },
+
+    // ── Simulation (offline demo mode) ───────────────────────
+    simulateRun(suites) {
+      let idx = 0;
+      const runNext = () => {
+        if (idx >= suites.length || !this.running) { this.finishRun(false); return; }
+        const id = suites[idx];
+        const sr = this.progress[id];
+        const testCount = 5 + Math.floor(Math.random() * 20);
+        sr.status = 'running';
+        sr.total = testCount;
+        sr.startTime = Date.now();
+        this.expandedSuites.add(id);
+        this.expandedSuites = new Set(this.expandedSuites);
+        this.progress = { ...this.progress };
+
+        let ti = 0;
+        const interval = setInterval(() => {
+          if (!this.running || ti >= testCount) {
+            clearInterval(interval);
+            sr.status = sr.failed > 0 ? 'fail' : 'pass';
+            sr.elapsed = (Date.now() - sr.startTime) / 1000;
+            this.expandedSuites.delete(id);
+            this.expandedSuites = new Set(this.expandedSuites);
+            this.progress = { ...this.progress };
+            idx++;
+            setTimeout(runNext, 200);
+            return;
+          }
+          const isFail = Math.random() < 0.05;
+          const name = 'test_' + id + '_' + (ti + 1);
+          const dur = 50 + Math.random() * 800;
+          if (isFail) {
+            sr.failed++;
+            this.overallFailed++;
+            sr.tests.push({ name, status: 'fail', duration: dur, group: 'Demo', expected: 'expected value', actual: 'actual value', message: 'Simulated failure' });
+          } else {
+            sr.passed++;
+            this.overallPassed++;
+            sr.tests.push({ name, status: 'pass', duration: dur, group: 'Demo' });
+          }
+          sr.stdout.push('[' + new Date().toISOString().slice(11, 19) + '] ' + (isFail ? 'FAIL' : 'PASS') + ' ' + name);
+          if (sr.stdout.length > 100) sr.stdout = sr.stdout.slice(-100);
+          ti++;
+          this.progress = { ...this.progress };
+          this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
+        }, 100);
+      };
+      setTimeout(runNext, 300);
+    },
+
+    // ── Charts ───────────────────────────────────────────────
+    renderCharts() {
+      this.renderDonutChart();
+      this.renderBarChart();
+    },
+
+    renderDonutChart() {
+      const canvas = this.$refs.donutChart;
+      if (!canvas) return;
+      if (this._donutChart) this._donutChart.destroy();
+
+      this._donutChart = new Chart(canvas, {
+        type: 'doughnut',
+        data: {
+          labels: ['Passed', 'Failed'],
+          datasets: [{
+            data: [this.overallPassed, this.overallFailed],
+            backgroundColor: ['#3fb950', '#f85149'],
+            borderColor: ['#238636', '#da3633'],
+            borderWidth: 2,
+            hoverOffset: 6,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '65%',
+          plugins: {
+            legend: { display: true, position: 'bottom', labels: { color: '#8b949e', font: { size: 11 }, padding: 16, usePointStyle: true, pointStyleWidth: 8 } },
+            tooltip: { backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1, titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 10, cornerRadius: 8 },
+          },
+        },
+      });
+    },
+
+    renderBarChart() {
+      const canvas = this.$refs.barChart;
+      if (!canvas) return;
+      if (this._barChart) this._barChart.destroy();
+
+      const labels = [];
+      const data = [];
+      const colors = [];
+      this.suiteOrder.forEach(id => {
+        const p = this.progress[id];
+        labels.push(this.suites[id]?.label || id);
+        data.push(p?.elapsed || 0);
+        colors.push(p?.status === 'fail' ? '#f85149' : '#58a6ff');
+      });
+
+      this._barChart = new Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            data,
+            backgroundColor: colors,
+            borderRadius: 4,
+            barThickness: 20,
+          }],
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1,
+              titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 10, cornerRadius: 8,
+              callbacks: { label: (ctx) => this.formatDuration(ctx.raw) },
+            },
+          },
+          scales: {
+            x: {
+              grid: { color: '#21262d' },
+              ticks: { color: '#8b949e', font: { size: 10, family: '"SF Mono", monospace' }, callback: (v) => this.formatDuration(v) },
+            },
+            y: {
+              grid: { display: false },
+              ticks: { color: '#8b949e', font: { size: 11 } },
+            },
+          },
+        },
+      });
+    },
+
+    // ── Actions ──────────────────────────────────────────────
+    async openPromptfooUI() {
+      const res = await this.apiFetch('/api/promptfoo-view', { method: 'POST' });
+      if (res && res.url) {
+        window.open(res.url, '_blank');
+      } else {
+        this.toast('Could not start Promptfoo UI', 'warning');
+      }
+    },
+
+    viewReports() {
+      window.open('/api/reports/', '_blank');
+    },
+
+    exportJSONL() {
+      if (this.runId) {
+        window.open('/api/results/' + this.runId, '_blank');
+      } else {
+        this.toast('No run data to export', 'warning');
+      }
+    },
+
+    runAgain() {
+      this.showResultsSection = false;
+      this.showProgressSection = false;
+      this.$nextTick(() => this.startRun());
+    },
+
+    // ── History ──────────────────────────────────────────────
+    loadHistory() {
+      try {
+        const raw = localStorage.getItem('afm-dashboard-history');
+        if (raw) this.history = JSON.parse(raw);
+      } catch (e) { this.history = []; }
+    },
+    saveHistory() {
+      try { localStorage.setItem('afm-dashboard-history', JSON.stringify(this.history)); } catch (e) {}
+    },
+    loadHistoryRun(run) {
+      // Restore from API if available, otherwise just show metadata
+      this.showHistory = false;
+      this.suiteOrder = run.suites || [];
+      this.overallPassed = run.totalPassed || 0;
+      this.overallFailed = run.totalFailed || 0;
+      this.elapsed = run.duration || 0;
+      this.runId = run.id;
+
+      // Build minimal progress from what we have
+      const p = {};
+      this.suiteOrder.forEach(id => {
+        p[id] = {
+          status: run.totalFailed > 0 ? 'fail' : 'pass',
+          passed: 0, failed: 0, total: 0,
+          tests: [], stdout: [], elapsed: 0,
+          _showStdout: false,
+        };
+      });
+      this.progress = p;
+
+      this.showProgressSection = true;
+      this.showResultsSection = true;
+      this.$nextTick(() => {
+        this.renderCharts();
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+      });
+    },
+
+    // ── localStorage preferences ─────────────────────────────
+    saveSelectedPreference() {
+      try { localStorage.setItem('afm-dashboard-selected', JSON.stringify([...this.selected])); } catch (e) {}
+    },
+    loadSelectedPreference() {
+      try {
+        const raw = localStorage.getItem('afm-dashboard-selected');
+        if (raw) this.selected = new Set(JSON.parse(raw));
+      } catch (e) {}
+    },
+
+    // ── Utility ──────────────────────────────────────────────
+    formatDuration(seconds) {
+      if (!seconds || seconds <= 0) return '0s';
+      if (seconds < 60) return Math.round(seconds) + 's';
+      const m = Math.floor(seconds / 60);
+      const s = Math.round(seconds % 60);
+      if (m < 60) return s > 0 ? m + 'm ' + s + 's' : m + 'm';
+      const h = Math.floor(m / 60);
+      const rm = m % 60;
+      return rm > 0 ? h + 'h ' + rm + 'm' : h + 'h';
+    },
+
+    formatMs(ms) {
+      if (!ms) return '';
+      if (ms < 1000) return Math.round(ms) + 'ms';
+      return (ms / 1000).toFixed(1) + 's';
+    },
+
+    formatHistoryDate(iso) {
+      if (!iso) return '';
+      try {
+        const d = new Date(iso);
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' +
+               d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      } catch (e) { return iso; }
+    },
+
+    suitePercent(id) {
+      const p = this.progress[id];
+      if (!p || p.total <= 0) return 0;
+      return Math.round(((p.passed + p.failed) / p.total) * 100);
+    },
+
+    suitePassRate(id) {
+      const p = this.progress[id];
+      if (!p) return 0;
+      const total = p.passed + p.failed;
+      if (total === 0) return 0;
+      return Math.round((p.passed / total) * 100);
+    },
+
+    toggleExpanded(id) {
+      if (this.expandedSuites.has(id)) {
+        this.expandedSuites.delete(id);
+      } else {
+        this.expandedSuites.add(id);
+      }
+      this.expandedSuites = new Set(this.expandedSuites);
+    },
+
+    toast(message, type = 'info', duration = 4000) {
+      const id = ++this._toastId;
+      const t = { id, message, type, visible: true };
+      this.toasts.push(t);
+      this.$nextTick(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
+      setTimeout(() => {
+        t.visible = false;
+        setTimeout(() => { this.toasts = this.toasts.filter(x => x.id !== id); }, 300);
+      }, duration);
+    },
+  }));
+});
 </script>
 
 </body>

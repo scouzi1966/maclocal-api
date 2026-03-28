@@ -726,8 +726,100 @@ def _parse_match(suite_name: str, suite_def: dict, groups: tuple, line: str) -> 
         _emit_sse({"type": "test_fail", "suite": suite_name, "test": line.strip()})
 
 
+def _apply_suite_options(suite_name: str, suite_def: dict, options: dict) -> dict:
+    """Apply user-specified per-suite options to the suite definition.
+    Returns a modified copy of the suite_def (never mutates original)."""
+    opts = options.get(suite_name, {})
+    if not opts:
+        return suite_def
+
+    sdef = {k: (list(v) if isinstance(v, list) else v) for k, v in suite_def.items()}
+    if "cmd_template" in sdef:
+        sdef["cmd_template"] = list(sdef["cmd_template"])
+    if "server_flags" in sdef:
+        sdef["server_flags"] = list(sdef["server_flags"])
+
+    # Assertions: --section, --grammar-constraints toggle
+    if suite_name.startswith("assertions-") and suite_name != "assertions-grammar":
+        if opts.get("section"):
+            sdef["cmd_template"].extend(["--section", str(opts["section"])])
+        if opts.get("grammar") is False:
+            # Remove --grammar-constraints from cmd if present
+            sdef["cmd_template"] = [a for a in sdef["cmd_template"] if a != "--grammar-constraints"]
+            # Remove from server flags too
+            if "server_flags" in sdef:
+                sdef["server_flags"] = [f for f in sdef["server_flags"] if f != "--enable-grammar-constraints"]
+
+    # Assertions with grammar + forced parser: tier, parser
+    if suite_name == "assertions-grammar":
+        if opts.get("tier"):
+            sdef["cmd_template"] = [opts["tier"] if a == "full" and i > 0 and sdef["cmd_template"][i-1] == "--tier" else a
+                                     for i, a in enumerate(sdef["cmd_template"])]
+        if opts.get("forced_parser") and opts["forced_parser"] != "none":
+            sdef["cmd_template"] = [opts["forced_parser"] if a == "qwen3_xml" and i > 0 and sdef["cmd_template"][i-1] == "--also-forced-parser" else a
+                                     for i, a in enumerate(sdef["cmd_template"])]
+        elif opts.get("forced_parser") == "none":
+            # Remove --also-forced-parser entirely
+            new_cmd = []
+            skip_next = False
+            for a in sdef["cmd_template"]:
+                if skip_next:
+                    skip_next = False
+                    continue
+                if a == "--also-forced-parser":
+                    skip_next = True
+                    continue
+                new_cmd.append(a)
+            sdef["cmd_template"] = new_cmd
+
+    # Smart analysis: judge, batch_mode, tests
+    if suite_name == "smart-analysis":
+        judge = opts.get("judge", "claude")
+        batch = opts.get("batch_mode", "1")
+        smart_val = f"{batch}:{judge}" if batch != "0" else judge
+        sdef["cmd_template"] = [smart_val if a.startswith("1:") or a in ("claude", "codex") and i > 0 and sdef["cmd_template"][i-1] == "--smart" else a
+                                 for i, a in enumerate(sdef["cmd_template"])]
+        if opts.get("tests"):
+            sdef["cmd_template"].extend(["--tests", str(opts["tests"])])
+
+    # Promptfoo: mode
+    if suite_name == "promptfoo":
+        mode = opts.get("mode", "all")
+        if mode != "all":
+            sdef["cmd_template"] = [mode if a == "all" else a for a in sdef["cmd_template"]]
+
+    # Batch tests: batch_sizes, concurrent, prefix_caching
+    if suite_name.startswith("batch-"):
+        if opts.get("concurrent"):
+            if "server_flags" in sdef:
+                new_flags = []
+                skip_next = False
+                for f in sdef["server_flags"]:
+                    if skip_next:
+                        skip_next = False
+                        continue
+                    if f == "--concurrent":
+                        new_flags.extend(["--concurrent", str(opts["concurrent"])])
+                        skip_next = True
+                        continue
+                    new_flags.append(f)
+                sdef["server_flags"] = new_flags
+        if opts.get("batch_sizes"):
+            sdef["cmd_template"].extend(opts["batch_sizes"].split(","))
+        if suite_name == "batch-multiturn" and opts.get("prefix_caching") is False:
+            if "server_flags" in sdef:
+                sdef["server_flags"] = [f for f in sdef["server_flags"] if f != "--enable-prefix-caching"]
+
+    # GPU profile: max_tokens
+    if suite_name == "gpu-profile" and opts.get("max_tokens"):
+        sdef["cmd_template"].append(str(opts["max_tokens"]))
+
+    return sdef
+
+
 def _orchestrate_run(run_id: str, binary: str, model: str,
-                     suite_names: list[str]) -> None:
+                     suite_names: list[str],
+                     suite_options: Optional[dict] = None) -> None:
     """
     Main orchestration function. Groups suites by port, runs server-backed
     suites sequentially within each port group, runs non-server suites first.
@@ -762,11 +854,14 @@ def _orchestrate_run(run_id: str, binary: str, model: str,
             port = sdef["port"] or 0
             port_groups.setdefault(port, []).append(name)
 
+    if suite_options is None:
+        suite_options = {}
+
     # 1. Run non-server suites first
     for name in no_server:
         if _stop_requested.is_set():
             break
-        sdef = SUITES[name]
+        sdef = _apply_suite_options(name, SUITES[name], suite_options)
         r = _run_suite(name, sdef, binary, model, None)
         results.append(r)
         total_passed += r["passed"]
@@ -777,9 +872,8 @@ def _orchestrate_run(run_id: str, binary: str, model: str,
         if _stop_requested.is_set():
             break
 
-        # Determine server flags — use the first suite's flags (they should
-        # be compatible within a port group).
-        first_sdef = SUITES[names[0]]
+        # Determine server flags — use the first suite's flags (after applying options)
+        first_sdef = _apply_suite_options(names[0], SUITES[names[0]], suite_options)
         server_flags = first_sdef.get("server_flags", [])
 
         # Start server
@@ -801,7 +895,7 @@ def _orchestrate_run(run_id: str, binary: str, model: str,
             for name in names:
                 if _stop_requested.is_set():
                     break
-                sdef = SUITES[name]
+                sdef = _apply_suite_options(name, SUITES[name], suite_options)
                 r = _run_suite(name, sdef, binary, model, afm_proc)
                 results.append(r)
                 total_passed += r["passed"]
@@ -1015,6 +1109,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         binary = data.get("binary", "")
         model = data.get("model", "")
         suite_names = data.get("suites", [])
+        suite_options = data.get("options", {})  # per-suite options from UI
 
         if not binary or not model or not suite_names:
             self._json_response(
@@ -1043,11 +1138,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "binary": binary,
             "model": model,
             "suites": suite_names,
+            "options": suite_options,
         })
 
         t = threading.Thread(
             target=_orchestrate_run,
-            args=(run_id, binary, model, suite_names),
+            args=(run_id, binary, model, suite_names, suite_options),
             daemon=True,
         )
         t.start()
