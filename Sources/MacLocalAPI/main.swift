@@ -59,6 +59,9 @@ struct ServeCommand: ParsableCommand {
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
 
+    @Flag(name: .customLong("test-gui"), help: "Enable test dashboard GUI at /test-dashboard/")
+    var testGui: Bool = false
+
     @Option(name: .long, help: "Telegram bot token for remote AFM access")
     var telegramBotToken: String?
 
@@ -128,7 +131,7 @@ struct ServeCommand: ParsableCommand {
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: port, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose || vv, trace: vv, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled, telegramConfiguration: telegramConfiguration)
+                let server = try await Server(port: port, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose || vv, trace: vv, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop, webuiEnabled: webui, testGuiEnabled: testGui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled, telegramConfiguration: telegramConfiguration)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -319,6 +322,9 @@ struct MlxCommand: ParsableCommand {
 
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
+
+    @Flag(name: .customLong("test-gui"), help: "Enable test dashboard GUI at /test-dashboard/")
+    var testGui: Bool = false
 
     @Flag(name: [.customShort("g"), .long], help: "Gateway mode is not supported in afm mlx")
     var gateway: Bool = false
@@ -649,6 +655,7 @@ struct MlxCommand: ParsableCommand {
                     permissiveGuardrails: false,
                     stop: stop,
                     webuiEnabled: webui,
+                    testGuiEnabled: testGui,
                     gatewayEnabled: false,
                     prewarmEnabled: false,
                     telegramConfiguration: telegramConfiguration,
@@ -1252,6 +1259,9 @@ struct RootCommand: ParsableCommand {
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
 
+    @Flag(name: .customLong("test-gui"), help: "Enable test dashboard GUI at /test-dashboard/")
+    var testGui: Bool = false
+
     @Option(name: .long, help: "Telegram bot token for remote AFM access")
     var telegramBotToken: String?
 
@@ -1326,6 +1336,7 @@ struct RootCommand: ParsableCommand {
         if noStreaming { args.append("--no-streaming") }
         if permissiveGuardrails { args.append("--permissive-guardrails") }
         if webui { args.append("--webui") }
+        if testGui { args.append("--test-gui") }
         if gateway { args.append("--gateway") }
         if let telegramBotToken { args += ["--telegram-bot-token", telegramBotToken] }
         if let telegramAllow { args += ["--telegram-allow", telegramAllow] }

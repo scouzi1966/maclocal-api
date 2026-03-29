@@ -71,7 +71,8 @@ let package = Package(
                 .product(name: "Hub", package: "swift-transformers")
             ],
             resources: [
-                .copy("Resources/default.metallib")
+                .copy("Resources/default.metallib"),
+                .copy("Resources/test-dashboard")
             ],
             swiftSettings: [
                 // Enable optimizations for release builds

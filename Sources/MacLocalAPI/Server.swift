@@ -45,6 +45,7 @@ class Server {
     private let permissiveGuardrails: Bool
     private let stop: String?
     private let webuiEnabled: Bool
+    private let testGuiEnabled: Bool
     private let webuiPath: String?
     private let gatewayEnabled: Bool
     private let prewarmEnabled: Bool
@@ -63,7 +64,7 @@ class Server {
     private let contextWindow: Int?
     private var telegramBridge: TelegramBridge?
 
-    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, telegramConfiguration: TelegramConfiguration? = nil, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil) async throws {
+    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, testGuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, telegramConfiguration: TelegramConfiguration? = nil, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -77,6 +78,7 @@ class Server {
         self.permissiveGuardrails = permissiveGuardrails
         self.stop = stop
         self.webuiEnabled = webuiEnabled
+        self.testGuiEnabled = testGuiEnabled
         self.webuiPath = Server.findWebuiPath()
         self.gatewayEnabled = gatewayEnabled
         self.prewarmEnabled = prewarmEnabled
@@ -306,6 +308,22 @@ class Server {
                 stop: stop
             )
             try app.register(collection: chatController)
+        }
+
+        // Test dashboard GUI
+        print("[test-gui] testGuiEnabled=\(testGuiEnabled)")
+        if testGuiEnabled {
+            let repoRoot = FileManager.default.currentDirectoryPath
+            let dashboardPath = Server.findTestDashboardPath()
+            if let dashboardPath {
+                let testDashboard = TestDashboardController(repoRoot: repoRoot, dashboardHTMLPath: dashboardPath)
+                try app.register(collection: testDashboard)
+                print("[test-gui] Dashboard at http://\(hostname):\(port)/test-dashboard/")
+                print("[test-gui] HTML from: \(dashboardPath)")
+            } else {
+                print("[test-gui] WARNING: Dashboard HTML not found, /test-dashboard/ will return 404")
+                print("[test-gui] Searched: SPM bundle, Resources/, share/, Scripts/test-dashboard/")
+            }
         }
 
         // Props endpoint for llama.cpp webui compatibility (per-model capabilities)
@@ -942,6 +960,57 @@ class Server {
             "\(executableDir)/../../../vendor/llama.cpp/tools/server/public/index.html.gz",
             // Development: llama.cpp submodule public folder
             "\(cwd)/vendor/llama.cpp/tools/server/public/index.html.gz"
+        ]
+
+        for path in pathsToCheck {
+            let standardizedPath = URL(fileURLWithPath: path).standardized.path
+            if fileManager.fileExists(atPath: standardizedPath) {
+                return standardizedPath
+            }
+        }
+
+        return nil
+    }
+
+    /// Find the test dashboard HTML using the same search pattern as webui.
+    private static func findTestDashboardPath() -> String? {
+        let fileManager = FileManager.default
+        let cwd = fileManager.currentDirectoryPath
+
+        // SPM Bundle.module — most reliable; CWD-independent
+        if let bundlePath = Bundle.module.path(forResource: "index", ofType: "html", inDirectory: "test-dashboard") {
+            return bundlePath
+        }
+
+        let executablePath = CommandLine.arguments[0]
+        let executableURL: URL
+        if executablePath.hasPrefix("/") {
+            executableURL = URL(fileURLWithPath: executablePath)
+        } else {
+            executableURL = URL(fileURLWithPath: cwd).appendingPathComponent(executablePath)
+        }
+        let executableDir = executableURL.deletingLastPathComponent().standardized.path
+
+        let pathsToCheck = [
+            // SPM resource bundle (next to binary)
+            "\(executableDir)/MacLocalAPI_MacLocalAPI.bundle/test-dashboard/index.html",
+            // Bundled with executable
+            "\(executableDir)/Resources/test-dashboard/index.html",
+            "\(executableDir)/../Resources/test-dashboard/index.html",
+            "\(executableDir)/../../Resources/test-dashboard/index.html",
+            "\(executableDir)/../../../Resources/test-dashboard/index.html",
+            // pip: share directory
+            "\(executableDir)/../share/test-dashboard/index.html",
+            // Homebrew: share directory (Apple Silicon)
+            "\(executableDir)/../share/afm/test-dashboard/index.html",
+            // Homebrew: Intel
+            "/usr/local/share/afm/test-dashboard/index.html",
+            // Homebrew: Apple Silicon
+            "/opt/homebrew/share/afm/test-dashboard/index.html",
+            // Development: Resources in CWD
+            "\(cwd)/Resources/test-dashboard/index.html",
+            // Development: Scripts directory
+            "\(cwd)/Scripts/test-dashboard/index.html",
         ]
 
         for path in pathsToCheck {

@@ -158,6 +158,22 @@ Server-level single-slot token-level prefix matching (llama.cpp style). `PromptC
 - `max_completion_tokens` accepted alongside `max_tokens`
 - `developer` role mapped to `system`
 
+## Test Dashboard (Web UI)
+
+A browser-based test driver and result viewer served directly by the Vapor server at `/test-dashboard`. It provides a GUI for selecting binaries, models, test suites, and per-suite options, with live SSE-streamed progress and results.
+
+- **`Sources/MacLocalAPI/Controllers/TestDashboardController.swift`** — Vapor routes + `TestOrchestrationService` actor (all API endpoints, SSE, subprocess management)
+- **`Scripts/test-dashboard-svelte/`** — SvelteKit source (Alpine.js is gone)
+- **`Sources/MacLocalAPI/Resources/test-dashboard/index.html`** — built SPA output (deploy with: `cd Scripts/test-dashboard-svelte && npm run build && cp build/index.html ../../Sources/MacLocalAPI/Resources/test-dashboard/index.html`)
+
+**Any changes to test scripts, test harness flags, suite definitions, or test output formats MUST also update the test dashboard.** Specifically:
+- Adding/removing a test suite → update `SUITES` in `TestDashboardController.swift` and `suiteOptionDefs`/`STATIC_SUITES` in `+page.svelte`
+- Changing script flags/arguments → update `cmdTemplate` in `TestDashboardController.swift` and option definitions in `+page.svelte`
+- Changing output patterns (✅/❌ format) → update `parsePattern` in `TestDashboardController.swift`
+- After editing Svelte source → rebuild and deploy (see above)
+
+The dashboard writes structured JSONL logs to `test-reports/dashboard-logs/` for coding agent monitoring.
+
 ## Model-Specific Notes
 
 ### Qwen3-Coder-Next
