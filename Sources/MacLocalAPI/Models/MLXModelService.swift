@@ -8,6 +8,7 @@ import MLXVLM
 import MLXLMCommon
 import Tokenizers
 import Hub
+import HuggingFace
 
 /// Resolved log probability entry with token strings (ready for API response).
 struct ResolvedLogprob: Sendable {
@@ -47,6 +48,7 @@ struct StreamChunk: Sendable {
 enum MLXLoadStage: String {
     case checkingCache = "checking cache"
     case downloading = "downloading"
+    case resuming = "resuming download"
     case loadingModel = "loading model"
     case ready = "ready"
 }
@@ -170,12 +172,6 @@ final class MLXModelService: @unchecked Sendable {
         _ = Self.registerModelFactoriesOnce
         self.resolver = resolver
         self.resolver.applyEnvironment()
-        if resolver.cacheRoot == nil {
-            print("⚠️  MACAFM_MLX_MODEL_CACHE is not set. Downloads will go to ~/Documents/huggingface/.")
-            print("⚠️  If ~/Documents is managed by iCloud, downloads may fail or hang due to disk eviction.")
-            print("⚠️  Set MACAFM_MLX_MODEL_CACHE to a directory outside iCloud scope, e.g.:")
-            print("⚠️    export MACAFM_MLX_MODEL_CACHE=~/.cache/afm")
-        }
     }
 
     /// Configure MLX GPU settings once, before first model load.
@@ -1001,11 +997,15 @@ final class MLXModelService: @unchecked Sendable {
 
         ensureGPUConfigured()
 
-        if resolver.localModelDirectory(repoId: modelID) == nil {
-            stage?(.downloading)
-            try await downloadModel(modelID: modelID, progress: progress)
-        }
-
+        // HubClient validates cache, resumes partial downloads, or downloads fresh.
+        // Instant return if already fully cached.
+        let parts = modelID.split(separator: "/", maxSplits: 1).map(String.init)
+        let hfStyleName = "models--\(parts.count > 1 ? parts[0] : "mlx-community")--\(parts.count > 1 ? parts[1] : modelID)"
+        let hfDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cache/huggingface/hub/\(hfStyleName)")
+        let isResume = FileManager.default.fileExists(atPath: hfDir.appendingPathComponent("blobs").path)
+        stage?(isResume ? .resuming : .downloading)
+        try await downloadModel(modelID: modelID, progress: progress)
         guard let directory = resolver.localModelDirectory(repoId: modelID) else {
             throw MLXServiceError.modelNotFoundInCache(modelID)
         }
@@ -3176,19 +3176,15 @@ final class MLXModelService: @unchecked Sendable {
 
     private func downloadModel(modelID: String, progress: (@Sendable (Progress) -> Void)?) async throws {
         do {
-            let hub: HubApi
-            if let cacheRoot = resolver.cacheRoot {
-                hub = HubApi(downloadBase: cacheRoot)
-                print("Download destination: \(cacheRoot.path)/models/\(modelID)")
-            } else {
-                hub = HubApi()
-                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-                print("Download destination: \(docs.path)/huggingface/models/\(modelID)")
-            }
-            _ = try await hub.snapshot(
-                from: modelID,
-                matching: ["*.json", "*.safetensors", "*.txt", "*.model", "*.tiktoken", "tokenizer*", "*.bpe", "*.bin"],
-                progressHandler: { p in progress?(p) }
+            // Always download to HF hub cache (~/.cache/huggingface/hub/) — HF-style layout,
+            // shared with Python mlx_lm. AFM cache is read-only for side-loaded models.
+            let cache = HubCache(location: .environment)
+            print("Download destination: \(cache.cacheDirectory.path)")
+            let client = HubClient(cache: cache) as HuggingFace.HubClient
+            _ = try await client.downloadSnapshot(
+                of: HuggingFace.Repo.ID(rawValue: modelID)!,
+                matching: ["*.json", "*.jinja", "*.safetensors", "*.txt", "*.model", "*.tiktoken", "tokenizer*", "*.bpe", "*.bin"],
+                progressHandler: { @MainActor p in progress?(p) }
             )
         } catch {
             throw MLXServiceError.downloadFailed("\(modelID): \(error.localizedDescription)")

@@ -29,6 +29,7 @@ NEW_FILES=("Qwen3Next.swift" "GatedDelta.swift" "Qwen3_5MoE.swift" "MiniMaxM2.sw
 MLX_PACKAGE_SWIFT="$MLX_LM_DIR/Package.swift"
 PACKAGE_PINS=(
   '.upToNextMinor(from: "0.30.3")|exact: "0.30.3"'
+  '.upToNextMinor(from: "1.1.6")|from: "1.3.0"'
 )
 
 is_new_file() {

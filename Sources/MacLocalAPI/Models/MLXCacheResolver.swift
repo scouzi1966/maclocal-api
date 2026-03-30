@@ -12,11 +12,8 @@ struct MLXCacheResolver {
     }
 
     func applyEnvironment() {
-        guard let root = cacheRoot else { return }
-        let rootPath = root.path
-        let hubPath = root.appendingPathComponent("huggingface/hub").path
-        setenv("HF_HOME", rootPath, 1)
-        setenv("HUGGINGFACE_HUB_CACHE", hubPath, 1)
+        // No-op: AFM cache is read-only for loading side-loaded models.
+        // Downloads always go to HF hub (~/.cache/huggingface/hub).
     }
 
     func normalizedModelID(_ input: String) -> String {
@@ -57,51 +54,15 @@ struct MLXCacheResolver {
 
         var candidates: [URL] = []
 
-        // 1. MACAFM_MLX_MODEL_CACHE (our custom env var)
+        // 1. MACAFM_MLX_MODEL_CACHE — side-loaded / curated models (flat layout)
         if let root = cacheRoot {
-            // Vesta-style layout: <root>/<org>/<model>
             candidates.append(root.appendingPathComponent(flatName))
             candidates.append(root.appendingPathComponent("models/\(flatName)"))
-            candidates.append(root.appendingPathComponent("huggingface/hub/\(hfStyleName)"))
         }
 
-        // 2. Swift Hub default: ~/Documents/huggingface/models/<org>/<model>
-        //    This is where HubApi.shared downloads to (downloadBase = ~/Documents/huggingface)
-        if let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first {
-            candidates.append(docs.appendingPathComponent("huggingface/models/\(flatName)"))
-        }
-
-        // 3. HF env vars (for users with Python-style HF setups)
-        //    HUGGINGFACE_HUB_CACHE / HF_HUB_CACHE: direct path to hub cache
-        for key in ["HUGGINGFACE_HUB_CACHE", "HF_HUB_CACHE"] {
-            if let val = env[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !val.isEmpty {
-                let base = URL(fileURLWithPath: NSString(string: val).expandingTildeInPath)
-                candidates.append(base.appendingPathComponent(hfStyleName))
-            }
-        }
-
-        // 4. HF_HOME: hub cache is $HF_HOME/hub/
-        if let val = env["HF_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines), !val.isEmpty {
-            let base = URL(fileURLWithPath: NSString(string: val).expandingTildeInPath)
-            candidates.append(base.appendingPathComponent("hub/\(hfStyleName)"))
-        }
-
-        // 5. XDG_CACHE_HOME (Linux/cross-platform convention)
-        if let val = env["XDG_CACHE_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines), !val.isEmpty {
-            let base = URL(fileURLWithPath: NSString(string: val).expandingTildeInPath)
-            candidates.append(base.appendingPathComponent("huggingface/hub/\(hfStyleName)"))
-        }
-
-        // 6. Default Python HF cache: ~/.cache/huggingface/hub/
-        let defaultHFCache = fm.homeDirectoryForCurrentUser
-            .appendingPathComponent(".cache/huggingface/hub/\(hfStyleName)")
-        candidates.append(defaultHFCache)
-
-        // 7. macOS Library/Caches (legacy)
-        if let library = fm.urls(for: .libraryDirectory, in: .userDomainMask).first {
-            candidates.append(library.appendingPathComponent("Caches/models/\(flatName)"))
-            candidates.append(library.appendingPathComponent("Caches/huggingface/hub/\(hfStyleName)"))
-        }
+        // 2. HF hub — download destination, shared with Python mlx_lm (HF-style layout)
+        let hfHub = fm.homeDirectoryForCurrentUser.appendingPathComponent(".cache/huggingface/hub")
+        candidates.append(hfHub.appendingPathComponent(hfStyleName))
 
         for candidate in candidates {
             if let resolved = resolvedIfComplete(candidate) {
