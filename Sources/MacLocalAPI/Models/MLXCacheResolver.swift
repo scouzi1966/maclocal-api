@@ -61,7 +61,8 @@ struct MLXCacheResolver {
         }
 
         // 2. HF hub — download destination, shared with Python mlx_lm (HF-style layout)
-        let hfHub = fm.homeDirectoryForCurrentUser.appendingPathComponent(".cache/huggingface/hub")
+        //    Uses same env-aware resolution as downloadModel() (HF_HUB_CACHE → HF_HOME → default)
+        let hfHub = MLXModelService.resolveHFHubCache()
         candidates.append(hfHub.appendingPathComponent(hfStyleName))
 
         for candidate in candidates {

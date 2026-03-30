@@ -1001,8 +1001,7 @@ final class MLXModelService: @unchecked Sendable {
         // Instant return if already fully cached.
         let parts = modelID.split(separator: "/", maxSplits: 1).map(String.init)
         let hfStyleName = "models--\(parts.count > 1 ? parts[0] : "mlx-community")--\(parts.count > 1 ? parts[1] : modelID)"
-        let hfDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".cache/huggingface/hub/\(hfStyleName)")
+        let hfDir = Self.resolveHFHubCache().appendingPathComponent(hfStyleName)
         let isResume = FileManager.default.fileExists(atPath: hfDir.appendingPathComponent("blobs").path)
         stage?(isResume ? .resuming : .downloading)
         try await downloadModel(modelID: modelID, progress: progress)
@@ -3174,15 +3173,34 @@ final class MLXModelService: @unchecked Sendable {
         return String(format: "%.2f GB", gb)
     }
 
+    /// Resolve the HF hub cache directory, respecting env vars.
+    /// Used by both downloadModel() and the resolver to ensure they agree on the path.
+    static func resolveHFHubCache() -> URL {
+        let env = ProcessInfo.processInfo.environment
+        if let val = env["HF_HUB_CACHE"] ?? env["HUGGINGFACE_HUB_CACHE"],
+           !val.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return URL(fileURLWithPath: NSString(string: val).expandingTildeInPath)
+        }
+        if let val = env["HF_HOME"], !val.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return URL(fileURLWithPath: NSString(string: val).expandingTildeInPath)
+                .appendingPathComponent("hub")
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cache/huggingface/hub")
+    }
+
     private func downloadModel(modelID: String, progress: (@Sendable (Progress) -> Void)?) async throws {
+        guard let repoID = HuggingFace.Repo.ID(rawValue: modelID) else {
+            throw MLXServiceError.invalidModel(modelID)
+        }
         do {
-            // Always download to HF hub cache (~/.cache/huggingface/hub/) — HF-style layout,
-            // shared with Python mlx_lm. AFM cache is read-only for side-loaded models.
-            let cache = HubCache(location: .environment)
-            print("Download destination: \(cache.cacheDirectory.path)")
-            let client = HubClient(cache: cache) as HuggingFace.HubClient
+            // Download to HF hub cache (HF-style layout, shared with Python mlx_lm).
+            let cacheDir = Self.resolveHFHubCache()
+            let cache = HubCache(cacheDirectory: cacheDir)
+            print("Download destination: \(cacheDir.path)")
+            let client = HuggingFace.HubClient(cache: cache)
             _ = try await client.downloadSnapshot(
-                of: HuggingFace.Repo.ID(rawValue: modelID)!,
+                of: repoID,
                 matching: ["*.json", "*.jinja", "*.safetensors", "*.txt", "*.model", "*.tiktoken", "tokenizer*", "*.bpe", "*.bin"],
                 progressHandler: { @MainActor p in progress?(p) }
             )
