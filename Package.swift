@@ -76,7 +76,9 @@ let package = Package(
             swiftSettings: [
                 // Enable optimizations for release builds
                 .unsafeFlags(["-cross-module-optimization"], .when(configuration: .release)),
-                .unsafeFlags(["-O"], .when(configuration: .release))
+                .unsafeFlags(["-O"], .when(configuration: .release)),
+                // Strip build machine prefix so errors show Sources/... not /Volumes/.../Sources/...
+                .unsafeFlags(["-file-prefix-map", "\(packageDir)/="], .when(configuration: .release))
             ],
             linkerSettings: [
                 // Create a more portable executable

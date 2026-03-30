@@ -170,6 +170,12 @@ final class MLXModelService: @unchecked Sendable {
         _ = Self.registerModelFactoriesOnce
         self.resolver = resolver
         self.resolver.applyEnvironment()
+        if resolver.cacheRoot == nil {
+            print("⚠️  MACAFM_MLX_MODEL_CACHE is not set. Downloads will go to ~/Documents/huggingface/.")
+            print("⚠️  If ~/Documents is managed by iCloud, downloads may fail or hang due to disk eviction.")
+            print("⚠️  Set MACAFM_MLX_MODEL_CACHE to a directory outside iCloud scope, e.g.:")
+            print("⚠️    export MACAFM_MLX_MODEL_CACHE=~/.cache/afm")
+        }
     }
 
     /// Configure MLX GPU settings once, before first model load.
@@ -1003,6 +1009,7 @@ final class MLXModelService: @unchecked Sendable {
         guard let directory = resolver.localModelDirectory(repoId: modelID) else {
             throw MLXServiceError.modelNotFoundInCache(modelID)
         }
+        print("Model path: \(directory.path)")
 
         var config = ModelConfiguration(directory: directory)
         // Auto-detect tool call format from model type (vendor LLMModelFactory lost this code)
@@ -3169,7 +3176,16 @@ final class MLXModelService: @unchecked Sendable {
 
     private func downloadModel(modelID: String, progress: (@Sendable (Progress) -> Void)?) async throws {
         do {
-            _ = try await Hub.snapshot(
+            let hub: HubApi
+            if let cacheRoot = resolver.cacheRoot {
+                hub = HubApi(downloadBase: cacheRoot)
+                print("Download destination: \(cacheRoot.path)/models/\(modelID)")
+            } else {
+                hub = HubApi()
+                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                print("Download destination: \(docs.path)/huggingface/models/\(modelID)")
+            }
+            _ = try await hub.snapshot(
                 from: modelID,
                 matching: ["*.json", "*.safetensors", "*.txt", "*.model", "*.tiktoken", "tokenizer*", "*.bpe", "*.bin"],
                 progressHandler: { p in progress?(p) }
