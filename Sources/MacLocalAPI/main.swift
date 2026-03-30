@@ -1418,7 +1418,7 @@ private final class MLXLoadReporter {
 
     func updateDownload(_ progress: Progress) {
         lock.lock()
-        stage = .downloading
+        if stage != .resuming { stage = .downloading }
         downloadFraction = progress.totalUnitCount > 0 ? progress.fractionCompleted : nil
         lock.unlock()
     }
@@ -1486,24 +1486,10 @@ private final class MLXLoadReporter {
         lock.unlock()
 
         let memory = Self.currentResidentMemoryGB()
-        let barText: String
-        if stage == .downloading, let fraction = downloadFraction {
-            barText = Self.progressBar(fraction: fraction, width: 24)
-        } else {
-            barText = "[\(spinner)\(String(repeating: " ", count: 23))]"
-        }
-
-        let percentText: String
-        if stage == .downloading, let fraction = downloadFraction {
-            percentText = String(format: "%5.1f%%", max(0, min(100, fraction * 100)))
-        } else {
-            percentText = "  --.-%"
-        }
 
         let line = String(
-            format: "\r%@ %@ %@ | mem %.2f GB | %.1fs",
-            barText,
-            percentText,
+            format: "\r[%@] %@ | mem %.2f GB | %.1fs",
+            spinner,
             stage.rawValue,
             memory,
             elapsed
