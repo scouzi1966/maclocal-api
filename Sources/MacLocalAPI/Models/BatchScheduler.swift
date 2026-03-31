@@ -948,10 +948,13 @@ actor BatchScheduler {
         // Dispatch the first token (from prefill) to the detokenizer.
         // The generationLoop dispatch starts from the SECOND token, so without this
         // the first generated token would be lost (e.g., `{` in JSON output).
-        slot.detokenizer.append(token: firstToken)
-        if let firstChunk = slot.detokenizer.next() {
-            slot.tokenCount += 1
-            _ = yieldTextChunk(firstChunk, for: slot)
+        // Guard: don't dispatch EOS or unknown tokens as text.
+        if !eosTokenIds.contains(firstToken) && firstToken != tokenizer.unknownTokenId {
+            slot.detokenizer.append(token: firstToken)
+            if let firstChunk = slot.detokenizer.next() {
+                slot.tokenCount += 1
+                _ = yieldTextChunk(firstChunk, for: slot)
+            }
         }
 
         // Emit cached token count so the controller can include it in usage
@@ -1232,8 +1235,31 @@ actor BatchScheduler {
                 constraintRuntime: req.constraintRuntimeConfig,
                 activeStops: req.stopSequences,
                 thinkStartTag: req.thinkStartTag,
-                thinkEndTag: req.thinkEndTag
+                thinkEndTag: req.thinkEndTag,
+                computeLogprobs: req.parameters.computeLogprobs,
+                topLogprobsCount: req.parameters.topLogprobsCount,
+                temperatureForLogprobs: req.parameters.temperature
             )
+
+            // Compute logprobs for the first token (from prefill)
+            if slot.computeLogprobs {
+                let seqLogits = logits[i, -1, 0...]
+                let processed = logitProcessors[i]?.process(logits: seqLogits) ?? seqLogits
+                slot.pendingLogprobData = computeTokenLogprobs(
+                    logits: processed, tokenId: firstToken,
+                    temperature: slot.temperatureForLogprobs,
+                    topK: slot.topLogprobsCount
+                )
+            }
+
+            // Dispatch prefill first token to detokenizer (same fix as prefillOne)
+            if !eosTokenIds.contains(firstToken) && firstToken != tokenizer.unknownTokenId {
+                slot.detokenizer.append(token: firstToken)
+                if let firstChunk = slot.detokenizer.next() {
+                    slot.tokenCount += 1
+                    _ = yieldTextChunk(firstChunk, for: slot)
+                }
+            }
 
             if let constraintRuntime = req.constraintRuntimeConfig {
                 DebugLogger.log("[BatchScheduler] Constrained slot \(slot.id.uuidString.prefix(8)) mode=\(constraintRuntime.mode)")
