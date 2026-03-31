@@ -2,7 +2,7 @@ If you find this useful, please ⭐ the repo! &nbsp; Also check out [Vesta AI Ex
 
 > [!NOTE]
 >
-> 31 Mar, 2026. AFM was pinned to an older version of https://github.com/huggingface/swift-huggingface. I have now pinned to the latest which uses hub for model cache. The older version downloaded models to the ~/Documents/Huggingface folder which was causing some pain with iCloud sync. They are now stored under ~/.cache which is not in iCloud scope. the TLDR is that models will be re-downloaded again. You can manually delete the older models located in ~/Documents/Huggingface to regain some valuable space availible (spring cleaning!). Please report any issues.
+> 31 Mar, 2026. AFM was pinned to an older version of https://github.com/huggingface/swift-huggingface. I have now pinned to the latest which uses hub for model cache. The older version downloaded models to the ~/Documents/Huggingface folder which was causing some pain with iCloud sync. They are now stored under ~/.cache which is not in iCloud scope. the TLDR is that models will be re-downloaded again. You can manually delete the older models located in ~/Documents/Huggingface to regain some valuable space available (spring cleaning!). Please report any issues.
 > 
 > **Attention M-series Mac AI enthusiasts!** You don't need to be a Swift developer to explore. Vibe coding really allows anyone to participate in this project. A lot of the hype is real! It does work.
 >
