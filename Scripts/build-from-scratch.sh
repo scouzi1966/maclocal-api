@@ -204,6 +204,13 @@ else
   exit 1
 fi
 
+# Copy metallib to debug bundle so `swift test` can find it after a clean release build.
+# Without this, unit tests that use MLX arrays fail with "MLX metallib not found".
+DEBUG_BUNDLE="$ROOT_DIR/.build/arm64-apple-macosx/debug/MacLocalAPI_MacLocalAPI.bundle"
+mkdir -p "$DEBUG_BUNDLE"
+cp "$METALLIB_BUNDLE" "$DEBUG_BUNDLE/default.metallib"
+log_info "Copied metallib to debug bundle for swift test"
+
 log_info "Build complete"
 echo ""
 echo "afm binary: $FINAL_BIN"
