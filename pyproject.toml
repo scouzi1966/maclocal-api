@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "macafm"
-version = "0.9.8"
+version = "0.9.9"
 description = "Access Apple's on-device Foundation Models via CLI and OpenAI-compatible API"
 readme = "README.md"
 license = "MIT"
