@@ -45,7 +45,7 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 | **Release notes** | [v0.9.9](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.9) | [v0.9.9-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260331-74dbbe2) |
 
 > [!NOTE]
-> The stable release (v0.9.7) and the latest nightly are currently at the same level. Either one will give you the same experience.
+> The stable release (v0.9.9) and the latest nightly are currently at the same level. Either one will give you the same experience.
 
 > [!TIP]
 > **Switching between stable and nightly:**
