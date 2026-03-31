@@ -945,6 +945,15 @@ actor BatchScheduler {
             )
         }
 
+        // Dispatch the first token (from prefill) to the detokenizer.
+        // The generationLoop dispatch starts from the SECOND token, so without this
+        // the first generated token would be lost (e.g., `{` in JSON output).
+        slot.detokenizer.append(token: firstToken)
+        if let firstChunk = slot.detokenizer.next() {
+            slot.tokenCount += 1
+            _ = yieldTextChunk(firstChunk, for: slot)
+        }
+
         // Emit cached token count so the controller can include it in usage
         if cachedTokens > 0 {
             req.continuation.yield(StreamChunk(text: "", cachedTokens: cachedTokens))
