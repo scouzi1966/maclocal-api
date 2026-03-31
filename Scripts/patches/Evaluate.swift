@@ -308,7 +308,12 @@ public struct PresenceContext: LogitProcessor {
         let uniqueTokens = Array(Set(tokens))
         let indices = MLXArray(uniqueTokens.map { UInt32($0) })
         let penalty = MLXArray(presencePenalty)
-        logits[0..., indices] = logits[0..., indices] - penalty
+        // Handle both 1D [vocabSize] (prefillOne / per-slot decode) and 2D [B, vocabSize]
+        if logits.ndim == 1 {
+            logits[indices] = logits[indices] - penalty
+        } else {
+            logits[0..., indices] = logits[0..., indices] - penalty
+        }
         return logits
     }
 
@@ -340,10 +345,13 @@ public struct TopKProcessor: LogitProcessor {
         let vocabSize = logits.dim(-1)
         guard k > 0, k < vocabSize else { return logits }
 
-        // Sort descending along the last axis to find the k-th largest value
+        // Sort ascending along the last axis to find the k-th largest value
         let sorted = MLX.sorted(logits, axis: -1)
         // k-th largest is at index [vocabSize - k] in ascending-sorted array
-        let threshold = sorted[0..., vocabSize - k]
+        // Handle both 1D [vocabSize] (prefillOne / per-slot decode) and 2D [B, vocabSize]
+        let threshold = logits.ndim == 1
+            ? sorted[vocabSize - k]
+            : sorted[0..., vocabSize - k]
 
         return MLX.where(logits .>= threshold, logits, MLXArray(-Float.infinity))
     }
@@ -470,13 +478,18 @@ public struct RepetitionContext: LogitProcessor {
     public func process(logits: MLXArray) -> MLXArray {
         if tokens.count > 0 {
             let indices = MLXArray(tokens.map { UInt32($0) })
-            var selectedLogits = logits[0..., indices]
+            // Handle both 1D [vocabSize] (prefillOne / per-slot decode) and 2D [B, vocabSize]
+            var selectedLogits = logits.ndim == 1 ? logits[indices] : logits[0..., indices]
 
             selectedLogits = MLX.where(
                 selectedLogits .< 0, selectedLogits * repetitionPenalty,
                 selectedLogits / repetitionPenalty)
 
-            logits[0..., indices] = selectedLogits
+            if logits.ndim == 1 {
+                logits[indices] = selectedLogits
+            } else {
+                logits[0..., indices] = selectedLogits
+            }
             return logits
         }
 
