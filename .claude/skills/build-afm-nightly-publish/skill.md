@@ -573,6 +573,31 @@ Report to the user:
   pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next
   ```
 
+### Step 5b: Archive Test Results
+
+Copy all test reports from this nightly run to the versioned nightly archive:
+
+```bash
+DATE=$(date +%Y-%m-%d)
+mkdir -p test-reports/nightly/$DATE
+cp test-reports/assertions-report-*.html test-reports/assertions-report-*.jsonl \
+   test-reports/multi-assertions-report-*.html test-reports/multi-assertions-report-*.jsonl \
+   test-reports/nightly/$DATE/ 2>/dev/null || true
+
+# Also copy promptfoo results if they were run
+AFM_PROMPTFOO_OUT_DIR="${AFM_PROMPTFOO_OUT_DIR:-/Volumes/edata/promptfoo/data/maclocal-api/current}"
+cp "$AFM_PROMPTFOO_OUT_DIR"/*.json test-reports/nightly/$DATE/ 2>/dev/null || true
+
+# Also copy smart analysis if it was run
+cp test-reports/smart-analysis-*.md test-reports/nightly/$DATE/ 2>/dev/null || true
+
+git add test-reports/nightly/$DATE/
+git commit -m "Add nightly test results for $DATE ($(git rev-parse --short HEAD))"
+git push
+```
+
+This maintains the test history at `test-reports/nightly/YYYY-MM-DD/` for cross-nightly comparison.
+
 ### Error Handling
 
 - **Build failure:** Show error output, suggest running `/build-afm` first to diagnose
