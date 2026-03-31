@@ -90,6 +90,12 @@ actor BatchScheduler {
         /// Lazy token array from the previous decode step (for deferred dispatch).
         /// Set after asyncEval; materialized via .item() after the NEXT model call.
         var pendingTokenArray: MLXArray? = nil
+        /// Per-slot logprob configuration
+        let computeLogprobs: Bool
+        let topLogprobsCount: Int
+        let temperatureForLogprobs: Float
+        /// Buffered logprob data pending dispatch (one token behind, like single-sequence path)
+        var pendingLogprobData: TokenLogprobData? = nil
         let activeStops: [String]
         let maxStopLength: Int
         let thinkStartTag: String?
@@ -118,7 +124,10 @@ actor BatchScheduler {
             constraintRuntime: ConstraintRuntimeConfiguration?,
             activeStops: [String],
             thinkStartTag: String?,
-            thinkEndTag: String?
+            thinkEndTag: String?,
+            computeLogprobs: Bool = false,
+            topLogprobsCount: Int = 0,
+            temperatureForLogprobs: Float = 1.0
         ) {
             self.id = UUID()
             self.continuation = continuation
@@ -140,6 +149,9 @@ actor BatchScheduler {
             self.maxStopLength = activeStops.map(\.count).max() ?? 0
             self.thinkStartTag = thinkStartTag
             self.thinkEndTag = thinkEndTag
+            self.computeLogprobs = computeLogprobs
+            self.topLogprobsCount = topLogprobsCount
+            self.temperatureForLogprobs = temperatureForLogprobs
         }
     }
 
@@ -508,10 +520,11 @@ actor BatchScheduler {
     /// directly — no Int→MLXArray roundtrip needed.
     private func generationLoop() async {
         var stepCount = 0
-        // Previous step's sampled tokens + slot IDs, for deferred dispatch.
+        // Previous step's sampled tokens + slot IDs + logits, for deferred dispatch.
         // nil on the first iteration (newly prefilled slots have no pending work).
         var dispatchTokens: [MLXArray]? = nil
         var dispatchSlotIDs: [UUID]? = nil
+        var dispatchLogits: [MLXArray?]? = nil
 
         // Decode-step timing accumulators (debug only)
         let debugTiming = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
@@ -589,12 +602,16 @@ actor BatchScheduler {
             let logits = output.logits[0..., -1, 0...]
 
             // Lazy sampling — build graph without eval
+            // Also store processed logits per-slot for logprob computation during dispatch
             var tokenArrays = [MLXArray]()
+            var slotLogitsForLogprobs = [MLXArray?]()
             for i in 0..<activeB {
                 let slot = slots[i]
                 let slotLogits = activeB == 1 ? logits : logits[i]
                 let processed = slot.processor?.process(logits: slotLogits) ?? slotLogits
-                tokenArrays.append(slot.sampler.sample(logits: processed))
+                let sampled = slot.sampler.sample(logits: processed)
+                tokenArrays.append(sampled)
+                slotLogitsForLogprobs.append(slot.computeLogprobs ? processed : nil)
             }
 
             // Kick off async evaluation — GPU starts computing current step
@@ -614,8 +631,10 @@ actor BatchScheduler {
             // Must happen before dispatch can remove slots and shift indices.
             let toDispatchTokens = dispatchTokens
             let toDispatchSlotIDs = dispatchSlotIDs
+            let toDispatchLogits = dispatchLogits
             dispatchTokens = tokenArrays
             dispatchSlotIDs = slots.map { $0.id }  // order matches tokenArrays
+            dispatchLogits = slotLogitsForLogprobs
 
             // --- While GPU runs: dispatch PREVIOUS step's tokens ---
             // .item() is instant because these were asyncEval'd last iteration.
@@ -637,6 +656,25 @@ actor BatchScheduler {
                     let token = tokenArray.item(Int.self)
                     slot.processor?.didSample(token: tokenArray)
 
+                    // Promote pending logprobs (one token behind — describes THIS token being dispatched)
+                    let logprobsForThisToken: [ResolvedLogprob]?
+                    if let pending = slot.pendingLogprobData {
+                        logprobsForThisToken = [resolveLogprob(pending)]
+                    } else {
+                        logprobsForThisToken = nil
+                    }
+
+                    // Compute logprobs for the NEXT dispatch from this step's logits
+                    if slot.computeLogprobs, let prevLogits = toDispatchLogits?[j] {
+                        slot.pendingLogprobData = computeTokenLogprobs(
+                            logits: prevLogits, tokenId: token,
+                            temperature: slot.temperatureForLogprobs,
+                            topK: slot.topLogprobsCount
+                        )
+                    } else if slot.computeLogprobs {
+                        slot.pendingLogprobData = nil
+                    }
+
                     if slot.firstTokenTime == 0 {
                         slot.firstTokenTime = Date().timeIntervalSince(slot.startTime)
                     }
@@ -656,7 +694,7 @@ actor BatchScheduler {
                     slot.detokenizer.append(token: token)
                     if let chunk = slot.detokenizer.next() {
                         slot.tokenCount += 1
-                        if yieldTextChunk(chunk, for: slot) {
+                        if yieldTextChunk(chunk, for: slot, logprobs: logprobsForThisToken) {
                             completedIndices.append(i)
                         }
                     }
@@ -700,6 +738,15 @@ actor BatchScheduler {
                 let token = prevTokens[j].item(Int.self)
                 slot.processor?.didSample(token: prevTokens[j])
 
+                // Promote pending logprobs for this token
+                let logprobsForToken: [ResolvedLogprob]?
+                if let pending = slot.pendingLogprobData {
+                    logprobsForToken = [resolveLogprob(pending)]
+                    slot.pendingLogprobData = nil
+                } else {
+                    logprobsForToken = nil
+                }
+
                 if token == tokenizer.unknownTokenId || eosTokenIds.contains(token) {
                     finishSlot(at: i)
                     continue
@@ -713,7 +760,7 @@ actor BatchScheduler {
                 slot.detokenizer.append(token: token)
                 if let chunk = slot.detokenizer.next() {
                     slot.tokenCount += 1
-                    if yieldTextChunk(chunk, for: slot) {
+                    if yieldTextChunk(chunk, for: slot, logprobs: logprobsForToken) {
                         finishSlot(at: i)
                         continue
                     }
@@ -883,8 +930,20 @@ actor BatchScheduler {
             constraintRuntime: req.constraintRuntimeConfig,
             activeStops: req.stopSequences,
             thinkStartTag: req.thinkStartTag,
-            thinkEndTag: req.thinkEndTag
+            thinkEndTag: req.thinkEndTag,
+            computeLogprobs: req.parameters.computeLogprobs,
+            topLogprobsCount: req.parameters.topLogprobsCount,
+            temperatureForLogprobs: req.parameters.temperature
         )
+
+        // Compute logprobs for the first token (from prefill)
+        if slot.computeLogprobs {
+            slot.pendingLogprobData = computeTokenLogprobs(
+                logits: logits, tokenId: firstToken,
+                temperature: slot.temperatureForLogprobs,
+                topK: slot.topLogprobsCount
+            )
+        }
 
         // Emit cached token count so the controller can include it in usage
         if cachedTokens > 0 {
@@ -1407,6 +1466,41 @@ actor BatchScheduler {
         slots.remove(at: index)
     }
 
+    /// Compute per-token logprob data from processed logits and sampled token.
+    /// Matches the algorithm in Evaluate.swift convertToToken() for consistency.
+    private func computeTokenLogprobs(
+        logits: MLXArray, tokenId: Int, temperature: Float, topK: Int
+    ) -> TokenLogprobData {
+        var lpLogits = logits
+        if lpLogits.dtype == .bfloat16 { lpLogits = lpLogits.asType(.float32) }
+        if temperature > 0 { lpLogits = lpLogits / MLXArray(temperature) }
+        let probs = softmax(lpLogits, axis: -1)
+        let logProbs = log(probs)
+        let flat = logProbs.reshaped(-1)
+
+        let tokenLogprob = flat[tokenId].item(Float.self)
+
+        var topIds = [Int]()
+        var topLps = [Float]()
+        if topK > 0 {
+            let vocabSize = flat.dim(0)
+            let n = Swift.min(topK, vocabSize)
+            let sorted = argSort(flat, axis: -1)
+            for i in 0..<n {
+                let idx = sorted[vocabSize - 1 - i].item(Int.self)
+                topIds.append(idx)
+                topLps.append(flat[idx].item(Float.self))
+            }
+        }
+
+        return TokenLogprobData(
+            tokenId: tokenId,
+            logprob: tokenLogprob,
+            topTokenIds: topIds,
+            topLogprobs: topLps
+        )
+    }
+
     /// Resolve a single TokenLogprobData to ResolvedLogprob.
     private func resolveLogprob(_ data: TokenLogprobData) -> ResolvedLogprob {
         let token = tokenizer.decode(tokens: [data.tokenId])
@@ -1421,7 +1515,11 @@ actor BatchScheduler {
         )
     }
 
-    private func yieldTextChunk(_ chunk: String, for slot: SlotState) -> Bool {
+    private func yieldTextChunk(_ chunk: String, for slot: SlotState, logprobs: [ResolvedLogprob]? = nil) -> Bool {
+        // Yield logprobs before the text chunk they correspond to (matches single-sequence pattern)
+        if let logprobs, !logprobs.isEmpty {
+            slot.continuation.yield(StreamChunk(text: "", logprobs: logprobs))
+        }
         if let toolRuntime = slot.toolRuntime {
             let output = toolRuntime.process(piece: chunk)
             if output.handled {

@@ -53,6 +53,13 @@ public struct TokenLogprobData: Sendable {
     public let topTokenIds: [Int]
     /// Log probabilities corresponding to topTokenIds
     public let topLogprobs: [Float]
+
+    public init(tokenId: Int, logprob: Float, topTokenIds: [Int], topLogprobs: [Float]) {
+        self.tokenId = tokenId
+        self.logprob = logprob
+        self.topTokenIds = topTokenIds
+        self.topLogprobs = topLogprobs
+    }
 }
 
 /// Parameters for text generation, see ``TokenIterator``.
