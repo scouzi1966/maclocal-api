@@ -53,6 +53,13 @@ public struct TokenLogprobData: Sendable {
     public let topTokenIds: [Int]
     /// Log probabilities corresponding to topTokenIds
     public let topLogprobs: [Float]
+
+    public init(tokenId: Int, logprob: Float, topTokenIds: [Int], topLogprobs: [Float]) {
+        self.tokenId = tokenId
+        self.logprob = logprob
+        self.topTokenIds = topTokenIds
+        self.topLogprobs = topLogprobs
+    }
 }
 
 /// Parameters for text generation, see ``TokenIterator``.
@@ -308,7 +315,12 @@ public struct PresenceContext: LogitProcessor {
         let uniqueTokens = Array(Set(tokens))
         let indices = MLXArray(uniqueTokens.map { UInt32($0) })
         let penalty = MLXArray(presencePenalty)
-        logits[0..., indices] = logits[0..., indices] - penalty
+        // Handle both 1D [vocabSize] (prefillOne / per-slot decode) and 2D [B, vocabSize]
+        if logits.ndim == 1 {
+            logits[indices] = logits[indices] - penalty
+        } else {
+            logits[0..., indices] = logits[0..., indices] - penalty
+        }
         return logits
     }
 
@@ -340,10 +352,17 @@ public struct TopKProcessor: LogitProcessor {
         let vocabSize = logits.dim(-1)
         guard k > 0, k < vocabSize else { return logits }
 
-        // Sort descending along the last axis to find the k-th largest value
+        // Sort ascending along the last axis to find the k-th largest value
         let sorted = MLX.sorted(logits, axis: -1)
         // k-th largest is at index [vocabSize - k] in ascending-sorted array
-        let threshold = sorted[0..., vocabSize - k]
+        // Handle both 1D [vocabSize] (prefillOne / per-slot decode) and 2D [B, vocabSize]
+        let threshold: MLXArray
+        if logits.ndim == 1 {
+            threshold = sorted[vocabSize - k]
+        } else {
+            // Extract [B] then expand to [B, 1] for broadcasting with [B, vocabSize]
+            threshold = sorted[0..., vocabSize - k].reshaped([-1, 1])
+        }
 
         return MLX.where(logits .>= threshold, logits, MLXArray(-Float.infinity))
     }
@@ -470,13 +489,18 @@ public struct RepetitionContext: LogitProcessor {
     public func process(logits: MLXArray) -> MLXArray {
         if tokens.count > 0 {
             let indices = MLXArray(tokens.map { UInt32($0) })
-            var selectedLogits = logits[0..., indices]
+            // Handle both 1D [vocabSize] (prefillOne / per-slot decode) and 2D [B, vocabSize]
+            var selectedLogits = logits.ndim == 1 ? logits[indices] : logits[0..., indices]
 
             selectedLogits = MLX.where(
                 selectedLogits .< 0, selectedLogits * repetitionPenalty,
                 selectedLogits / repetitionPenalty)
 
-            logits[0..., indices] = selectedLogits
+            if logits.ndim == 1 {
+                logits[indices] = selectedLogits
+            } else {
+                logits[0..., indices] = selectedLogits
+            }
             return logits
         }
 

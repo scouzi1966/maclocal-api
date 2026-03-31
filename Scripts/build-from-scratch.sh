@@ -204,12 +204,16 @@ else
   exit 1
 fi
 
-# Copy metallib to debug bundle so `swift test` can find it after a clean release build.
-# Without this, unit tests that use MLX arrays fail with "MLX metallib not found".
+# Make metallib discoverable for `swift test` after a clean release build.
+# MLX framework searches CWD for "default.metallib" as its last resort.
+# A symlink at the project root ensures `swift test` (which runs from project root) finds it.
+ln -sf ".build/arm64-apple-macosx/release/MacLocalAPI_MacLocalAPI.bundle/default.metallib" \
+  "$ROOT_DIR/default.metallib"
+# Also copy to debug bundle for our own MLXMetalLibrary resolver.
 DEBUG_BUNDLE="$ROOT_DIR/.build/arm64-apple-macosx/debug/MacLocalAPI_MacLocalAPI.bundle"
 mkdir -p "$DEBUG_BUNDLE"
 cp "$METALLIB_BUNDLE" "$DEBUG_BUNDLE/default.metallib"
-log_info "Copied metallib to debug bundle for swift test"
+log_info "Metallib available for swift test (symlink + debug bundle)"
 
 log_info "Build complete"
 echo ""

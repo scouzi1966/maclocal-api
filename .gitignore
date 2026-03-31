@@ -96,3 +96,4 @@ vendor/llama.cpp/tools/server/public/
 .codex/*token*
 .codex/*secret*
 .codex/*auth*.json
+/default.metallib
