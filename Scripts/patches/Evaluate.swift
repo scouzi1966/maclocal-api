@@ -349,9 +349,13 @@ public struct TopKProcessor: LogitProcessor {
         let sorted = MLX.sorted(logits, axis: -1)
         // k-th largest is at index [vocabSize - k] in ascending-sorted array
         // Handle both 1D [vocabSize] (prefillOne / per-slot decode) and 2D [B, vocabSize]
-        let threshold = logits.ndim == 1
-            ? sorted[vocabSize - k]
-            : sorted[0..., vocabSize - k]
+        let threshold: MLXArray
+        if logits.ndim == 1 {
+            threshold = sorted[vocabSize - k]
+        } else {
+            // Extract [B] then expand to [B, 1] for broadcasting with [B, vocabSize]
+            threshold = sorted[0..., vocabSize - k].reshaped([-1, 1])
+        }
 
         return MLX.where(logits .>= threshold, logits, MLXArray(-Float.infinity))
     }
