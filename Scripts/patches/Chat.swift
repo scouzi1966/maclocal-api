@@ -131,17 +131,6 @@ extension MessageGenerator {
 /// ```
 public struct DefaultMessageGenerator: MessageGenerator {
     public init() {}
-
-    public func generate(message: Chat.Message) -> Message {
-        var msg: Message = [
-            "role": message.role.rawValue,
-            "content": message.content,
-        ]
-        if let name = message.name {
-            msg["name"] = name
-        }
-        return msg
-    }
 }
 
 /// Implementation of ``MessageGenerator`` that produces a
