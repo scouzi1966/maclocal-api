@@ -879,8 +879,25 @@ actor BatchScheduler {
         let firstToken = tokenArray.item(Int.self)
         let prefillTime = Date().timeIntervalSince(prefillStart)
 
-        // CacheList models (GLM-5, FalconH1, BaichuanM1) now supported via BatchCacheList.
-        // See: https://github.com/scouzi1966/maclocal-api/issues/66
+        // RotatingKVCache models (Mistral3, etc.) must stay serial — BatchKVCacheSimple
+        // doesn't support sliding window attention, causing degenerate output.
+        // See: https://github.com/scouzi1966/maclocal-api/issues/68
+        // TODO: Implement BatchRotatingKVCache for proper concurrent support.
+        let hasRotatingCache = cache.contains { $0 is RotatingKVCache }
+        if hasRotatingCache {
+            print("[\(batchTs())] [BatchScheduler] RotatingKVCache detected — running serial (sliding window not supported in batch mode)")
+            runSerialGeneration(
+                req: req, cache: cache, modelState: result.state,
+                firstToken: tokenArray, inputTokens: inputTokens,
+                cachedTokens: cachedTokens, prefillStart: prefillStart, prefillTime: prefillTime,
+                cacheOutcome: cacheOutcome, cacheLookupTime: cacheLookupTime,
+                cacheRestoreTime: cacheRestoreTime, cacheTrimTime: cacheTrimTime,
+                cacheTruncateTime: cacheTruncateTime,
+                logitProcessor: logitProcessor, logitSampler: logitSampler
+            )
+            return
+        }
+
         mergeCacheIntoBatch(individualCache: cache, modelState: result.state)
 
         let slot = SlotState(
