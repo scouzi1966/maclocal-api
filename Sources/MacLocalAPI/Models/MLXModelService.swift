@@ -997,16 +997,33 @@ final class MLXModelService: @unchecked Sendable {
 
         ensureGPUConfigured()
 
-        // HubClient validates cache, resumes partial downloads, or downloads fresh.
-        // Instant return if already fully cached.
-        let parts = modelID.split(separator: "/", maxSplits: 1).map(String.init)
-        let hfStyleName = "models--\(parts.count > 1 ? parts[0] : "mlx-community")--\(parts.count > 1 ? parts[1] : modelID)"
-        let hfDir = Self.resolveHFHubCache().appendingPathComponent(hfStyleName)
-        let isResume = FileManager.default.fileExists(atPath: hfDir.appendingPathComponent("blobs").path)
-        stage?(isResume ? .resuming : .downloading)
-        try await downloadModel(modelID: modelID, progress: progress)
-        guard let directory = resolver.localModelDirectory(repoId: modelID) else {
-            throw MLXServiceError.modelNotFoundInCache(modelID)
+        // Loading priority:
+        // 1. Absolute/relative path — use directly (no cache or download)
+        // 2. AFM cache (MACAFM_MLX_MODEL_CACHE) — always wins if model is there
+        // 3. HF hub cache — validates/resumes/downloads via HubClient
+        let directory: URL
+        if modelID.hasPrefix("/") || modelID.hasPrefix("./") || modelID.hasPrefix("..") {
+            // Absolute or relative path — resolve directly
+            guard let resolved = resolver.localModelDirectory(repoId: modelID) else {
+                throw MLXServiceError.modelNotFoundInCache(modelID)
+            }
+            directory = resolved
+        } else if let root = resolver.cacheRoot, let cached = resolver.localModelDirectory(repoId: modelID),
+                  cached.path.hasPrefix(root.path + "/") || cached.path == root.path {
+            // Model found in AFM cache — use directly, no HubClient
+            directory = cached
+        } else {
+            // Not in AFM cache — go through HubClient (validates, resumes, downloads)
+            let parts = modelID.split(separator: "/", maxSplits: 1).map(String.init)
+            let hfStyleName = "models--\(parts.count > 1 ? parts[0] : "mlx-community")--\(parts.count > 1 ? parts[1] : modelID)"
+            let hfDir = Self.resolveHFHubCache().appendingPathComponent(hfStyleName)
+            let isResume = FileManager.default.fileExists(atPath: hfDir.appendingPathComponent("blobs").path)
+            stage?(isResume ? .resuming : .downloading)
+            try await downloadModel(modelID: modelID, progress: progress)
+            guard let resolved = resolver.localModelDirectory(repoId: modelID) else {
+                throw MLXServiceError.modelNotFoundInCache(modelID)
+            }
+            directory = resolved
         }
         print("Model path: \(directory.path)")
 
@@ -3199,10 +3216,12 @@ final class MLXModelService: @unchecked Sendable {
             let cache = HubCache(cacheDirectory: cacheDir)
             print("Download destination: \(cacheDir.path)")
             let client = HuggingFace.HubClient(cache: cache)
+            // No @MainActor progress handler — it deadlocks in single-prompt mode
+            // because MainActor is suspended waiting for downloadSnapshot to return.
+            // The spinner is driven by MLXLoadReporter independently.
             _ = try await client.downloadSnapshot(
                 of: repoID,
-                matching: ["*.json", "*.jinja", "*.safetensors", "*.txt", "*.model", "*.tiktoken", "tokenizer*", "*.bpe", "*.bin"],
-                progressHandler: { @MainActor p in progress?(p) }
+                matching: ["*.json", "*.jinja", "*.safetensors", "*.txt", "*.model", "*.tiktoken", "tokenizer*", "*.bpe", "*.bin"]
             )
         } catch {
             throw MLXServiceError.downloadFailed("\(modelID): \(error.localizedDescription)")

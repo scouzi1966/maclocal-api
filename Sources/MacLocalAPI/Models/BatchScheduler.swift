@@ -879,24 +879,8 @@ actor BatchScheduler {
         let firstToken = tokenArray.item(Int.self)
         let prefillTime = Date().timeIntervalSince(prefillStart)
 
-        // CacheList models (GLM-5, FalconH1, BaichuanM1) can't be merged into
-        // BatchKVCacheSimple due to asymmetric K/V shapes and zero-width arrays.
-        // Run their full generation inline (prefill + decode) then return.
+        // CacheList models (GLM-5, FalconH1, BaichuanM1) now supported via BatchCacheList.
         // See: https://github.com/scouzi1966/maclocal-api/issues/66
-        let hasCacheList = cache.contains { $0 is CacheList }
-        if hasCacheList {
-            runSerialGeneration(
-                req: req, cache: cache, modelState: result.state,
-                firstToken: tokenArray, inputTokens: inputTokens,
-                cachedTokens: cachedTokens, prefillStart: prefillStart, prefillTime: prefillTime,
-                cacheOutcome: cacheOutcome, cacheLookupTime: cacheLookupTime,
-                cacheRestoreTime: cacheRestoreTime, cacheTrimTime: cacheTrimTime,
-                cacheTruncateTime: cacheTruncateTime,
-                logitProcessor: logitProcessor, logitSampler: logitSampler
-            )
-            return
-        }
-
         mergeCacheIntoBatch(individualCache: cache, modelState: result.state)
 
         let slot = SlotState(
@@ -1080,9 +1064,9 @@ actor BatchScheduler {
 
         // Verify cache types support batching (KVCacheSimple + MambaCache/ArraysCache only)
         let templateCache = model.newCache(parameters: requests[0].parameters)
-        // CacheList models (GLM-5, FalconH1, BaichuanM1) fall back to prefillOne —
-        // their sub-caches have heterogeneous shapes that can't be batched generically.
-        let canBatch = templateCache.allSatisfy { $0 is KVCacheSimple || $0 is ArraysCache }
+        // Check if all cache types support batching. CacheList is supported via BatchCacheList.
+        // Only RotatingKVCache (and unknown types) fall back to individual prefill.
+        let canBatch = templateCache.allSatisfy { $0 is KVCacheSimple || $0 is ArraysCache || $0 is CacheList }
         if !canBatch {
             // Fall back to individual prefill for unsupported cache types (RotatingKVCache, etc.)
             for req in requests { prefillOne(req) }
