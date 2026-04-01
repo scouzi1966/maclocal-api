@@ -258,6 +258,23 @@ struct MLXChatCompletionsController: RouteCollection {
                     if let sbs = chunk.stoppedBySequence { stoppedBySequence = sbs }
                 }
 
+                // FIX: Vendor ToolCallProcessor can append XML tag remnants to tool names
+                // for zero-parameter calls (e.g. "todoread</function"). Strip them.
+                // See: opencode promptfoo test #20/#33 — todoread</function bug.
+                if let tcs = finalToolCalls {
+                    finalToolCalls = tcs.map { tc in
+                        var name = tc.function.name
+                        if let tagIdx = name.range(of: "</") {
+                            name = String(name[..<tagIdx.lowerBound])
+                        }
+                        guard name != tc.function.name else { return tc }
+                        return ResponseToolCall(
+                            index: tc.index, id: tc.id, type: tc.type,
+                            function: ResponseToolCallFunction(name: name, arguments: tc.function.arguments)
+                        )
+                    }
+                }
+
                 // Fallback tool call parsing: if no tool calls were detected by
                 // streaming runtime but content contains tool call patterns, try
                 // full-text parsing (handles missing <tool_call> wrapper, etc.)

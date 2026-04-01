@@ -201,8 +201,15 @@ final class ToolCallStreamingRuntime {
     }
 
     private func normalizedToolCall(from toolCall: ToolCall, index: Int) -> ResponseToolCall {
+        // FIX: Strip XML tag remnants from tool name (e.g. "todoread</function")
+        // See: opencode promptfoo test #20/#33 — zero-parameter XML tool call bug
+        var cleanedToolCall = toolCall
+        if let tagIdx = cleanedToolCall.function.name.range(of: "</") {
+            let cleanName = String(cleanedToolCall.function.name[..<tagIdx.lowerBound])
+            cleanedToolCall = ToolCall(function: .init(name: cleanName, arguments: cleanedToolCall.function.arguments))
+        }
         let responseToolCall = MLXModelService.convertToolCall(
-            toolCall,
+            cleanedToolCall,
             index: index,
             paramNameMapping: paramNameMapping
         )
