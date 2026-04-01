@@ -1009,7 +1009,7 @@ final class MLXModelService: @unchecked Sendable {
             }
             directory = resolved
         } else if let root = resolver.cacheRoot, let cached = resolver.localModelDirectory(repoId: modelID),
-                  cached.path.hasPrefix(root.path) {
+                  cached.path.hasPrefix(root.path + "/") || cached.path == root.path {
             // Model found in AFM cache — use directly, no HubClient
             directory = cached
         } else {
