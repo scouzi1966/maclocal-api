@@ -547,7 +547,10 @@ struct MlxCommand: ParsableCommand {
             return
         }
 
-        print("MLX model: \(selectedModel)")
+        let isSinglePromptMode = (singlePrompt != nil || isatty(STDIN_FILENO) == 0)
+        if !isSinglePromptMode {
+            print("MLX model: \(selectedModel)")
+        }
 
         // Read context window from model config
         var contextWindow: Int? = nil
@@ -762,19 +765,20 @@ struct MlxCommand: ParsableCommand {
 
         switch output {
         case .success(let text):
-            let rendered: String
             if raw {
-                rendered = text
+                print(text)
             } else {
-                rendered = Self.stripThinkContent(
-                    from: text,
-                    startTag: service.thinkStartTag ?? "<think>",
-                    endTag: service.thinkEndTag ?? "</think>"
-                )
+                let startTag = service.thinkStartTag ?? "<think>"
+                let endTag = service.thinkEndTag ?? "</think>"
+                let rendered = Self.stripThinkContent(from: text, startTag: startTag, endTag: endTag)
+                if rendered.isEmpty && text.contains(startTag) {
+                    print("(no visible response — model used all tokens for reasoning. Try increasing --max-tokens)")
+                    return
+                }
+                print(rendered)
             }
-            print(rendered)
         case .failure(let error):
-            print("Error: \(error.localizedDescription)")
+            FileHandle.standardError.write(Data("Error: \(error.localizedDescription)\n".utf8))
             throw ExitCode.failure
         case .none:
             throw ExitCode.failure
@@ -787,10 +791,10 @@ struct MlxCommand: ParsableCommand {
             if let end = output.range(of: endTag, range: start.upperBound..<output.endIndex) {
                 output.removeSubrange(start.lowerBound..<end.upperBound)
             } else {
-                // Some guided/grammar-constrained generations can emit a stray
-                // opening think tag without ever closing it. In that case keep
-                // the payload and drop only the unmatched tag.
-                output.removeSubrange(start)
+                // Unclosed think tag — truncated output or grammar-constrained
+                // generation. Strip everything from the opening tag onwards
+                // since it's all thinking content without a visible response.
+                output.removeSubrange(start.lowerBound..<output.endIndex)
             }
         }
         return output.trimmingCharacters(in: .whitespacesAndNewlines)
