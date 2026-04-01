@@ -3832,7 +3832,7 @@ final class MLXModelService: @unchecked Sendable {
                 } else {
                     toolContent = text
                 }
-                chatMessages.append(.tool(toolContent))
+                chatMessages.append(.tool(toolContent, name: resolvedName))
             default:
                 flushSystemParts()
                 chatMessages.append(.user(text, images: media.images, videos: media.videos))
