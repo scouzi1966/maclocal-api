@@ -998,11 +998,18 @@ final class MLXModelService: @unchecked Sendable {
         ensureGPUConfigured()
 
         // Loading priority:
-        // 1. AFM cache (MACAFM_MLX_MODEL_CACHE) — always wins if model is there
-        // 2. HF hub cache — validates/resumes/downloads via HubClient
+        // 1. Absolute/relative path — use directly (no cache or download)
+        // 2. AFM cache (MACAFM_MLX_MODEL_CACHE) — always wins if model is there
+        // 3. HF hub cache — validates/resumes/downloads via HubClient
         let directory: URL
-        if let root = resolver.cacheRoot, let cached = resolver.localModelDirectory(repoId: modelID),
-           cached.path.hasPrefix(root.path) {
+        if modelID.hasPrefix("/") || modelID.hasPrefix("./") || modelID.hasPrefix("..") {
+            // Absolute or relative path — resolve directly
+            guard let resolved = resolver.localModelDirectory(repoId: modelID) else {
+                throw MLXServiceError.modelNotFoundInCache(modelID)
+            }
+            directory = resolved
+        } else if let root = resolver.cacheRoot, let cached = resolver.localModelDirectory(repoId: modelID),
+                  cached.path.hasPrefix(root.path) {
             // Model found in AFM cache — use directly, no HubClient
             directory = cached
         } else {
