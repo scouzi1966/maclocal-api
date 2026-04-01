@@ -997,16 +997,26 @@ final class MLXModelService: @unchecked Sendable {
 
         ensureGPUConfigured()
 
-        // HubClient validates cache, resumes partial downloads, or downloads fresh.
-        // Instant return if already fully cached.
-        let parts = modelID.split(separator: "/", maxSplits: 1).map(String.init)
-        let hfStyleName = "models--\(parts.count > 1 ? parts[0] : "mlx-community")--\(parts.count > 1 ? parts[1] : modelID)"
-        let hfDir = Self.resolveHFHubCache().appendingPathComponent(hfStyleName)
-        let isResume = FileManager.default.fileExists(atPath: hfDir.appendingPathComponent("blobs").path)
-        stage?(isResume ? .resuming : .downloading)
-        try await downloadModel(modelID: modelID, progress: progress)
-        guard let directory = resolver.localModelDirectory(repoId: modelID) else {
-            throw MLXServiceError.modelNotFoundInCache(modelID)
+        // Loading priority:
+        // 1. AFM cache (MACAFM_MLX_MODEL_CACHE) — always wins if model is there
+        // 2. HF hub cache — validates/resumes/downloads via HubClient
+        let directory: URL
+        if let root = resolver.cacheRoot, let cached = resolver.localModelDirectory(repoId: modelID),
+           cached.path.hasPrefix(root.path) {
+            // Model found in AFM cache — use directly, no HubClient
+            directory = cached
+        } else {
+            // Not in AFM cache — go through HubClient (validates, resumes, downloads)
+            let parts = modelID.split(separator: "/", maxSplits: 1).map(String.init)
+            let hfStyleName = "models--\(parts.count > 1 ? parts[0] : "mlx-community")--\(parts.count > 1 ? parts[1] : modelID)"
+            let hfDir = Self.resolveHFHubCache().appendingPathComponent(hfStyleName)
+            let isResume = FileManager.default.fileExists(atPath: hfDir.appendingPathComponent("blobs").path)
+            stage?(isResume ? .resuming : .downloading)
+            try await downloadModel(modelID: modelID, progress: progress)
+            guard let resolved = resolver.localModelDirectory(repoId: modelID) else {
+                throw MLXServiceError.modelNotFoundInCache(modelID)
+            }
+            directory = resolved
         }
         print("Model path: \(directory.path)")
 
