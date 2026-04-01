@@ -3216,10 +3216,12 @@ final class MLXModelService: @unchecked Sendable {
             let cache = HubCache(cacheDirectory: cacheDir)
             print("Download destination: \(cacheDir.path)")
             let client = HuggingFace.HubClient(cache: cache)
+            // No @MainActor progress handler — it deadlocks in single-prompt mode
+            // because MainActor is suspended waiting for downloadSnapshot to return.
+            // The spinner is driven by MLXLoadReporter independently.
             _ = try await client.downloadSnapshot(
                 of: repoID,
-                matching: ["*.json", "*.jinja", "*.safetensors", "*.txt", "*.model", "*.tiktoken", "tokenizer*", "*.bpe", "*.bin"],
-                progressHandler: { @MainActor p in progress?(p) }
+                matching: ["*.json", "*.jinja", "*.safetensors", "*.txt", "*.model", "*.tiktoken", "tokenizer*", "*.bpe", "*.bin"]
             )
         } catch {
             throw MLXServiceError.downloadFailed("\(modelID): \(error.localizedDescription)")
