@@ -2,6 +2,7 @@ import XCTest
 @testable import MacLocalAPI
 
 final class StreamingUsageChunkTests: XCTestCase {
+// dimensions: streaming=true, execution=serial
     func testFinalizeAssistantTurnPrefersToolCallsOverContent() {
         let toolCall = ResponseToolCall(
             index: 0,

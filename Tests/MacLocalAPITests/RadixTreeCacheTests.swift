@@ -5,6 +5,7 @@ import Testing
 @testable import MacLocalAPI
 
 struct RadixTreeCacheTests {
+// dimensions: prefix_caching=on
     init() throws {
         try MLXMetalLibrary.ensureAvailable(verbose: false)
     }

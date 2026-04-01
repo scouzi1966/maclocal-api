@@ -9,6 +9,7 @@ import MLX
 /// Verifies fix for issue #72: processors must handle both single-sequence
 /// [vocabSize] and batched [B, vocabSize] logits without crashing.
 struct LogitProcessorBatchTests {
+// dimensions: execution=batch, sampling_params=top_k/min_p/presence_penalty/repetition_penalty
 
     // ═══════════════════════════════════════════════════════════════════
     // MARK: - TopKProcessor

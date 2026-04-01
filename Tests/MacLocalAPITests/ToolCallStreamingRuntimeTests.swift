@@ -4,6 +4,7 @@ import Testing
 @testable import MacLocalAPI
 
 struct ToolCallStreamingRuntimeTests {
+// dimensions: tool_call_format=xmlFunction/json, streaming=true
 
     @Test("runtime emits placeholder then final replacement for XML tool call")
     func emitsPlaceholderAndReplacement() throws {

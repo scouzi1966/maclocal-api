@@ -4,6 +4,7 @@ import XCTest
 @testable import MacLocalAPI
 
 final class CacheProfileExporterTests: XCTestCase {
+// dimensions: prefix_caching=on
     func testAppendCreatesJSONLLines() throws {
         let path = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cache-profile-export-\(UUID().uuidString).jsonl")

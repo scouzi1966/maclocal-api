@@ -6,6 +6,7 @@ import Testing
 /// Unit tests for Phase 1 concurrent batching internals:
 /// RequestSlot, StreamChunk, and BatchScheduler queuing logic.
 struct ConcurrentBatchTests {
+// dimensions: execution=batch
 
     // ═══════════════════════════════════════════════════════════════════
     // MARK: - RequestSlot

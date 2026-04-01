@@ -13,6 +13,7 @@ import Jinja
 /// Fix: toJinjaCompatible() returns non-optional Any, stripping null-valued keys from dicts
 /// and null elements from arrays. This avoids both NSNull and Optional<Any>-boxed-in-Any.
 struct NullableToolSchemaTests {
+// dimensions: tool_call_format=xmlFunction, response_format=json_schema
 
     // MARK: - The bug: toAny() produces NSNull that Jinja can't handle
 

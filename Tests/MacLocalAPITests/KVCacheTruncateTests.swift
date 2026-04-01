@@ -6,6 +6,7 @@ import Testing
 @testable import MacLocalAPI
 
 struct KVCacheTruncateTests {
+// dimensions: cache_type=KVCacheSimple/MambaCache, prefix_caching=on
     init() throws {
         try MLXMetalLibrary.ensureAvailable(verbose: false)
     }

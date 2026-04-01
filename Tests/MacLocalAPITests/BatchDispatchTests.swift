@@ -153,6 +153,7 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
 // ═══════════════════════════════════════════════════════════════════════════
 
 struct BatchStoreTests {
+// dimensions: execution=batch, streaming=true/false
 
     // MARK: - File Storage
 

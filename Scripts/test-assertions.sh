@@ -4056,6 +4056,109 @@ fi
 fi  # end: min_tier smoke (server-dependent sections)
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Section 16: Pairwise Smoke — High-Risk Dimension Interactions (standard tier)
+# ═══════════════════════════════════════════════════════════════════════════════
+# dimensions: execution=batch, sampling_params=*, streaming=true/false, grammar_constraints=on/off
+# Tests the historically-buggy dimension combinations identified in the code path matrix.
+# Each test sends a request with a specific dimension combination and checks for:
+# - Non-empty response content (Invariant 1)
+# - No server crash
+# These are hardcoded high-risk configs, not generated pairwise (for speed).
+
+if should_run_section 16 && min_tier standard; then
+  CURRENT_TIER="standard"
+  echo ""
+  echo "🧪 Section 16: Pairwise Smoke — High-Risk Interactions"
+
+  # Test 16.1: batch + top_k + streaming (was crashing: #72)
+  t0=$(now_ms)
+  R=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"top_k":50,"stream":true}' 2>&1)
+  dur=$(($(now_ms) - t0))
+  if echo "$R" | grep -q '"content"'; then
+    run_test "PairwiseSmoke" "batch + top_k + streaming" "content present" "PASS" "$dur"
+  else
+    run_test "PairwiseSmoke" "batch + top_k + streaming" "content present" "FAIL: empty or error" "$dur"
+  fi
+
+  # Test 16.2: batch + presence_penalty + non-streaming (was crashing: #72)
+  t0=$(now_ms)
+  R=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"presence_penalty":1.0}' 2>&1)
+  dur=$(($(now_ms) - t0))
+  if echo "$R" | grep -q '"finish_reason"'; then
+    run_test "PairwiseSmoke" "batch + presence_penalty + non-streaming" "finish_reason present" "PASS" "$dur"
+  else
+    run_test "PairwiseSmoke" "batch + presence_penalty + non-streaming" "finish_reason present" "FAIL: no finish_reason" "$dur"
+  fi
+
+  # Test 16.3: batch + repetition_penalty + logprobs (was crashing: #72)
+  t0=$(now_ms)
+  R=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"repetition_penalty":1.5,"logprobs":true,"top_logprobs":3}' 2>&1)
+  dur=$(($(now_ms) - t0))
+  if echo "$R" | grep -q '"finish_reason"'; then
+    run_test "PairwiseSmoke" "batch + repetition_penalty + logprobs" "response valid" "PASS" "$dur"
+  else
+    run_test "PairwiseSmoke" "batch + repetition_penalty + logprobs" "response valid" "FAIL" "$dur"
+  fi
+
+  # Test 16.4: batch + all sampling params combined
+  t0=$(now_ms)
+  R=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"top_k":40,"min_p":0.05,"presence_penalty":0.5,"repetition_penalty":1.2,"temperature":0.7}' 2>&1)
+  dur=$(($(now_ms) - t0))
+  if echo "$R" | grep -q '"finish_reason"'; then
+    run_test "PairwiseSmoke" "batch + all sampling params combined" "response valid" "PASS" "$dur"
+  else
+    run_test "PairwiseSmoke" "batch + all sampling params combined" "response valid" "FAIL" "$dur"
+  fi
+
+  # Test 16.5: streaming parity — same seed must produce same content
+  t0=$(now_ms)
+  NS=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+    -d '{"model":"m","messages":[{"role":"user","content":"Say yes"}],"max_tokens":3,"temperature":0,"seed":42,"stream":false}' 2>&1)
+  S=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+    -d '{"model":"m","messages":[{"role":"user","content":"Say yes"}],"max_tokens":3,"temperature":0,"seed":42,"stream":true}' 2>&1)
+  dur=$(($(now_ms) - t0))
+  NS_C=$(echo "$NS" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null)
+  S_C=$(echo "$S" | python3 -c "
+import sys
+content=''
+for line in sys.stdin:
+    line=line.strip()
+    if line.startswith('data: ') and line != 'data: [DONE]':
+        import json
+        try:
+            d=json.loads(line[6:])
+            c=d.get('choices',[{}])[0].get('delta',{}).get('content','')
+            content+=c
+        except: pass
+print(content.strip())
+" 2>/dev/null)
+  if [ -n "$NS_C" ] && [ "$NS_C" = "$S_C" ]; then
+    run_test "PairwiseSmoke" "streaming parity (same seed → same output)" "match" "PASS" "$dur"
+  else
+    run_test "PairwiseSmoke" "streaming parity (same seed → same output)" "ns='$NS_C' vs s='$S_C'" "FAIL: mismatch" "$dur"
+  fi
+
+  # Test 16.6: cache idempotency — same request twice must match
+  t0=$(now_ms)
+  R1=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+    -d '{"model":"m","messages":[{"role":"user","content":"Color"}],"max_tokens":3,"temperature":0,"seed":99}' 2>&1)
+  R2=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+    -d '{"model":"m","messages":[{"role":"user","content":"Color"}],"max_tokens":3,"temperature":0,"seed":99}' 2>&1)
+  dur=$(($(now_ms) - t0))
+  C1=$(echo "$R1" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'])" 2>/dev/null)
+  C2=$(echo "$R2" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'])" 2>/dev/null)
+  if [ -n "$C1" ] && [ "$C1" = "$C2" ]; then
+    run_test "PairwiseSmoke" "cache idempotency (same seed → same output)" "match" "PASS" "$dur"
+  else
+    run_test "PairwiseSmoke" "cache idempotency (same seed → same output)" "r1='$C1' vs r2='$C2'" "FAIL: mismatch" "$dur"
+  fi
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Generate HTML Report
 # ═══════════════════════════════════════════════════════════════════════════════
 TEST_END_TIME=$(date +%s)

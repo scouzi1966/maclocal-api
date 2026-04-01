@@ -3,6 +3,7 @@ import Foundation
 @testable import MacLocalAPI
 
 struct StrictGrammarWiringTests {
+// dimensions: grammar_constraints=on, tool_call_format=xmlFunction
 
     // MARK: - Helpers
 

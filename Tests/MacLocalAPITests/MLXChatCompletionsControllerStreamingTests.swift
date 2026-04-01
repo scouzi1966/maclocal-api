@@ -5,6 +5,7 @@ import XCTVapor
 @testable import MacLocalAPI
 
 final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
+// dimensions: streaming=true, execution=serial
     private var app: Application!
 
     override func setUp() async throws {

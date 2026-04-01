@@ -14,6 +14,7 @@ import Testing
 /// - Individual cache extraction from batch
 /// - Merge batched prefill caches into decode batch
 struct BatchedPrefillTests {
+// dimensions: execution=batch, cache_type=KVCacheSimple/MambaCache/CacheList
 
     init() throws {
         try MLXMetalLibrary.ensureAvailable(verbose: false)

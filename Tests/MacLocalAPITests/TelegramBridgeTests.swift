@@ -2,6 +2,7 @@ import XCTest
 @testable import MacLocalAPI
 
 final class TelegramBridgeTests: XCTestCase {
+// dimensions: entry_mode=server
     func testParseAllowedUserIDsDeduplicates() throws {
         let ids = try TelegramConfiguration.parseAllowedUserIDs("12345, 67890,12345")
         XCTAssertEqual(ids, [12345, 67890])

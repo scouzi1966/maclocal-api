@@ -9,6 +9,7 @@ import Testing
 /// parseXMLFunctionRegex, parseJSONToolCall, extractToolCallsFallback, coerceArgumentTypes,
 /// and coerceStringValue.
 struct XMLToolCallParsingTests {
+// dimensions: tool_call_format=xmlFunction
 
     // ═══════════════════════════════════════════════════════════════════
     // MARK: - decodeXMLEntities
