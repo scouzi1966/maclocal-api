@@ -282,7 +282,7 @@
   metadata:
     <<: *opencode_meta
   vars:
-    prompt: "In the existing controller file, replace cache: MISS with cache: MISS suffix=41."
+    prompt: "In src/controllers/cache_controller.py, replace cache: MISS with cache: MISS suffix=41."
     tools:
       - type: function
         function:
@@ -324,7 +324,7 @@
   metadata:
     <<: *opencode_meta
   vars:
-    prompt: "Update one sentence in README.md to mention promptfoo."
+    prompt: "In README.md, replace 'We use Jest for testing' with 'We use promptfoo for testing'."
     tools:
       - type: function
         function:
@@ -406,7 +406,7 @@
   metadata:
     <<: *opencode_meta
   vars:
-    prompt: "Rewrite generated/output.json from scratch with valid JSON."
+    prompt: "Write the file generated/output.json with content {\"status\": \"ok\", \"count\": 42}."
     tools:
       - type: function
         function:
@@ -431,7 +431,7 @@
   metadata:
     <<: *opencode_meta
   vars:
-    prompt: "Apply this unified diff patch to the controller file."
+    prompt: "Apply this unified diff patch:\n--- a/src/controller.py\n+++ b/src/controller.py\n@@ -10,1 +10,1 @@\n-    timeout = 30\n+    timeout = 60"
     tools:
       - type: function
         function:
@@ -591,7 +591,7 @@
   metadata:
     <<: *opencode_meta
   vars:
-    prompt: "Fetch the OpenCode tools documentation page."
+    prompt: "Fetch the content of https://opencode.ai/docs/tools for me."
     tools:
       - type: function
         function:
@@ -693,7 +693,7 @@
   metadata:
     <<: *opencode_meta
   vars:
-    prompt: "Pick a format for the final report, I don't care."
+    prompt: "Generate the final report. Ask me which format I want — markdown, HTML, or PDF."
     system_prompt: "Use the question tool when user preference changes the output format."
     tools:
       - type: function
@@ -839,7 +839,7 @@
         const call = parsed.tool_calls[0];
         return parsed.tool_calls.length === 1 &&
           call.function.name === 'lsp' &&
-          /workspaceSymbol/i.test(String(call.function.arguments.operation || ''));
+          /workspace.?symbol/i.test(String(call.function.arguments.operation || ''));
 
 - description: "opencode/search before read on unknown symbol"
   metadata:
@@ -1113,7 +1113,7 @@
   metadata:
     <<: *opencode_meta
   vars:
-    prompt: "Implement whichever of two possible output formats you think is okay."
+    prompt: "There are two possible output formats: CSV or JSON. Ask me which one I prefer before implementing."
     tools:
       - type: function
         function:

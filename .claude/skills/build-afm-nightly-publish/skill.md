@@ -298,6 +298,32 @@ fi
 
 **Why this matters:** Even a single `Bundle.module` call anywhere in the code path triggers the auto-generated `fatalError`. This is a regression guard — any future code that adds `Bundle.module` will be caught here before it ships.
 
+#### Check 11: Report all vendor/submodule pin levels
+
+Present the exact version of every submodule and SPM dependency so the user can verify the build reproduces the expected dependency tree. Also fetch the latest release tag from each upstream repo to show if we're behind.
+
+```bash
+echo "=== Git Submodules ==="
+git submodule status
+
+echo "=== SPM Resolved Versions ==="
+python3 -c "
+import json
+d = json.load(open('Package.resolved'))
+for p in sorted(d.get('pins', []), key=lambda x: x.get('identity','')):
+    v = p['state'].get('version') or p['state'].get('revision','?')[:12]
+    print(f'  {p[\"identity\"]}: {v}')
+"
+
+echo "=== Upstream Latest Releases ==="
+for repo in ml-explore/mlx-swift ml-explore/mlx-swift-lm mlc-ai/xgrammar ggml-org/llama.cpp huggingface/swift-transformers huggingface/swift-huggingface; do
+  tag=$(gh api "repos/$repo/releases/latest" -q '.tag_name' 2>/dev/null || echo "?")
+  echo "  $repo: $tag"
+done
+```
+
+This is informational — no pass/fail. But if a resolved version is unexpected (e.g., mlx-swift != 0.30.3), STOP.
+
 #### Present verification results
 
 | # | Check | What could go wrong | Result |
@@ -312,6 +338,28 @@ fi
 | 8 | Binary stripped, reasonable size | unstripped → bloated download | PASS/FAIL |
 | 9 | Relocated binary works (pip sim) | Bundle.module fatalError → crash on pip install | PASS/FAIL |
 | 10 | No Bundle.module in source | regression guard → future crash on relocated binary | PASS/FAIL |
+
+Then present two separate tables for vendor pins:
+
+**Git Submodules:**
+
+| Submodule | Source | Pinned Commit | Upstream Latest | Notes |
+|-----------|--------|---------------|-----------------|-------|
+| `vendor/mlx-swift-lm` | Submodule | `git submodule status` hash + tag | `gh api repos/.../releases/latest` | Our patched fork |
+| `vendor/xgrammar` | Submodule | `git submodule status` hash + tag | `gh api repos/.../releases/latest` | C++ grammar engine |
+| `vendor/llama.cpp` | Submodule | `git submodule status` hash + tag | `gh api repos/.../releases/latest` | WebUI only |
+
+**SPM Dependencies (from Package.resolved):**
+
+| Package | Source | Resolved Version | Upstream Latest | Notes |
+|---------|--------|-----------------|-----------------|-------|
+| `mlx-swift` | SPM (exact pin) | `Package.resolved` version | `gh api repos/.../releases/latest` | 0.30.4+ has SDPA NaN — pinned to exact 0.30.3 |
+| `swift-transformers` | SPM (from) | `Package.resolved` version | `gh api repos/.../releases/latest` | Tokenizer/chat templates |
+| `swift-huggingface` | SPM (from) | `Package.resolved` version | `gh api repos/.../releases/latest` | HF hub downloads |
+| `swift-jinja` | SPM (transitive) | `Package.resolved` version | — | Jinja2 template engine |
+| `vapor` | SPM (from) | `Package.resolved` version | — | HTTP framework |
+
+Populate the "Upstream Latest" column by querying `gh api repos/OWNER/REPO/releases/latest -q '.tag_name'`. This lets the user see at a glance if we're behind upstream on any dependency.
 
 **If ANY check fails, STOP. Do not proceed to user testing or publishing.**
 

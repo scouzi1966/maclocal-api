@@ -444,11 +444,19 @@ final class ToolCallStreamingRuntime {
         let validNames = tools?.map(\.function.name) ?? []
         guard !validNames.isEmpty else { return toolCalls }
         return toolCalls.map { toolCall in
+            // FIX: Zero-parameter XML tool calls (e.g. <function=todoread></function>)
+            // can have "</function" appended to the name when the streaming XML parser
+            // captures past the ">" boundary. Strip any XML tag remnants from the name.
+            // See: opencode promptfoo test #20/#33 — todoread</function bug.
+            var cleanName = toolCall.function.name
+            if let tagIdx = cleanName.range(of: "</") {
+                cleanName = String(cleanName[cleanName.startIndex..<tagIdx.lowerBound])
+            }
             let resolvedName: String
-            if validNames.contains(toolCall.function.name) {
-                resolvedName = toolCall.function.name
+            if validNames.contains(cleanName) {
+                resolvedName = cleanName
             } else {
-                resolvedName = fuzzyMatchToolName(toolCall.function.name, candidates: validNames) ?? toolCall.function.name
+                resolvedName = fuzzyMatchToolName(cleanName, candidates: validNames) ?? cleanName
             }
             // Use .anyValue to convert JSONValue → plain types before re-init,
             // otherwise JSONValue.from() double-wraps via String(describing:).
