@@ -16,19 +16,33 @@ struct MLXCacheResolver {
         // Downloads always go to HF hub (~/.cache/huggingface/hub).
     }
 
+    /// Original shell CWD, captured before MLXMetalLibrary.ensureAvailable() changes the process CWD.
+    /// Used to resolve relative model paths against the directory the user invoked afm from.
+    private static let shellCWD: String = ProcessInfo.processInfo.environment["PWD"]
+        ?? FileManager.default.currentDirectoryPath
+
+    /// Resolve a relative path against the original shell CWD (not the process CWD,
+    /// which may have been changed by MLXMetalLibrary for metallib discovery).
+    private func resolveRelativePath(_ path: String) -> URL {
+        if path.hasPrefix("/") {
+            return URL(fileURLWithPath: path).standardized
+        }
+        return URL(fileURLWithPath: Self.shellCWD).appendingPathComponent(path).standardized
+    }
+
     func normalizedModelID(_ input: String) -> String {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return trimmed }
         // Absolute or relative filesystem path: resolve to absolute if it exists on disk
         if trimmed.hasPrefix("/") || trimmed.hasPrefix("./") || trimmed.hasPrefix("..") {
-            let url = URL(fileURLWithPath: trimmed).standardized
+            let url = resolveRelativePath(trimmed)
             if FileManager.default.fileExists(atPath: url.path) {
                 return url.path
             }
         }
         // Check if it's a relative path that exists on disk (e.g. "models/foo")
         if trimmed.contains("/") {
-            let url = URL(fileURLWithPath: trimmed).standardized
+            let url = resolveRelativePath(trimmed)
             if FileManager.default.fileExists(atPath: url.path) {
                 return url.path
             }
