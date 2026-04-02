@@ -700,10 +700,24 @@ struct MlxCommand: ParsableCommand {
 
         let group = DispatchGroup()
         var output: Result<String, Error>?
+        // In single-prompt mode, suppress ALL output (stdout + stderr) during model loading
+        // and generation. Only the final response goes to stdout. --verbose overrides this.
         let stdoutFD = dup(STDOUT_FILENO)
-        if stdoutFD == -1 || dup2(STDERR_FILENO, STDOUT_FILENO) == -1 {
-            if stdoutFD != -1 { close(stdoutFD) }
-            throw ValidationError("Failed to redirect single-prompt operational logs to stderr")
+        let stderrFD = dup(STDERR_FILENO)
+        let quietMode = !verbose && !veryVerbose && !vv
+        if stdoutFD == -1 {
+            throw ValidationError("Failed to save stdout for single-prompt mode")
+        }
+        if quietMode {
+            let devNull = open("/dev/null", O_WRONLY)
+            if devNull != -1 {
+                dup2(devNull, STDOUT_FILENO)
+                dup2(devNull, STDERR_FILENO)
+                close(devNull)
+            }
+        } else {
+            // Verbose: redirect stdout to stderr so only the response goes to stdout
+            dup2(STDERR_FILENO, STDOUT_FILENO)
         }
         group.enter()
         Task {
@@ -757,11 +771,14 @@ struct MlxCommand: ParsableCommand {
         }
         group.wait()
         fflush(stdout)
-        if dup2(stdoutFD, STDOUT_FILENO) == -1 {
-            close(stdoutFD)
-            throw ValidationError("Failed to restore stdout after single-prompt execution")
-        }
+        fflush(stderr)
+        // Restore stdout (and stderr if we suppressed it)
+        dup2(stdoutFD, STDOUT_FILENO)
         close(stdoutFD)
+        if stderrFD != -1 {
+            dup2(stderrFD, STDERR_FILENO)
+            close(stderrFD)
+        }
 
         switch output {
         case .success(let text):
