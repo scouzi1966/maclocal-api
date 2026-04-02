@@ -1085,18 +1085,41 @@ final class MLXModelService: @unchecked Sendable {
             do {
                 let ctx = try await loaded.perform { context in context }
                 let knownThinkPairs: [(start: String, end: String)] = [
+                    ("<|channel>", "<channel|>"),  // Gemma 4 channel-based thinking
                     ("<think>", "</think>"),
                     ("<|think|>", "<|/think|>"),
                     ("<reasoning>", "</reasoning>"),
                 ]
+                // Check if a string is a single token in the vocabulary (not decomposed into subwords)
+                func isSingleToken(_ s: String, _ tokenizer: any Tokenizer) -> Bool {
+                    let ids = tokenizer.encode(text: s)
+                    // A real single-vocab-entry token encodes to exactly 1 token
+                    // (some tokenizers add BOS, so allow 1 or 2 with the token being the last)
+                    return ids.count == 1 || (ids.count == 2 && tokenizer.decode(tokens: [ids.last!]) == s)
+                }
                 for pair in knownThinkPairs {
-                    if ctx.tokenizer.convertTokenToId(pair.start) != nil {
+                    if isSingleToken(pair.start, ctx.tokenizer)
+                        && isSingleToken(pair.end, ctx.tokenizer)
+                    {
                         self.thinkStartTag = pair.start
                         self.thinkEndTag = pair.end
                         if debugLogging {
                             print("[\(ts())] [Think] Detected think tags: \(pair.start) / \(pair.end)")
                         }
                         break
+                    }
+                }
+                // Gemma 4 channel-based thinking: auto-enable so the template
+                // wraps reasoning in <|channel>...<channel|> tags (extractable).
+                // Without this, the model still thinks but as plain text with no markers.
+                if self.thinkStartTag == "<|channel>" {
+                    var kwargs = self.defaultChatTemplateKwargs ?? [:]
+                    if kwargs["enable_thinking"] == nil {
+                        kwargs["enable_thinking"] = true
+                        self.defaultChatTemplateKwargs = kwargs
+                        if debugLogging {
+                            print("[\(ts())] [Think] Auto-enabled Gemma 4 channel thinking")
+                        }
                     }
                 }
                 if self.thinkStartTag == nil && debugLogging {
