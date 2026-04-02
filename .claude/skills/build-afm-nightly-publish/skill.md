@@ -18,8 +18,10 @@ Build `afm` from scratch (works from a fresh clone), let the user test it, then 
 The publish script (`Scripts/publish-next.sh`) requires:
 - `gh` CLI authenticated with push access to `scouzi1966/maclocal-api`
 - `homebrew-afm` repo at `../homebrew-afm` (relative to repo root) or `TAP_DIR` env var — auto-cloned if missing
+- `vesta-mac` repo at `../vesta-mac` (relative to repo root) or `VESTA_DIR` env var — required for PEP 503 wheel index update. Auto-cloned if missing.
 - All build prerequisites from `/build-afm` (Xcode, Swift, Node.js, etc.)
 - `promptfoo` CLI (`npm install -g promptfoo` or `npx promptfoo`) — required for the promptfoo agentic eval suite
+- `wrangler` CLI (`npm install -g wrangler`) — required for Cloudflare Pages deploy of wheel index
 
 ## Instructions
 
@@ -61,6 +63,14 @@ if [ ! -f "$TAP_DIR/afm-next.rb" ]; then
   gh repo clone scouzi1966/homebrew-afm "$TAP_DIR"
 fi
 test -f "$TAP_DIR/afm-next.rb" && echo "Tap OK: $TAP_DIR" || echo "FAILED to clone tap repo"
+
+# vesta-mac repo — required for wheel index update. Auto-clone if missing.
+VESTA_DIR="${VESTA_DIR:-$(cd "$(git rev-parse --show-toplevel)/.." && pwd)/vesta-mac}"
+if [ ! -d "$VESTA_DIR/.git" ]; then
+  echo "vesta-mac repo missing at $VESTA_DIR — cloning..."
+  gh repo clone scouzi1966/vesta-mac "$VESTA_DIR"
+fi
+test -d "$VESTA_DIR/.git" && echo "vesta-mac OK: $VESTA_DIR" || echo "FAILED to clone vesta-mac"
 ```
 
 Present as a checklist. **If the GitHub user is not `scouzi1966` or push access is `false` for either repo, STOP immediately** and tell the user:
