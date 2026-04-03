@@ -196,15 +196,8 @@ actor BatchScheduler {
 
     private func restoredMetaState(for cache: KVCache, savedMetaState: [String]?) -> [String]? {
         guard let savedMetaState else { return nil }
-        if cache is RotatingKVCache, savedMetaState.count >= 3 {
-            let restoredCount = cache.offset
-            return [
-                savedMetaState[0],
-                savedMetaState[1],
-                savedMetaState[2],
-                String(restoredCount),
-                String(restoredCount),
-            ]
+        if cache is RotatingKVCache, savedMetaState.count == 5 {
+            return savedMetaState
         }
         return savedMetaState
     }
@@ -899,13 +892,14 @@ actor BatchScheduler {
         let firstToken = tokenArray.item(Int.self)
         let prefillTime = Date().timeIntervalSince(prefillStart)
 
-        // RotatingKVCache models (Mistral3, etc.) must stay serial — BatchKVCacheSimple
-        // doesn't support sliding window attention, causing degenerate output.
-        // See: https://github.com/scouzi1966/maclocal-api/issues/68
-        // TODO: Implement BatchRotatingKVCache for proper concurrent support.
-        let hasRotatingCache = cache.contains { $0 is RotatingKVCache }
-        if hasRotatingCache {
-            print("[\(batchTs())] [BatchScheduler] RotatingKVCache detected — running serial (sliding window not supported in batch mode)")
+        // RotatingKVCache models with keep>0 (e.g. some Mistral variants) must stay serial.
+        // Models with keep=0 (Gemma 4) can batch via BatchRotatingKVCache.
+        let hasUnbatchableRotating = cache.contains { c in
+            if let rc = c as? RotatingKVCache { return !rc.isBatchable }
+            return false
+        }
+        if hasUnbatchableRotating {
+            print("[\(batchTs())] [BatchScheduler] RotatingKVCache (keep>0) detected — running serial")
             runSerialGeneration(
                 req: req, cache: cache, modelState: result.state,
                 firstToken: tokenArray, inputTokens: inputTokens,
@@ -1099,13 +1093,13 @@ actor BatchScheduler {
         let B = requests.count
         guard B > 0 else { return }
 
-        // Verify cache types support batching (KVCacheSimple + MambaCache/ArraysCache only)
+        // Verify cache types support batching
         let templateCache = model.newCache(parameters: requests[0].parameters)
-        // Check if all cache types support batching. CacheList is supported via BatchCacheList.
-        // Only RotatingKVCache (and unknown types) fall back to individual prefill.
-        let canBatch = templateCache.allSatisfy { $0 is KVCacheSimple || $0 is ArraysCache || $0 is CacheList }
+        let canBatch = templateCache.allSatisfy { c in
+            c is KVCacheSimple || c is ArraysCache || c is CacheList
+            || (c as? RotatingKVCache)?.isBatchable == true
+        }
         if !canBatch {
-            // Fall back to individual prefill for unsupported cache types (RotatingKVCache, etc.)
             for req in requests { prefillOne(req) }
             return
         }
@@ -1151,6 +1145,9 @@ actor BatchScheduler {
                 return BatchCacheList.forPrefill(template: cl, batchSize: B, leftPadding: leftPads) as KVCache
             } else if layerCache is ArraysCache {
                 return MambaCache(leftPadding: leftPads) as KVCache
+            } else if let rc = layerCache as? RotatingKVCache, rc.isBatchable {
+                return BatchRotatingKVCache(batchSize: B, leftPadding: leftPads,
+                                            maxCacheSize: rc.cacheSize, keep: rc.keepCount) as KVCache
             } else {
                 return BatchKVCacheSimple(batchSize: B, leftPadding: leftPads) as KVCache
             }
@@ -1187,6 +1184,18 @@ actor BatchScheduler {
             if let bclCache = cache as? BatchCacheList {
                 for i in 0..<B {
                     perRequestCaches[i].append(bclCache.extract(i) as KVCache)
+                }
+            } else if let brcCache = cache as? BatchRotatingKVCache {
+                for i in 0..<B {
+                    let (k, v, tokenCount) = brcCache.extract(i)
+                    let individual = RotatingKVCache(maxSize: brcCache.maxCacheSize, keep: brcCache.keep)
+                    individual.state = [k, v]
+                    // Restore metaState with correct offset/idx from extraction
+                    individual.metaState = [
+                        "\(brcCache.keep)", "\(brcCache.maxCacheSize)",
+                        "\(BatchRotatingKVCache.preAllocStep)", "\(tokenCount)", "\(tokenCount)"
+                    ]
+                    perRequestCaches[i].append(individual as KVCache)
                 }
             } else if let bkvCache = cache as? BatchKVCacheSimple {
                 for i in 0..<B {
@@ -1303,8 +1312,11 @@ actor BatchScheduler {
     private func mergeCacheIntoBatch(individualCache: [KVCache], modelState: LMOutput.State?) {
         switch cacheMode {
         case .empty:
-            // B=0 → B=1: Keep individual caches if all are simple types (zero overhead)
-            let allSimple = individualCache.allSatisfy { $0 is KVCacheSimple || $0 is ArraysCache || $0 is CacheList }
+            // B=0 → B=1: Keep individual caches if all are simple/batchable types (zero overhead)
+            let allSimple = individualCache.allSatisfy {
+                $0 is KVCacheSimple || $0 is ArraysCache || $0 is CacheList
+                || ($0 as? RotatingKVCache)?.isBatchable == true
+            }
             if allSimple {
                 batchCaches = individualCache.map { layerCache in
                     if layerCache is ArraysCache && !(layerCache is CacheList) {
@@ -1312,12 +1324,12 @@ actor BatchScheduler {
                         copy.state = layerCache.state
                         return copy as KVCache
                     } else {
-                        return layerCache  // Keep as KVCacheSimple or CacheList — zero batch overhead
+                        return layerCache  // Keep as KVCacheSimple, RotatingKVCache, or CacheList
                     }
                 }
                 cacheMode = .unbatched
             } else {
-                // QuantizedKVCache etc. — promote to BatchKVCacheSimple immediately
+                // QuantizedKVCache etc. — promote to batch immediately
                 batchCaches = individualCache.map { layerCache in
                     if layerCache is ArraysCache && !(layerCache is CacheList) {
                         let copy = MambaCache()
@@ -1325,6 +1337,8 @@ actor BatchScheduler {
                         return copy as KVCache
                     } else if layerCache is CacheList {
                         return BatchCacheList.merge([layerCache], leftPadding: [0]) as KVCache
+                    } else if let rc = layerCache as? RotatingKVCache, rc.isBatchable {
+                        return BatchRotatingKVCache.merge([layerCache]) as KVCache
                     } else {
                         return BatchKVCacheSimple.merge([layerCache]) as KVCache
                     }
@@ -1333,7 +1347,7 @@ actor BatchScheduler {
             }
 
         case .unbatched:
-            // B=1 → B≥2: Promote existing + new to BatchKVCacheSimple/BatchCacheList
+            // B=1 → B≥2: Promote existing + new to batch caches
             Stream.gpu.synchronize()  // Ensure B=1 cache arrays are fully evaluated
             batchCaches = zip(batchCaches, individualCache).map { existing, new in
                 if let existingCL = existing as? CacheList, new is CacheList {
@@ -1342,6 +1356,8 @@ actor BatchScheduler {
                    let newAC = new as? ArraysCache {
                     existingAC.extend(other: newAC)
                     return existingAC as KVCache
+                } else if existing is RotatingKVCache || new is RotatingKVCache {
+                    return BatchRotatingKVCache.merge([existing, new]) as KVCache
                 } else {
                     return BatchKVCacheSimple.merge([existing, new]) as KVCache
                 }
@@ -1353,7 +1369,6 @@ actor BatchScheduler {
             for layer in 0..<batchCaches.count where layer < individualCache.count {
                 if let batchBCL = batchCaches[layer] as? BatchCacheList,
                    let newCL = individualCache[layer] as? CacheList {
-                    // Extend each sub-cache in the BatchCacheList
                     for subIdx in 0..<batchBCL.count where subIdx < newCL.count {
                         if let batchAC = batchBCL[subIdx] as? ArraysCache,
                            let newAC = newCL[subIdx] as? ArraysCache {
@@ -1366,6 +1381,9 @@ actor BatchScheduler {
                 } else if let batchAC = batchCaches[layer] as? ArraysCache,
                    let newAC = individualCache[layer] as? ArraysCache {
                     batchAC.extend(other: newAC)
+                } else if let batchBRC = batchCaches[layer] as? BatchRotatingKVCache {
+                    let single = BatchRotatingKVCache.merge([individualCache[layer]])
+                    batchBRC.extend(with: single)
                 } else {
                     let singleBatch = BatchKVCacheSimple.merge([individualCache[layer]])
                     (batchCaches[layer] as! BatchKVCacheSimple).extend(with: singleBatch)
@@ -1498,6 +1516,8 @@ actor BatchScheduler {
                                 acSub.filter(batchIndices: idxArray)
                             }
                         }
+                    } else if let brcCache = batchCaches[layer] as? BatchRotatingKVCache {
+                        brcCache.filter(keepIndices)
                     } else if let bkvCache = batchCaches[layer] as? BatchKVCacheSimple {
                         bkvCache.filter(keepIndices)
                     } else if let acCache = batchCaches[layer] as? ArraysCache {

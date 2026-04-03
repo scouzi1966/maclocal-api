@@ -4328,15 +4328,11 @@ final class MLXModelService: @unchecked Sendable {
 
     private func restoredMetaState(for cache: KVCache, savedMetaState: [String]?) -> [String]? {
         guard let savedMetaState else { return nil }
-        if cache is RotatingKVCache, savedMetaState.count >= 3 {
-            let restoredCount = cache.offset
-            return [
-                savedMetaState[0],
-                savedMetaState[1],
-                savedMetaState[2],
-                String(restoredCount),
-                String(restoredCount),
-            ]
+        if cache is RotatingKVCache, savedMetaState.count == 5 {
+            // Use saved offset/idx directly — they were captured at save time and
+            // reflect the correct rotation state. The state setter already set
+            // offset = keys.dim(2); metaState setter will override with saved values.
+            return savedMetaState
         }
         return savedMetaState
     }
