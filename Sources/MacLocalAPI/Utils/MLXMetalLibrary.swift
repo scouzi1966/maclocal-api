@@ -37,6 +37,14 @@ enum MLXMetalLibrary {
             .appendingPathComponent("default.metallib")
         if fileManager.fileExists(atPath: bundled.path) { return bundled }
 
+        // 3b. Homebrew layout: binary in bin/, bundle in ../libexec/
+        let homebrew = executableDir
+            .deletingLastPathComponent()
+            .appendingPathComponent("libexec")
+            .appendingPathComponent("MacLocalAPI_MacLocalAPI.bundle")
+            .appendingPathComponent("default.metallib")
+        if fileManager.fileExists(atPath: homebrew.path) { return homebrew }
+
         // 4. SPM Bundle.module — only if the bundle file physically exists.
         //    We probe the path before calling Bundle(path:) to avoid the auto-generated
         //    fatalError when the bundle can't be found (happens on any relocated binary).
