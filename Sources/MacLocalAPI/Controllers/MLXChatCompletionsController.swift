@@ -103,9 +103,12 @@ struct MLXChatCompletionsController: RouteCollection {
                 }
             }
             // Detect strict-mode downgrade: user requested grammar enforcement but admin didn't enable the engine
-            let strictRequested = MLXModelService.hasStrictSchema(chatRequest.responseFormat)
-                || MLXModelService.hasStrictTools(chatRequest.tools)
-            let grammarDowngraded = strictRequested && !service.enableGrammarConstraints
+            let grammarDowngraded = MLXModelService.shouldDowngradeGrammarConstraints(
+                responseFormat: chatRequest.responseFormat,
+                tools: chatRequest.tools,
+                supportsStrictToolGrammar: service.supportsStrictToolGrammar,
+                enableGrammarConstraints: service.enableGrammarConstraints
+            )
 
             guard !chatRequest.messages.isEmpty else {
                 return try await createErrorResponse(req: req, error: OpenAIError(message: "At least one message is required"), status: .badRequest)
@@ -347,6 +350,12 @@ struct MLXChatCompletionsController: RouteCollection {
             let generateTime = result.generateTime
             let tokPerSec = generateTime > 0 ? Double(completionTok) / generateTime : 0
             let promptTokPerSec = promptTime > 0 ? Double(result.promptTokens) / promptTime : 0
+            let sanitizeContent: (String) -> String = {
+                Self.sanitizeStructuredOutput(
+                    self.sanitizeDegenerateTail($0),
+                    responseFormat: chatRequest.responseFormat
+                )
+            }
             let finalizedTurn = Self.finalizeAssistantTurn(
                 content: result.content,
                 toolCalls: result.toolCalls,
@@ -357,7 +366,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 stoppedBySequence: result.stoppedBySequence,
                 completionTokens: completionTok,
                 maxTokens: effectiveMaxTokens,
-                sanitizeContent: sanitizeDegenerateTail
+                sanitizeContent: sanitizeContent
             )
 
             // If we got tool calls, return a tool_calls response
@@ -492,6 +501,13 @@ struct MLXChatCompletionsController: RouteCollection {
             let effectivePresencePenalty = chatRequest.presencePenalty ?? self.presencePenalty
             let effectiveSeed = chatRequest.seed ?? self.seed
             let effectiveStop = self.mergeStopSequences(cliStop: self.stop, apiStop: chatRequest.stop)
+            let deferStructuredOutputContent = Self.requiresStructuredOutputSanitization(chatRequest.responseFormat)
+            let sanitizeContent: (String) -> String = {
+                Self.sanitizeStructuredOutput(
+                    self.sanitizeDegenerateTail($0),
+                    responseFormat: chatRequest.responseFormat
+                )
+            }
 
             do {
                 let effectiveTools = try Self.resolveEffectiveTools(
@@ -669,7 +685,7 @@ struct MLXChatCompletionsController: RouteCollection {
                                     flushedReasoning = nil
                                 }
                                 thinkBuffer = ""
-                                if flushed != nil || flushedReasoning != nil {
+                                if !deferStructuredOutputContent && (flushed != nil || flushedReasoning != nil) {
                                     let flushChunk = ChatCompletionStreamResponse(
                                         id: streamId,
                                         model: res.modelID,
@@ -756,7 +772,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         // when detokenized content is still buffered for think-tag extraction.
                         let hasReasoning = emitReasoning != nil
                         let hasContent = emitContent != nil
-                        if hasReasoning || hasContent || flushLogprobs != nil {
+                        if !deferStructuredOutputContent && (hasReasoning || hasContent || flushLogprobs != nil) {
                             if self.veryVerbose {
                                 if let r = emitReasoning { verboseReasoningBuf += r }
                                 if let c = emitContent { verboseContentBuf += c }
@@ -791,6 +807,9 @@ struct MLXChatCompletionsController: RouteCollection {
                             pendingRawTag = nil
                         }
                     } else {
+                        if deferStructuredOutputContent {
+                            continue
+                        }
                         let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
                         logprobBuffer = []
                         let contentChunk = ChatCompletionStreamResponse(
@@ -938,7 +957,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     stoppedBySequence: stoppedBySequence,
                     completionTokens: completionTokens,
                     maxTokens: effectiveMaxTokens,
-                    sanitizeContent: self.sanitizeDegenerateTail
+                    sanitizeContent: sanitizeContent
                 )
                 let finishReason = finalizedTurn.finishReason
                 if self.veryVerbose {
@@ -975,7 +994,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 // === Now flush remaining buffer to client (writer calls may hang/throw) ===
                 // Flush remaining thinkBuffer content (tool call tags are handled
                 // above and never enter the thinkBuffer, so this is safe).
-                if extractThinking && !thinkBuffer.isEmpty {
+                if !deferStructuredOutputContent && extractThinking && !thinkBuffer.isEmpty {
                     let remaining: String?
                     let remainingReasoning: String?
                     if insideThinkBlock {
@@ -1013,6 +1032,24 @@ struct MLXChatCompletionsController: RouteCollection {
                            let jsonString = String(data: flushData, encoding: .utf8) {
                             try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                         }
+                    }
+                }
+
+                if deferStructuredOutputContent,
+                   finalizedTurn.toolCalls == nil,
+                   finalizedTurn.content != nil || finalizedTurn.reasoningContent != nil || !logprobBuffer.isEmpty {
+                    let contentChunk = ChatCompletionStreamResponse(
+                        id: streamId,
+                        model: res.modelID,
+                        content: finalizedTurn.content ?? "",
+                        reasoningContent: finalizedTurn.reasoningContent,
+                        logprobs: logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer),
+                        isFirst: false
+                    )
+                    logprobBuffer = []
+                    let contentData = try encoder.encode(contentChunk)
+                    if let jsonString = String(data: contentData, encoding: .utf8) {
+                        try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                     }
                 }
 
@@ -1154,6 +1191,29 @@ struct MLXChatCompletionsController: RouteCollection {
         }
 
         return String(cleaned[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func requiresStructuredOutputSanitization(_ responseFormat: ResponseFormat?) -> Bool {
+        guard let type = responseFormat?.type else { return false }
+        return type == "json_schema" || type == "json_object"
+    }
+
+    static func sanitizeStructuredOutput(_ text: String, responseFormat: ResponseFormat?) -> String {
+        guard requiresStructuredOutputSanitization(responseFormat) else {
+            return text
+        }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let regex = try? NSRegularExpression(
+            pattern: #"^\s*```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)\s*```\s*$"#,
+            options: []
+        ),
+        let match = regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+        let contentRange = Range(match.range(at: 1), in: trimmed) else {
+            return trimmed
+        }
+
+        return String(trimmed[contentRange]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func createSuccessResponse(req: Request, response: ChatCompletionResponse, grammarDowngraded: Bool = false) async throws -> Response {

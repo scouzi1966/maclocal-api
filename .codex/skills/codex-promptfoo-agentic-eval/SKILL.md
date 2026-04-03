@@ -1,5 +1,5 @@
 ---
-name: promptfoo-agentic-eval
+name: codex-promptfoo-agentic-eval
 description: Run and review the Promptfoo-based AFM agentic evaluation suite. Use when the user wants structured-output, tool-calling, grammar, guided-json, streaming, concurrency, or agentic QA coverage for AFM, and especially when they want help choosing harness options or interpreting failures.
 ---
 

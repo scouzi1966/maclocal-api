@@ -76,10 +76,14 @@ struct BatchCompletionsController: RouteCollection {
 
         // Grammar constraint header: check if any request has strict tools/schema
         let anyStrict = batchReq.requests.contains { item in
-            MLXModelService.hasStrictTools(item.body.tools) ||
-            MLXModelService.hasStrictSchema(item.body.responseFormat)
+            MLXModelService.shouldDowngradeGrammarConstraints(
+                responseFormat: item.body.responseFormat,
+                tools: item.body.tools,
+                supportsStrictToolGrammar: service.supportsStrictToolGrammar,
+                enableGrammarConstraints: service.enableGrammarConstraints
+            )
         }
-        if anyStrict && !service.enableGrammarConstraints {
+        if anyStrict {
             response.headers.add(name: "X-Grammar-Constraints", value: "downgraded")
         }
 
@@ -206,6 +210,9 @@ struct BatchCompletionsController: RouteCollection {
                 var tokenCount = 0
                 var promptTokens = streamResult.promptTokens
                 var hasToolCalls = false
+                var fullText = ""
+                let deferStructuredOutputContent =
+                    MLXChatCompletionsController.requiresStructuredOutputSanitization(chatReq.responseFormat)
 
                 // Think extraction state
                 var thinkBuffer = ""
@@ -213,6 +220,7 @@ struct BatchCompletionsController: RouteCollection {
 
                 for try await chunk in streamResult.stream {
                     tokenCount += 1
+                    fullText += chunk.text
 
                     var event: [String: Any] = [
                         "custom_id": customId,
@@ -237,10 +245,11 @@ struct BatchCompletionsController: RouteCollection {
                         if let reasoning = extracted.reasoning {
                             delta["reasoning_content"] = reasoning
                         }
-                        if let content = extracted.content, !content.isEmpty {
+                        if !deferStructuredOutputContent,
+                           let content = extracted.content, !content.isEmpty {
                             delta["content"] = content
                         }
-                    } else if !chunk.text.isEmpty {
+                    } else if !chunk.text.isEmpty && !deferStructuredOutputContent {
                         delta["content"] = chunk.text
                     }
 
@@ -287,14 +296,26 @@ struct BatchCompletionsController: RouteCollection {
                                 endTag: thinkEnd
                             )
                             if let r = flushed.reasoning { delta["reasoning_content"] = r }
-                            if let c = flushed.content, !c.isEmpty { delta["content"] = c }
+                            if !deferStructuredOutputContent,
+                               let c = flushed.content, !c.isEmpty { delta["content"] = c }
                             // Flush any remaining buffer as content
-                            if !thinkBuffer.isEmpty {
+                            if !deferStructuredOutputContent && !thinkBuffer.isEmpty {
                                 let existing = delta["content"] as? String ?? ""
                                 delta["content"] = existing + thinkBuffer
                                 thinkBuffer = ""
                             }
                             choiceDict["delta"] = delta
+                        }
+
+                        if deferStructuredOutputContent && !hasToolCalls && chunk.toolCalls == nil {
+                            let sanitized = MLXChatCompletionsController.sanitizeStructuredOutput(
+                                fullText,
+                                responseFormat: chatReq.responseFormat
+                            )
+                            if !sanitized.isEmpty {
+                                delta["content"] = sanitized
+                                choiceDict["delta"] = delta
+                            }
                         }
 
                         choiceDict["finish_reason"] = (hasToolCalls || chunk.toolCalls != nil) ? "tool_calls" : "stop"
@@ -339,7 +360,10 @@ struct BatchCompletionsController: RouteCollection {
                         ] as [String: Any]
                     }
                 } else {
-                    message["content"] = collected.content ?? ""
+                    message["content"] = MLXChatCompletionsController.sanitizeStructuredOutput(
+                        collected.content ?? "",
+                        responseFormat: chatReq.responseFormat
+                    )
                     if let reasoning = collected.reasoningContent {
                         message["reasoning_content"] = reasoning
                     }
