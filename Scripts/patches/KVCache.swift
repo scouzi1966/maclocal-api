@@ -433,7 +433,8 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
         }
         set {
             guard newValue.count == 2 else {
-                fatalError("KVCacheSimple state must have exactly 2 arrays (keys, values)")
+                if newValue.isEmpty { return }  // No-op for empty state (fresh/cleared cache)
+                fatalError("KVCacheSimple state must have exactly 2 arrays (keys, values), got \(newValue.count)")
             }
             self.keys = newValue[0]
             self.values = newValue[1]
