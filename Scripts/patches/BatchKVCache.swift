@@ -400,6 +400,9 @@ public class BatchRotatingKVCache: BaseKVCache {
 
     /// Single-token decode: circular in-place write at `_idx`, wraps at maxCacheSize.
     private func updateInPlace(keys newKeys: MLXArray, values newValues: MLXArray) -> (MLXArray, MLXArray) {
+        if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" && batchSize > 1 {
+            print("[BatchRotatingKV] updateInPlace B=\(batchSize) newKeys=\(newKeys.shape) _idx=\(_idx) _offset=\(_offset) maxCache=\(maxCacheSize) existing=\(keys?.shape.description ?? "nil")")
+        }
         let B = newKeys.dim(0)
         let nKVHeads = newKeys.dim(1)
         let kHeadDim = newKeys.dim(3)
@@ -451,6 +454,9 @@ public class BatchRotatingKVCache: BaseKVCache {
 
     /// Multi-token prefill: temporal reorder, trim, concatenate.
     private func updateConcat(keys newKeys: MLXArray, values newValues: MLXArray) -> (MLXArray, MLXArray) {
+        if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" && batchSize > 1 {
+            print("[BatchRotatingKV] updateConcat B=\(batchSize) newKeys=\(newKeys.shape) _idx=\(_idx) _offset=\(_offset) maxCache=\(maxCacheSize) existing=\(keys?.shape.description ?? "nil")")
+        }
         let S = newKeys.dim(2)
 
         if self.keys == nil {
@@ -552,6 +558,9 @@ public class BatchRotatingKVCache: BaseKVCache {
         // makeMask is called BEFORE update() — total key length after update = _idx + n
         let totalLen = _idx + n
         guard batchSize > 0 && totalLen > 0 else { return .none }
+        if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" && batchSize > 1 {
+            print("[BatchRotatingKV] makeMask B=\(batchSize) n=\(n) _idx=\(_idx) _offset=\(_offset) totalLen=\(totalLen) window=\(windowSize?.description ?? "nil")")
+        }
 
         let keyIndices = MLXArray(Int32(0) ..< Int32(totalLen)).reshaped([1, 1, totalLen])
         let padMask = keyIndices .>= leftPadding.reshaped([batchSize, 1, 1])
