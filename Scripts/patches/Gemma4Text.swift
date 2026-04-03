@@ -459,6 +459,12 @@ class Gemma4Attention: Module {
         queries = queries.transposed(0, 2, 1, 3)
         queries = rope(queries, offset: offset)
 
+        if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" && B > 1 {
+            var maskDesc = "symbolic"
+            if case .array(let m) = mask { maskDesc = "\(m.shape)" }
+            print("[Gemma4Attn] layer=\(layerIdx) B=\(B) L=\(L) Q=\(queries.shape) K=\(keys.shape) V=\(values.shape) mask=\(maskDesc) sliding=\(isSliding)")
+            fflush(stdout)
+        }
         let output = MLXFast.scaledDotProductAttention(
             queries: queries, keys: keys, values: values,
             scale: 1.0,  // Gemma4 uses scale=1.0 (scaling is in q/k norms)
