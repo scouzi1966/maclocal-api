@@ -1637,6 +1637,9 @@ extension Gemma4VLM: LoRAModel {
 // ============================================================================
 
 public struct Gemma4VLMProcessorConfiguration: Codable, Sendable {
+    // Gemma 4 uses rescale-to-[0,1] only (no mean/std normalization).
+    // These fields exist for config compatibility but are not applied —
+    // MediaProcessing.asMLXArray already produces [0, 1] float32 output.
     var imageMean: [Float]?
     var imageStd: [Float]?
     var patchSize: Int?
@@ -1676,11 +1679,11 @@ public class Gemma4VLMProcessor: UserInputProcessor {
         self.patchSize = config.patchSize ?? 16
         self.maxSoftTokens = config.maxSoftTokens ?? 280
         self.poolingKernelSize = config.poolingKernelSize ?? 3
-        // Token strings from tokenizer_config.json
-        self.imageTokenId = 258880  // <|image|>
+        // Derive token IDs from tokenizer vocabulary (not hardcoded)
         self.boiToken = "<|image>"
         self.eoiToken = "<image|>"
         self.imageToken = "<|image|>"
+        self.imageTokenId = tokenizer.convertTokenToId(imageToken) ?? 258880
     }
 
     public func prepare(input: UserInput) async throws -> LMInput {
@@ -1697,9 +1700,9 @@ public class Gemma4VLMProcessor: UserInputProcessor {
         var processedImage: LMInput.ProcessedImage?
 
         if !input.images.isEmpty {
-            let boiTokenId = 255999   // <|image>
-            let imageTokenId = 258880 // <|image|>
-            let eoiTokenId = 258882   // <image|>
+            // Derive token IDs from tokenizer (fall back to known Gemma 4 defaults)
+            let boiTokenId = tokenizer.convertTokenToId(boiToken) ?? 255999
+            let eoiTokenId = tokenizer.convertTokenToId(eoiToken) ?? 258882
 
             var allPixels = [MLXArray]()
             var softTokenCounts = [Int]()
@@ -1708,6 +1711,12 @@ public class Gemma4VLMProcessor: UserInputProcessor {
                 let processed = try processImage(image)
                 allPixels.append(processed.pixels)
                 softTokenCounts.append(processed.softTokens)
+            }
+
+            // Validate: template should emit exactly one <|image|> per input image
+            let imageTokenCount = promptTokens.filter { $0 == imageTokenId }.count
+            if imageTokenCount != input.images.count {
+                print("[Gemma4VLM] Warning: \(imageTokenCount) image tokens in prompt but \(input.images.count) images provided")
             }
 
             // Expand: each <|image|> token → <|image> + N*<|image|> + <image|>
