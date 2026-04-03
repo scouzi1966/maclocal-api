@@ -329,20 +329,22 @@ actor BatchScheduler {
         }
     }
 
+    /// Exponential backoff constants for slot polling.
+    private static let initialPollInterval: UInt64 = 10_000_000   // 10ms
+    private static let maxPollInterval: UInt64     = 500_000_000  // 500ms
+
     /// Wait up to `timeout` seconds for a slot to become available.
     /// Returns true if a slot was reserved, false if timed out.
     nonisolated func waitForSlot(timeout: TimeInterval = 30) async -> Bool {
         if tryReserve() { return true }
 
         let deadline = ContinuousClock.now + .seconds(timeout)
-        // Exponential backoff: 10ms → 20ms → 40ms → ... → 500ms cap
-        var delay: UInt64 = 10_000_000 // 10ms in nanoseconds
-        let maxDelay: UInt64 = 500_000_000 // 500ms
+        var delay = Self.initialPollInterval
 
         while ContinuousClock.now < deadline {
             try? await Task.sleep(nanoseconds: delay)
             if tryReserve() { return true }
-            delay = min(delay * 2, maxDelay)
+            delay = min(delay * 2, Self.maxPollInterval)
         }
         return false
     }

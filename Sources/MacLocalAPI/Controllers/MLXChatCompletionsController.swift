@@ -11,6 +11,10 @@ struct FinalizedAssistantTurn {
 }
 
 struct MLXChatCompletionsController: RouteCollection {
+    /// Max time (seconds) to wait for a concurrent slot before returning 503.
+    /// RotatingKVCache models run serial, so queued requests can wait a long time.
+    private static let slotQueueTimeout: TimeInterval = 240
+
     private let streamingEnabled: Bool
     private let modelID: String
     private let service: any MLXChatServing
@@ -159,10 +163,10 @@ struct MLXChatCompletionsController: RouteCollection {
             // Reserve a concurrent slot — waits up to 4 minutes for a slot to free up.
             // RotatingKVCache models (Gemma 4) fall back to serial execution, so
             // queued requests can wait a long time when all slots are occupied.
-            guard await service.waitForSlot(timeout: 240) else {
+            guard await service.waitForSlot(timeout: Self.slotQueueTimeout) else {
                 let peer = req.peerAddress?.description ?? "unknown"
                 let ua = req.headers.first(name: .userAgent) ?? "unknown"
-                req.logger.warning("Connection refused: at capacity after 240s wait (\(service.maxConcurrent)/\(service.maxConcurrent)) — client=\(peer) ua=\(ua)")
+                req.logger.warning("Connection refused: at capacity after \(Int(Self.slotQueueTimeout))s wait (\(service.maxConcurrent)/\(service.maxConcurrent)) — client=\(peer) ua=\(ua)")
                 let response = Response(status: .serviceUnavailable)
                 response.headers.add(name: .contentType, value: "application/json")
                 response.headers.add(name: .accessControlAllowOrigin, value: "*")
