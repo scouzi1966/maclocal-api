@@ -166,6 +166,11 @@ final class MLXModelService: @unchecked Sendable {
 
     /// Atomically reserve a concurrent slot. Returns true if reserved (or serial mode).
     func tryReserveSlot() -> Bool { scheduler?.tryReserve() ?? true }
+    /// Wait for a concurrent slot with timeout. Returns true if reserved (or serial mode).
+    func waitForSlot(timeout: TimeInterval = 30) async -> Bool {
+        guard let sched = scheduler else { return true }
+        return await sched.waitForSlot(timeout: timeout)
+    }
     /// Release a reserved slot (call if request fails before generation starts).
     func releaseSlot() { scheduler?.releaseReservation() }
     init(resolver: MLXCacheResolver) {

@@ -329,6 +329,24 @@ actor BatchScheduler {
         }
     }
 
+    /// Wait up to `timeout` seconds for a slot to become available.
+    /// Returns true if a slot was reserved, false if timed out.
+    nonisolated func waitForSlot(timeout: TimeInterval = 30) async -> Bool {
+        if tryReserve() { return true }
+
+        let deadline = ContinuousClock.now + .seconds(timeout)
+        // Exponential backoff: 10ms → 20ms → 40ms → ... → 500ms cap
+        var delay: UInt64 = 10_000_000 // 10ms in nanoseconds
+        let maxDelay: UInt64 = 500_000_000 // 500ms
+
+        while ContinuousClock.now < deadline {
+            try? await Task.sleep(nanoseconds: delay)
+            if tryReserve() { return true }
+            delay = min(delay * 2, maxDelay)
+        }
+        return false
+    }
+
     /// Release a reserved slot (call if request fails before reaching submit).
     nonisolated func releaseReservation() {
         _inFlightCount.withLock { $0 = max($0 - 1, 0) }

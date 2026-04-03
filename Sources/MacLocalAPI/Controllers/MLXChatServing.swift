@@ -33,6 +33,7 @@ protocol MLXChatServing {
 
     func normalizeModel(_ raw: String) -> String
     func tryReserveSlot() -> Bool
+    func waitForSlot(timeout: TimeInterval) async -> Bool
     func releaseSlot()
 
     func ensureBatchMode(concurrency: Int) async throws

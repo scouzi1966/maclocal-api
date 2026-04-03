@@ -156,12 +156,13 @@ struct MLXChatCompletionsController: RouteCollection {
                 fflush(stdout)
             }
 
-            // Atomically reserve a concurrent slot (check + increment in one lock).
-            // Serial mode always returns true. Returns 503 if at capacity.
-            guard service.tryReserveSlot() else {
+            // Reserve a concurrent slot — waits up to 4 minutes for a slot to free up.
+            // RotatingKVCache models (Gemma 4) fall back to serial execution, so
+            // queued requests can wait a long time when all slots are occupied.
+            guard await service.waitForSlot(timeout: 240) else {
                 let peer = req.peerAddress?.description ?? "unknown"
                 let ua = req.headers.first(name: .userAgent) ?? "unknown"
-                req.logger.warning("Connection refused: at capacity (\(service.maxConcurrent)/\(service.maxConcurrent)) — client=\(peer) ua=\(ua)")
+                req.logger.warning("Connection refused: at capacity after 240s wait (\(service.maxConcurrent)/\(service.maxConcurrent)) — client=\(peer) ua=\(ua)")
                 let response = Response(status: .serviceUnavailable)
                 response.headers.add(name: .contentType, value: "application/json")
                 response.headers.add(name: .accessControlAllowOrigin, value: "*")
