@@ -1,0 +1,558 @@
+{
+  "evalId": "eval-VTE-2026-04-03T02:52:40",
+  "results": {
+    "version": 3,
+    "timestamp": "2026-04-03T02:52:40.090Z",
+    "prompts": [
+      {
+        "id": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "raw": "{{prompt}}",
+        "label": "{{prompt}}",
+        "provider": "afm-grammar-mixed",
+        "metrics": {
+          "score": 0.5,
+          "testPassCount": 0,
+          "testFailCount": 1,
+          "testErrorCount": 0,
+          "assertPassCount": 1,
+          "assertFailCount": 1,
+          "totalLatencyMs": 1642,
+          "tokenUsage": {
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "total": 0,
+            "numRequests": 1,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0
+            },
+            "assertions": {
+              "total": 0,
+              "prompt": 0,
+              "completion": 0,
+              "cached": 0,
+              "numRequests": 0,
+              "completionDetails": {
+                "reasoning": 0,
+                "acceptedPrediction": 0,
+                "rejectedPrediction": 0
+              }
+            }
+          },
+          "namedScores": {},
+          "namedScoresCount": {},
+          "cost": 0
+        }
+      }
+    ],
+    "results": [
+      {
+        "cost": 0,
+        "error": "Expected output to be valid JSON",
+        "gradingResult": {
+          "pass": false,
+          "score": 0.5,
+          "reason": "Expected output to be valid JSON",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Expected output to be valid JSON",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"name\""
+              }
+            }
+          ]
+        },
+        "id": "e242918f-84ce-4c3c-8b78-807d6f5be4db",
+        "latencyMs": 1642,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Return a person record for Ada Lovelace, age 36.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-grammar-mixed"
+        },
+        "response": {
+          "output": "```json\n{\n  \"name\": \"Ada Lovelace\",\n  \"age\": 36\n}\n```",
+          "latencyMs": 1642,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Return a person record for Ada Lovelace, age 36."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                  "name": "person_record",
+                  "strict": true,
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "age": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "age"
+                    ]
+                  }
+                }
+              },
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "description": "Get weather",
+                    "strict": true,
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "location": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "location"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "timings": {
+                "predicted_ms": 1037.6920700073242,
+                "prompt_n": 147,
+                "prompt_ms": 578.1450271606445,
+                "predicted_n": 26
+              },
+              "id": "chatcmpl-79905F50",
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "usage": {
+                "completion_tokens": 26,
+                "total_time": 1.62,
+                "peak_memory_gib": 16.5,
+                "prompt_tokens": 147,
+                "prompt_time": 0.58,
+                "total_tokens": 173,
+                "completion_time": 1.04,
+                "completion_tokens_per_second": 25.06,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens_per_second": 254.26
+              },
+              "object": "chat.completion",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "```json\n{\n  \"name\": \"Ada Lovelace\",\n  \"age\": 36\n}\n```",
+                    "role": "assistant"
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "created": 1775184761,
+              "model": "mlx-community/gemma-4-31b-it-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "719",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:52:41 GMT",
+              "x-grammar-constraints": "downgraded"
+            }
+          }
+        },
+        "score": 0.5,
+        "success": false,
+        "testCase": {
+          "description": "mixed strict: json_schema + tool strict in same request",
+          "vars": {
+            "prompt": "Return a person record for Ada Lovelace, age 36.",
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "person_record",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "age": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "age"
+                  ]
+                }
+              }
+            },
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather",
+                  "strict": true,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"name\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 0,
+        "vars": {
+          "prompt": "Return a person record for Ada Lovelace, age 36.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "person_record",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "age": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "age"
+                ]
+              }
+            }
+          },
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Return a person record for Ada Lovelace, age 36."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "person_record",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "age": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "age"
+                  ]
+                }
+              }
+            },
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather",
+                  "strict": true,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "timings": {
+              "predicted_ms": 1037.6920700073242,
+              "prompt_n": 147,
+              "prompt_ms": 578.1450271606445,
+              "predicted_n": 26
+            },
+            "id": "chatcmpl-79905F50",
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "usage": {
+              "completion_tokens": 26,
+              "total_time": 1.62,
+              "peak_memory_gib": 16.5,
+              "prompt_tokens": 147,
+              "prompt_time": 0.58,
+              "total_tokens": 173,
+              "completion_time": 1.04,
+              "completion_tokens_per_second": 25.06,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens_per_second": 254.26
+            },
+            "object": "chat.completion",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "```json\n{\n  \"name\": \"Ada Lovelace\",\n  \"age\": 36\n}\n```",
+                  "role": "assistant"
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "created": 1775184761,
+            "model": "mlx-community/gemma-4-31b-it-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "719",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:52:41 GMT",
+            "x-grammar-constraints": "downgraded"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      }
+    ],
+    "stats": {
+      "successes": 0,
+      "failures": 1,
+      "errors": 0,
+      "tokenUsage": {
+        "prompt": 0,
+        "completion": 0,
+        "cached": 0,
+        "total": 0,
+        "numRequests": 1,
+        "completionDetails": {
+          "reasoning": 0,
+          "acceptedPrediction": 0,
+          "rejectedPrediction": 0
+        },
+        "assertions": {
+          "total": 0,
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "numRequests": 0,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0
+          }
+        }
+      },
+      "durationMs": 1653,
+      "evaluationDurationMs": 1653
+    }
+  },
+  "config": {
+    "tags": {},
+    "description": "AFM grammar-constraints mixed strict (schema + tools)",
+    "prompts": [
+      "{{prompt}}"
+    ],
+    "providers": [
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-grammar-mixed",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_GRAMMAR",
+          "modelEnv": "AFM_MODEL",
+          "extract": "content"
+        }
+      }
+    ],
+    "tests": [
+      {
+        "description": "mixed strict: json_schema + tool strict in same request",
+        "vars": {
+          "prompt": "Return a person record for Ada Lovelace, age 36.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "person_record",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "age": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "age"
+                ]
+              }
+            }
+          },
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"name\""
+          }
+        ]
+      }
+    ],
+    "scenarios": [],
+    "env": {},
+    "outputPath": [
+      "/Volumes/edata/promptfoo/data/maclocal-api/current/grammar-mixed-strict-mlx-community_gemma-4-e4b-it-4bit.json"
+    ],
+    "extensions": [],
+    "metadata": {},
+    "evaluateOptions": {}
+  },
+  "shareableUrl": null,
+  "metadata": {
+    "promptfooVersion": "0.120.26",
+    "nodeVersion": "v25.8.1",
+    "platform": "darwin",
+    "arch": "arm64",
+    "exportedAt": "2026-04-03T02:52:41.801Z",
+    "evaluationCreatedAt": "2026-04-03T02:52:40.090Z"
+  }
+}

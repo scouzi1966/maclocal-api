@@ -1,0 +1,2737 @@
+{
+  "evalId": "eval-Rzw-2026-04-03T02:45:23",
+  "results": {
+    "version": 3,
+    "timestamp": "2026-04-03T02:45:23.025Z",
+    "prompts": [
+      {
+        "id": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "raw": "{{prompt}}",
+        "label": "{{prompt}}",
+        "provider": "afm-adaptive-xml",
+        "metrics": {
+          "score": 3.3333333333333335,
+          "testPassCount": 1,
+          "testFailCount": 6,
+          "testErrorCount": 0,
+          "assertPassCount": 7,
+          "assertFailCount": 10,
+          "totalLatencyMs": 43275,
+          "tokenUsage": {
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "total": 0,
+            "numRequests": 7,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0
+            },
+            "assertions": {
+              "total": 0,
+              "prompt": 0,
+              "completion": 0,
+              "cached": 0,
+              "numRequests": 0,
+              "completionDetails": {
+                "reasoning": 0,
+                "acceptedPrediction": 0,
+                "rejectedPrediction": 0
+              }
+            }
+          },
+          "namedScores": {},
+          "namedScoresCount": {},
+          "cost": 0
+        }
+      }
+    ],
+    "results": [
+      {
+        "cost": 0,
+        "error": "Expected output to contain \"\"location\"\"",
+        "gradingResult": {
+          "pass": false,
+          "score": 0.3333333333333333,
+          "reason": "Expected output to contain \"\"location\"\"",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Expected output to contain \"\"get_weather\"\"",
+              "assertion": {
+                "type": "contains",
+                "value": "\"get_weather\""
+              }
+            },
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Expected output to contain \"\"location\"\"",
+              "assertion": {
+                "type": "contains",
+                "value": "\"location\""
+              }
+            }
+          ]
+        },
+        "id": "e2f854e3-c889-4270-98bc-576d3b11bffa",
+        "latencyMs": 3114,
+        "namedScores": {},
+        "prompt": {
+          "raw": "What is the weather in Berlin?",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml"
+        },
+        "response": {
+          "output": "[]",
+          "latencyMs": 3114,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "What is the weather in Berlin?"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "description": "Get weather for a location",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "location": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "location"
+                      ]
+                    }
+                  }
+                }
+              ],
+              "tool_choice": "required"
+            },
+            "responseBody": {
+              "timings": {
+                "prompt_ms": 386.6591453552246,
+                "prompt_n": 71,
+                "predicted_ms": 2709.942936897278,
+                "predicted_n": 68
+              },
+              "id": "chatcmpl-858330F4",
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "usage": {
+                "completion_tokens": 68,
+                "total_time": 3.1,
+                "peak_memory_gib": 16.4,
+                "prompt_tokens": 71,
+                "prompt_time": 0.39,
+                "total_tokens": 139,
+                "completion_time": 2.71,
+                "completion_tokens_per_second": 25.09,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens_per_second": 183.62
+              },
+              "object": "chat.completion",
+              "choices": [
+                {
+                  "finish_reason": "stop",
+                  "index": 0,
+                  "message": {
+                    "reasoning_content": "thought\nThe user is asking for the weather in Berlin. I should check if there is a tool available to get the weather. The `get_weather` tool takes a `location` parameter. I should call this tool with `location='Berlin'`.",
+                    "role": "assistant",
+                    "content": "<|tool_call>call:get_weather{location:<|\"|>Berlin<|\"|>}<tool_call|>"
+                  }
+                }
+              ],
+              "created": 1775184326,
+              "model": "mlx-community/gemma-4-31b-it-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "964",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:45:26 GMT"
+            }
+          }
+        },
+        "score": 0.3333333333333333,
+        "success": false,
+        "testCase": {
+          "description": "tool_choice required selects weather tool",
+          "vars": {
+            "prompt": "What is the weather in Berlin?",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "required"
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"get_weather\""
+            },
+            {
+              "type": "contains",
+              "value": "\"location\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 0,
+        "vars": {
+          "prompt": "What is the weather in Berlin?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "required"
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "What is the weather in Berlin?"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "required"
+          },
+          "responseBody": {
+            "timings": {
+              "prompt_ms": 386.6591453552246,
+              "prompt_n": 71,
+              "predicted_ms": 2709.942936897278,
+              "predicted_n": 68
+            },
+            "id": "chatcmpl-858330F4",
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "usage": {
+              "completion_tokens": 68,
+              "total_time": 3.1,
+              "peak_memory_gib": 16.4,
+              "prompt_tokens": 71,
+              "prompt_time": 0.39,
+              "total_tokens": 139,
+              "completion_time": 2.71,
+              "completion_tokens_per_second": 25.09,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens_per_second": 183.62
+            },
+            "object": "chat.completion",
+            "choices": [
+              {
+                "finish_reason": "stop",
+                "index": 0,
+                "message": {
+                  "reasoning_content": "thought\nThe user is asking for the weather in Berlin. I should check if there is a tool available to get the weather. The `get_weather` tool takes a `location` parameter. I should call this tool with `location='Berlin'`.",
+                  "role": "assistant",
+                  "content": "<|tool_call>call:get_weather{location:<|\"|>Berlin<|\"|>}<tool_call|>"
+                }
+              }
+            ],
+            "created": 1775184326,
+            "model": "mlx-community/gemma-4-31b-it-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "964",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:45:26 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "equals",
+                "value": "[]"
+              }
+            }
+          ]
+        },
+        "id": "5408e2f0-3d9e-4e42-8cfe-9227da7e925d",
+        "latencyMs": 14994,
+        "namedScores": {},
+        "prompt": {
+          "raw": "What is the weather in Sydney?",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml"
+        },
+        "response": {
+          "output": "[]",
+          "latencyMs": 14994,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "What is the weather in Sydney?"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "description": "Get weather for a location",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "location": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "location"
+                      ]
+                    }
+                  }
+                }
+              ],
+              "tool_choice": "none"
+            },
+            "responseBody": {
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "created": 1775184341,
+              "id": "chatcmpl-CC2384F1",
+              "timings": {
+                "prompt_n": 29,
+                "prompt_ms": 229.9199104309082,
+                "predicted_n": 400,
+                "predicted_ms": 14754.160046577454
+              },
+              "usage": {
+                "prompt_tokens": 29,
+                "completion_time": 14.75,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_time": 0.23,
+                "completion_tokens": 400,
+                "completion_tokens_per_second": 27.11,
+                "total_time": 14.98,
+                "prompt_tokens_per_second": 126.13,
+                "total_tokens": 429,
+                "peak_memory_gib": 16.6
+              },
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "",
+                    "reasoning_content": "thought\n*   User is asking for the current weather in Sydney.\n    *   I am an AI language model. I do not have real-time access to a live thermometer or a direct sensor in Sydney, but I can access real-time information via tools or search (depending on the specific implementation).\n\n    *   *Self-Correction/Constraint:* As an AI, I need to provide the most current data possible. Since I don't have a built-in \"live\" weather sensor, I should check the current date/time and use a search tool or provide a general way for the user to find it, or (if the system allows) fetch the data.\n\n    *   *Current Date:* May 22, 2024 (based on system clock).\n    *   *Location:* Sydney, Australia.\n\n    *   *Search Query:* \"Current weather in Sydney, Australia\"\n    *   *Expected Result:* Temperature, condition (sunny, rainy, cloudy), wind, humidity.\n\n    *   *Scenario A (I have a tool):* I use the tool to get the exact temperature.\n    *   *Scenario B (I don't have a live tool in this specific prompt window but can simulate/search):* I will provide the most recent available data or direct the user to a reliable source.\n\n    *(Self-Correction: As a helpful assistant, I should provide the actual current weather if possible. Let's assume I can access current data.)*\n\n    *   *Current Data (Simulated/Fetched):*\n        *   Temperature: ~15-20°C (Sydney is currently in late autumn/early winter).\n        *   Condition: Partly cloudy/Sunny.\n\n    *   State the current temperature.\n    *   State the condition (e.g., Sunny, Rainy).\n    *   Mention the high/low",
+                    "role": "assistant"
+                  },
+                  "finish_reason": "length"
+                }
+              ],
+              "object": "chat.completion",
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "2273",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:45:41 GMT"
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "tool_choice none suppresses tool call",
+          "vars": {
+            "prompt": "What is the weather in Sydney?",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "none"
+          },
+          "assert": [
+            {
+              "type": "equals",
+              "value": "[]"
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 1,
+        "vars": {
+          "prompt": "What is the weather in Sydney?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "none"
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "What is the weather in Sydney?"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "none"
+          },
+          "responseBody": {
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "created": 1775184341,
+            "id": "chatcmpl-CC2384F1",
+            "timings": {
+              "prompt_n": 29,
+              "prompt_ms": 229.9199104309082,
+              "predicted_n": 400,
+              "predicted_ms": 14754.160046577454
+            },
+            "usage": {
+              "prompt_tokens": 29,
+              "completion_time": 14.75,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_time": 0.23,
+              "completion_tokens": 400,
+              "completion_tokens_per_second": 27.11,
+              "total_time": 14.98,
+              "prompt_tokens_per_second": 126.13,
+              "total_tokens": 429,
+              "peak_memory_gib": 16.6
+            },
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "",
+                  "reasoning_content": "thought\n*   User is asking for the current weather in Sydney.\n    *   I am an AI language model. I do not have real-time access to a live thermometer or a direct sensor in Sydney, but I can access real-time information via tools or search (depending on the specific implementation).\n\n    *   *Self-Correction/Constraint:* As an AI, I need to provide the most current data possible. Since I don't have a built-in \"live\" weather sensor, I should check the current date/time and use a search tool or provide a general way for the user to find it, or (if the system allows) fetch the data.\n\n    *   *Current Date:* May 22, 2024 (based on system clock).\n    *   *Location:* Sydney, Australia.\n\n    *   *Search Query:* \"Current weather in Sydney, Australia\"\n    *   *Expected Result:* Temperature, condition (sunny, rainy, cloudy), wind, humidity.\n\n    *   *Scenario A (I have a tool):* I use the tool to get the exact temperature.\n    *   *Scenario B (I don't have a live tool in this specific prompt window but can simulate/search):* I will provide the most recent available data or direct the user to a reliable source.\n\n    *(Self-Correction: As a helpful assistant, I should provide the actual current weather if possible. Let's assume I can access current data.)*\n\n    *   *Current Data (Simulated/Fetched):*\n        *   Temperature: ~15-20°C (Sydney is currently in late autumn/early winter).\n        *   Condition: Partly cloudy/Sunny.\n\n    *   State the current temperature.\n    *   State the condition (e.g., Sunny, Rainy).\n    *   Mention the high/low",
+                  "role": "assistant"
+                },
+                "finish_reason": "length"
+              }
+            ],
+            "object": "chat.completion",
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "2273",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:45:41 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "error": "Expected output to contain \"\"get_time\"\"",
+        "gradingResult": {
+          "pass": false,
+          "score": 0.5,
+          "reason": "Expected output to contain \"\"get_time\"\"",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Expected output to contain \"\"get_time\"\"",
+              "assertion": {
+                "type": "contains",
+                "value": "\"get_time\""
+              }
+            }
+          ]
+        },
+        "id": "629c068c-30cc-4f09-bc46-68d3b8e07d55",
+        "latencyMs": 4856,
+        "namedScores": {},
+        "prompt": {
+          "raw": "What time is it in New York right now?",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml"
+        },
+        "response": {
+          "output": "[]",
+          "latencyMs": 4856,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "What time is it in New York right now?"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "description": "Get weather for a location",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "location": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "location"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "get_time",
+                    "description": "Get current time for a timezone",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "timezone": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "timezone"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "reasoning_content": "thought\nThe user is asking for the current time in New York. I should check the available tools to see if there is one that can provide the current time for a specific timezone or location. The `get_time` tool takes a `timezone` parameter. New York is in the \"America/New_York\" timezone. Therefore, I should call `get_time` with `timezone=\"America/New_York\"`.",
+                    "role": "assistant",
+                    "content": "-<|tool_call>call:get_time{timezone:<|\"|>America/New_York<|\"|>}<tool_call|>"
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "id": "chatcmpl-29B6D432",
+              "created": 1775184346,
+              "usage": {
+                "prompt_tokens": 117,
+                "peak_memory_gib": 16.4,
+                "total_tokens": 226,
+                "completion_tokens": 109,
+                "prompt_time": 0.48,
+                "completion_tokens_per_second": 25,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_time": 4.36,
+                "total_time": 4.84,
+                "prompt_tokens_per_second": 241.88
+              },
+              "object": "chat.completion",
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "timings": {
+                "prompt_n": 117,
+                "prompt_ms": 483.71386528015137,
+                "predicted_ms": 4359.228014945984,
+                "predicted_n": 109
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1121",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:45:46 GMT"
+            }
+          }
+        },
+        "score": 0.5,
+        "success": false,
+        "testCase": {
+          "description": "multi-tool picks get_time",
+          "vars": {
+            "prompt": "What time is it in New York right now?",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_time",
+                  "description": "Get current time for a timezone",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "timezone": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "timezone"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"get_time\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 2,
+        "vars": {
+          "prompt": "What time is it in New York right now?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "get_time",
+                "description": "Get current time for a timezone",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "timezone": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "timezone"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "What time is it in New York right now?"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_time",
+                  "description": "Get current time for a timezone",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "timezone": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "timezone"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "reasoning_content": "thought\nThe user is asking for the current time in New York. I should check the available tools to see if there is one that can provide the current time for a specific timezone or location. The `get_time` tool takes a `timezone` parameter. New York is in the \"America/New_York\" timezone. Therefore, I should call `get_time` with `timezone=\"America/New_York\"`.",
+                  "role": "assistant",
+                  "content": "-<|tool_call>call:get_time{timezone:<|\"|>America/New_York<|\"|>}<tool_call|>"
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "id": "chatcmpl-29B6D432",
+            "created": 1775184346,
+            "usage": {
+              "prompt_tokens": 117,
+              "peak_memory_gib": 16.4,
+              "total_tokens": 226,
+              "completion_tokens": 109,
+              "prompt_time": 0.48,
+              "completion_tokens_per_second": 25,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_time": 4.36,
+              "total_time": 4.84,
+              "prompt_tokens_per_second": 241.88
+            },
+            "object": "chat.completion",
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "timings": {
+              "prompt_n": 117,
+              "prompt_ms": 483.71386528015137,
+              "predicted_ms": 4359.228014945984,
+              "predicted_n": 109
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1121",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:45:46 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Expected output to contain \"\"query\"\"",
+        "gradingResult": {
+          "pass": false,
+          "score": 0.3333333333333333,
+          "reason": "Expected output to contain \"\"query\"\"",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Expected output to contain \"\"search_code\"\"",
+              "assertion": {
+                "type": "contains",
+                "value": "\"search_code\""
+              }
+            },
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Expected output to contain \"\"query\"\"",
+              "assertion": {
+                "type": "contains",
+                "value": "\"query\""
+              }
+            }
+          ]
+        },
+        "id": "f4436e2d-62bf-49ec-a0d1-291093812f81",
+        "latencyMs": 3988,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Search for 'main' case-sensitively, return max 5 results.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml"
+        },
+        "response": {
+          "output": "[]",
+          "latencyMs": 3988,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Search for 'main' case-sensitively, return max 5 results."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "search_code",
+                    "description": "Search codebase for a pattern",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "query": {
+                          "type": "string"
+                        },
+                        "case_sensitive": {
+                          "type": "boolean"
+                        },
+                        "max_results": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "query"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "created": 1775184350,
+              "usage": {
+                "prompt_tokens_per_second": 211.04,
+                "total_time": 3.98,
+                "peak_memory_gib": 16.4,
+                "completion_tokens": 102,
+                "total_tokens": 203,
+                "completion_time": 3.5,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_tokens_per_second": 29.16,
+                "prompt_tokens": 101,
+                "prompt_time": 0.48
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "object": "chat.completion",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "<|tool_call>call:search_code{case_sensitive:true,max_results:5,query:<|\"|>main<|\"|>}<tool_call|>",
+                    "role": "assistant",
+                    "reasoning_content": "thought\nThe user wants to search for the string 'ain' in the codebase.\nThe search should be case-sensitive.\nThe maximum number of results should be 5.\n\nI should use the `search_code` tool.\n- `query`: 'ain'\n- `case_sensitive`: true\n- `max_results`: 5"
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "id": "chatcmpl-D14F1951",
+              "timings": {
+                "predicted_ms": 3498.0980157852173,
+                "prompt_n": 101,
+                "prompt_ms": 478.5759449005127,
+                "predicted_n": 102
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1034",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:45:50 GMT"
+            }
+          }
+        },
+        "score": 0.3333333333333333,
+        "success": false,
+        "testCase": {
+          "description": "typed args bool and int coercion",
+          "vars": {
+            "prompt": "Search for 'main' case-sensitively, return max 5 results.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "search_code",
+                  "description": "Search codebase for a pattern",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      },
+                      "case_sensitive": {
+                        "type": "boolean"
+                      },
+                      "max_results": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"search_code\""
+            },
+            {
+              "type": "contains",
+              "value": "\"query\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 3,
+        "vars": {
+          "prompt": "Search for 'main' case-sensitively, return max 5 results.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "search_code",
+                "description": "Search codebase for a pattern",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    },
+                    "case_sensitive": {
+                      "type": "boolean"
+                    },
+                    "max_results": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Search for 'main' case-sensitively, return max 5 results."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "search_code",
+                  "description": "Search codebase for a pattern",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      },
+                      "case_sensitive": {
+                        "type": "boolean"
+                      },
+                      "max_results": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "created": 1775184350,
+            "usage": {
+              "prompt_tokens_per_second": 211.04,
+              "total_time": 3.98,
+              "peak_memory_gib": 16.4,
+              "completion_tokens": 102,
+              "total_tokens": 203,
+              "completion_time": 3.5,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens_per_second": 29.16,
+              "prompt_tokens": 101,
+              "prompt_time": 0.48
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "object": "chat.completion",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "<|tool_call>call:search_code{case_sensitive:true,max_results:5,query:<|\"|>main<|\"|>}<tool_call|>",
+                  "role": "assistant",
+                  "reasoning_content": "thought\nThe user wants to search for the string 'ain' in the codebase.\nThe search should be case-sensitive.\nThe maximum number of results should be 5.\n\nI should use the `search_code` tool.\n- `query`: 'ain'\n- `case_sensitive`: true\n- `max_results`: 5"
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "id": "chatcmpl-D14F1951",
+            "timings": {
+              "predicted_ms": 3498.0980157852173,
+              "prompt_n": 101,
+              "prompt_ms": 478.5759449005127,
+              "predicted_n": 102
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1034",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:45:50 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Expected output to contain \"\"questions\"\"",
+        "gradingResult": {
+          "pass": false,
+          "score": 0.3333333333333333,
+          "reason": "Expected output to contain \"\"questions\"\"",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Expected output to contain \"\"ask_questions\"\"",
+              "assertion": {
+                "type": "contains",
+                "value": "\"ask_questions\""
+              }
+            },
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Expected output to contain \"\"questions\"\"",
+              "assertion": {
+                "type": "contains",
+                "value": "\"questions\""
+              }
+            }
+          ]
+        },
+        "id": "561840de-ed2c-4bb1-98eb-4a9a0ecb48e6",
+        "latencyMs": 6085,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Ask the user 2 questions: What is your favorite color (red, blue, green) and what is your favorite animal (cat, dog, fish).",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml"
+        },
+        "response": {
+          "output": "[]",
+          "latencyMs": 6085,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Ask the user 2 questions: What is your favorite color (red, blue, green) and what is your favorite animal (cat, dog, fish)."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "ask_questions",
+                    "description": "Ask user multiple-choice questions",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "questions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "text": {
+                                "type": "string"
+                              },
+                              "options": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "questions",
+                        "title"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "<|tool_call>call:ask_questions{questions:[{options:[<|\"|>red<|\"|>,<|\"|>blue<|\"|>,<|\"|>green<|\"|>],text:<|\"|>What is your favorite color?<|\"|>},{options:[<|\"|>cat<|\"|>,<|\"|>dog<|\"|>,<|\"|>fish<|\"|>],text:<|\"|>What is your favorite animal?<|\"|>}],title:<|\"|>Favorites Survey<|\"|>}<tool_call|>",
+                    "reasoning_content": "thought\nThe user wants me to ask two specific multiple-choice questions:\n1. Favorite color (options: red, blue, green)\n2. Favorite animal (options: cat, dog, fish)\n\nI should use the `ask_questions` tool for this.\n\nPlan:\n- Call `ask_questions` with a title and the two specified questions and their options.",
+                    "role": "assistant"
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "id": "chatcmpl-11CAAE36",
+              "created": 1775184356,
+              "usage": {
+                "prompt_tokens": 145,
+                "peak_memory_gib": 16.5,
+                "total_tokens": 295,
+                "completion_tokens": 150,
+                "prompt_time": 0.52,
+                "completion_tokens_per_second": 27.04,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_time": 5.55,
+                "total_time": 6.07,
+                "prompt_tokens_per_second": 277.29
+              },
+              "object": "chat.completion",
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "timings": {
+                "predicted_n": 150,
+                "prompt_n": 145,
+                "predicted_ms": 5547.384023666382,
+                "prompt_ms": 522.9189395904541
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1300",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:45:56 GMT"
+            }
+          }
+        },
+        "score": 0.3333333333333333,
+        "success": false,
+        "testCase": {
+          "description": "array of objects argument coercion",
+          "vars": {
+            "prompt": "Ask the user 2 questions: What is your favorite color (red, blue, green) and what is your favorite animal (cat, dog, fish).",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "ask_questions",
+                  "description": "Ask user multiple-choice questions",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "questions": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "text": {
+                              "type": "string"
+                            },
+                            "options": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "title": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "questions",
+                      "title"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"ask_questions\""
+            },
+            {
+              "type": "contains",
+              "value": "\"questions\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 4,
+        "vars": {
+          "prompt": "Ask the user 2 questions: What is your favorite color (red, blue, green) and what is your favorite animal (cat, dog, fish).",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "ask_questions",
+                "description": "Ask user multiple-choice questions",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "questions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "text": {
+                            "type": "string"
+                          },
+                          "options": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "questions",
+                    "title"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Ask the user 2 questions: What is your favorite color (red, blue, green) and what is your favorite animal (cat, dog, fish)."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "ask_questions",
+                  "description": "Ask user multiple-choice questions",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "questions": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "text": {
+                              "type": "string"
+                            },
+                            "options": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "title": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "questions",
+                      "title"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "<|tool_call>call:ask_questions{questions:[{options:[<|\"|>red<|\"|>,<|\"|>blue<|\"|>,<|\"|>green<|\"|>],text:<|\"|>What is your favorite color?<|\"|>},{options:[<|\"|>cat<|\"|>,<|\"|>dog<|\"|>,<|\"|>fish<|\"|>],text:<|\"|>What is your favorite animal?<|\"|>}],title:<|\"|>Favorites Survey<|\"|>}<tool_call|>",
+                  "reasoning_content": "thought\nThe user wants me to ask two specific multiple-choice questions:\n1. Favorite color (options: red, blue, green)\n2. Favorite animal (options: cat, dog, fish)\n\nI should use the `ask_questions` tool for this.\n\nPlan:\n- Call `ask_questions` with a title and the two specified questions and their options.",
+                  "role": "assistant"
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "id": "chatcmpl-11CAAE36",
+            "created": 1775184356,
+            "usage": {
+              "prompt_tokens": 145,
+              "peak_memory_gib": 16.5,
+              "total_tokens": 295,
+              "completion_tokens": 150,
+              "prompt_time": 0.52,
+              "completion_tokens_per_second": 27.04,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_time": 5.55,
+              "total_time": 6.07,
+              "prompt_tokens_per_second": 277.29
+            },
+            "object": "chat.completion",
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "timings": {
+              "predicted_n": 150,
+              "prompt_n": 145,
+              "predicted_ms": 5547.384023666382,
+              "prompt_ms": 522.9189395904541
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1300",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:45:56 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Expected output to contain \"\"celsius\"\"",
+        "gradingResult": {
+          "pass": false,
+          "score": 0.3333333333333333,
+          "reason": "Expected output to contain \"\"celsius\"\"",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Expected output to contain \"\"set_temperature\"\"",
+              "assertion": {
+                "type": "contains",
+                "value": "\"set_temperature\""
+              }
+            },
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Expected output to contain \"\"celsius\"\"",
+              "assertion": {
+                "type": "contains",
+                "value": "\"celsius\""
+              }
+            }
+          ]
+        },
+        "id": "1c394e38-f8a8-42f4-ae8c-d287c1d7f034",
+        "latencyMs": 5349,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Set the thermostat to 22.5 degrees celsius and enable it.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml"
+        },
+        "response": {
+          "output": "[]",
+          "latencyMs": 5349,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Set the thermostat to 22.5 degrees celsius and enable it."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "set_temperature",
+                    "description": "Set thermostat temperature",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "celsius": {
+                          "type": "number"
+                        },
+                        "enabled": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "celsius",
+                        "enabled"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "created": 1775184361,
+              "usage": {
+                "prompt_tokens_per_second": 230.75,
+                "total_time": 5.34,
+                "peak_memory_gib": 16.4,
+                "completion_tokens": 127,
+                "total_tokens": 218,
+                "completion_time": 4.94,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_tokens_per_second": 25.7,
+                "prompt_tokens": 91,
+                "prompt_time": 0.39
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "id": "chatcmpl-E80A0D85",
+              "object": "chat.completion",
+              "choices": [
+                {
+                  "index": 0,
+                  "finish_reason": "stop",
+                  "message": {
+                    "role": "assistant",
+                    "content": "<|tool_call>call:set_temperature{celsius:22.5,enabled:true}<tool_call|>",
+                    "reasoning_content": "thought\nThe user wants to set the thermostat temperature to 22.5 degrees Celsius and enable it. I should check the available tools to see if there is a function that can perform this action. The `set_temperature` tool takes `celsius` (a number) and `enabled` (a boolean) as parameters. This matches the user's request perfectly.\n\nPlan:\n1. Call `set_temperature` with `celsius=22.5` and `enabled=true`."
+                  }
+                }
+              ],
+              "timings": {
+                "prompt_ms": 394.37007904052734,
+                "predicted_n": 127,
+                "predicted_ms": 4942.277908325195,
+                "prompt_n": 91
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1153",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:46:01 GMT"
+            }
+          }
+        },
+        "score": 0.3333333333333333,
+        "success": false,
+        "testCase": {
+          "description": "float number coercion",
+          "vars": {
+            "prompt": "Set the thermostat to 22.5 degrees celsius and enable it.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "set_temperature",
+                  "description": "Set thermostat temperature",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "celsius": {
+                        "type": "number"
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "celsius",
+                      "enabled"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"set_temperature\""
+            },
+            {
+              "type": "contains",
+              "value": "\"celsius\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 5,
+        "vars": {
+          "prompt": "Set the thermostat to 22.5 degrees celsius and enable it.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "set_temperature",
+                "description": "Set thermostat temperature",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "celsius": {
+                      "type": "number"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "celsius",
+                    "enabled"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Set the thermostat to 22.5 degrees celsius and enable it."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "set_temperature",
+                  "description": "Set thermostat temperature",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "celsius": {
+                        "type": "number"
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "celsius",
+                      "enabled"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "created": 1775184361,
+            "usage": {
+              "prompt_tokens_per_second": 230.75,
+              "total_time": 5.34,
+              "peak_memory_gib": 16.4,
+              "completion_tokens": 127,
+              "total_tokens": 218,
+              "completion_time": 4.94,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens_per_second": 25.7,
+              "prompt_tokens": 91,
+              "prompt_time": 0.39
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "id": "chatcmpl-E80A0D85",
+            "object": "chat.completion",
+            "choices": [
+              {
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {
+                  "role": "assistant",
+                  "content": "<|tool_call>call:set_temperature{celsius:22.5,enabled:true}<tool_call|>",
+                  "reasoning_content": "thought\nThe user wants to set the thermostat temperature to 22.5 degrees Celsius and enable it. I should check the available tools to see if there is a function that can perform this action. The `set_temperature` tool takes `celsius` (a number) and `enabled` (a boolean) as parameters. This matches the user's request perfectly.\n\nPlan:\n1. Call `set_temperature` with `celsius=22.5` and `enabled=true`."
+                }
+              }
+            ],
+            "timings": {
+              "prompt_ms": 394.37007904052734,
+              "predicted_n": 127,
+              "predicted_ms": 4942.277908325195,
+              "prompt_n": 91
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1153",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:46:01 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Expected output to contain \"\"createTask\"\"",
+        "gradingResult": {
+          "pass": false,
+          "score": 0.5,
+          "reason": "Expected output to contain \"\"createTask\"\"",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Expected output to contain \"\"createTask\"\"",
+              "assertion": {
+                "type": "contains",
+                "value": "\"createTask\""
+              }
+            }
+          ]
+        },
+        "id": "bd975abf-dbec-49d9-844a-d9939b2b294d",
+        "latencyMs": 4889,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Create a task to document the grammar constraint feature.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml"
+        },
+        "response": {
+          "output": "[]",
+          "latencyMs": 4889,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Create a task to document the grammar constraint feature."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "listTasks",
+                    "description": "List current tasks",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "createTask",
+                    "description": "Create a new task",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "content": {
+                          "type": "string"
+                        },
+                        "priority": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "content"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "reasoning_content": "thought\nThe user wants to create a task. I should look for a tool that can create a task.\nThe `createTask` tool seems appropriate for this purpose.\nIt takes `content` and `priority` as parameters.\nThe user specified the content: \"document the grammar constraint feature\".\nNo priority was mentioned, so I'll leave it blank or use a default if required (though it's not marked as required).",
+                    "role": "assistant",
+                    "content": "<|tool_call>call:createTask{content:<|\"|>document the grammar constraint feature<|\"|>}<tool_call|>"
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "id": "chatcmpl-575EA4BB",
+              "created": 1775184366,
+              "usage": {
+                "prompt_tokens": 113,
+                "peak_memory_gib": 16.4,
+                "total_tokens": 223,
+                "completion_tokens": 110,
+                "prompt_time": 0.48,
+                "completion_tokens_per_second": 25.04,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_time": 4.39,
+                "total_time": 4.88,
+                "prompt_tokens_per_second": 233.44
+              },
+              "object": "chat.completion",
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "timings": {
+                "prompt_n": 113,
+                "prompt_ms": 484.05492305755615,
+                "predicted_ms": 4392.774939537048,
+                "predicted_n": 110
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1175",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:46:06 GMT"
+            }
+          }
+        },
+        "score": 0.5,
+        "success": false,
+        "testCase": {
+          "description": "hallucination resistance with similar tools",
+          "vars": {
+            "prompt": "Create a task to document the grammar constraint feature.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "listTasks",
+                  "description": "List current tasks",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "createTask",
+                  "description": "Create a new task",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "content": {
+                        "type": "string"
+                      },
+                      "priority": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "content"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"createTask\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 6,
+        "vars": {
+          "prompt": "Create a task to document the grammar constraint feature.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "listTasks",
+                "description": "List current tasks",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "createTask",
+                "description": "Create a new task",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "priority": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "content"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Create a task to document the grammar constraint feature."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "listTasks",
+                  "description": "List current tasks",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "createTask",
+                  "description": "Create a new task",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "content": {
+                        "type": "string"
+                      },
+                      "priority": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "content"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "reasoning_content": "thought\nThe user wants to create a task. I should look for a tool that can create a task.\nThe `createTask` tool seems appropriate for this purpose.\nIt takes `content` and `priority` as parameters.\nThe user specified the content: \"document the grammar constraint feature\".\nNo priority was mentioned, so I'll leave it blank or use a default if required (though it's not marked as required).",
+                  "role": "assistant",
+                  "content": "<|tool_call>call:createTask{content:<|\"|>document the grammar constraint feature<|\"|>}<tool_call|>"
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "id": "chatcmpl-575EA4BB",
+            "created": 1775184366,
+            "usage": {
+              "prompt_tokens": 113,
+              "peak_memory_gib": 16.4,
+              "total_tokens": 223,
+              "completion_tokens": 110,
+              "prompt_time": 0.48,
+              "completion_tokens_per_second": 25.04,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_time": 4.39,
+              "total_time": 4.88,
+              "prompt_tokens_per_second": 233.44
+            },
+            "object": "chat.completion",
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "timings": {
+              "prompt_n": 113,
+              "prompt_ms": 484.05492305755615,
+              "predicted_ms": 4392.774939537048,
+              "predicted_n": 110
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1175",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:46:06 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      }
+    ],
+    "stats": {
+      "successes": 1,
+      "failures": 6,
+      "errors": 0,
+      "tokenUsage": {
+        "prompt": 0,
+        "completion": 0,
+        "cached": 0,
+        "total": 0,
+        "numRequests": 7,
+        "completionDetails": {
+          "reasoning": 0,
+          "acceptedPrediction": 0,
+          "rejectedPrediction": 0
+        },
+        "assertions": {
+          "total": 0,
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "numRequests": 0,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0
+          }
+        }
+      },
+      "durationMs": 43317,
+      "evaluationDurationMs": 43317
+    }
+  },
+  "config": {
+    "tags": {},
+    "description": "AFM tool-calling suite",
+    "prompts": [
+      "{{prompt}}"
+    ],
+    "providers": [
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-default",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_DEFAULT",
+          "modelEnv": "AFM_MODEL",
+          "extract": "tool_calls"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-adaptive-xml",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_ADAPTIVE_XML",
+          "modelEnv": "AFM_MODEL",
+          "extract": "tool_calls"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-adaptive-xml-grammar",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR",
+          "modelEnv": "AFM_MODEL",
+          "extract": "tool_calls"
+        }
+      }
+    ],
+    "tests": [
+      {
+        "description": "tool_choice required selects weather tool",
+        "vars": {
+          "prompt": "What is the weather in Berlin?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "required"
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"get_weather\""
+          },
+          {
+            "type": "contains",
+            "value": "\"location\""
+          }
+        ]
+      },
+      {
+        "description": "tool_choice none suppresses tool call",
+        "vars": {
+          "prompt": "What is the weather in Sydney?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "none"
+        },
+        "assert": [
+          {
+            "type": "equals",
+            "value": "[]"
+          }
+        ]
+      },
+      {
+        "description": "multi-tool picks get_time",
+        "vars": {
+          "prompt": "What time is it in New York right now?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "get_time",
+                "description": "Get current time for a timezone",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "timezone": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "timezone"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"get_time\""
+          }
+        ]
+      },
+      {
+        "description": "typed args bool and int coercion",
+        "vars": {
+          "prompt": "Search for 'main' case-sensitively, return max 5 results.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "search_code",
+                "description": "Search codebase for a pattern",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    },
+                    "case_sensitive": {
+                      "type": "boolean"
+                    },
+                    "max_results": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"search_code\""
+          },
+          {
+            "type": "contains",
+            "value": "\"query\""
+          }
+        ]
+      },
+      {
+        "description": "array of objects argument coercion",
+        "vars": {
+          "prompt": "Ask the user 2 questions: What is your favorite color (red, blue, green) and what is your favorite animal (cat, dog, fish).",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "ask_questions",
+                "description": "Ask user multiple-choice questions",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "questions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "text": {
+                            "type": "string"
+                          },
+                          "options": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "questions",
+                    "title"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"ask_questions\""
+          },
+          {
+            "type": "contains",
+            "value": "\"questions\""
+          }
+        ]
+      },
+      {
+        "description": "float number coercion",
+        "vars": {
+          "prompt": "Set the thermostat to 22.5 degrees celsius and enable it.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "set_temperature",
+                "description": "Set thermostat temperature",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "celsius": {
+                      "type": "number"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "celsius",
+                    "enabled"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"set_temperature\""
+          },
+          {
+            "type": "contains",
+            "value": "\"celsius\""
+          }
+        ]
+      },
+      {
+        "description": "hallucination resistance with similar tools",
+        "vars": {
+          "prompt": "Create a task to document the grammar constraint feature.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "listTasks",
+                "description": "List current tasks",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "createTask",
+                "description": "Create a new task",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "priority": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "content"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"createTask\""
+          }
+        ]
+      }
+    ],
+    "scenarios": [],
+    "env": {},
+    "outputPath": [
+      "/Volumes/edata/promptfoo/data/maclocal-api/current/toolcall-adaptive-xml-mlx-community_gemma-4-e4b-it-4bit.json"
+    ],
+    "extensions": [],
+    "metadata": {},
+    "evaluateOptions": {}
+  },
+  "shareableUrl": null,
+  "metadata": {
+    "promptfooVersion": "0.120.26",
+    "nodeVersion": "v25.8.1",
+    "platform": "darwin",
+    "arch": "arm64",
+    "exportedAt": "2026-04-03T02:46:06.473Z",
+    "evaluationCreatedAt": "2026-04-03T02:45:23.025Z"
+  }
+}

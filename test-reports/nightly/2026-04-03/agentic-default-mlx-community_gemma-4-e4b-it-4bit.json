@@ -1,0 +1,2163 @@
+{
+  "evalId": "eval-e0S-2026-04-03T02:52:54",
+  "results": {
+    "version": 3,
+    "timestamp": "2026-04-03T02:52:54.321Z",
+    "prompts": [
+      {
+        "id": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "raw": "{{prompt}}",
+        "label": "{{prompt}}",
+        "provider": "afm-default-agentic",
+        "metrics": {
+          "score": 0,
+          "testPassCount": 0,
+          "testFailCount": 4,
+          "testErrorCount": 0,
+          "assertPassCount": 0,
+          "assertFailCount": 4,
+          "totalLatencyMs": 24200,
+          "tokenUsage": {
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "total": 0,
+            "numRequests": 4,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0
+            },
+            "assertions": {
+              "total": 0,
+              "prompt": 0,
+              "completion": 0,
+              "cached": 0,
+              "numRequests": 0,
+              "completionDetails": {
+                "reasoning": 0,
+                "acceptedPrediction": 0,
+                "rejectedPrediction": 0
+              }
+            }
+          },
+          "namedScores": {},
+          "namedScoresCount": {},
+          "cost": 0
+        }
+      }
+    ],
+    "results": [
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'search_code' &&\n  /cache|prefix|save/i.test(String(call.function.arguments.query || ''));",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'search_code' &&\n  /cache|prefix|save/i.test(String(call.function.arguments.query || ''));",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'search_code' &&\n  /cache|prefix|save/i.test(String(call.function.arguments.query || ''));",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'search_code' &&\n  /cache|prefix|save/i.test(String(call.function.arguments.query || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "9fbfef39-ca0f-4bd2-bb91-20133134289f",
+        "latencyMs": 4394,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Find where AFM logs prefix cache save behavior before I ask you to change it.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-agentic"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:search_code{query:<|\\\"|>prefix cache<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 4394,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are an autonomous coding agent. Prefer inspecting the repository before editing."
+                },
+                {
+                  "role": "user",
+                  "content": "Find where AFM logs prefix cache save behavior before I ask you to change it."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "search_code",
+                    "description": "Search the repository for text or file names",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "query": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "query"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "apply_patch",
+                    "description": "Apply a patch to a file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "patch": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "patch"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "created": 1775184778,
+              "usage": {
+                "prompt_tokens_per_second": 264.87,
+                "total_time": 4.37,
+                "peak_memory_gib": 16.5,
+                "completion_tokens": 98,
+                "total_tokens": 252,
+                "completion_time": 3.79,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_tokens_per_second": 25.85,
+                "prompt_tokens": 154,
+                "prompt_time": 0.58
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "object": "chat.completion",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "<|tool_call>call:search_code{query:<|\"|>prefix cache<|\"|>}<tool_call|>",
+                    "role": "assistant",
+                    "reasoning_content": "thought\nThe user wants to find where \"AFM\" (likely referring to a specific module or system in the codebase) logs the \"prefix cache save behavior\". I need to search for keywords like \"prefix cache\", \"save\", and \"log\" or \"logging\" within the codebase.\n\nFirst, I'll search for \"prefix cache\" to see where it's defined and used."
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "id": "chatcmpl-A5CC591F",
+              "timings": {
+                "predicted_ms": 3791.7239665985107,
+                "prompt_n": 154,
+                "prompt_ms": 581.4210176467896,
+                "predicted_n": 98
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1092",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:52:58 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "agentic/opencode style choose repo search first",
+          "metadata": {
+            "suite": "agentic",
+            "classification": "not_yet_classified",
+            "source": "opencode_inspired",
+            "use_case": "coding_agent_initial_repo_search"
+          },
+          "vars": {
+            "prompt": "Find where AFM logs prefix cache save behavior before I ask you to change it.",
+            "system_prompt": "You are an autonomous coding agent. Prefer inspecting the repository before editing.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "search_code",
+                  "description": "Search the repository for text or file names",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply a patch to a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "patch": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "patch"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'search_code' &&\n  /cache|prefix|save/i.test(String(call.function.arguments.query || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 0,
+        "vars": {
+          "prompt": "Find where AFM logs prefix cache save behavior before I ask you to change it.",
+          "system_prompt": "You are an autonomous coding agent. Prefer inspecting the repository before editing.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "search_code",
+                "description": "Search the repository for text or file names",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply a patch to a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "patch": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "patch"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "agentic",
+          "classification": "not_yet_classified",
+          "source": "opencode_inspired",
+          "use_case": "coding_agent_initial_repo_search",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an autonomous coding agent. Prefer inspecting the repository before editing."
+              },
+              {
+                "role": "user",
+                "content": "Find where AFM logs prefix cache save behavior before I ask you to change it."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "search_code",
+                  "description": "Search the repository for text or file names",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply a patch to a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "patch": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "patch"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "created": 1775184778,
+            "usage": {
+              "prompt_tokens_per_second": 264.87,
+              "total_time": 4.37,
+              "peak_memory_gib": 16.5,
+              "completion_tokens": 98,
+              "total_tokens": 252,
+              "completion_time": 3.79,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens_per_second": 25.85,
+              "prompt_tokens": 154,
+              "prompt_time": 0.58
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "object": "chat.completion",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "<|tool_call>call:search_code{query:<|\"|>prefix cache<|\"|>}<tool_call|>",
+                  "role": "assistant",
+                  "reasoning_content": "thought\nThe user wants to find where \"AFM\" (likely referring to a specific module or system in the codebase) logs the \"prefix cache save behavior\". I need to search for keywords like \"prefix cache\", \"save\", and \"log\" or \"logging\" within the codebase.\n\nFirst, I'll search for \"prefix cache\" to see where it's defined and used."
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "id": "chatcmpl-A5CC591F",
+            "timings": {
+              "predicted_ms": 3791.7239665985107,
+              "prompt_n": 154,
+              "prompt_ms": 581.4210176467896,
+              "predicted_n": 98
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1092",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:52:58 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'read_file' &&\n  /MLXModelService\\.swift|BatchScheduler\\.swift/.test(String(call.function.arguments.path || ''));",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'read_file' &&\n  /MLXModelService\\.swift|BatchScheduler\\.swift/.test(String(call.function.arguments.path || ''));",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'read_file' &&\n  /MLXModelService\\.swift|BatchScheduler\\.swift/.test(String(call.function.arguments.path || ''));",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'read_file' &&\n  /MLXModelService\\.swift|BatchScheduler\\.swift/.test(String(call.function.arguments.path || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "fd8cfc6d-708a-4b0d-8163-1734c5b4e31b",
+        "latencyMs": 9522,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Inspect the restore path that matched this search result and decide what to read next.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-agentic"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:read_file{path:<|\\\"|>Sources/MacLocalAPI/Models/MLXModelService.swift<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 9522,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are an autonomous coding agent. Use repository tools conservatively and inspect before editing."
+                },
+                {
+                  "role": "user",
+                  "content": "Find the exact cache restore logic for MLX prefix caching."
+                },
+                {
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "id": "call_search_1",
+                      "type": "function",
+                      "function": {
+                        "name": "search_code",
+                        "arguments": "{\"query\":\"PrefixCache Save complete\",\"path\":\"Sources/MacLocalAPI\"}"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "tool_call_id": "call_search_1",
+                  "content": "Sources/MacLocalAPI/Models/MLXModelService.swift: PrefixCache Save complete\nSources/MacLocalAPI/Models/BatchScheduler.swift: PrefixCache Save complete"
+                },
+                {
+                  "role": "user",
+                  "content": "Inspect the restore path that matched this search result and decide what to read next."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "read_file",
+                    "description": "Read a file from the repository",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "apply_patch",
+                    "description": "Apply a patch to a file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "patch": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "patch"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "created": 1775184788,
+              "id": "chatcmpl-4CD88DCB",
+              "timings": {
+                "prompt_ms": 969.0170288085938,
+                "prompt_n": 273,
+                "predicted_ms": 8533.161997795105,
+                "predicted_n": 214
+              },
+              "usage": {
+                "prompt_tokens": 273,
+                "completion_time": 8.53,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_tokens": 214,
+                "prompt_time": 0.97,
+                "completion_tokens_per_second": 25.08,
+                "total_time": 9.5,
+                "prompt_tokens_per_second": 281.73,
+                "total_tokens": 487,
+                "peak_memory_gib": 16.8
+              },
+              "choices": [
+                {
+                  "finish_reason": "stop",
+                  "index": 0,
+                  "message": {
+                    "reasoning_content": "thought\nThe user wants to find the exact cache restore logic for MLX prefix caching.\nThe previous search for \"PrefixCache Save complete\" pointed to `Sources/MacLocalAPI/Models/MLXModelService.swift` and `Sources/MacLocalAPI/Models/BatchScheduler.swift`.\n\nI should check `Sources/MacLocalAPI/Models/MLXModelService.swift` first, as it seems more likely to contain the core logic for the model service, including cache management.\n\nWait, the search result said `Sources/MacLocalAPI/Models/MLXModelService.swift` (though the search result output says `Sources/MacLocalAPI/Models/MLXModelService.swift` and `Sources/MacLocalAPI/Models/BatchScheduler.swift`).\n\nLet's examine `Sources/MacLocalAPI/Models/MLXModelService.swift`.",
+                    "role": "assistant",
+                    "content": "<|tool_call>call:read_file{path:<|\"|>Sources/MacLocalAPI/Models/MLXModelService.swift<|\"|>}<tool_call|>"
+                  }
+                }
+              ],
+              "object": "chat.completion",
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1538",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:53:07 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "agentic/openhands style inspect file after search results",
+          "metadata": {
+            "suite": "agentic",
+            "classification": "not_yet_classified",
+            "source": "openhands_inspired",
+            "use_case": "coding_agent_follow_search_with_file_read"
+          },
+          "vars": {
+            "prompt": "Inspect the restore path that matched this search result and decide what to read next.",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an autonomous coding agent. Use repository tools conservatively and inspect before editing."
+              },
+              {
+                "role": "user",
+                "content": "Find the exact cache restore logic for MLX prefix caching."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "call_search_1",
+                    "type": "function",
+                    "function": {
+                      "name": "search_code",
+                      "arguments": "{\"query\":\"PrefixCache Save complete\",\"path\":\"Sources/MacLocalAPI\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_search_1",
+                "content": "Sources/MacLocalAPI/Models/MLXModelService.swift: PrefixCache Save complete\nSources/MacLocalAPI/Models/BatchScheduler.swift: PrefixCache Save complete"
+              },
+              {
+                "role": "user",
+                "content": "Inspect the restore path that matched this search result and decide what to read next."
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "read_file",
+                  "description": "Read a file from the repository",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply a patch to a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "patch": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "patch"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'read_file' &&\n  /MLXModelService\\.swift|BatchScheduler\\.swift/.test(String(call.function.arguments.path || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 1,
+        "vars": {
+          "prompt": "Inspect the restore path that matched this search result and decide what to read next.",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an autonomous coding agent. Use repository tools conservatively and inspect before editing."
+            },
+            {
+              "role": "user",
+              "content": "Find the exact cache restore logic for MLX prefix caching."
+            },
+            {
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "id": "call_search_1",
+                  "type": "function",
+                  "function": {
+                    "name": "search_code",
+                    "arguments": "{\"query\":\"PrefixCache Save complete\",\"path\":\"Sources/MacLocalAPI\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_search_1",
+              "content": "Sources/MacLocalAPI/Models/MLXModelService.swift: PrefixCache Save complete\nSources/MacLocalAPI/Models/BatchScheduler.swift: PrefixCache Save complete"
+            },
+            {
+              "role": "user",
+              "content": "Inspect the restore path that matched this search result and decide what to read next."
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read a file from the repository",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply a patch to a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "patch": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "patch"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "agentic",
+          "classification": "not_yet_classified",
+          "source": "openhands_inspired",
+          "use_case": "coding_agent_follow_search_with_file_read",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an autonomous coding agent. Use repository tools conservatively and inspect before editing."
+              },
+              {
+                "role": "user",
+                "content": "Find the exact cache restore logic for MLX prefix caching."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "call_search_1",
+                    "type": "function",
+                    "function": {
+                      "name": "search_code",
+                      "arguments": "{\"query\":\"PrefixCache Save complete\",\"path\":\"Sources/MacLocalAPI\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_search_1",
+                "content": "Sources/MacLocalAPI/Models/MLXModelService.swift: PrefixCache Save complete\nSources/MacLocalAPI/Models/BatchScheduler.swift: PrefixCache Save complete"
+              },
+              {
+                "role": "user",
+                "content": "Inspect the restore path that matched this search result and decide what to read next."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "read_file",
+                  "description": "Read a file from the repository",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply a patch to a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "patch": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "patch"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "created": 1775184788,
+            "id": "chatcmpl-4CD88DCB",
+            "timings": {
+              "prompt_ms": 969.0170288085938,
+              "prompt_n": 273,
+              "predicted_ms": 8533.161997795105,
+              "predicted_n": 214
+            },
+            "usage": {
+              "prompt_tokens": 273,
+              "completion_time": 8.53,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens": 214,
+              "prompt_time": 0.97,
+              "completion_tokens_per_second": 25.08,
+              "total_time": 9.5,
+              "prompt_tokens_per_second": 281.73,
+              "total_tokens": 487,
+              "peak_memory_gib": 16.8
+            },
+            "choices": [
+              {
+                "finish_reason": "stop",
+                "index": 0,
+                "message": {
+                  "reasoning_content": "thought\nThe user wants to find the exact cache restore logic for MLX prefix caching.\nThe previous search for \"PrefixCache Save complete\" pointed to `Sources/MacLocalAPI/Models/MLXModelService.swift` and `Sources/MacLocalAPI/Models/BatchScheduler.swift`.\n\nI should check `Sources/MacLocalAPI/Models/MLXModelService.swift` first, as it seems more likely to contain the core logic for the model service, including cache management.\n\nWait, the search result said `Sources/MacLocalAPI/Models/MLXModelService.swift` (though the search result output says `Sources/MacLocalAPI/Models/MLXModelService.swift` and `Sources/MacLocalAPI/Models/BatchScheduler.swift`).\n\nLet's examine `Sources/MacLocalAPI/Models/MLXModelService.swift`.",
+                  "role": "assistant",
+                  "content": "<|tool_call>call:read_file{path:<|\"|>Sources/MacLocalAPI/Models/MLXModelService.swift<|\"|>}<tool_call|>"
+                }
+              }
+            ],
+            "object": "chat.completion",
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1538",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:53:07 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read_file';",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read_file';",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read_file';",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read_file';\n"
+              }
+            }
+          ]
+        },
+        "id": "58527201-da4e-440a-98cd-afa95a5e22d9",
+        "latencyMs": 4026,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Patch the cache logging to show suffix on misses.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-agentic"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:read_file{path:<|\\\"|>lib/cache.rb<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 4026,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are an autonomous coding agent. Never edit before inspecting the target file."
+                },
+                {
+                  "role": "user",
+                  "content": "Patch the cache logging to show suffix on misses."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "read_file",
+                    "description": "Read a file from the repository",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "apply_patch",
+                    "description": "Apply a patch to a file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "patch": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "patch"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "created": 1775184792,
+              "usage": {
+                "prompt_tokens_per_second": 242.09,
+                "total_time": 4.01,
+                "peak_memory_gib": 16.5,
+                "completion_tokens": 86,
+                "total_tokens": 225,
+                "completion_time": 3.44,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_tokens_per_second": 25.01,
+                "prompt_tokens": 139,
+                "prompt_time": 0.57
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "id": "chatcmpl-BFFD1A68",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "<|tool_call>call:read_file{path:<|\"|>lib/cache.rb<|\"|>}<tool_call|>",
+                    "reasoning_content": "thought\nThe user wants to patch the cache logging to show the suffix on cache misses. I need to find where the cache logging is implemented and add the suffix to the log message when a miss occurs.\n\nFirst, I'll search for \"cache\" and \"miss\" in the codebase to find the relevant logging code.",
+                    "role": "assistant"
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "object": "chat.completion",
+              "timings": {
+                "predicted_n": 86,
+                "prompt_n": 139,
+                "predicted_ms": 3438.0979537963867,
+                "prompt_ms": 574.1680860519409
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1046",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:53:11 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "agentic/hermes style avoid patch before file context",
+          "metadata": {
+            "suite": "agentic",
+            "classification": "not_yet_classified",
+            "source": "hermes_agent_inspired",
+            "use_case": "no_edit_without_context"
+          },
+          "vars": {
+            "prompt": "Patch the cache logging to show suffix on misses.",
+            "system_prompt": "You are an autonomous coding agent. Never edit before inspecting the target file.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "read_file",
+                  "description": "Read a file from the repository",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply a patch to a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "patch": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "patch"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read_file';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 2,
+        "vars": {
+          "prompt": "Patch the cache logging to show suffix on misses.",
+          "system_prompt": "You are an autonomous coding agent. Never edit before inspecting the target file.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read a file from the repository",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply a patch to a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "patch": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "patch"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "agentic",
+          "classification": "not_yet_classified",
+          "source": "hermes_agent_inspired",
+          "use_case": "no_edit_without_context",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an autonomous coding agent. Never edit before inspecting the target file."
+              },
+              {
+                "role": "user",
+                "content": "Patch the cache logging to show suffix on misses."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "read_file",
+                  "description": "Read a file from the repository",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply a patch to a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "patch": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "patch"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "created": 1775184792,
+            "usage": {
+              "prompt_tokens_per_second": 242.09,
+              "total_time": 4.01,
+              "peak_memory_gib": 16.5,
+              "completion_tokens": 86,
+              "total_tokens": 225,
+              "completion_time": 3.44,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens_per_second": 25.01,
+              "prompt_tokens": 139,
+              "prompt_time": 0.57
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "id": "chatcmpl-BFFD1A68",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "<|tool_call>call:read_file{path:<|\"|>lib/cache.rb<|\"|>}<tool_call|>",
+                  "reasoning_content": "thought\nThe user wants to patch the cache logging to show the suffix on cache misses. I need to find where the cache logging is implemented and add the suffix to the log message when a miss occurs.\n\nFirst, I'll search for \"cache\" and \"miss\" in the codebase to find the relevant logging code.",
+                  "role": "assistant"
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "object": "chat.completion",
+            "timings": {
+              "predicted_n": 86,
+              "prompt_n": 139,
+              "predicted_ms": 3438.0979537963867,
+              "prompt_ms": 574.1680860519409
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1046",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:53:11 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  (parsed.tool_calls[0].function.name === 'swift_build' ||\n   parsed.tool_calls[0].function.name === 'run_assertion_suite');",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  (parsed.tool_calls[0].function.name === 'swift_build' ||\n   parsed.tool_calls[0].function.name === 'run_assertion_suite');",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  (parsed.tool_calls[0].function.name === 'swift_build' ||\n   parsed.tool_calls[0].function.name === 'run_assertion_suite');",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  (parsed.tool_calls[0].function.name === 'swift_build' ||\n   parsed.tool_calls[0].function.name === 'run_assertion_suite');\n"
+              }
+            }
+          ]
+        },
+        "id": "08413027-4c05-4a68-b7de-b58917f192d6",
+        "latencyMs": 6258,
+        "namedScores": {},
+        "prompt": {
+          "raw": "What should you do next?",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-agentic"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:swift_build{configuration:<|\\\"|>debug<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 6258,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are an autonomous coding agent. After code changes, validate with the narrowest useful test."
+                },
+                {
+                  "role": "user",
+                  "content": "Add index to non-streaming tool_calls."
+                },
+                {
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "id": "call_patch_1",
+                      "type": "function",
+                      "function": {
+                        "name": "apply_patch",
+                        "arguments": "{\"path\":\"Sources/MacLocalAPI/Models/OpenAIResponse.swift\",\"patch\":\"...\"}"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "tool_call_id": "call_patch_1",
+                  "content": "Patch applied successfully to Sources/MacLocalAPI/Models/OpenAIResponse.swift"
+                },
+                {
+                  "role": "user",
+                  "content": "What should you do next?"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "swift_build",
+                    "description": "Run swift build for the project",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "configuration": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "configuration"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "run_assertion_suite",
+                    "description": "Run the AFM assertion harness",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "tier": {
+                          "type": "string"
+                        },
+                        "model": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "finish_reason": "stop",
+                  "index": 0,
+                  "message": {
+                    "reasoning_content": "thought\nThe user wants to add an index to non-streaming `tool_calls`.\nI have already applied a patch to `Sources/MacLocalAPI/Models/OpenAIResponse.swift`.\nNow I need to verify if the change is correct and if it breaks anything.\nThe best way to verify is to run tests or build the project.\n\nLooking at the project structure, I should check if there are any tests related to `OpenAIResponse` or `tool_calls`.\nI will start by running `swift build` to ensure the project compiles.",
+                    "role": "assistant",
+                    "content": "<|tool_call>call:swift_build{configuration:<|\"|>debug<|\"|>}<tool_call|>"
+                  }
+                }
+              ],
+              "id": "chatcmpl-277C75F3",
+              "created": 1775184798,
+              "usage": {
+                "prompt_tokens": 240,
+                "peak_memory_gib": 16.7,
+                "total_tokens": 373,
+                "completion_tokens": 133,
+                "prompt_time": 0.87,
+                "completion_tokens_per_second": 24.79,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_time": 5.36,
+                "total_time": 6.24,
+                "prompt_tokens_per_second": 274.38
+              },
+              "object": "chat.completion",
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "timings": {
+                "prompt_ms": 874.688982963562,
+                "prompt_n": 240,
+                "predicted_ms": 5364.9479150772095,
+                "predicted_n": 133
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1238",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:53:17 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "agentic/opencode style run tests after patch",
+          "metadata": {
+            "suite": "agentic",
+            "classification": "not_yet_classified",
+            "source": "opencode_inspired",
+            "use_case": "validate_after_edit"
+          },
+          "vars": {
+            "prompt": "What should you do next?",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an autonomous coding agent. After code changes, validate with the narrowest useful test."
+              },
+              {
+                "role": "user",
+                "content": "Add index to non-streaming tool_calls."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "call_patch_1",
+                    "type": "function",
+                    "function": {
+                      "name": "apply_patch",
+                      "arguments": "{\"path\":\"Sources/MacLocalAPI/Models/OpenAIResponse.swift\",\"patch\":\"...\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_patch_1",
+                "content": "Patch applied successfully to Sources/MacLocalAPI/Models/OpenAIResponse.swift"
+              },
+              {
+                "role": "user",
+                "content": "What should you do next?"
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "swift_build",
+                  "description": "Run swift build for the project",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "configuration": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "configuration"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "run_assertion_suite",
+                  "description": "Run the AFM assertion harness",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "tier": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  (parsed.tool_calls[0].function.name === 'swift_build' ||\n   parsed.tool_calls[0].function.name === 'run_assertion_suite');\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 3,
+        "vars": {
+          "prompt": "What should you do next?",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an autonomous coding agent. After code changes, validate with the narrowest useful test."
+            },
+            {
+              "role": "user",
+              "content": "Add index to non-streaming tool_calls."
+            },
+            {
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "id": "call_patch_1",
+                  "type": "function",
+                  "function": {
+                    "name": "apply_patch",
+                    "arguments": "{\"path\":\"Sources/MacLocalAPI/Models/OpenAIResponse.swift\",\"patch\":\"...\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_patch_1",
+              "content": "Patch applied successfully to Sources/MacLocalAPI/Models/OpenAIResponse.swift"
+            },
+            {
+              "role": "user",
+              "content": "What should you do next?"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "swift_build",
+                "description": "Run swift build for the project",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "configuration": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "configuration"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "run_assertion_suite",
+                "description": "Run the AFM assertion harness",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "tier": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "agentic",
+          "classification": "not_yet_classified",
+          "source": "opencode_inspired",
+          "use_case": "validate_after_edit",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an autonomous coding agent. After code changes, validate with the narrowest useful test."
+              },
+              {
+                "role": "user",
+                "content": "Add index to non-streaming tool_calls."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "call_patch_1",
+                    "type": "function",
+                    "function": {
+                      "name": "apply_patch",
+                      "arguments": "{\"path\":\"Sources/MacLocalAPI/Models/OpenAIResponse.swift\",\"patch\":\"...\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_patch_1",
+                "content": "Patch applied successfully to Sources/MacLocalAPI/Models/OpenAIResponse.swift"
+              },
+              {
+                "role": "user",
+                "content": "What should you do next?"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "swift_build",
+                  "description": "Run swift build for the project",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "configuration": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "configuration"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "run_assertion_suite",
+                  "description": "Run the AFM assertion harness",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "tier": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "finish_reason": "stop",
+                "index": 0,
+                "message": {
+                  "reasoning_content": "thought\nThe user wants to add an index to non-streaming `tool_calls`.\nI have already applied a patch to `Sources/MacLocalAPI/Models/OpenAIResponse.swift`.\nNow I need to verify if the change is correct and if it breaks anything.\nThe best way to verify is to run tests or build the project.\n\nLooking at the project structure, I should check if there are any tests related to `OpenAIResponse` or `tool_calls`.\nI will start by running `swift build` to ensure the project compiles.",
+                  "role": "assistant",
+                  "content": "<|tool_call>call:swift_build{configuration:<|\"|>debug<|\"|>}<tool_call|>"
+                }
+              }
+            ],
+            "id": "chatcmpl-277C75F3",
+            "created": 1775184798,
+            "usage": {
+              "prompt_tokens": 240,
+              "peak_memory_gib": 16.7,
+              "total_tokens": 373,
+              "completion_tokens": 133,
+              "prompt_time": 0.87,
+              "completion_tokens_per_second": 24.79,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_time": 5.36,
+              "total_time": 6.24,
+              "prompt_tokens_per_second": 274.38
+            },
+            "object": "chat.completion",
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "timings": {
+              "prompt_ms": 874.688982963562,
+              "prompt_n": 240,
+              "predicted_ms": 5364.9479150772095,
+              "predicted_n": 133
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1238",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:53:17 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      }
+    ],
+    "stats": {
+      "successes": 0,
+      "failures": 4,
+      "errors": 0,
+      "tokenUsage": {
+        "prompt": 0,
+        "completion": 0,
+        "cached": 0,
+        "total": 0,
+        "numRequests": 4,
+        "completionDetails": {
+          "reasoning": 0,
+          "acceptedPrediction": 0,
+          "rejectedPrediction": 0
+        },
+        "assertions": {
+          "total": 0,
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "numRequests": 0,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0
+          }
+        }
+      },
+      "durationMs": 24232,
+      "evaluationDurationMs": 24232
+    }
+  },
+  "config": {
+    "tags": {},
+    "description": "AFM multi-turn agentic suite",
+    "prompts": [
+      "{{prompt}}"
+    ],
+    "providers": [
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-default-agentic",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_DEFAULT",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-adaptive-xml-agentic",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_ADAPTIVE_XML",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-adaptive-xml-grammar-agentic",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      }
+    ],
+    "tests": [
+      {
+        "description": "agentic/opencode style choose repo search first",
+        "metadata": {
+          "suite": "agentic",
+          "classification": "not_yet_classified",
+          "source": "opencode_inspired",
+          "use_case": "coding_agent_initial_repo_search"
+        },
+        "vars": {
+          "prompt": "Find where AFM logs prefix cache save behavior before I ask you to change it.",
+          "system_prompt": "You are an autonomous coding agent. Prefer inspecting the repository before editing.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "search_code",
+                "description": "Search the repository for text or file names",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply a patch to a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "patch": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "patch"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'search_code' &&\n  /cache|prefix|save/i.test(String(call.function.arguments.query || ''));\n"
+          }
+        ]
+      },
+      {
+        "description": "agentic/openhands style inspect file after search results",
+        "metadata": {
+          "suite": "agentic",
+          "classification": "not_yet_classified",
+          "source": "openhands_inspired",
+          "use_case": "coding_agent_follow_search_with_file_read"
+        },
+        "vars": {
+          "prompt": "Inspect the restore path that matched this search result and decide what to read next.",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an autonomous coding agent. Use repository tools conservatively and inspect before editing."
+            },
+            {
+              "role": "user",
+              "content": "Find the exact cache restore logic for MLX prefix caching."
+            },
+            {
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "id": "call_search_1",
+                  "type": "function",
+                  "function": {
+                    "name": "search_code",
+                    "arguments": "{\"query\":\"PrefixCache Save complete\",\"path\":\"Sources/MacLocalAPI\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_search_1",
+              "content": "Sources/MacLocalAPI/Models/MLXModelService.swift: PrefixCache Save complete\nSources/MacLocalAPI/Models/BatchScheduler.swift: PrefixCache Save complete"
+            },
+            {
+              "role": "user",
+              "content": "Inspect the restore path that matched this search result and decide what to read next."
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read a file from the repository",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply a patch to a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "patch": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "patch"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'read_file' &&\n  /MLXModelService\\.swift|BatchScheduler\\.swift/.test(String(call.function.arguments.path || ''));\n"
+          }
+        ]
+      },
+      {
+        "description": "agentic/hermes style avoid patch before file context",
+        "metadata": {
+          "suite": "agentic",
+          "classification": "not_yet_classified",
+          "source": "hermes_agent_inspired",
+          "use_case": "no_edit_without_context"
+        },
+        "vars": {
+          "prompt": "Patch the cache logging to show suffix on misses.",
+          "system_prompt": "You are an autonomous coding agent. Never edit before inspecting the target file.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read a file from the repository",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply a patch to a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "patch": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "patch"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read_file';\n"
+          }
+        ]
+      },
+      {
+        "description": "agentic/opencode style run tests after patch",
+        "metadata": {
+          "suite": "agentic",
+          "classification": "not_yet_classified",
+          "source": "opencode_inspired",
+          "use_case": "validate_after_edit"
+        },
+        "vars": {
+          "prompt": "What should you do next?",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an autonomous coding agent. After code changes, validate with the narrowest useful test."
+            },
+            {
+              "role": "user",
+              "content": "Add index to non-streaming tool_calls."
+            },
+            {
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "id": "call_patch_1",
+                  "type": "function",
+                  "function": {
+                    "name": "apply_patch",
+                    "arguments": "{\"path\":\"Sources/MacLocalAPI/Models/OpenAIResponse.swift\",\"patch\":\"...\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_patch_1",
+              "content": "Patch applied successfully to Sources/MacLocalAPI/Models/OpenAIResponse.swift"
+            },
+            {
+              "role": "user",
+              "content": "What should you do next?"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "swift_build",
+                "description": "Run swift build for the project",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "configuration": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "configuration"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "run_assertion_suite",
+                "description": "Run the AFM assertion harness",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "tier": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  (parsed.tool_calls[0].function.name === 'swift_build' ||\n   parsed.tool_calls[0].function.name === 'run_assertion_suite');\n"
+          }
+        ]
+      }
+    ],
+    "scenarios": [],
+    "env": {},
+    "outputPath": [
+      "/Volumes/edata/promptfoo/data/maclocal-api/current/agentic-default-mlx-community_gemma-4-e4b-it-4bit.json"
+    ],
+    "extensions": [],
+    "metadata": {},
+    "evaluateOptions": {}
+  },
+  "shareableUrl": null,
+  "metadata": {
+    "promptfooVersion": "0.120.26",
+    "nodeVersion": "v25.8.1",
+    "platform": "darwin",
+    "arch": "arm64",
+    "exportedAt": "2026-04-03T02:53:18.692Z",
+    "evaluationCreatedAt": "2026-04-03T02:52:54.321Z"
+  }
+}

@@ -1,0 +1,4334 @@
+{
+  "evalId": "eval-HTr-2026-04-03T03:10:52",
+  "results": {
+    "version": 3,
+    "timestamp": "2026-04-03T03:10:52.661Z",
+    "prompts": [
+      {
+        "id": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "raw": "{{prompt}}",
+        "label": "{{prompt}}",
+        "provider": "afm-adaptive-xml-openclaw",
+        "metrics": {
+          "score": 0,
+          "testPassCount": 0,
+          "testFailCount": 12,
+          "testErrorCount": 0,
+          "assertPassCount": 0,
+          "assertFailCount": 12,
+          "totalLatencyMs": 72043,
+          "tokenUsage": {
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "total": 0,
+            "numRequests": 12,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0
+            },
+            "assertions": {
+              "total": 0,
+              "prompt": 0,
+              "completion": 0,
+              "cached": 0,
+              "numRequests": 0,
+              "completionDetails": {
+                "reasoning": 0,
+                "acceptedPrediction": 0,
+                "rejectedPrediction": 0
+              }
+            }
+          },
+          "namedScores": {},
+          "namedScoresCount": {},
+          "cost": 0
+        }
+      }
+    ],
+    "results": [
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /git status/.test(String(args.command || ''));",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /git status/.test(String(args.command || ''));",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /git status/.test(String(args.command || ''));",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /git status/.test(String(args.command || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "f385cfe0-b7f3-4d76-8f7e-8f03e11aa4e0",
+        "latencyMs": 2044,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Check whether the repository has uncommitted changes.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:exec{command:<|\\\"|>git status<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 2044,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are an OpenClaw-style coding agent using only documented OpenClaw tools."
+                },
+                {
+                  "role": "user",
+                  "content": "Check whether the repository has uncommitted changes."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "exec",
+                    "description": "Run shell commands in the workspace",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "command": {
+                          "type": "string"
+                        },
+                        "workdir": {
+                          "type": "string"
+                        },
+                        "timeout": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "command"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "timings": {
+                "predicted_ms": 1587.001919746399,
+                "prompt_n": 101,
+                "prompt_ms": 438.1430149078369,
+                "predicted_n": 48
+              },
+              "id": "chatcmpl-314EF121",
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "usage": {
+                "completion_tokens": 48,
+                "total_time": 2.03,
+                "peak_memory_gib": 16.4,
+                "prompt_tokens": 101,
+                "prompt_time": 0.44,
+                "total_tokens": 149,
+                "completion_time": 1.59,
+                "completion_tokens_per_second": 30.25,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens_per_second": 230.52
+              },
+              "object": "chat.completion",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "<|tool_call>call:exec{command:<|\"|>git status<|\"|>}<tool_call|>",
+                    "role": "assistant",
+                    "reasoning_content": "thought\nThe user wants to check if there are any uncommitted changes in the current repository. I should use the `git status` command to check for this."
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "created": 1775185854,
+              "model": "mlx-community/gemma-4-31b-it-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "895",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 03:10:54 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "openclaw/exec run git status",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Check whether the repository has uncommitted changes.",
+            "system_prompt": "You are an OpenClaw-style coding agent using only documented OpenClaw tools.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "exec",
+                  "description": "Run shell commands in the workspace",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      },
+                      "workdir": {
+                        "type": "string"
+                      },
+                      "timeout": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /git status/.test(String(args.command || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 0,
+        "vars": {
+          "prompt": "Check whether the repository has uncommitted changes.",
+          "system_prompt": "You are an OpenClaw-style coding agent using only documented OpenClaw tools.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "exec",
+                "description": "Run shell commands in the workspace",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "workdir": {
+                      "type": "string"
+                    },
+                    "timeout": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an OpenClaw-style coding agent using only documented OpenClaw tools."
+              },
+              {
+                "role": "user",
+                "content": "Check whether the repository has uncommitted changes."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "exec",
+                  "description": "Run shell commands in the workspace",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      },
+                      "workdir": {
+                        "type": "string"
+                      },
+                      "timeout": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "timings": {
+              "predicted_ms": 1587.001919746399,
+              "prompt_n": 101,
+              "prompt_ms": 438.1430149078369,
+              "predicted_n": 48
+            },
+            "id": "chatcmpl-314EF121",
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "usage": {
+              "completion_tokens": 48,
+              "total_time": 2.03,
+              "peak_memory_gib": 16.4,
+              "prompt_tokens": 101,
+              "prompt_time": 0.44,
+              "total_tokens": 149,
+              "completion_time": 1.59,
+              "completion_tokens_per_second": 30.25,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens_per_second": 230.52
+            },
+            "object": "chat.completion",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "<|tool_call>call:exec{command:<|\"|>git status<|\"|>}<tool_call|>",
+                  "role": "assistant",
+                  "reasoning_content": "thought\nThe user wants to check if there are any uncommitted changes in the current repository. I should use the `git status` command to check for this."
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "created": 1775185854,
+            "model": "mlx-community/gemma-4-31b-it-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "895",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 03:10:54 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst command = String(parsed.tool_calls[0]?.function?.arguments?.command || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /(swift build -c release|make build)/.test(command);",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst command = String(parsed.tool_calls[0]?.function?.arguments?.command || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /(swift build -c release|make build)/.test(command);",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst command = String(parsed.tool_calls[0]?.function?.arguments?.command || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /(swift build -c release|make build)/.test(command);",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst command = String(parsed.tool_calls[0]?.function?.arguments?.command || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /(swift build -c release|make build)/.test(command);\n"
+              }
+            }
+          ]
+        },
+        "id": "3eeb441d-d9b7-4e46-9515-b0e040a4c03b",
+        "latencyMs": 2992,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Build the Swift package in release mode from the repository root.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:exec{command:<|\\\"|>swift build -c release<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 2992,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Build the Swift package in release mode from the repository root."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "exec",
+                    "description": "Run shell commands in the workspace",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "command": {
+                          "type": "string"
+                        },
+                        "workdir": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "command"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "finish_reason": "stop",
+                  "index": 0,
+                  "message": {
+                    "reasoning_content": "thought\nThe user wants to build a Swift package in release mode from the repository root.\nThe standard command for building a Swift package is `swift build`.\nTo build in release mode, the `-c release` flag is used.\n\nPlan:\n1. Run `swift build -c release`.",
+                    "role": "assistant",
+                    "content": "<|tool_call>call:exec{command:<|\"|>swift build -c release<|\"|>}<tool_call|>"
+                  }
+                }
+              ],
+              "id": "chatcmpl-C9DC330B",
+              "created": 1775185857,
+              "usage": {
+                "prompt_tokens": 84,
+                "peak_memory_gib": 16.4,
+                "total_tokens": 164,
+                "completion_tokens": 80,
+                "prompt_time": 0.35,
+                "completion_tokens_per_second": 30.37,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_time": 2.63,
+                "total_time": 2.98,
+                "prompt_tokens_per_second": 242.32
+              },
+              "object": "chat.completion",
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "timings": {
+                "prompt_ms": 346.64905071258545,
+                "prompt_n": 84,
+                "predicted_ms": 2634.3090534210205,
+                "predicted_n": 80
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1014",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 03:10:57 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "openclaw/exec targeted release build",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Build the Swift package in release mode from the repository root.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "exec",
+                  "description": "Run shell commands in the workspace",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      },
+                      "workdir": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst command = String(parsed.tool_calls[0]?.function?.arguments?.command || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /(swift build -c release|make build)/.test(command);\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 1,
+        "vars": {
+          "prompt": "Build the Swift package in release mode from the repository root.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "exec",
+                "description": "Run shell commands in the workspace",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "workdir": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Build the Swift package in release mode from the repository root."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "exec",
+                  "description": "Run shell commands in the workspace",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      },
+                      "workdir": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "finish_reason": "stop",
+                "index": 0,
+                "message": {
+                  "reasoning_content": "thought\nThe user wants to build a Swift package in release mode from the repository root.\nThe standard command for building a Swift package is `swift build`.\nTo build in release mode, the `-c release` flag is used.\n\nPlan:\n1. Run `swift build -c release`.",
+                  "role": "assistant",
+                  "content": "<|tool_call>call:exec{command:<|\"|>swift build -c release<|\"|>}<tool_call|>"
+                }
+              }
+            ],
+            "id": "chatcmpl-C9DC330B",
+            "created": 1775185857,
+            "usage": {
+              "prompt_tokens": 84,
+              "peak_memory_gib": 16.4,
+              "total_tokens": 164,
+              "completion_tokens": 80,
+              "prompt_time": 0.35,
+              "completion_tokens_per_second": 30.37,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_time": 2.63,
+              "total_time": 2.98,
+              "prompt_tokens_per_second": 242.32
+            },
+            "object": "chat.completion",
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "timings": {
+              "prompt_ms": 346.64905071258545,
+              "prompt_n": 84,
+              "predicted_ms": 2634.3090534210205,
+              "predicted_n": 80
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1014",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 03:10:57 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /npm run build/.test(String(args.command || '')) &&\n  (args.background === true || args.yieldMs !== undefined);",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /npm run build/.test(String(args.command || '')) &&\n  (args.background === true || args.yieldMs !== undefined);",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /npm run build/.test(String(args.command || '')) &&\n  (args.background === true || args.yieldMs !== undefined);",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /npm run build/.test(String(args.command || '')) &&\n  (args.background === true || args.yieldMs !== undefined);\n"
+              }
+            }
+          ]
+        },
+        "id": "e707c241-51f6-4631-b7b7-76afd5325d83",
+        "latencyMs": 8030,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Kick off npm run build, let it run briefly, and keep the session around so we can poll it later.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:exec{command:<|\\\"|>nohup npm run build > build.log 2>&1 &<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 8030,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Kick off npm run build, let it run briefly, and keep the session around so we can poll it later."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "exec",
+                    "description": "Run shell commands in the workspace",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "command": {
+                          "type": "string"
+                        },
+                        "yieldMs": {
+                          "type": "integer"
+                        },
+                        "background": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "command"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "id": "chatcmpl-A7D2E05C",
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "created": 1775185865,
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "usage": {
+                "completion_tokens_per_second": 30.18,
+                "completion_time": 7.59,
+                "peak_memory_gib": 16.4,
+                "total_time": 8.02,
+                "prompt_tokens_per_second": 241.88,
+                "prompt_time": 0.43,
+                "total_tokens": 333,
+                "prompt_tokens": 104,
+                "completion_tokens": 229,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                }
+              },
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "<|tool_call>call:exec{command:<|\"|>nohup npm run build > build.log 2>&1 &<|\"|>}<tool_call|>",
+                    "role": "assistant",
+                    "reasoning_content": "thought\nThe user wants to start a build process using `npm run build` in the background and keep the session active to check the progress later.\n\n1.  **Start the process in the background**: I should use a command that starts `npm run build` and doesn't block the current shell session.\n2.  **Redirect output**: To avoid cluttering the output and to be able to check it later, I should redirect `stdout` and `stderr` to a log file.\n3.  **Use `nohup` or a similar mechanism**: To ensure the process continues running even if the shell session changes or if I'm not actively monitoring it, `nohup` is a good choice.\n4.  **Verify the process started**: I can check if the process is running using `ps`.\n\nPlan:\n1. Run `nohup npm run build > build.log 2>&1 &`.\n2. Confirm the process is running."
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "object": "chat.completion",
+              "timings": {
+                "predicted_ms": 7587.582945823669,
+                "prompt_n": 104,
+                "prompt_ms": 429.95715141296387,
+                "predicted_n": 229
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1573",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 03:11:05 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "openclaw/exec background build with yield",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Kick off npm run build, let it run briefly, and keep the session around so we can poll it later.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "exec",
+                  "description": "Run shell commands in the workspace",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      },
+                      "yieldMs": {
+                        "type": "integer"
+                      },
+                      "background": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /npm run build/.test(String(args.command || '')) &&\n  (args.background === true || args.yieldMs !== undefined);\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 2,
+        "vars": {
+          "prompt": "Kick off npm run build, let it run briefly, and keep the session around so we can poll it later.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "exec",
+                "description": "Run shell commands in the workspace",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "yieldMs": {
+                      "type": "integer"
+                    },
+                    "background": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Kick off npm run build, let it run briefly, and keep the session around so we can poll it later."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "exec",
+                  "description": "Run shell commands in the workspace",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      },
+                      "yieldMs": {
+                        "type": "integer"
+                      },
+                      "background": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "id": "chatcmpl-A7D2E05C",
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "created": 1775185865,
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "usage": {
+              "completion_tokens_per_second": 30.18,
+              "completion_time": 7.59,
+              "peak_memory_gib": 16.4,
+              "total_time": 8.02,
+              "prompt_tokens_per_second": 241.88,
+              "prompt_time": 0.43,
+              "total_tokens": 333,
+              "prompt_tokens": 104,
+              "completion_tokens": 229,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              }
+            },
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "<|tool_call>call:exec{command:<|\"|>nohup npm run build > build.log 2>&1 &<|\"|>}<tool_call|>",
+                  "role": "assistant",
+                  "reasoning_content": "thought\nThe user wants to start a build process using `npm run build` in the background and keep the session active to check the progress later.\n\n1.  **Start the process in the background**: I should use a command that starts `npm run build` and doesn't block the current shell session.\n2.  **Redirect output**: To avoid cluttering the output and to be able to check it later, I should redirect `stdout` and `stderr` to a log file.\n3.  **Use `nohup` or a similar mechanism**: To ensure the process continues running even if the shell session changes or if I'm not actively monitoring it, `nohup` is a good choice.\n4.  **Verify the process started**: I can check if the process is running using `ps`.\n\nPlan:\n1. Run `nohup npm run build > build.log 2>&1 &`.\n2. Confirm the process is running."
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "object": "chat.completion",
+            "timings": {
+              "predicted_ms": 7587.582945823669,
+              "prompt_n": 104,
+              "prompt_ms": 429.95715141296387,
+              "predicted_n": 229
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1573",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 03:11:05 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    (/\\*\\*\\* Begin Patch/.test(input) && /\\*\\*\\* Add File: docs\\/cache-notes\\.md/.test(input)) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/docs\\/cache-notes\\.md|new file mode)/.test(input))\n  );",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    (/\\*\\*\\* Begin Patch/.test(input) && /\\*\\*\\* Add File: docs\\/cache-notes\\.md/.test(input)) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/docs\\/cache-notes\\.md|new file mode)/.test(input))\n  );",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    (/\\*\\*\\* Begin Patch/.test(input) && /\\*\\*\\* Add File: docs\\/cache-notes\\.md/.test(input)) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/docs\\/cache-notes\\.md|new file mode)/.test(input))\n  );",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    (/\\*\\*\\* Begin Patch/.test(input) && /\\*\\*\\* Add File: docs\\/cache-notes\\.md/.test(input)) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/docs\\/cache-notes\\.md|new file mode)/.test(input))\n  );\n"
+              }
+            }
+          ]
+        },
+        "id": "fe223aac-0d35-4350-8db8-b6bc0e4ecdc4",
+        "latencyMs": 13202,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Create docs/cache-notes.md with two short markdown lines using the OpenClaw patch tool.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:apply_patch{input:<|\\\"|>--- /dev/null\\n+++ docs/cache-notes.md\\n@@ -0,0 +1,2 @@\\n+# Cache Notes\\n+Caching improves performance.\\n<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 13202,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Create docs/cache-notes.md with two short markdown lines using the OpenClaw patch tool."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "apply_patch",
+                    "description": "Apply structured multi-file patches",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "input": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "input"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "timings": {
+                "prompt_n": 86,
+                "prompt_ms": 346.84908390045166,
+                "predicted_n": 386,
+                "predicted_ms": 12842.525959014893
+              },
+              "id": "chatcmpl-513CB4E8",
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "usage": {
+                "completion_tokens": 386,
+                "total_time": 13.19,
+                "peak_memory_gib": 16.6,
+                "prompt_tokens": 86,
+                "prompt_time": 0.35,
+                "total_tokens": 472,
+                "completion_time": 12.84,
+                "completion_tokens_per_second": 30.06,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens_per_second": 247.95
+              },
+              "object": "chat.completion",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "<|tool_call>call:apply_patch{input:<|\"|>--- /dev/null\n+++ docs/cache-notes.md\n@@ -0,0 +1,2 @@\n+# Cache Notes\n+Caching improves performance.\n<|\"|>}<tool_call|>",
+                    "reasoning_content": "thought\nThe user wants to create a new file `docs/cache-notes.md` with two short markdown lines using the `apply_patch` tool.\n\n1.  **Identify the tool**: `apply_patch`.\n2.  **Determine the input format**: The `apply_patch` tool takes a string representing a patch. Since I'm creating a new file, I should use the format for adding a new file.\n3.  **Construct the patch**:\n    *   File path: `docs/cache-notes.md`\n    *   Content: Two short markdown lines.\n    *   Example content:\n        ```markdown\n        # Cache Notes\n        This is a test file.\n        ```\n4.  **Format the patch**:\n    ```\n    --- /dev/null\n    +++ docs/cache-notes.md\n    @@ -0,0 +1,2 @@\n    +# Cache Notes\n    +This file contains notes about caching.\n    ```\n\nWait, the `apply_patch` tool usually expects a specific format. Let's check the tool definition. It says \"Apply structured multi-file patches\". Usually, this means a diff-like format.\n\nLet's refine the content:\nLine 1: `# Cache Notes`\nLine 2: `Caching is useful.`\n\nPatch:\n```\n--- /dev/null\n+++ docs/cache-notes.md\n@@ -0,0 +1,2 @@\n+# Cache Notes\n+Caching is useful.\n```\n\nI will now call the tool.",
+                    "role": "assistant"
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "created": 1775185878,
+              "model": "mlx-community/gemma-4-31b-it-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "2028",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 03:11:18 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "openclaw/apply_patch add file",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Create docs/cache-notes.md with two short markdown lines using the OpenClaw patch tool.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply structured multi-file patches",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "input": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "input"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    (/\\*\\*\\* Begin Patch/.test(input) && /\\*\\*\\* Add File: docs\\/cache-notes\\.md/.test(input)) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/docs\\/cache-notes\\.md|new file mode)/.test(input))\n  );\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 3,
+        "vars": {
+          "prompt": "Create docs/cache-notes.md with two short markdown lines using the OpenClaw patch tool.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply structured multi-file patches",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "input": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "input"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Create docs/cache-notes.md with two short markdown lines using the OpenClaw patch tool."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply structured multi-file patches",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "input": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "input"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "timings": {
+              "prompt_n": 86,
+              "prompt_ms": 346.84908390045166,
+              "predicted_n": 386,
+              "predicted_ms": 12842.525959014893
+            },
+            "id": "chatcmpl-513CB4E8",
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "usage": {
+              "completion_tokens": 386,
+              "total_time": 13.19,
+              "peak_memory_gib": 16.6,
+              "prompt_tokens": 86,
+              "prompt_time": 0.35,
+              "total_tokens": 472,
+              "completion_time": 12.84,
+              "completion_tokens_per_second": 30.06,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens_per_second": 247.95
+            },
+            "object": "chat.completion",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "<|tool_call>call:apply_patch{input:<|\"|>--- /dev/null\n+++ docs/cache-notes.md\n@@ -0,0 +1,2 @@\n+# Cache Notes\n+Caching improves performance.\n<|\"|>}<tool_call|>",
+                  "reasoning_content": "thought\nThe user wants to create a new file `docs/cache-notes.md` with two short markdown lines using the `apply_patch` tool.\n\n1.  **Identify the tool**: `apply_patch`.\n2.  **Determine the input format**: The `apply_patch` tool takes a string representing a patch. Since I'm creating a new file, I should use the format for adding a new file.\n3.  **Construct the patch**:\n    *   File path: `docs/cache-notes.md`\n    *   Content: Two short markdown lines.\n    *   Example content:\n        ```markdown\n        # Cache Notes\n        This is a test file.\n        ```\n4.  **Format the patch**:\n    ```\n    --- /dev/null\n    +++ docs/cache-notes.md\n    @@ -0,0 +1,2 @@\n    +# Cache Notes\n    +This file contains notes about caching.\n    ```\n\nWait, the `apply_patch` tool usually expects a specific format. Let's check the tool definition. It says \"Apply structured multi-file patches\". Usually, this means a diff-like format.\n\nLet's refine the content:\nLine 1: `# Cache Notes`\nLine 2: `Caching is useful.`\n\nPatch:\n```\n--- /dev/null\n+++ docs/cache-notes.md\n@@ -0,0 +1,2 @@\n+# Cache Notes\n+Caching is useful.\n```\n\nI will now call the tool.",
+                  "role": "assistant"
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "created": 1775185878,
+            "model": "mlx-community/gemma-4-31b-it-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "2028",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 03:11:18 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    /\\*\\*\\* Update File: README\\.md/.test(input) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/README\\.md|--- a\\/README\\.md)/.test(input))\n  );",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    /\\*\\*\\* Update File: README\\.md/.test(input) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/README\\.md|--- a\\/README\\.md)/.test(input))\n  );",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    /\\*\\*\\* Update File: README\\.md/.test(input) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/README\\.md|--- a\\/README\\.md)/.test(input))\n  );",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    /\\*\\*\\* Update File: README\\.md/.test(input) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/README\\.md|--- a\\/README\\.md)/.test(input))\n  );\n"
+              }
+            }
+          ]
+        },
+        "id": "7c4b94e8-6fc8-4bfc-968a-15a890c8e47f",
+        "latencyMs": 3750,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Update README.md so it mentions the promptfoo harness.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:apply_patch{input:<|\\\"|>- README.md\\n+ README.md (updated to mention promptfoo harness)\\n<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 3750,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Update README.md so it mentions the promptfoo harness."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "apply_patch",
+                    "description": "Apply structured multi-file patches",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "input": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "input"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "created": 1775185882,
+              "usage": {
+                "prompt_tokens_per_second": 222.72,
+                "total_time": 3.74,
+                "peak_memory_gib": 16.4,
+                "completion_tokens": 103,
+                "total_tokens": 180,
+                "completion_time": 3.39,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_tokens_per_second": 30.36,
+                "prompt_tokens": 77,
+                "prompt_time": 0.35
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "object": "chat.completion",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "<|tool_call>call:apply_patch{input:<|\"|>- README.md\n+ README.md (updated to mention promptfoo harness)\n<|\"|>}<tool_call|>",
+                    "role": "assistant",
+                    "reasoning_content": "thought\nThe user wants to update the `README.md` file to mention the `promptfoo` harness. I need to find the `README.md` file, read its content, and then modify it to include the mention of `promptfoo`.\n\nFirst, I will list the files in the repository to locate `README.md`."
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "id": "chatcmpl-E96F4931",
+              "timings": {
+                "predicted_ms": 3392.7000761032104,
+                "prompt_n": 77,
+                "prompt_ms": 345.723032951355,
+                "predicted_n": 103
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1078",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 03:11:22 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "openclaw/apply_patch update existing file",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Update README.md so it mentions the promptfoo harness.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply structured multi-file patches",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "input": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "input"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    /\\*\\*\\* Update File: README\\.md/.test(input) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/README\\.md|--- a\\/README\\.md)/.test(input))\n  );\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 4,
+        "vars": {
+          "prompt": "Update README.md so it mentions the promptfoo harness.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply structured multi-file patches",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "input": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "input"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Update README.md so it mentions the promptfoo harness."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply structured multi-file patches",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "input": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "input"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "created": 1775185882,
+            "usage": {
+              "prompt_tokens_per_second": 222.72,
+              "total_time": 3.74,
+              "peak_memory_gib": 16.4,
+              "completion_tokens": 103,
+              "total_tokens": 180,
+              "completion_time": 3.39,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens_per_second": 30.36,
+              "prompt_tokens": 77,
+              "prompt_time": 0.35
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "object": "chat.completion",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "<|tool_call>call:apply_patch{input:<|\"|>- README.md\n+ README.md (updated to mention promptfoo harness)\n<|\"|>}<tool_call|>",
+                  "role": "assistant",
+                  "reasoning_content": "thought\nThe user wants to update the `README.md` file to mention the `promptfoo` harness. I need to find the `README.md` file, read its content, and then modify it to include the mention of `promptfoo`.\n\nFirst, I will list the files in the repository to locate `README.md`."
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "id": "chatcmpl-E96F4931",
+            "timings": {
+              "predicted_ms": 3392.7000761032104,
+              "prompt_n": 77,
+              "prompt_ms": 345.723032951355,
+              "predicted_n": 103
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1078",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 03:11:22 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_search' &&\n  /Qwen|prefix cache/i.test(String(args.query || '')) &&\n  (args.freshness !== undefined || args.count !== undefined);",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_search' &&\n  /Qwen|prefix cache/i.test(String(args.query || '')) &&\n  (args.freshness !== undefined || args.count !== undefined);",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_search' &&\n  /Qwen|prefix cache/i.test(String(args.query || '')) &&\n  (args.freshness !== undefined || args.count !== undefined);",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_search' &&\n  /Qwen|prefix cache/i.test(String(args.query || '')) &&\n  (args.freshness !== undefined || args.count !== undefined);\n"
+              }
+            }
+          ]
+        },
+        "id": "cd54b2ef-4bab-4982-93b3-7c4194664c1f",
+        "latencyMs": 5916,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Search the web for recent Qwen prefix cache bugs from the last month.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:web_search{query:<|\\\"|>Qwen prefix cache bug issue last month<|\\\"|>}<tool_call|><|tool_call>call:web_search{query:<|\\\"|>vLLM Qwen prefix caching bug github<|\\\"|>}<tool_call|><|tool_call>call:web_search{query:<|\\\"|>\\\"Qwen\\\" \\\"prefix cache\\\" bug site:github.com<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 5916,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Search the web for recent Qwen prefix cache bugs from the last month."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "web_search",
+                    "description": "Search the web",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "query": {
+                          "type": "string"
+                        },
+                        "freshness": {
+                          "type": "string"
+                        },
+                        "count": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "query"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "id": "chatcmpl-5610ACF0",
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "created": 1775185888,
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "usage": {
+                "completion_tokens_per_second": 30.24,
+                "completion_time": 5.55,
+                "peak_memory_gib": 16.4,
+                "total_time": 5.9,
+                "prompt_tokens_per_second": 268.59,
+                "prompt_time": 0.35,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_tokens": 262,
+                "completion_tokens": 168,
+                "prompt_tokens": 94
+              },
+              "choices": [
+                {
+                  "finish_reason": "stop",
+                  "index": 0,
+                  "message": {
+                    "reasoning_content": "thought\nI will search for recent reports, GitHub issues, and forum discussions regarding \"Qwen prefix cache bugs\" or \"Qwen prefix caching issues\" from the last month.\nI will specifically look for mentions of Qwen models in repositories like vLLM, Hugging Face, and other LLM serving frameworks where prefix caching is commonly implemented.\nFinally, I will summarize any found bugs or issues related to Qwen prefix caching from the last 30 days.",
+                    "role": "assistant",
+                    "content": "<|tool_call>call:web_search{query:<|\"|>Qwen prefix cache bug issue last month<|\"|>}<tool_call|><|tool_call>call:web_search{query:<|\"|>vLLM Qwen prefix caching bug github<|\"|>}<tool_call|><|tool_call>call:web_search{query:<|\"|>\"Qwen\" \"prefix cache\" bug site:github.com<|\"|>}<tool_call|>"
+                  }
+                }
+              ],
+              "object": "chat.completion",
+              "timings": {
+                "prompt_ms": 349.97498989105225,
+                "prompt_n": 94,
+                "predicted_ms": 5554.738998413086,
+                "predicted_n": 168
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1423",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 03:11:27 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "openclaw/web_search search recent cache bug reports",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/brave-search.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Search the web for recent Qwen prefix cache bugs from the last month.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "web_search",
+                  "description": "Search the web",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      },
+                      "freshness": {
+                        "type": "string"
+                      },
+                      "count": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_search' &&\n  /Qwen|prefix cache/i.test(String(args.query || '')) &&\n  (args.freshness !== undefined || args.count !== undefined);\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 5,
+        "vars": {
+          "prompt": "Search the web for recent Qwen prefix cache bugs from the last month.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "web_search",
+                "description": "Search the web",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    },
+                    "freshness": {
+                      "type": "string"
+                    },
+                    "count": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/brave-search.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Search the web for recent Qwen prefix cache bugs from the last month."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "web_search",
+                  "description": "Search the web",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      },
+                      "freshness": {
+                        "type": "string"
+                      },
+                      "count": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "id": "chatcmpl-5610ACF0",
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "created": 1775185888,
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "usage": {
+              "completion_tokens_per_second": 30.24,
+              "completion_time": 5.55,
+              "peak_memory_gib": 16.4,
+              "total_time": 5.9,
+              "prompt_tokens_per_second": 268.59,
+              "prompt_time": 0.35,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 262,
+              "completion_tokens": 168,
+              "prompt_tokens": 94
+            },
+            "choices": [
+              {
+                "finish_reason": "stop",
+                "index": 0,
+                "message": {
+                  "reasoning_content": "thought\nI will search for recent reports, GitHub issues, and forum discussions regarding \"Qwen prefix cache bugs\" or \"Qwen prefix caching issues\" from the last month.\nI will specifically look for mentions of Qwen models in repositories like vLLM, Hugging Face, and other LLM serving frameworks where prefix caching is commonly implemented.\nFinally, I will summarize any found bugs or issues related to Qwen prefix caching from the last 30 days.",
+                  "role": "assistant",
+                  "content": "<|tool_call>call:web_search{query:<|\"|>Qwen prefix cache bug issue last month<|\"|>}<tool_call|><|tool_call>call:web_search{query:<|\"|>vLLM Qwen prefix caching bug github<|\"|>}<tool_call|><|tool_call>call:web_search{query:<|\"|>\"Qwen\" \"prefix cache\" bug site:github.com<|\"|>}<tool_call|>"
+                }
+              }
+            ],
+            "object": "chat.completion",
+            "timings": {
+              "prompt_ms": 349.97498989105225,
+              "prompt_n": 94,
+              "predicted_ms": 5554.738998413086,
+              "predicted_n": 168
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1423",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 03:11:27 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst url = String(parsed.tool_calls[0]?.function?.arguments?.url || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_fetch' &&\n  /https:\\/\\/opencode\\.ai\\/docs\\/tools\\/?/.test(url);",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst url = String(parsed.tool_calls[0]?.function?.arguments?.url || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_fetch' &&\n  /https:\\/\\/opencode\\.ai\\/docs\\/tools\\/?/.test(url);",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst url = String(parsed.tool_calls[0]?.function?.arguments?.url || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_fetch' &&\n  /https:\\/\\/opencode\\.ai\\/docs\\/tools\\/?/.test(url);",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst url = String(parsed.tool_calls[0]?.function?.arguments?.url || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_fetch' &&\n  /https:\\/\\/opencode\\.ai\\/docs\\/tools\\/?/.test(url);\n"
+              }
+            }
+          ]
+        },
+        "id": "54dbaf05-8fee-41e2-8f62-a0fe63803757",
+        "latencyMs": 2664,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Fetch and extract the readable content from https://opencode.ai/docs/tools/.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:web_fetch{url:<|\\\"|>https://opencode.ai/docs/tools/<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 2664,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Fetch and extract the readable content from https://opencode.ai/docs/tools/."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "web_fetch",
+                    "description": "Fetch a URL and extract readable text",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "url": {
+                          "type": "string"
+                        },
+                        "format": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "url"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "timings": {
+                "predicted_n": 70,
+                "prompt_n": 92,
+                "predicted_ms": 2301.8559217453003,
+                "prompt_ms": 349.93112087249756
+              },
+              "id": "chatcmpl-3A672999",
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "usage": {
+                "completion_tokens": 70,
+                "total_time": 2.65,
+                "peak_memory_gib": 16.4,
+                "prompt_tokens": 92,
+                "prompt_time": 0.35,
+                "completion_time": 2.3,
+                "total_tokens": 162,
+                "completion_tokens_per_second": 30.41,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens_per_second": 262.91
+              },
+              "object": "chat.completion",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "<|tool_call>call:web_fetch{url:<|\"|>https://opencode.ai/docs/tools/<|\"|>}<tool_call|>",
+                    "reasoning_content": "thought\nThe user wants to fetch and extract the readable content from a specific URL: `https://opencode.ai/docs/tools/`. I should use the `web_fetch` tool for this purpose.",
+                    "role": "assistant"
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "created": 1775185891
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "946",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 03:11:30 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "openclaw/web_fetch fetch docs page",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Fetch and extract the readable content from https://opencode.ai/docs/tools/.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "web_fetch",
+                  "description": "Fetch a URL and extract readable text",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "type": "string"
+                      },
+                      "format": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst url = String(parsed.tool_calls[0]?.function?.arguments?.url || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_fetch' &&\n  /https:\\/\\/opencode\\.ai\\/docs\\/tools\\/?/.test(url);\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 6,
+        "vars": {
+          "prompt": "Fetch and extract the readable content from https://opencode.ai/docs/tools/.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "web_fetch",
+                "description": "Fetch a URL and extract readable text",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Fetch and extract the readable content from https://opencode.ai/docs/tools/."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "web_fetch",
+                  "description": "Fetch a URL and extract readable text",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "type": "string"
+                      },
+                      "format": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "timings": {
+              "predicted_n": 70,
+              "prompt_n": 92,
+              "predicted_ms": 2301.8559217453003,
+              "prompt_ms": 349.93112087249756
+            },
+            "id": "chatcmpl-3A672999",
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "usage": {
+              "completion_tokens": 70,
+              "total_time": 2.65,
+              "peak_memory_gib": 16.4,
+              "prompt_tokens": 92,
+              "prompt_time": 0.35,
+              "completion_time": 2.3,
+              "total_tokens": 162,
+              "completion_tokens_per_second": 30.41,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens_per_second": 262.91
+            },
+            "object": "chat.completion",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "<|tool_call>call:web_fetch{url:<|\"|>https://opencode.ai/docs/tools/<|\"|>}<tool_call|>",
+                  "reasoning_content": "thought\nThe user wants to fetch and extract the readable content from a specific URL: `https://opencode.ai/docs/tools/`. I should use the `web_fetch` tool for this purpose.",
+                  "role": "assistant"
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "created": 1775185891
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "946",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 03:11:30 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_navigate' &&\n  /https:\\/\\/example\\.com/.test(String(parsed.tool_calls[0].function.arguments.url || ''));",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_navigate' &&\n  /https:\\/\\/example\\.com/.test(String(parsed.tool_calls[0].function.arguments.url || ''));",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_navigate' &&\n  /https:\\/\\/example\\.com/.test(String(parsed.tool_calls[0].function.arguments.url || ''));",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_navigate' &&\n  /https:\\/\\/example\\.com/.test(String(parsed.tool_calls[0].function.arguments.url || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "8e5ef2a7-bbdd-4965-adee-ac17ddce114f",
+        "latencyMs": 2206,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Open https://example.com in the managed browser.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:browser_navigate{url:<|\\\"|>https://example.com<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 2206,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Open https://example.com in the managed browser."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "browser_navigate",
+                    "description": "Navigate the managed browser to a URL",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "url": {
+                          "type": "string"
+                        },
+                        "profile": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "url"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "id": "chatcmpl-20BF953D",
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "created": 1775185893,
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "usage": {
+                "completion_tokens_per_second": 30.29,
+                "completion_time": 1.85,
+                "peak_memory_gib": 16.4,
+                "total_time": 2.19,
+                "prompt_tokens_per_second": 245.44,
+                "prompt_time": 0.35,
+                "total_tokens": 141,
+                "prompt_tokens": 85,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_tokens": 56
+              },
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "<|tool_call>call:browser_navigate{url:<|\"|>https://example.com<|\"|>}<tool_call|>",
+                    "reasoning_content": "thought\nThe user wants to open a specific URL (`https://example.com`) in the managed browser. I should use the `browser_navigate` tool for this purpose.",
+                    "role": "assistant"
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "object": "chat.completion",
+              "timings": {
+                "prompt_n": 85,
+                "prompt_ms": 346.310019493103,
+                "predicted_n": 56,
+                "predicted_ms": 1848.6199378967285
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "914",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 03:11:32 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "openclaw/browser navigate to docs",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Open https://example.com in the managed browser.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_navigate",
+                  "description": "Navigate the managed browser to a URL",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "type": "string"
+                      },
+                      "profile": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_navigate' &&\n  /https:\\/\\/example\\.com/.test(String(parsed.tool_calls[0].function.arguments.url || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 7,
+        "vars": {
+          "prompt": "Open https://example.com in the managed browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_navigate",
+                "description": "Navigate the managed browser to a URL",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "profile": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Open https://example.com in the managed browser."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_navigate",
+                  "description": "Navigate the managed browser to a URL",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "type": "string"
+                      },
+                      "profile": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "id": "chatcmpl-20BF953D",
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "created": 1775185893,
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "usage": {
+              "completion_tokens_per_second": 30.29,
+              "completion_time": 1.85,
+              "peak_memory_gib": 16.4,
+              "total_time": 2.19,
+              "prompt_tokens_per_second": 245.44,
+              "prompt_time": 0.35,
+              "total_tokens": 141,
+              "prompt_tokens": 85,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens": 56
+            },
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "<|tool_call>call:browser_navigate{url:<|\"|>https://example.com<|\"|>}<tool_call|>",
+                  "reasoning_content": "thought\nThe user wants to open a specific URL (`https://example.com`) in the managed browser. I should use the `browser_navigate` tool for this purpose.",
+                  "role": "assistant"
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "object": "chat.completion",
+            "timings": {
+              "prompt_n": 85,
+              "prompt_ms": 346.310019493103,
+              "predicted_n": 56,
+              "predicted_ms": 1848.6199378967285
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "914",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 03:11:32 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_snapshot';",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_snapshot';",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_snapshot';",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_snapshot';\n"
+              }
+            }
+          ]
+        },
+        "id": "985bb6b1-1fd2-4868-b1af-4ab93d65f489",
+        "latencyMs": 1633,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Get a snapshot of the current browser page.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:browser_snapshot{}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 1633,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Get a snapshot of the current browser page."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "browser_snapshot",
+                    "description": "Capture a browser snapshot",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "profile": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "timings": {
+                "predicted_n": 39,
+                "prompt_n": 66,
+                "predicted_ms": 1280.3300619125366,
+                "prompt_ms": 342.0790433883667
+              },
+              "id": "chatcmpl-0C562AC1",
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "usage": {
+                "completion_tokens": 39,
+                "total_time": 1.62,
+                "peak_memory_gib": 16.4,
+                "prompt_tokens": 66,
+                "prompt_time": 0.34,
+                "completion_time": 1.28,
+                "total_tokens": 105,
+                "completion_tokens_per_second": 30.46,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens_per_second": 192.94
+              },
+              "object": "chat.completion",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "<|tool_call>call:browser_snapshot{}<tool_call|>",
+                    "reasoning_content": "thought\nThe user wants to get a snapshot of the current browser page. I should use the `browser_snapshot` tool for this purpose.",
+                    "role": "assistant"
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "created": 1775185895
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "852",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 03:11:34 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "openclaw/browser snapshot current page",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Get a snapshot of the current browser page.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_snapshot",
+                  "description": "Capture a browser snapshot",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "profile": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_snapshot';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 8,
+        "vars": {
+          "prompt": "Get a snapshot of the current browser page.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_snapshot",
+                "description": "Capture a browser snapshot",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "profile": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Get a snapshot of the current browser page."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_snapshot",
+                  "description": "Capture a browser snapshot",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "profile": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "timings": {
+              "predicted_n": 39,
+              "prompt_n": 66,
+              "predicted_ms": 1280.3300619125366,
+              "prompt_ms": 342.0790433883667
+            },
+            "id": "chatcmpl-0C562AC1",
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "usage": {
+              "completion_tokens": 39,
+              "total_time": 1.62,
+              "peak_memory_gib": 16.4,
+              "prompt_tokens": 66,
+              "prompt_time": 0.34,
+              "completion_time": 1.28,
+              "total_tokens": 105,
+              "completion_tokens_per_second": 30.46,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens_per_second": 192.94
+            },
+            "object": "chat.completion",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "<|tool_call>call:browser_snapshot{}<tool_call|>",
+                  "reasoning_content": "thought\nThe user wants to get a snapshot of the current browser page. I should use the `browser_snapshot` tool for this purpose.",
+                  "role": "assistant"
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "created": 1775185895
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "852",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 03:11:34 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst selector = String(parsed.tool_calls[0]?.function?.arguments?.selector || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_click' &&\n  selector.length > 0;",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst selector = String(parsed.tool_calls[0]?.function?.arguments?.selector || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_click' &&\n  selector.length > 0;",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst selector = String(parsed.tool_calls[0]?.function?.arguments?.selector || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_click' &&\n  selector.length > 0;",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst selector = String(parsed.tool_calls[0]?.function?.arguments?.selector || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_click' &&\n  selector.length > 0;\n"
+              }
+            }
+          ]
+        },
+        "id": "f27591d7-3e89-4413-8352-dc721d0f973e",
+        "latencyMs": 13709,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Click the Sign in button in the managed browser.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[],\"finish_reason\":\"length\",\"refusal\":null}",
+          "latencyMs": 13709,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Click the Sign in button in the managed browser."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "browser_click",
+                    "description": "Click an element in the browser",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "selector": {
+                          "type": "string"
+                        },
+                        "profile": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "selector"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "id": "chatcmpl-86AE0853",
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "created": 1775185908,
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "usage": {
+                "completion_tokens_per_second": 29.96,
+                "completion_time": 13.35,
+                "peak_memory_gib": 16.6,
+                "total_time": 13.7,
+                "prompt_tokens_per_second": 239.53,
+                "prompt_time": 0.35,
+                "total_tokens": 483,
+                "prompt_tokens": 83,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_tokens": 400
+              },
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "",
+                    "reasoning_content": "thought\nThe user wants to click the \"Sign in\" button in the managed browser. I need to find the selector for the \"Sign in\" button and then use the `browser_click` tool.\n\n1.  **Identify the target element**: The user specified the \"Sign in\" button.\n2.  **Find the selector**: I need to look at the current page state (which I don't have yet, but I should assume I'll be provided with a screenshot or DOM representation in a real scenario, or I can try to find it if I'm already in a session). Since I don't have the current page state, I'll first need to see the page. However, the prompt is a direct command. I should check if there's a known selector or if I need to search for it.\n3.  **Action**: Use `browser_click` with the appropriate selector.\n\nWait, I don't have the current page content. I should probably start by getting the page content or looking for the button. But the prompt is a direct instruction. If I'm acting as an agent, I should probably check the page first. But if I'm expected to just \"do it\", I might need to guess or use a common selector if it's a known site, or more realistically, I should have the page state.\n\nAssuming I have the page state (which is usually provided in the context of these tool-use tasks), I would look for an element with text \"Sign in\".\n\nLet's assume I need to find the selector first. I'll start by looking at the page. But the prompt is \"Click the Sign in button\".\n\nIf I don't have the selector, I can't click. I'll check the available tools. I have `browser_click`.\n\nLet's try to find the button first or use a common",
+                    "role": "assistant"
+                  },
+                  "finish_reason": "length"
+                }
+              ],
+              "object": "chat.completion",
+              "timings": {
+                "prompt_n": 83,
+                "prompt_ms": 346.51780128479004,
+                "predicted_n": 400,
+                "predicted_ms": 13351.059079170227
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "2282",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 03:11:48 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "openclaw/browser click by selector",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Click the Sign in button in the managed browser.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_click",
+                  "description": "Click an element in the browser",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "selector": {
+                        "type": "string"
+                      },
+                      "profile": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "selector"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst selector = String(parsed.tool_calls[0]?.function?.arguments?.selector || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_click' &&\n  selector.length > 0;\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 9,
+        "vars": {
+          "prompt": "Click the Sign in button in the managed browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_click",
+                "description": "Click an element in the browser",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "selector": {
+                      "type": "string"
+                    },
+                    "profile": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "selector"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Click the Sign in button in the managed browser."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_click",
+                  "description": "Click an element in the browser",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "selector": {
+                        "type": "string"
+                      },
+                      "profile": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "selector"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "id": "chatcmpl-86AE0853",
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "created": 1775185908,
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "usage": {
+              "completion_tokens_per_second": 29.96,
+              "completion_time": 13.35,
+              "peak_memory_gib": 16.6,
+              "total_time": 13.7,
+              "prompt_tokens_per_second": 239.53,
+              "prompt_time": 0.35,
+              "total_tokens": 483,
+              "prompt_tokens": 83,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens": 400
+            },
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "",
+                  "reasoning_content": "thought\nThe user wants to click the \"Sign in\" button in the managed browser. I need to find the selector for the \"Sign in\" button and then use the `browser_click` tool.\n\n1.  **Identify the target element**: The user specified the \"Sign in\" button.\n2.  **Find the selector**: I need to look at the current page state (which I don't have yet, but I should assume I'll be provided with a screenshot or DOM representation in a real scenario, or I can try to find it if I'm already in a session). Since I don't have the current page state, I'll first need to see the page. However, the prompt is a direct command. I should check if there's a known selector or if I need to search for it.\n3.  **Action**: Use `browser_click` with the appropriate selector.\n\nWait, I don't have the current page content. I should probably start by getting the page content or looking for the button. But the prompt is a direct instruction. If I'm acting as an agent, I should probably check the page first. But if I'm expected to just \"do it\", I might need to guess or use a common selector if it's a known site, or more realistically, I should have the page state.\n\nAssuming I have the page state (which is usually provided in the context of these tool-use tasks), I would look for an element with text \"Sign in\".\n\nLet's assume I need to find the selector first. I'll start by looking at the page. But the prompt is \"Click the Sign in button\".\n\nIf I don't have the selector, I can't click. I'll check the available tools. I have `browser_click`.\n\nLet's try to find the button first or use a common",
+                  "role": "assistant"
+                },
+                "finish_reason": "length"
+              }
+            ],
+            "object": "chat.completion",
+            "timings": {
+              "prompt_n": 83,
+              "prompt_ms": 346.51780128479004,
+              "predicted_n": 400,
+              "predicted_ms": 13351.059079170227
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "2282",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 03:11:48 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_type' &&\n  /@/.test(String(args.text || '')) &&\n  String(args.selector || '').length > 0;",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_type' &&\n  /@/.test(String(args.text || '')) &&\n  String(args.selector || '').length > 0;",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_type' &&\n  /@/.test(String(args.text || '')) &&\n  String(args.selector || '').length > 0;",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_type' &&\n  /@/.test(String(args.text || '')) &&\n  String(args.selector || '').length > 0;\n"
+              }
+            }
+          ]
+        },
+        "id": "f9fb8dc9-b78e-483d-979b-9b6c01d91369",
+        "latencyMs": 13740,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Type syl@example.com into the email field in the managed browser.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[],\"finish_reason\":\"length\",\"refusal\":null}",
+          "latencyMs": 13740,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Type syl@example.com into the email field in the managed browser."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "browser_type",
+                    "description": "Type into a browser field",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "selector": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "profile": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "selector",
+                        "text"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "timings": {
+                "predicted_n": 400,
+                "prompt_n": 99,
+                "predicted_ms": 13299.965977668762,
+                "prompt_ms": 428.8569688796997
+              },
+              "id": "chatcmpl-6360C782",
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "usage": {
+                "completion_tokens": 400,
+                "total_time": 13.73,
+                "peak_memory_gib": 16.7,
+                "prompt_tokens": 99,
+                "prompt_time": 0.43,
+                "completion_time": 13.3,
+                "total_tokens": 499,
+                "completion_tokens_per_second": 30.08,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens_per_second": 230.85
+              },
+              "object": "chat.completion",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "",
+                    "reasoning_content": "thought\nThe user wants to type \"syl@example.com\" into an email field in a managed browser.\nI should use the `browser_type` tool to perform this action.\nThe `browser_type` tool requires a `selector` and `text`.\nI don't have the selector for the email field yet, but the prompt implies I should perform the action.\nWait, looking at the tool definition, `browser_type` is for typing into a field.\nI need to identify the selector for the email field.\nSince I don't have the current page state or a screenshot, I have to assume the user wants me to find the field or that I should have known it.\nHowever, usually, in these tasks, I should first check the page or the user provides the selector.\nBut the prompt is a direct command: \"Type syl@example.com into the email field\".\nI will try to find a common selector for an email field (like `input[type=\"email\"]` or `input[name=\"email\"]`) or I might need to use a `browser_get_page_source` or `browser_screenshot` first.\nActually, the most robust way is to look at the page first.\nBut if I'm acting as a tool-using agent, I should probably try to find the element first.\nWait, the prompt is a direct instruction. I'll try to use a common selector or search for it.\nActually, I should probably use `browser_screenshot` or `browser_get_page_source` to find the correct selector.\nBut the user says \"the email field\", implying it's visible.\nLet's try to find the element first.\nActually, I'll start by getting the page source or a screenshot to identify the selector.\nWait, the tool `browser_type` is specifically for",
+                    "role": "assistant"
+                  },
+                  "finish_reason": "length"
+                }
+              ],
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "created": 1775185922
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "2264",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 03:12:01 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "openclaw/browser type credentials",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Type syl@example.com into the email field in the managed browser.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_type",
+                  "description": "Type into a browser field",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "selector": {
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "profile": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "selector",
+                      "text"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_type' &&\n  /@/.test(String(args.text || '')) &&\n  String(args.selector || '').length > 0;\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 10,
+        "vars": {
+          "prompt": "Type syl@example.com into the email field in the managed browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_type",
+                "description": "Type into a browser field",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "selector": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "profile": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "selector",
+                    "text"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Type syl@example.com into the email field in the managed browser."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_type",
+                  "description": "Type into a browser field",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "selector": {
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "profile": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "selector",
+                      "text"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "timings": {
+              "predicted_n": 400,
+              "prompt_n": 99,
+              "predicted_ms": 13299.965977668762,
+              "prompt_ms": 428.8569688796997
+            },
+            "id": "chatcmpl-6360C782",
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "usage": {
+              "completion_tokens": 400,
+              "total_time": 13.73,
+              "peak_memory_gib": 16.7,
+              "prompt_tokens": 99,
+              "prompt_time": 0.43,
+              "completion_time": 13.3,
+              "total_tokens": 499,
+              "completion_tokens_per_second": 30.08,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens_per_second": 230.85
+            },
+            "object": "chat.completion",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "",
+                  "reasoning_content": "thought\nThe user wants to type \"syl@example.com\" into an email field in a managed browser.\nI should use the `browser_type` tool to perform this action.\nThe `browser_type` tool requires a `selector` and `text`.\nI don't have the selector for the email field yet, but the prompt implies I should perform the action.\nWait, looking at the tool definition, `browser_type` is for typing into a field.\nI need to identify the selector for the email field.\nSince I don't have the current page state or a screenshot, I have to assume the user wants me to find the field or that I should have known it.\nHowever, usually, in these tasks, I should first check the page or the user provides the selector.\nBut the prompt is a direct command: \"Type syl@example.com into the email field\".\nI will try to find a common selector for an email field (like `input[type=\"email\"]` or `input[name=\"email\"]`) or I might need to use a `browser_get_page_source` or `browser_screenshot` first.\nActually, the most robust way is to look at the page first.\nBut if I'm acting as a tool-using agent, I should probably try to find the element first.\nWait, the prompt is a direct instruction. I'll try to use a common selector or search for it.\nActually, I should probably use `browser_screenshot` or `browser_get_page_source` to find the correct selector.\nBut the user says \"the email field\", implying it's visible.\nLet's try to find the element first.\nActually, I'll start by getting the page source or a screenshot to identify the selector.\nWait, the tool `browser_type` is specifically for",
+                  "role": "assistant"
+                },
+                "finish_reason": "length"
+              }
+            ],
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "created": 1775185922
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "2264",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 03:12:01 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_press' &&\n  /enter/i.test(String(parsed.tool_calls[0].function.arguments.key || ''));",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_press' &&\n  /enter/i.test(String(parsed.tool_calls[0].function.arguments.key || ''));",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_press' &&\n  /enter/i.test(String(parsed.tool_calls[0].function.arguments.key || ''));",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_press' &&\n  /enter/i.test(String(parsed.tool_calls[0].function.arguments.key || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "41fa5dd1-a039-49e1-a933-bd256a94bccb",
+        "latencyMs": 2157,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Press Enter in the managed browser.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:browser_press{key:<|\\\"|>Enter<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 2157,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Press Enter in the managed browser."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "browser_press",
+                    "description": "Press a keyboard key in the browser",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "profile": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "key"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "id": "chatcmpl-755AED77",
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "created": 1775185924,
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "usage": {
+                "completion_tokens_per_second": 30.01,
+                "completion_time": 1.8,
+                "peak_memory_gib": 16.4,
+                "total_time": 2.15,
+                "prompt_tokens_per_second": 233.3,
+                "prompt_time": 0.35,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_tokens": 135,
+                "completion_tokens": 54,
+                "prompt_tokens": 81
+              },
+              "choices": [
+                {
+                  "finish_reason": "stop",
+                  "index": 0,
+                  "message": {
+                    "reasoning_content": "thought\nThe user wants to press the \"Enter\" key in the managed browser. I should use the `browser_press` tool with the `key` parameter set to \"Enter\".",
+                    "role": "assistant",
+                    "content": "<|tool_call>call:browser_press{key:<|\"|>Enter<|\"|>}<tool_call|>"
+                  }
+                }
+              ],
+              "object": "chat.completion",
+              "timings": {
+                "prompt_ms": 347.1919298171997,
+                "prompt_n": 81,
+                "predicted_ms": 1799.2650270462036,
+                "predicted_n": 54
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "894",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 03:12:04 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "openclaw/browser press enter",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Press Enter in the managed browser.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_press",
+                  "description": "Press a keyboard key in the browser",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "profile": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_press' &&\n  /enter/i.test(String(parsed.tool_calls[0].function.arguments.key || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 11,
+        "vars": {
+          "prompt": "Press Enter in the managed browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_press",
+                "description": "Press a keyboard key in the browser",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "profile": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Press Enter in the managed browser."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_press",
+                  "description": "Press a keyboard key in the browser",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "profile": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "id": "chatcmpl-755AED77",
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "created": 1775185924,
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "usage": {
+              "completion_tokens_per_second": 30.01,
+              "completion_time": 1.8,
+              "peak_memory_gib": 16.4,
+              "total_time": 2.15,
+              "prompt_tokens_per_second": 233.3,
+              "prompt_time": 0.35,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 135,
+              "completion_tokens": 54,
+              "prompt_tokens": 81
+            },
+            "choices": [
+              {
+                "finish_reason": "stop",
+                "index": 0,
+                "message": {
+                  "reasoning_content": "thought\nThe user wants to press the \"Enter\" key in the managed browser. I should use the `browser_press` tool with the `key` parameter set to \"Enter\".",
+                  "role": "assistant",
+                  "content": "<|tool_call>call:browser_press{key:<|\"|>Enter<|\"|>}<tool_call|>"
+                }
+              }
+            ],
+            "object": "chat.completion",
+            "timings": {
+              "prompt_ms": 347.1919298171997,
+              "prompt_n": 81,
+              "predicted_ms": 1799.2650270462036,
+              "predicted_n": 54
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "894",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 03:12:04 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      }
+    ],
+    "stats": {
+      "successes": 0,
+      "failures": 12,
+      "errors": 0,
+      "tokenUsage": {
+        "prompt": 0,
+        "completion": 0,
+        "cached": 0,
+        "total": 0,
+        "numRequests": 12,
+        "completionDetails": {
+          "reasoning": 0,
+          "acceptedPrediction": 0,
+          "rejectedPrediction": 0
+        },
+        "assertions": {
+          "total": 0,
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "numRequests": 0,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0
+          }
+        }
+      },
+      "durationMs": 72105,
+      "evaluationDurationMs": 72105
+    }
+  },
+  "config": {
+    "tags": {},
+    "description": "AFM OpenClaw primary-source tool suite",
+    "prompts": [
+      "{{prompt}}"
+    ],
+    "providers": [
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-default-openclaw",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_DEFAULT",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-adaptive-xml-openclaw",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_ADAPTIVE_XML",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-adaptive-xml-grammar-openclaw",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      }
+    ],
+    "tests": [
+      {
+        "description": "openclaw/exec run git status",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Check whether the repository has uncommitted changes.",
+          "system_prompt": "You are an OpenClaw-style coding agent using only documented OpenClaw tools.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "exec",
+                "description": "Run shell commands in the workspace",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "workdir": {
+                      "type": "string"
+                    },
+                    "timeout": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /git status/.test(String(args.command || ''));\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/exec targeted release build",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Build the Swift package in release mode from the repository root.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "exec",
+                "description": "Run shell commands in the workspace",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "workdir": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst command = String(parsed.tool_calls[0]?.function?.arguments?.command || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /(swift build -c release|make build)/.test(command);\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/exec background build with yield",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Kick off npm run build, let it run briefly, and keep the session around so we can poll it later.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "exec",
+                "description": "Run shell commands in the workspace",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "yieldMs": {
+                      "type": "integer"
+                    },
+                    "background": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /npm run build/.test(String(args.command || '')) &&\n  (args.background === true || args.yieldMs !== undefined);\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/apply_patch add file",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Create docs/cache-notes.md with two short markdown lines using the OpenClaw patch tool.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply structured multi-file patches",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "input": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "input"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    (/\\*\\*\\* Begin Patch/.test(input) && /\\*\\*\\* Add File: docs\\/cache-notes\\.md/.test(input)) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/docs\\/cache-notes\\.md|new file mode)/.test(input))\n  );\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/apply_patch update existing file",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Update README.md so it mentions the promptfoo harness.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply structured multi-file patches",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "input": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "input"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    /\\*\\*\\* Update File: README\\.md/.test(input) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/README\\.md|--- a\\/README\\.md)/.test(input))\n  );\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/web_search search recent cache bug reports",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/brave-search.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Search the web for recent Qwen prefix cache bugs from the last month.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "web_search",
+                "description": "Search the web",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    },
+                    "freshness": {
+                      "type": "string"
+                    },
+                    "count": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_search' &&\n  /Qwen|prefix cache/i.test(String(args.query || '')) &&\n  (args.freshness !== undefined || args.count !== undefined);\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/web_fetch fetch docs page",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Fetch and extract the readable content from https://opencode.ai/docs/tools/.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "web_fetch",
+                "description": "Fetch a URL and extract readable text",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst url = String(parsed.tool_calls[0]?.function?.arguments?.url || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_fetch' &&\n  /https:\\/\\/opencode\\.ai\\/docs\\/tools\\/?/.test(url);\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/browser navigate to docs",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Open https://example.com in the managed browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_navigate",
+                "description": "Navigate the managed browser to a URL",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "profile": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_navigate' &&\n  /https:\\/\\/example\\.com/.test(String(parsed.tool_calls[0].function.arguments.url || ''));\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/browser snapshot current page",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Get a snapshot of the current browser page.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_snapshot",
+                "description": "Capture a browser snapshot",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "profile": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_snapshot';\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/browser click by selector",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Click the Sign in button in the managed browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_click",
+                "description": "Click an element in the browser",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "selector": {
+                      "type": "string"
+                    },
+                    "profile": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "selector"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst selector = String(parsed.tool_calls[0]?.function?.arguments?.selector || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_click' &&\n  selector.length > 0;\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/browser type credentials",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Type syl@example.com into the email field in the managed browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_type",
+                "description": "Type into a browser field",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "selector": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "profile": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "selector",
+                    "text"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_type' &&\n  /@/.test(String(args.text || '')) &&\n  String(args.selector || '').length > 0;\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/browser press enter",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Press Enter in the managed browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_press",
+                "description": "Press a keyboard key in the browser",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "profile": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_press' &&\n  /enter/i.test(String(parsed.tool_calls[0].function.arguments.key || ''));\n"
+          }
+        ]
+      }
+    ],
+    "scenarios": [],
+    "env": {},
+    "outputPath": [
+      "/Volumes/edata/promptfoo/data/maclocal-api/current/openclaw-adaptive-xml-mlx-community_gemma-4-e4b-it-4bit.json"
+    ],
+    "extensions": [],
+    "metadata": {},
+    "evaluateOptions": {}
+  },
+  "shareableUrl": null,
+  "metadata": {
+    "promptfooVersion": "0.120.26",
+    "nodeVersion": "v25.8.1",
+    "platform": "darwin",
+    "arch": "arm64",
+    "exportedAt": "2026-04-03T03:12:04.975Z",
+    "evaluationCreatedAt": "2026-04-03T03:10:52.661Z"
+  }
+}

@@ -1,0 +1,4063 @@
+{
+  "evalId": "eval-7PO-2026-04-03T02:54:10",
+  "results": {
+    "version": 3,
+    "timestamp": "2026-04-03T02:54:10.830Z",
+    "prompts": [
+      {
+        "id": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "raw": "{{prompt}}",
+        "label": "{{prompt}}",
+        "provider": "afm-default-frameworks",
+        "metrics": {
+          "score": 0,
+          "testPassCount": 0,
+          "testFailCount": 8,
+          "testErrorCount": 0,
+          "assertPassCount": 0,
+          "assertFailCount": 8,
+          "totalLatencyMs": 51618,
+          "tokenUsage": {
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "total": 0,
+            "numRequests": 8,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0
+            },
+            "assertions": {
+              "total": 0,
+              "prompt": 0,
+              "completion": 0,
+              "cached": 0,
+              "numRequests": 0,
+              "completionDetails": {
+                "reasoning": 0,
+                "acceptedPrediction": 0,
+                "rejectedPrediction": 0
+              }
+            }
+          },
+          "namedScores": {},
+          "namedScoresCount": {},
+          "cost": 0
+        }
+      }
+    ],
+    "results": [
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'grep' &&\n  /PrefixCache Save complete/i.test(String(parsed.tool_calls[0].function.arguments.pattern || ''));",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'grep' &&\n  /PrefixCache Save complete/i.test(String(parsed.tool_calls[0].function.arguments.pattern || ''));",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'grep' &&\n  /PrefixCache Save complete/i.test(String(parsed.tool_calls[0].function.arguments.pattern || ''));",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'grep' &&\n  /PrefixCache Save complete/i.test(String(parsed.tool_calls[0].function.arguments.pattern || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "1de3ea59-edf1-4c48-b13c-df13ccd3d147",
+        "latencyMs": 2777,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Find where PrefixCache Save complete is logged in the codebase.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-frameworks"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:grep{pattern:<|\\\"|>PrefixCache Save complete<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 2777,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a coding agent using OpenCode-style tools. Prefer targeted search before opening files."
+                },
+                {
+                  "role": "user",
+                  "content": "Find where PrefixCache Save complete is logged in the codebase."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "grep",
+                    "description": "Search file contents",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "pattern": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": "string"
+                        },
+                        "include": {
+                          "type": "string"
+                        },
+                        "literal_text": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "pattern"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "view",
+                    "description": "View file contents",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "file_path": {
+                          "type": "string"
+                        },
+                        "offset": {
+                          "type": "integer"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "file_path"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "created": 1775184853,
+              "id": "chatcmpl-21D54397",
+              "timings": {
+                "prompt_ms": 669.6031093597412,
+                "prompt_n": 170,
+                "predicted_ms": 2086.6769552230835,
+                "predicted_n": 52
+              },
+              "usage": {
+                "prompt_tokens": 170,
+                "completion_time": 2.09,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_tokens": 52,
+                "prompt_time": 0.67,
+                "completion_tokens_per_second": 24.92,
+                "total_time": 2.76,
+                "prompt_tokens_per_second": 253.88,
+                "total_tokens": 222,
+                "peak_memory_gib": 16.6
+              },
+              "choices": [
+                {
+                  "finish_reason": "stop",
+                  "index": 0,
+                  "message": {
+                    "reasoning_content": "thought\nI need to find where the string \"PrefixCache Save complete\" is logged in the codebase. I will start by using `grep` to search for this string.",
+                    "role": "assistant",
+                    "content": "<|tool_call>call:grep{pattern:<|\"|>PrefixCache Save complete<|\"|>}<tool_call|>"
+                  }
+                }
+              ],
+              "object": "chat.completion",
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "911",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:54:13 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "opencode: use grep before reading whole files",
+          "metadata": {
+            "suite": "framework_schemas",
+            "classification": "not_yet_classified",
+            "source": "opencode",
+            "framework": "OpenCode"
+          },
+          "vars": {
+            "prompt": "Find where PrefixCache Save complete is logged in the codebase.",
+            "system_prompt": "You are a coding agent using OpenCode-style tools. Prefer targeted search before opening files.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "grep",
+                  "description": "Search file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "pattern": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "include": {
+                        "type": "string"
+                      },
+                      "literal_text": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "pattern"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "view",
+                  "description": "View file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "file_path": {
+                        "type": "string"
+                      },
+                      "offset": {
+                        "type": "integer"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "file_path"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'grep' &&\n  /PrefixCache Save complete/i.test(String(parsed.tool_calls[0].function.arguments.pattern || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 0,
+        "vars": {
+          "prompt": "Find where PrefixCache Save complete is logged in the codebase.",
+          "system_prompt": "You are a coding agent using OpenCode-style tools. Prefer targeted search before opening files.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "grep",
+                "description": "Search file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "pattern": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "include": {
+                      "type": "string"
+                    },
+                    "literal_text": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "pattern"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "view",
+                "description": "View file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "file_path": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "file_path"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "opencode",
+          "framework": "OpenCode",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a coding agent using OpenCode-style tools. Prefer targeted search before opening files."
+              },
+              {
+                "role": "user",
+                "content": "Find where PrefixCache Save complete is logged in the codebase."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "grep",
+                  "description": "Search file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "pattern": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "include": {
+                        "type": "string"
+                      },
+                      "literal_text": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "pattern"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "view",
+                  "description": "View file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "file_path": {
+                        "type": "string"
+                      },
+                      "offset": {
+                        "type": "integer"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "file_path"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "created": 1775184853,
+            "id": "chatcmpl-21D54397",
+            "timings": {
+              "prompt_ms": 669.6031093597412,
+              "prompt_n": 170,
+              "predicted_ms": 2086.6769552230835,
+              "predicted_n": 52
+            },
+            "usage": {
+              "prompt_tokens": 170,
+              "completion_time": 2.09,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens": 52,
+              "prompt_time": 0.67,
+              "completion_tokens_per_second": 24.92,
+              "total_time": 2.76,
+              "prompt_tokens_per_second": 253.88,
+              "total_tokens": 222,
+              "peak_memory_gib": 16.6
+            },
+            "choices": [
+              {
+                "finish_reason": "stop",
+                "index": 0,
+                "message": {
+                  "reasoning_content": "thought\nI need to find where the string \"PrefixCache Save complete\" is logged in the codebase. I will start by using `grep` to search for this string.",
+                  "role": "assistant",
+                  "content": "<|tool_call>call:grep{pattern:<|\"|>PrefixCache Save complete<|\"|>}<tool_call|>"
+                }
+              }
+            ],
+            "object": "chat.completion",
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "911",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:54:13 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'view' &&\n  /MLXModelService\\.swift$/.test(String(call.function.arguments.file_path || ''));",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'view' &&\n  /MLXModelService\\.swift$/.test(String(call.function.arguments.file_path || ''));",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'view' &&\n  /MLXModelService\\.swift$/.test(String(call.function.arguments.file_path || ''));",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'view' &&\n  /MLXModelService\\.swift$/.test(String(call.function.arguments.file_path || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "0e2a9da6-ec63-4dba-993a-5a976eb4cd22",
+        "latencyMs": 5210,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Open Sources/MacLocalAPI/Models/MLXModelService.swift and inspect the restore path near the middle of the file.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-frameworks"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"concentra\\n<|tool_call>call:view{file_path:<|\\\"|>Sources/MacLocalAPI/Models/MLXModelService.swift<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 5210,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a coding agent using OpenCode-style tools."
+                },
+                {
+                  "role": "user",
+                  "content": "Open Sources/MacLocalAPI/Models/MLXModelService.swift and inspect the restore path near the middle of the file."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "view",
+                    "description": "View file contents",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "file_path": {
+                          "type": "string"
+                        },
+                        "offset": {
+                          "type": "integer"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "file_path"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "grep",
+                    "description": "Search file contents",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "pattern": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "pattern"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "created": 1775184858,
+              "usage": {
+                "prompt_tokens_per_second": 272.59,
+                "total_time": 5.19,
+                "peak_memory_gib": 16.5,
+                "total_tokens": 274,
+                "completion_tokens": 115,
+                "completion_time": 4.61,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_tokens_per_second": 24.94,
+                "prompt_tokens": 159,
+                "prompt_time": 0.58
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "id": "chatcmpl-B0DB71A1",
+              "object": "chat.completion",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "concentra\n<|tool_call>call:view{file_path:<|\"|>Sources/MacLocalAPI/Models/MLXModelService.swift<|\"|>}<tool_call|>",
+                    "reasoning_content": "thought\nThe user wants me to inspect a specific part of the file `Sources/MacLocalAPI/Models/MLXModelService.swift`, specifically the \"restore path\" near the middle of the file.\n\nI need to:\n1.  Open the file `Sources/MacLocalAPI/Models/MLXModelService.swift`.\n2.  Locate the \"restore path\" logic.",
+                    "role": "assistant"
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "timings": {
+                "prompt_n": 159,
+                "prompt_ms": 583.2880735397339,
+                "predicted_n": 115,
+                "predicted_ms": 4611.486911773682
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1109",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:54:18 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "opencode: use view to inspect a specific file",
+          "metadata": {
+            "suite": "framework_schemas",
+            "classification": "not_yet_classified",
+            "source": "opencode",
+            "framework": "OpenCode"
+          },
+          "vars": {
+            "prompt": "Open Sources/MacLocalAPI/Models/MLXModelService.swift and inspect the restore path near the middle of the file.",
+            "system_prompt": "You are a coding agent using OpenCode-style tools.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "view",
+                  "description": "View file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "file_path": {
+                        "type": "string"
+                      },
+                      "offset": {
+                        "type": "integer"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "file_path"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "grep",
+                  "description": "Search file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "pattern": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "pattern"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'view' &&\n  /MLXModelService\\.swift$/.test(String(call.function.arguments.file_path || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 1,
+        "vars": {
+          "prompt": "Open Sources/MacLocalAPI/Models/MLXModelService.swift and inspect the restore path near the middle of the file.",
+          "system_prompt": "You are a coding agent using OpenCode-style tools.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "view",
+                "description": "View file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "file_path": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "file_path"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "grep",
+                "description": "Search file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "pattern": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pattern"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "opencode",
+          "framework": "OpenCode",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a coding agent using OpenCode-style tools."
+              },
+              {
+                "role": "user",
+                "content": "Open Sources/MacLocalAPI/Models/MLXModelService.swift and inspect the restore path near the middle of the file."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "view",
+                  "description": "View file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "file_path": {
+                        "type": "string"
+                      },
+                      "offset": {
+                        "type": "integer"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "file_path"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "grep",
+                  "description": "Search file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "pattern": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "pattern"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "created": 1775184858,
+            "usage": {
+              "prompt_tokens_per_second": 272.59,
+              "total_time": 5.19,
+              "peak_memory_gib": 16.5,
+              "total_tokens": 274,
+              "completion_tokens": 115,
+              "completion_time": 4.61,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens_per_second": 24.94,
+              "prompt_tokens": 159,
+              "prompt_time": 0.58
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "id": "chatcmpl-B0DB71A1",
+            "object": "chat.completion",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "concentra\n<|tool_call>call:view{file_path:<|\"|>Sources/MacLocalAPI/Models/MLXModelService.swift<|\"|>}<tool_call|>",
+                  "reasoning_content": "thought\nThe user wants me to inspect a specific part of the file `Sources/MacLocalAPI/Models/MLXModelService.swift`, specifically the \"restore path\" near the middle of the file.\n\nI need to:\n1.  Open the file `Sources/MacLocalAPI/Models/MLXModelService.swift`.\n2.  Locate the \"restore path\" logic.",
+                  "role": "assistant"
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "timings": {
+              "prompt_n": 159,
+              "prompt_ms": 583.2880735397339,
+              "predicted_n": 115,
+              "predicted_ms": 4611.486911773682
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1109",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:54:18 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'diagnostics';",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'diagnostics';",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'diagnostics';",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'diagnostics';\n"
+              }
+            }
+          ]
+        },
+        "id": "42725e76-322d-4e34-a7d0-fe8e68c3e493",
+        "latencyMs": 11934,
+        "namedScores": {},
+        "prompt": {
+          "raw": "What should you do next?",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-frameworks"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"I have updated the controller to include indices for non-streaming tool calls. To ensure this change is correct and doesn't introduce any regressions, I should now:\\n\\n1.  **Verify the changes**: Review the modified code to ensure the logic for adding indices to tool calls is correct.\\n2.  **Run tests**: Execute any existing tests related to chat completions and tool calling to verify the fix.\\n3.  **Manual verification**: If possible, trigger a tool call in the application to confirm the output format matches the expected OpenAI-compatible API.\\n\\nWould you like me to start by verifying the code or running the tests?\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 11934,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a coding agent using OpenCode-style tools. After edits, prefer diagnostics before broader commands."
+                },
+                {
+                  "role": "user",
+                  "content": "Update the controller to add index to non-streaming tool calls."
+                },
+                {
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "id": "call_patch_1",
+                      "type": "function",
+                      "function": {
+                        "name": "patch",
+                        "arguments": "{\"file_path\":\"Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift\",\"diff\":\"...\"}"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "tool_call_id": "call_patch_1",
+                  "content": "Patch applied successfully"
+                },
+                {
+                  "role": "user",
+                  "content": "What should you do next?"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "diagnostics",
+                    "description": "Get diagnostics information",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "file_path": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "bash",
+                    "description": "Execute shell commands",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "command": {
+                          "type": "string"
+                        },
+                        "timeout": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "command"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "timings": {
+                "prompt_ms": 862.7779483795166,
+                "prompt_n": 225,
+                "predicted_ms": 11053.210020065308,
+                "predicted_n": 305
+              },
+              "id": "chatcmpl-287516AB",
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "usage": {
+                "completion_tokens": 305,
+                "total_time": 11.92,
+                "peak_memory_gib": 16.8,
+                "prompt_tokens": 225,
+                "prompt_time": 0.86,
+                "total_tokens": 530,
+                "completion_time": 11.05,
+                "completion_tokens_per_second": 27.59,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens_per_second": 260.79
+              },
+              "object": "chat.completion",
+              "choices": [
+                {
+                  "finish_reason": "stop",
+                  "index": 0,
+                  "message": {
+                    "reasoning_content": "thought\nThe user is asking \"What should you do next?\" after I applied a patch to `MLXChatCompletionsController.swift` to add indices to non-streaming tool calls.\n\nLooking at the previous turn, I applied a patch to `Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift`.\n\nNow I need to verify if the change is correct and if it breaks anything.\nI should check the code I just changed and potentially run tests if available.\n\nWait, I don't have the context of the previous turn's patch in the current prompt, but the history shows I applied a patch.\n\nLet's examine the file `Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift` to see what was changed and if it's consistent.",
+                    "role": "assistant",
+                    "content": "I have updated the controller to include indices for non-streaming tool calls. To ensure this change is correct and doesn't introduce any regressions, I should now:\n\n1.  **Verify the changes**: Review the modified code to ensure the logic for adding indices to tool calls is correct.\n2.  **Run tests**: Execute any existing tests related to chat completions and tool calling to verify the fix.\n3.  **Manual verification**: If possible, trigger a tool call in the application to confirm the output format matches the expected OpenAI-compatible API.\n\nWould you like me to start by verifying the code or running the tests?"
+                  }
+                }
+              ],
+              "created": 1775184870,
+              "model": "mlx-community/gemma-4-31b-it-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "2027",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:54:30 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "opencode: prefer diagnostics after code edit",
+          "metadata": {
+            "suite": "framework_schemas",
+            "classification": "not_yet_classified",
+            "source": "opencode",
+            "framework": "OpenCode"
+          },
+          "vars": {
+            "prompt": "What should you do next?",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a coding agent using OpenCode-style tools. After edits, prefer diagnostics before broader commands."
+              },
+              {
+                "role": "user",
+                "content": "Update the controller to add index to non-streaming tool calls."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "call_patch_1",
+                    "type": "function",
+                    "function": {
+                      "name": "patch",
+                      "arguments": "{\"file_path\":\"Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift\",\"diff\":\"...\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_patch_1",
+                "content": "Patch applied successfully"
+              },
+              {
+                "role": "user",
+                "content": "What should you do next?"
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "diagnostics",
+                  "description": "Get diagnostics information",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "file_path": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "bash",
+                  "description": "Execute shell commands",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      },
+                      "timeout": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'diagnostics';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 2,
+        "vars": {
+          "prompt": "What should you do next?",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a coding agent using OpenCode-style tools. After edits, prefer diagnostics before broader commands."
+            },
+            {
+              "role": "user",
+              "content": "Update the controller to add index to non-streaming tool calls."
+            },
+            {
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "id": "call_patch_1",
+                  "type": "function",
+                  "function": {
+                    "name": "patch",
+                    "arguments": "{\"file_path\":\"Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift\",\"diff\":\"...\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_patch_1",
+              "content": "Patch applied successfully"
+            },
+            {
+              "role": "user",
+              "content": "What should you do next?"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "diagnostics",
+                "description": "Get diagnostics information",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "file_path": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "bash",
+                "description": "Execute shell commands",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "timeout": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "opencode",
+          "framework": "OpenCode",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a coding agent using OpenCode-style tools. After edits, prefer diagnostics before broader commands."
+              },
+              {
+                "role": "user",
+                "content": "Update the controller to add index to non-streaming tool calls."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "call_patch_1",
+                    "type": "function",
+                    "function": {
+                      "name": "patch",
+                      "arguments": "{\"file_path\":\"Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift\",\"diff\":\"...\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_patch_1",
+                "content": "Patch applied successfully"
+              },
+              {
+                "role": "user",
+                "content": "What should you do next?"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "diagnostics",
+                  "description": "Get diagnostics information",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "file_path": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "bash",
+                  "description": "Execute shell commands",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      },
+                      "timeout": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "timings": {
+              "prompt_ms": 862.7779483795166,
+              "prompt_n": 225,
+              "predicted_ms": 11053.210020065308,
+              "predicted_n": 305
+            },
+            "id": "chatcmpl-287516AB",
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "usage": {
+              "completion_tokens": 305,
+              "total_time": 11.92,
+              "peak_memory_gib": 16.8,
+              "prompt_tokens": 225,
+              "prompt_time": 0.86,
+              "total_tokens": 530,
+              "completion_time": 11.05,
+              "completion_tokens_per_second": 27.59,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens_per_second": 260.79
+            },
+            "object": "chat.completion",
+            "choices": [
+              {
+                "finish_reason": "stop",
+                "index": 0,
+                "message": {
+                  "reasoning_content": "thought\nThe user is asking \"What should you do next?\" after I applied a patch to `MLXChatCompletionsController.swift` to add indices to non-streaming tool calls.\n\nLooking at the previous turn, I applied a patch to `Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift`.\n\nNow I need to verify if the change is correct and if it breaks anything.\nI should check the code I just changed and potentially run tests if available.\n\nWait, I don't have the context of the previous turn's patch in the current prompt, but the history shows I applied a patch.\n\nLet's examine the file `Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift` to see what was changed and if it's consistent.",
+                  "role": "assistant",
+                  "content": "I have updated the controller to include indices for non-streaming tool calls. To ensure this change is correct and doesn't introduce any regressions, I should now:\n\n1.  **Verify the changes**: Review the modified code to ensure the logic for adding indices to tool calls is correct.\n2.  **Run tests**: Execute any existing tests related to chat completions and tool calling to verify the fix.\n3.  **Manual verification**: If possible, trigger a tool call in the application to confirm the output format matches the expected OpenAI-compatible API.\n\nWould you like me to start by verifying the code or running the tests?"
+                }
+              }
+            ],
+            "created": 1775184870,
+            "model": "mlx-community/gemma-4-31b-it-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "2027",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:54:30 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read';",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read';",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read';",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read';\n"
+              }
+            }
+          ]
+        },
+        "id": "ca64a054-5abf-441b-ba3e-fbc435d81022",
+        "latencyMs": 3132,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Change the README to document the new promptfoo toolcall-quality suite.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-frameworks"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:read{filePath:<|\\\"|>README.md<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 3132,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a Pi-style coding agent with only read, write, edit, and bash. Inspect before editing."
+                },
+                {
+                  "role": "user",
+                  "content": "Change the README to document the new promptfoo toolcall-quality suite."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "read",
+                    "description": "Read file contents",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "filePath": {
+                          "type": "string"
+                        },
+                        "offset": {
+                          "type": "integer"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "filePath"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "edit",
+                    "description": "Replace exact text in a file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "filePath": {
+                          "type": "string"
+                        },
+                        "oldText": {
+                          "type": "string"
+                        },
+                        "newText": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "filePath",
+                        "oldText",
+                        "newText"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "write",
+                    "description": "Write a whole file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "filePath": {
+                          "type": "string"
+                        },
+                        "content": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "filePath",
+                        "content"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "<|tool_call>call:read{filePath:<|\"|>README.md<|\"|>}<tool_call|>",
+                    "role": "assistant",
+                    "reasoning_content": "thought\nI need to update the README to document the new `toolcall-quality` suite for `promptfoo`.\nFirst, I need to find the README file and see its current content."
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "id": "chatcmpl-1FA1DE67",
+              "created": 1775184873,
+              "usage": {
+                "prompt_tokens": 228,
+                "peak_memory_gib": 16.7,
+                "total_tokens": 284,
+                "completion_tokens": 56,
+                "prompt_time": 0.87,
+                "completion_tokens_per_second": 24.91,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_time": 2.25,
+                "total_time": 3.12,
+                "prompt_tokens_per_second": 262.57
+              },
+              "object": "chat.completion",
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "timings": {
+                "predicted_ms": 2247.7810382843018,
+                "prompt_n": 228,
+                "prompt_ms": 868.32594871521,
+                "predicted_n": 56
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "907",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:54:33 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "pi: prefer read before edit for existing file changes",
+          "metadata": {
+            "suite": "framework_schemas",
+            "classification": "not_yet_classified",
+            "source": "pi",
+            "framework": "Pi"
+          },
+          "vars": {
+            "prompt": "Change the README to document the new promptfoo toolcall-quality suite.",
+            "system_prompt": "You are a Pi-style coding agent with only read, write, edit, and bash. Inspect before editing.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "read",
+                  "description": "Read file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "offset": {
+                        "type": "integer"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "filePath"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "edit",
+                  "description": "Replace exact text in a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "oldText": {
+                        "type": "string"
+                      },
+                      "newText": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "filePath",
+                      "oldText",
+                      "newText"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "write",
+                  "description": "Write a whole file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "content": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "filePath",
+                      "content"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 3,
+        "vars": {
+          "prompt": "Change the README to document the new promptfoo toolcall-quality suite.",
+          "system_prompt": "You are a Pi-style coding agent with only read, write, edit, and bash. Inspect before editing.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read",
+                "description": "Read file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "filePath"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "edit",
+                "description": "Replace exact text in a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "oldText": {
+                      "type": "string"
+                    },
+                    "newText": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "filePath",
+                    "oldText",
+                    "newText"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "write",
+                "description": "Write a whole file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "filePath",
+                    "content"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "pi",
+          "framework": "Pi",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a Pi-style coding agent with only read, write, edit, and bash. Inspect before editing."
+              },
+              {
+                "role": "user",
+                "content": "Change the README to document the new promptfoo toolcall-quality suite."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "read",
+                  "description": "Read file contents",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "offset": {
+                        "type": "integer"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "filePath"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "edit",
+                  "description": "Replace exact text in a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "oldText": {
+                        "type": "string"
+                      },
+                      "newText": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "filePath",
+                      "oldText",
+                      "newText"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "write",
+                  "description": "Write a whole file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "content": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "filePath",
+                      "content"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "<|tool_call>call:read{filePath:<|\"|>README.md<|\"|>}<tool_call|>",
+                  "role": "assistant",
+                  "reasoning_content": "thought\nI need to update the README to document the new `toolcall-quality` suite for `promptfoo`.\nFirst, I need to find the README file and see its current content."
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "id": "chatcmpl-1FA1DE67",
+            "created": 1775184873,
+            "usage": {
+              "prompt_tokens": 228,
+              "peak_memory_gib": 16.7,
+              "total_tokens": 284,
+              "completion_tokens": 56,
+              "prompt_time": 0.87,
+              "completion_tokens_per_second": 24.91,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_time": 2.25,
+              "total_time": 3.12,
+              "prompt_tokens_per_second": 262.57
+            },
+            "object": "chat.completion",
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "timings": {
+              "predicted_ms": 2247.7810382843018,
+              "prompt_n": 228,
+              "prompt_ms": 868.32594871521,
+              "predicted_n": 56
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "907",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:54:33 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nif (parsed.tool_calls.length === 1) {\n  return parsed.tool_calls[0].function.name === 'edit';\n}\nreturn parsed.tool_calls.length === 0 &&\n  /which file|file path|specify the file/i.test(parsed.content);",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nif (parsed.tool_calls.length === 1) {\n  return parsed.tool_calls[0].function.name === 'edit';\n}\nreturn parsed.tool_calls.length === 0 &&\n  /which file|file path|specify the file/i.test(parsed.content);",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nif (parsed.tool_calls.length === 1) {\n  return parsed.tool_calls[0].function.name === 'edit';\n}\nreturn parsed.tool_calls.length === 0 &&\n  /which file|file path|specify the file/i.test(parsed.content);",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nif (parsed.tool_calls.length === 1) {\n  return parsed.tool_calls[0].function.name === 'edit';\n}\nreturn parsed.tool_calls.length === 0 &&\n  /which file|file path|specify the file/i.test(parsed.content);\n"
+              }
+            }
+          ]
+        },
+        "id": "1e134519-3fbe-421f-a9ad-00164624be0d",
+        "latencyMs": 4320,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Replace the phrase 'cache: MISS' with 'cache: MISS suffix=41' in the existing controller log line.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-frameworks"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:write{content:<|\\\"|>grep -r \\\"cache: MISS\\\".<|\\\"|>,filePath:<|\\\"|>search_log.sh<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 4320,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a Pi-style coding agent. Use edit for precise replacements in existing files."
+                },
+                {
+                  "role": "user",
+                  "content": "Replace the phrase 'cache: MISS' with 'cache: MISS suffix=41' in the existing controller log line."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "edit",
+                    "description": "Replace exact text in a file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "filePath": {
+                          "type": "string"
+                        },
+                        "oldText": {
+                          "type": "string"
+                        },
+                        "newText": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "filePath",
+                        "oldText",
+                        "newText"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "write",
+                    "description": "Write a whole file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "filePath": {
+                          "type": "string"
+                        },
+                        "content": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "filePath",
+                        "content"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "created": 1775184878,
+              "usage": {
+                "prompt_tokens_per_second": 266.55,
+                "total_time": 4.31,
+                "peak_memory_gib": 16.6,
+                "completion_tokens": 100,
+                "total_tokens": 279,
+                "completion_time": 3.64,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_tokens_per_second": 27.51,
+                "prompt_tokens": 179,
+                "prompt_time": 0.67
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "id": "chatcmpl-2E72734F",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "<|tool_call>call:write{content:<|\"|>grep -r \"cache: MISS\".<|\"|>,filePath:<|\"|>search_log.sh<|\"|>}<tool_call|>",
+                    "reasoning_content": "thought\nThe user wants to replace the string `'cache: MISS'` with `'cache: MISS suffix=41'` in a controller log line.\nI need to find the file that contains this log line. Since no file path was provided, I'll start by searching for the string `'cache: MISS'` in the codebase.",
+                    "role": "assistant"
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "object": "chat.completion",
+              "timings": {
+                "predicted_n": 100,
+                "prompt_n": 179,
+                "predicted_ms": 3635.3930234909058,
+                "prompt_ms": 671.5409755706787
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1072",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:54:37 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "pi: use edit or ask for file path on surgical replacement",
+          "metadata": {
+            "suite": "framework_schemas",
+            "classification": "not_yet_classified",
+            "source": "pi",
+            "framework": "Pi"
+          },
+          "vars": {
+            "prompt": "Replace the phrase 'cache: MISS' with 'cache: MISS suffix=41' in the existing controller log line.",
+            "system_prompt": "You are a Pi-style coding agent. Use edit for precise replacements in existing files.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "edit",
+                  "description": "Replace exact text in a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "oldText": {
+                        "type": "string"
+                      },
+                      "newText": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "filePath",
+                      "oldText",
+                      "newText"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "write",
+                  "description": "Write a whole file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "content": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "filePath",
+                      "content"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nif (parsed.tool_calls.length === 1) {\n  return parsed.tool_calls[0].function.name === 'edit';\n}\nreturn parsed.tool_calls.length === 0 &&\n  /which file|file path|specify the file/i.test(parsed.content);\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 4,
+        "vars": {
+          "prompt": "Replace the phrase 'cache: MISS' with 'cache: MISS suffix=41' in the existing controller log line.",
+          "system_prompt": "You are a Pi-style coding agent. Use edit for precise replacements in existing files.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "edit",
+                "description": "Replace exact text in a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "oldText": {
+                      "type": "string"
+                    },
+                    "newText": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "filePath",
+                    "oldText",
+                    "newText"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "write",
+                "description": "Write a whole file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "filePath",
+                    "content"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "pi",
+          "framework": "Pi",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a Pi-style coding agent. Use edit for precise replacements in existing files."
+              },
+              {
+                "role": "user",
+                "content": "Replace the phrase 'cache: MISS' with 'cache: MISS suffix=41' in the existing controller log line."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "edit",
+                  "description": "Replace exact text in a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "oldText": {
+                        "type": "string"
+                      },
+                      "newText": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "filePath",
+                      "oldText",
+                      "newText"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "write",
+                  "description": "Write a whole file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "filePath": {
+                        "type": "string"
+                      },
+                      "content": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "filePath",
+                      "content"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "created": 1775184878,
+            "usage": {
+              "prompt_tokens_per_second": 266.55,
+              "total_time": 4.31,
+              "peak_memory_gib": 16.6,
+              "completion_tokens": 100,
+              "total_tokens": 279,
+              "completion_time": 3.64,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens_per_second": 27.51,
+              "prompt_tokens": 179,
+              "prompt_time": 0.67
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "id": "chatcmpl-2E72734F",
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "<|tool_call>call:write{content:<|\"|>grep -r \"cache: MISS\".<|\"|>,filePath:<|\"|>search_log.sh<|\"|>}<tool_call|>",
+                  "reasoning_content": "thought\nThe user wants to replace the string `'cache: MISS'` with `'cache: MISS suffix=41'` in a controller log line.\nI need to find the file that contains this log line. Since no file path was provided, I'll start by searching for the string `'cache: MISS'` in the codebase.",
+                  "role": "assistant"
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "object": "chat.completion",
+            "timings": {
+              "predicted_n": 100,
+              "prompt_n": 179,
+              "predicted_ms": 3635.3930234909058,
+              "prompt_ms": 671.5409755706787
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1072",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:54:37 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'session_search';",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'session_search';",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'session_search';",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'session_search';\n"
+              }
+            }
+          ]
+        },
+        "id": "78e9687f-6bba-4f55-906e-52d64222a37b",
+        "latencyMs": 3320,
+        "namedScores": {},
+        "prompt": {
+          "raw": "What did we conclude last time about exact replay on recurrent-cache models?",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-frameworks"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:session_search{query:<|\\\"|>exact replay recurrent-cache models<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 3320,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are an OpenClaw-style agent with session persistence and memory."
+                },
+                {
+                  "role": "user",
+                  "content": "What did we conclude last time about exact replay on recurrent-cache models?"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "session_search",
+                    "description": "Search prior conversation history and saved sessions",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "query": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "query"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "send_message",
+                    "description": "Send a message to a chat channel",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "channel": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "channel",
+                        "text"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "created": 1775184881,
+              "id": "chatcmpl-6A9E94CA",
+              "timings": {
+                "prompt_n": 146,
+                "prompt_ms": 520.8460092544556,
+                "predicted_n": 84,
+                "predicted_ms": 2785.306930541992
+              },
+              "usage": {
+                "prompt_tokens": 146,
+                "completion_time": 2.79,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_time": 0.52,
+                "completion_tokens": 84,
+                "completion_tokens_per_second": 30.16,
+                "total_time": 3.31,
+                "prompt_tokens_per_second": 280.31,
+                "total_tokens": 230,
+                "peak_memory_gib": 16.5
+              },
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "<|tool_call>call:session_search{query:<|\"|>exact replay recurrent-cache models<|\"|>}<tool_call|>",
+                    "reasoning_content": "thought\nThe user is asking about a previous conclusion regarding \"exact replay on recurrent-cache models\".\nI need to check the conversation history or memory to see if this topic was discussed.\nI will use `session_search` to find information about \"exact replay\" and \"recurrent-cache models\".",
+                    "role": "assistant"
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "object": "chat.completion",
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1076",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:54:41 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "openclaw: choose session search for prior context recall",
+          "metadata": {
+            "suite": "framework_schemas",
+            "classification": "not_yet_classified",
+            "source": "openclaw",
+            "framework": "OpenClaw"
+          },
+          "vars": {
+            "prompt": "What did we conclude last time about exact replay on recurrent-cache models?",
+            "system_prompt": "You are an OpenClaw-style agent with session persistence and memory.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "session_search",
+                  "description": "Search prior conversation history and saved sessions",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "send_message",
+                  "description": "Send a message to a chat channel",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "channel": {
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "channel",
+                      "text"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'session_search';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 5,
+        "vars": {
+          "prompt": "What did we conclude last time about exact replay on recurrent-cache models?",
+          "system_prompt": "You are an OpenClaw-style agent with session persistence and memory.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "session_search",
+                "description": "Search prior conversation history and saved sessions",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "send_message",
+                "description": "Send a message to a chat channel",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "channel": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "channel",
+                    "text"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "openclaw",
+          "framework": "OpenClaw",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an OpenClaw-style agent with session persistence and memory."
+              },
+              {
+                "role": "user",
+                "content": "What did we conclude last time about exact replay on recurrent-cache models?"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "session_search",
+                  "description": "Search prior conversation history and saved sessions",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "send_message",
+                  "description": "Send a message to a chat channel",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "channel": {
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "channel",
+                      "text"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "created": 1775184881,
+            "id": "chatcmpl-6A9E94CA",
+            "timings": {
+              "prompt_n": 146,
+              "prompt_ms": 520.8460092544556,
+              "predicted_n": 84,
+              "predicted_ms": 2785.306930541992
+            },
+            "usage": {
+              "prompt_tokens": 146,
+              "completion_time": 2.79,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_time": 0.52,
+              "completion_tokens": 84,
+              "completion_tokens_per_second": 30.16,
+              "total_time": 3.31,
+              "prompt_tokens_per_second": 280.31,
+              "total_tokens": 230,
+              "peak_memory_gib": 16.5
+            },
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "<|tool_call>call:session_search{query:<|\"|>exact replay recurrent-cache models<|\"|>}<tool_call|>",
+                  "reasoning_content": "thought\nThe user is asking about a previous conclusion regarding \"exact replay on recurrent-cache models\".\nI need to check the conversation history or memory to see if this topic was discussed.\nI will use `session_search` to find information about \"exact replay\" and \"recurrent-cache models\".",
+                  "role": "assistant"
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "object": "chat.completion",
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1076",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:54:41 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'clarify';",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'clarify';",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'clarify';",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'clarify';\n"
+              }
+            }
+          ]
+        },
+        "id": "cf44f724-745b-47e8-93de-f8b884aa249c",
+        "latencyMs": 9400,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Book me a flight to Tokyo next month.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-frameworks"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<|tool_call>call:clarify{question:<|\\\"|>I'd be happy to help you book a flight to Tokyo! To get started, could you please provide a few more details?\\n\\n1. Where will you be flying from?\\n2. What are your preferred travel dates next month?\\n3. Do you have a preferred airline or cabin class (e.g., Economy, Business)?\\n4. Do you have a specific budget in mind?<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 9400,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a Hermes-style agent with clarify and delegation tools."
+                },
+                {
+                  "role": "user",
+                  "content": "Book me a flight to Tokyo next month."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "clarify",
+                    "description": "Ask a structured clarification question before acting",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "question": {
+                          "type": "string"
+                        },
+                        "fields": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "question"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "delegate_task",
+                    "description": "Delegate a task to a subagent",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "goal": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "goal"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "id": "chatcmpl-441FB5E4",
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+              "created": 1775184890,
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "usage": {
+                "completion_tokens_per_second": 25.3,
+                "completion_time": 8.85,
+                "peak_memory_gib": 16.5,
+                "total_time": 9.39,
+                "prompt_tokens_per_second": 265.41,
+                "prompt_time": 0.54,
+                "total_tokens": 366,
+                "prompt_tokens": 142,
+                "completion_tokens": 224,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                }
+              },
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "reasoning_content": "thought\nThe user wants to book a flight to Tokyo next month.\nTo do this, I need more information:\n1. Departure city.\n2. Specific dates (or a range) in \"next month\".\n3. Preferred class (Economy, Business, etc.).\n4. Budget or preferred airline (optional but helpful).\n\nSince I don't have a flight booking tool directly, I would typically delegate this to a specialized travel agent or search for flights first. However, the prompt asks me to act as a Hermes-style agent with clarify and delegation tools.\n\nFirst, I should clarify the missing details.",
+                    "role": "assistant",
+                    "content": "<|tool_call>call:clarify{question:<|\"|>I'd be happy to help you book a flight to Tokyo! To get started, could you please provide a few more details?\n\n1. Where will you be flying from?\n2. What are your preferred travel dates next month?\n3. Do you have a preferred airline or cabin class (e.g., Economy, Business)?\n4. Do you have a specific budget in mind?<|\"|>}<tool_call|>"
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "object": "chat.completion",
+              "timings": {
+                "prompt_n": 142,
+                "prompt_ms": 535.0170135498047,
+                "predicted_ms": 8852.065920829773,
+                "predicted_n": 224
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1617",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:54:50 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "hermes: use clarify when key booking details are missing",
+          "metadata": {
+            "suite": "framework_schemas",
+            "classification": "not_yet_classified",
+            "source": "hermes",
+            "framework": "Hermes Agent"
+          },
+          "vars": {
+            "prompt": "Book me a flight to Tokyo next month.",
+            "system_prompt": "You are a Hermes-style agent with clarify and delegation tools.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "clarify",
+                  "description": "Ask a structured clarification question before acting",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "question": {
+                        "type": "string"
+                      },
+                      "fields": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "question"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "delegate_task",
+                  "description": "Delegate a task to a subagent",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "goal": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "goal"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'clarify';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 6,
+        "vars": {
+          "prompt": "Book me a flight to Tokyo next month.",
+          "system_prompt": "You are a Hermes-style agent with clarify and delegation tools.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "clarify",
+                "description": "Ask a structured clarification question before acting",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "question": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "question"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_task",
+                "description": "Delegate a task to a subagent",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "goal"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "hermes",
+          "framework": "Hermes Agent",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a Hermes-style agent with clarify and delegation tools."
+              },
+              {
+                "role": "user",
+                "content": "Book me a flight to Tokyo next month."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "clarify",
+                  "description": "Ask a structured clarification question before acting",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "question": {
+                        "type": "string"
+                      },
+                      "fields": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "question"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "delegate_task",
+                  "description": "Delegate a task to a subagent",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "goal": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "goal"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "id": "chatcmpl-441FB5E4",
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit",
+            "created": 1775184890,
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "usage": {
+              "completion_tokens_per_second": 25.3,
+              "completion_time": 8.85,
+              "peak_memory_gib": 16.5,
+              "total_time": 9.39,
+              "prompt_tokens_per_second": 265.41,
+              "prompt_time": 0.54,
+              "total_tokens": 366,
+              "prompt_tokens": 142,
+              "completion_tokens": 224,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              }
+            },
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "reasoning_content": "thought\nThe user wants to book a flight to Tokyo next month.\nTo do this, I need more information:\n1. Departure city.\n2. Specific dates (or a range) in \"next month\".\n3. Preferred class (Economy, Business, etc.).\n4. Budget or preferred airline (optional but helpful).\n\nSince I don't have a flight booking tool directly, I would typically delegate this to a specialized travel agent or search for flights first. However, the prompt asks me to act as a Hermes-style agent with clarify and delegation tools.\n\nFirst, I should clarify the missing details.",
+                  "role": "assistant",
+                  "content": "<|tool_call>call:clarify{question:<|\"|>I'd be happy to help you book a flight to Tokyo! To get started, could you please provide a few more details?\n\n1. Where will you be flying from?\n2. What are your preferred travel dates next month?\n3. Do you have a preferred airline or cabin class (e.g., Economy, Business)?\n4. Do you have a specific budget in mind?<|\"|>}<tool_call|>"
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "object": "chat.completion",
+            "timings": {
+              "prompt_n": 142,
+              "prompt_ms": 535.0170135498047,
+              "predicted_ms": 8852.065920829773,
+              "predicted_n": 224
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1617",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:54:50 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'todo';",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'todo';",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'todo';",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'todo';\n"
+              }
+            }
+          ]
+        },
+        "id": "0b451e29-60c5-48c5-8300-ffc2f1fe9ae2",
+        "latencyMs": 11525,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Plan the work to migrate our Promptfoo harness to nightly CI with classification and reporting.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-default-frameworks"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\".//\\n<|tool_call>call:terminal{command:<|\\\"|>ls -R<|\\\"|>}<tool_call|>\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 11525,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/gemma-4-e4b-it-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a Hermes-style agent. Use a todo/planning tool for multi-step execution plans."
+                },
+                {
+                  "role": "user",
+                  "content": "Plan the work to migrate our Promptfoo harness to nightly CI with classification and reporting."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "todo",
+                    "description": "Manage a structured task list",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "type": "string"
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "action"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "terminal",
+                    "description": "Run a shell command",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "command": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "command"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": ".//\n<|tool_call>call:terminal{command:<|\"|>ls -R<|\"|>}<tool_call|>",
+                    "role": "assistant",
+                    "reasoning_content": "thought\nThe user wants a plan to migrate their \"Promptfoo harness\" to a \"nightly CI\" pipeline, including \"classification\" and \"reporting\".\n\nI need to understand:\n1.  What is the current state of the Promptfoo harness? (Where is it? How is it run?)\n2.  What is the target CI environment? (GitHub Actions, GitLab CI, Jenkins, etc.?)\n3.  What does \"classification\" mean in this context? (Likely categorizing test results, or using a classifier to evaluate outputs).\n4.  What \"reporting\" is expected? (Dashboard, Slack notification, Email, HTML report?)\n\nSince I don'//t have the codebase yet, I should start by exploring the current setup.\n\nPlan:\n1.  **Discovery**: Explore the current Promptfoo configuration and harness.\n2.  **CI Integration**: Determine the CI provider and create a workflow for nightly execution.\n3.  **Classification Implementation**: Implement the logic for classifying results (if not already present).\n4.  **Reporting Implementation**: Set up the reporting mechanism (e.ing. exporting results to a specific format or uploading to a dashboard).\n5.  **Validation & Iteration**: Run the pipeline and refine.\n\nI will start by listing the files to see where the Promptfoo setup is."
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "id": "chatcmpl-1EF45A2E",
+              "created": 1775184902,
+              "usage": {
+                "prompt_tokens": 150,
+                "peak_memory_gib": 16.7,
+                "total_tokens": 450,
+                "completion_tokens": 300,
+                "prompt_time": 0.58,
+                "completion_tokens_per_second": 27.44,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_time": 10.93,
+                "total_time": 11.51,
+                "prompt_tokens_per_second": 259.49
+              },
+              "object": "chat.completion",
+              "model": "mlx-community/gemma-4-31b-it-4bit",
+              "timings": {
+                "predicted_ms": 10931.459069252014,
+                "prompt_n": 150,
+                "prompt_ms": 578.0578851699829,
+                "predicted_n": 300
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1983",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Apr 2026 02:55:01 GMT"
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "hermes: use todo to plan a multi-step migration",
+          "metadata": {
+            "suite": "framework_schemas",
+            "classification": "not_yet_classified",
+            "source": "hermes",
+            "framework": "Hermes Agent"
+          },
+          "vars": {
+            "prompt": "Plan the work to migrate our Promptfoo harness to nightly CI with classification and reporting.",
+            "system_prompt": "You are a Hermes-style agent. Use a todo/planning tool for multi-step execution plans.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "todo",
+                  "description": "Manage a structured task list",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string"
+                      },
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "terminal",
+                  "description": "Run a shell command",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'todo';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 7,
+        "vars": {
+          "prompt": "Plan the work to migrate our Promptfoo harness to nightly CI with classification and reporting.",
+          "system_prompt": "You are a Hermes-style agent. Use a todo/planning tool for multi-step execution plans.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "todo",
+                "description": "Manage a structured task list",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "terminal",
+                "description": "Run a shell command",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "hermes",
+          "framework": "Hermes Agent",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/gemma-4-e4b-it-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a Hermes-style agent. Use a todo/planning tool for multi-step execution plans."
+              },
+              {
+                "role": "user",
+                "content": "Plan the work to migrate our Promptfoo harness to nightly CI with classification and reporting."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "todo",
+                  "description": "Manage a structured task list",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string"
+                      },
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "terminal",
+                  "description": "Run a shell command",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": ".//\n<|tool_call>call:terminal{command:<|\"|>ls -R<|\"|>}<tool_call|>",
+                  "role": "assistant",
+                  "reasoning_content": "thought\nThe user wants a plan to migrate their \"Promptfoo harness\" to a \"nightly CI\" pipeline, including \"classification\" and \"reporting\".\n\nI need to understand:\n1.  What is the current state of the Promptfoo harness? (Where is it? How is it run?)\n2.  What is the target CI environment? (GitHub Actions, GitLab CI, Jenkins, etc.?)\n3.  What does \"classification\" mean in this context? (Likely categorizing test results, or using a classifier to evaluate outputs).\n4.  What \"reporting\" is expected? (Dashboard, Slack notification, Email, HTML report?)\n\nSince I don'//t have the codebase yet, I should start by exploring the current setup.\n\nPlan:\n1.  **Discovery**: Explore the current Promptfoo configuration and harness.\n2.  **CI Integration**: Determine the CI provider and create a workflow for nightly execution.\n3.  **Classification Implementation**: Implement the logic for classifying results (if not already present).\n4.  **Reporting Implementation**: Set up the reporting mechanism (e.ing. exporting results to a specific format or uploading to a dashboard).\n5.  **Validation & Iteration**: Run the pipeline and refine.\n\nI will start by listing the files to see where the Promptfoo setup is."
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "id": "chatcmpl-1EF45A2E",
+            "created": 1775184902,
+            "usage": {
+              "prompt_tokens": 150,
+              "peak_memory_gib": 16.7,
+              "total_tokens": 450,
+              "completion_tokens": 300,
+              "prompt_time": 0.58,
+              "completion_tokens_per_second": 27.44,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_time": 10.93,
+              "total_time": 11.51,
+              "prompt_tokens_per_second": 259.49
+            },
+            "object": "chat.completion",
+            "model": "mlx-community/gemma-4-31b-it-4bit",
+            "timings": {
+              "predicted_ms": 10931.459069252014,
+              "prompt_n": 150,
+              "prompt_ms": 578.0578851699829,
+              "predicted_n": 300
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__gemma-4-31b-it-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1983",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Apr 2026 02:55:01 GMT"
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      }
+    ],
+    "stats": {
+      "successes": 0,
+      "failures": 8,
+      "errors": 0,
+      "tokenUsage": {
+        "prompt": 0,
+        "completion": 0,
+        "cached": 0,
+        "total": 0,
+        "numRequests": 8,
+        "completionDetails": {
+          "reasoning": 0,
+          "acceptedPrediction": 0,
+          "rejectedPrediction": 0
+        },
+        "assertions": {
+          "total": 0,
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "numRequests": 0,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0
+          }
+        }
+      },
+      "durationMs": 51672,
+      "evaluationDurationMs": 51672
+    }
+  },
+  "config": {
+    "tags": {},
+    "description": "AFM agent framework tool-schema suite",
+    "prompts": [
+      "{{prompt}}"
+    ],
+    "providers": [
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-default-frameworks",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_DEFAULT",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-adaptive-xml-frameworks",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_ADAPTIVE_XML",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-adaptive-xml-grammar-frameworks",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      }
+    ],
+    "tests": [
+      {
+        "description": "opencode: use grep before reading whole files",
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "opencode",
+          "framework": "OpenCode"
+        },
+        "vars": {
+          "prompt": "Find where PrefixCache Save complete is logged in the codebase.",
+          "system_prompt": "You are a coding agent using OpenCode-style tools. Prefer targeted search before opening files.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "grep",
+                "description": "Search file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "pattern": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "include": {
+                      "type": "string"
+                    },
+                    "literal_text": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "pattern"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "view",
+                "description": "View file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "file_path": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "file_path"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'grep' &&\n  /PrefixCache Save complete/i.test(String(parsed.tool_calls[0].function.arguments.pattern || ''));\n"
+          }
+        ]
+      },
+      {
+        "description": "opencode: use view to inspect a specific file",
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "opencode",
+          "framework": "OpenCode"
+        },
+        "vars": {
+          "prompt": "Open Sources/MacLocalAPI/Models/MLXModelService.swift and inspect the restore path near the middle of the file.",
+          "system_prompt": "You are a coding agent using OpenCode-style tools.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "view",
+                "description": "View file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "file_path": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "file_path"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "grep",
+                "description": "Search file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "pattern": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pattern"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'view' &&\n  /MLXModelService\\.swift$/.test(String(call.function.arguments.file_path || ''));\n"
+          }
+        ]
+      },
+      {
+        "description": "opencode: prefer diagnostics after code edit",
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "opencode",
+          "framework": "OpenCode"
+        },
+        "vars": {
+          "prompt": "What should you do next?",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a coding agent using OpenCode-style tools. After edits, prefer diagnostics before broader commands."
+            },
+            {
+              "role": "user",
+              "content": "Update the controller to add index to non-streaming tool calls."
+            },
+            {
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "id": "call_patch_1",
+                  "type": "function",
+                  "function": {
+                    "name": "patch",
+                    "arguments": "{\"file_path\":\"Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift\",\"diff\":\"...\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_patch_1",
+              "content": "Patch applied successfully"
+            },
+            {
+              "role": "user",
+              "content": "What should you do next?"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "diagnostics",
+                "description": "Get diagnostics information",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "file_path": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "bash",
+                "description": "Execute shell commands",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "timeout": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'diagnostics';\n"
+          }
+        ]
+      },
+      {
+        "description": "pi: prefer read before edit for existing file changes",
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "pi",
+          "framework": "Pi"
+        },
+        "vars": {
+          "prompt": "Change the README to document the new promptfoo toolcall-quality suite.",
+          "system_prompt": "You are a Pi-style coding agent with only read, write, edit, and bash. Inspect before editing.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read",
+                "description": "Read file contents",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "filePath"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "edit",
+                "description": "Replace exact text in a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "oldText": {
+                      "type": "string"
+                    },
+                    "newText": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "filePath",
+                    "oldText",
+                    "newText"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "write",
+                "description": "Write a whole file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "filePath",
+                    "content"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read';\n"
+          }
+        ]
+      },
+      {
+        "description": "pi: use edit or ask for file path on surgical replacement",
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "pi",
+          "framework": "Pi"
+        },
+        "vars": {
+          "prompt": "Replace the phrase 'cache: MISS' with 'cache: MISS suffix=41' in the existing controller log line.",
+          "system_prompt": "You are a Pi-style coding agent. Use edit for precise replacements in existing files.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "edit",
+                "description": "Replace exact text in a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "oldText": {
+                      "type": "string"
+                    },
+                    "newText": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "filePath",
+                    "oldText",
+                    "newText"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "write",
+                "description": "Write a whole file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "filePath",
+                    "content"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nif (parsed.tool_calls.length === 1) {\n  return parsed.tool_calls[0].function.name === 'edit';\n}\nreturn parsed.tool_calls.length === 0 &&\n  /which file|file path|specify the file/i.test(parsed.content);\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw: choose session search for prior context recall",
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "openclaw",
+          "framework": "OpenClaw"
+        },
+        "vars": {
+          "prompt": "What did we conclude last time about exact replay on recurrent-cache models?",
+          "system_prompt": "You are an OpenClaw-style agent with session persistence and memory.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "session_search",
+                "description": "Search prior conversation history and saved sessions",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "send_message",
+                "description": "Send a message to a chat channel",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "channel": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "channel",
+                    "text"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'session_search';\n"
+          }
+        ]
+      },
+      {
+        "description": "hermes: use clarify when key booking details are missing",
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "hermes",
+          "framework": "Hermes Agent"
+        },
+        "vars": {
+          "prompt": "Book me a flight to Tokyo next month.",
+          "system_prompt": "You are a Hermes-style agent with clarify and delegation tools.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "clarify",
+                "description": "Ask a structured clarification question before acting",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "question": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "question"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_task",
+                "description": "Delegate a task to a subagent",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "goal"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'clarify';\n"
+          }
+        ]
+      },
+      {
+        "description": "hermes: use todo to plan a multi-step migration",
+        "metadata": {
+          "suite": "framework_schemas",
+          "classification": "not_yet_classified",
+          "source": "hermes",
+          "framework": "Hermes Agent"
+        },
+        "vars": {
+          "prompt": "Plan the work to migrate our Promptfoo harness to nightly CI with classification and reporting.",
+          "system_prompt": "You are a Hermes-style agent. Use a todo/planning tool for multi-step execution plans.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "todo",
+                "description": "Manage a structured task list",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "terminal",
+                "description": "Run a shell command",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'todo';\n"
+          }
+        ]
+      }
+    ],
+    "scenarios": [],
+    "env": {},
+    "outputPath": [
+      "/Volumes/edata/promptfoo/data/maclocal-api/current/frameworks-default-mlx-community_gemma-4-e4b-it-4bit.json"
+    ],
+    "extensions": [],
+    "metadata": {},
+    "evaluateOptions": {}
+  },
+  "shareableUrl": null,
+  "metadata": {
+    "promptfooVersion": "0.120.26",
+    "nodeVersion": "v25.8.1",
+    "platform": "darwin",
+    "arch": "arm64",
+    "exportedAt": "2026-04-03T02:55:02.732Z",
+    "evaluationCreatedAt": "2026-04-03T02:54:10.830Z"
+  }
+}
