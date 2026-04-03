@@ -569,8 +569,10 @@ public class BatchRotatingKVCache: BaseKVCache {
     public override func makeMask(
         n: Int, windowSize: Int?, returnArray: Bool
     ) -> MLXFast.ScaledDotProductAttentionMaskMode {
-        // makeMask is called BEFORE update() — total key length after update = _idx + n
-        let totalLen = _idx + n
+        // makeMask is called BEFORE update().
+        // Pre-wrap: key length = _idx + n (cache is growing).
+        // Post-wrap: key length = maxCacheSize (buffer is full, _idx is circular).
+        let totalLen = _offset >= maxCacheSize ? maxCacheSize : _idx + n
         guard batchSize > 0 && totalLen > 0 else { return .none }
         if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" && batchSize > 1 {
             print("[BatchRotatingKV] makeMask B=\(batchSize) n=\(n) _idx=\(_idx) _offset=\(_offset) totalLen=\(totalLen) window=\(windowSize?.description ?? "nil")")
