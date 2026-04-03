@@ -452,33 +452,47 @@ public class BatchRotatingKVCache: BaseKVCache {
         return (self.keys!, self.values!)
     }
 
-    /// Multi-token prefill: temporal reorder, trim, concatenate.
+    /// Multi-token prefill: use the same allocate-and-write pattern as BatchKVCacheSimple.
+    /// This ensures the MLX compute graph uses scatter writes rather than direct assignment,
+    /// which is required for correct GPU evaluation with batched prefill.
     private func updateConcat(keys newKeys: MLXArray, values newValues: MLXArray) -> (MLXArray, MLXArray) {
         if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" && batchSize > 1 {
             print("[BatchRotatingKV] updateConcat B=\(batchSize) newKeys=\(newKeys.shape) _idx=\(_idx) _offset=\(_offset) maxCache=\(maxCacheSize) existing=\(keys?.shape.description ?? "nil")")
         }
-        let S = newKeys.dim(2)
+        let prev = _idx
+        let newTokens = newKeys.dim(2)
 
-        if self.keys == nil {
-            self.keys = newKeys
-            self.values = newValues
-        } else {
-            // Restore temporal order before concatenation
-            self.keys = batchTemporalOrder(self.keys!)
-            self.values = batchTemporalOrder(self.values!)
-            _idx = self.keys!.dim(2)
+        if self.keys == nil || (prev + newTokens) > (self.keys?.dim(2) ?? 0) {
+            // Allocate or grow — same pattern as BatchKVCacheSimple but capped at maxCacheSize
+            let B = newKeys.dim(0)
+            let kvHeads = newKeys.dim(1)
+            let kHeadDim = newKeys.dim(3)
+            let vHeadDim = newValues.dim(3)
+            let allocSize = prev + newTokens  // Don't cap to maxCacheSize during prefill — trim later
+            let kZeros = MLXArray.zeros([B, kvHeads, allocSize - prev, kHeadDim], dtype: newKeys.dtype)
+            let vZeros = MLXArray.zeros([B, kvHeads, allocSize - prev, vHeadDim], dtype: newValues.dtype)
 
-            // Trim oldest tokens (preserving keep) to fit within maxCacheSize
-            let trimSize = _idx - maxCacheSize + 1
-            self.keys = batchTrim(trimSize: trimSize, self.keys!, append: newKeys)
-            self.values = batchTrim(trimSize: trimSize, self.values!, append: newValues)
+            if let existingK = self.keys, let existingV = self.values {
+                // Restore temporal order before growing
+                let orderedK = batchTemporalOrder(existingK)
+                let orderedV = batchTemporalOrder(existingV)
+                self.keys = concatenated([orderedK[.ellipsis, ..<prev, 0...], kZeros], axis: 2)
+                self.values = concatenated([orderedV[.ellipsis, ..<prev, 0...], vZeros], axis: 2)
+            } else {
+                self.keys = kZeros
+                self.values = vZeros
+            }
         }
 
-        _offset += S
-        _idx = self.keys!.dim(2)
-        perSeqOffset = perSeqOffset + Int32(S)
+        _offset += newTokens
+        _idx = prev + newTokens
+        perSeqOffset = perSeqOffset + Int32(newTokens)
 
-        return (self.keys!, self.values!)
+        // Write new tokens into pre-allocated buffer (scatter write)
+        self.keys![.ellipsis, prev ..< _idx, 0...] = newKeys
+        self.values![.ellipsis, prev ..< _idx, 0...] = newValues
+
+        return (self.keys![.ellipsis, ..<_idx, 0...], self.values![.ellipsis, ..<_idx, 0...])
     }
 
     /// Reconstruct temporal order from circular buffer (operates on axis 2).

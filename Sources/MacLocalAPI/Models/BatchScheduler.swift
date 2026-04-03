@@ -1154,6 +1154,10 @@ actor BatchScheduler {
         }
 
         // Phase 4: Single model forward pass
+        if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" {
+            print("[prefillBatch] B=\(B) maxLen=\(maxLen) tokens=\(batchTokens.shape) caches=\(prefillCaches.count) types=\(prefillCaches.prefix(3).map { type(of: $0) })")
+            fflush(stdout)
+        }
         let input = LMInput.Text(tokens: batchTokens)
         let result = model(input, cache: prefillCaches, state: nil)
 
