@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+See `CLAUDE.md` for additional project-specific build, architecture, and workflow reference details.
+
 ## Project Structure & Module Organization
 `Sources/MacLocalAPI/` contains the Swift CLI and server code, with `Controllers/`, `Models/`, `Services/`, and `Utils/` split by responsibility. `Sources/CXGrammar/` holds the C++ grammar bridge used by the Swift package. Tests live in `Tests/MacLocalAPITests/` as `XCTest` cases such as `XMLToolCallParsingTests.swift`. Automation and regression scripts are in `Scripts/`, design notes in `docs/`, and generated artifacts in `test-reports/` and `archive/`.
 

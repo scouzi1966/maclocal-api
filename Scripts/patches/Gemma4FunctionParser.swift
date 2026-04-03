@@ -2,13 +2,16 @@
 
 import Foundation
 
-/// Parser for Gemma 4 function call format.
+/// Parser for the documented Gemma 4 function call format.
 ///
-/// Gemma 4 uses a different tag scheme than Gemma 3:
-/// - Start: `<|tool_call>`  End: `<tool_call|>`
-/// - String escaping: `<|"|>` instead of `<escape>`
+/// Gemma 4 uses:
+/// - Start tag: `<|tool_call>`
+/// - End tag: `<tool_call|>`
+/// - Function body: `call:name{key:value,...}`
+/// - Escaped strings: `<|"|>value<|"|>`
 ///
-/// Format: `<|tool_call>call:name{key:<|"|>str_value<|"|>,k2:numeric}<tool_call|>`
+/// This parser intentionally does not perform schema-aware coercion.
+/// It follows the model's surface format and returns raw argument strings.
 ///
 /// Reference: https://ai.google.dev/gemma/docs/capabilities/text/function-calling-gemma4
 public struct Gemma4FunctionParser: ToolCallParser, Sendable {
@@ -20,50 +23,49 @@ public struct Gemma4FunctionParser: ToolCallParser, Sendable {
     public init() {}
 
     public func parse(content: String, tools: [[String: any Sendable]]?) -> ToolCall? {
-        var text = content
-        if let start = startTag {
-            text = text.replacingOccurrences(of: start, with: "")
+        var text = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let startTag, text.hasPrefix(startTag) {
+            text.removeFirst(startTag.count)
         }
-        if let end = endTag {
-            text = text.replacingOccurrences(of: end, with: "")
+        if let endTag, text.hasSuffix(endTag) {
+            text.removeLast(endTag.count)
         }
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard let callRange = text.range(of: "call:") else { return nil }
-        let remaining = String(text[callRange.upperBound...])
-        guard let braceStart = remaining.firstIndex(of: "{") else { return nil }
-        let funcName = String(remaining[..<braceStart])
-        guard !funcName.isEmpty else { return nil }
-        guard let braceEnd = remaining.lastIndex(of: "}") else { return nil }
-        let argsStr = String(remaining[remaining.index(after: braceStart) ..< braceEnd])
+        let payload = text[callRange.upperBound...]
+        guard let braceStart = payload.firstIndex(of: "{"),
+              let braceEnd = payload.lastIndex(of: "}") else { return nil }
 
-        let schemaTypes = schemaTypesByParameterName(for: funcName, tools: tools)
-        let arguments = parseArguments(argsStr, schemaTypes: schemaTypes)
-        return ToolCall(function: .init(name: funcName, arguments: arguments))
+        let functionName = String(payload[..<braceStart]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !functionName.isEmpty else { return nil }
+
+        let argsBody = String(payload[payload.index(after: braceStart)..<braceEnd])
+        return ToolCall(
+            function: .init(
+                name: functionName,
+                arguments: parseArguments(argsBody)
+            )
+        )
     }
 
-    private func parseArguments(
-        _ args: String,
-        schemaTypes: [String: String]
-    ) -> [String: any Sendable] {
+    private func parseArguments(_ text: String) -> [String: any Sendable] {
         var arguments: [String: any Sendable] = [:]
-        var index = args.startIndex
+        var index = text.startIndex
 
         while true {
-            skipDelimiters(in: args, index: &index)
-            guard index < args.endIndex else { break }
+            skipDelimiters(in: text, index: &index)
+            guard index < text.endIndex else { break }
 
-            guard let colonIndex = findTopLevelColon(in: args, from: index) else { break }
-            let key = String(args[index..<colonIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
-            index = args.index(after: colonIndex)
-            skipWhitespace(in: args, index: &index)
-
+            guard let colonIndex = text[index...].firstIndex(of: ":") else { break }
+            let key = String(text[index..<colonIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !key.isEmpty else { break }
-            let parsed = parseValue(in: args, from: index)
-            arguments[key] = coerceValue(
-                parsed.value,
-                rawValue: parsed.rawValue,
-                schemaType: schemaTypes[key]
-            )
+
+            index = text.index(after: colonIndex)
+            skipWhitespace(in: text, index: &index)
+
+            let parsed = parseValue(in: text, from: index)
+            arguments[key] = parsed.value
             index = parsed.nextIndex
         }
 
@@ -73,116 +75,19 @@ public struct Gemma4FunctionParser: ToolCallParser, Sendable {
     private func parseValue(
         in text: String,
         from start: String.Index
-    ) -> (value: any Sendable, rawValue: String, nextIndex: String.Index) {
+    ) -> (value: String, nextIndex: String.Index) {
         if text[start...].hasPrefix(escapeMarker) {
             let valueStart = text.index(start, offsetBy: escapeMarker.count)
-            guard let endRange = text.range(of: escapeMarker, range: valueStart..<text.endIndex) else {
-                return ("", "", text.endIndex)
+            guard let closingRange = text.range(of: escapeMarker, range: valueStart..<text.endIndex) else {
+                return ("", text.endIndex)
             }
-            let raw = String(text[valueStart..<endRange.lowerBound])
-            let next = advancePastComma(in: text, from: endRange.upperBound)
-            return (raw, raw, next)
+            let value = String(text[valueStart..<closingRange.lowerBound])
+            return (value, advancePastComma(in: text, from: closingRange.upperBound))
         }
 
-        if let endIndex = findValueEnd(in: text, from: start) {
-            let raw = String(text[start..<endIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
-            let next = advancePastComma(in: text, from: endIndex)
-            if let json = decodeJSON(raw) {
-                return (json, raw, next)
-            }
-            return (raw, raw, next)
-        }
-
-        let raw = String(text[start...]).trimmingCharacters(in: .whitespacesAndNewlines)
-        if let json = decodeJSON(raw) {
-            return (json, raw, text.endIndex)
-        }
-        return (raw, raw, text.endIndex)
-    }
-
-    private func coerceValue(
-        _ value: any Sendable,
-        rawValue: String,
-        schemaType: String?
-    ) -> any Sendable {
-        guard let schemaType else { return value }
-        if !(value is String) { return value }
-
-        switch schemaType {
-        case "integer":
-            return Int(rawValue) ?? value
-        case "number":
-            if let number = Double(rawValue) {
-                let integer = Int(number)
-                return number == Double(integer) ? integer : number
-            }
-            return value
-        case "boolean":
-            switch rawValue.lowercased() {
-            case "true": return true
-            case "false": return false
-            default: return value
-            }
-        case "array", "object":
-            return decodeJSON(rawValue) ?? value
-        default:
-            return value
-        }
-    }
-
-    private func schemaTypesByParameterName(
-        for functionName: String,
-        tools: [[String: any Sendable]]?
-    ) -> [String: String] {
-        guard let tools else { return [:] }
-        for tool in tools {
-            guard let function = tool["function"] as? [String: any Sendable],
-                  let name = function["name"] as? String,
-                  name == functionName,
-                  let parameters = function["parameters"] as? [String: any Sendable],
-                  let properties = parameters["properties"] as? [String: any Sendable] else {
-                continue
-            }
-
-            var result: [String: String] = [:]
-            for (key, value) in properties {
-                if let dict = value as? [String: any Sendable],
-                   let type = dict["type"] as? String {
-                    result[key] = type
-                }
-            }
-            return result
-        }
-        return [:]
-    }
-
-    private func findTopLevelColon(
-        in text: String,
-        from start: String.Index
-    ) -> String.Index? {
-        var index = start
-        var depth = 0
-        var inString = false
-        var previousWasEscape = false
-
-        while index < text.endIndex {
-            let char = text[index]
-            if char == "\"" && !previousWasEscape {
-                inString.toggle()
-            } else if !inString {
-                if char == "{" || char == "[" {
-                    depth += 1
-                } else if char == "}" || char == "]" {
-                    depth = max(0, depth - 1)
-                } else if char == ":" && depth == 0 {
-                    return index
-                }
-            }
-            previousWasEscape = char == "\\" && !previousWasEscape
-            if char != "\\" { previousWasEscape = false }
-            index = text.index(after: index)
-        }
-        return nil
+        let endIndex = findValueEnd(in: text, from: start) ?? text.endIndex
+        let value = String(text[start..<endIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return (value, advancePastComma(in: text, from: endIndex))
     }
 
     private func findValueEnd(
@@ -254,42 +159,6 @@ public struct Gemma4FunctionParser: ToolCallParser, Sendable {
     private func skipWhitespace(in text: String, index: inout String.Index) {
         while index < text.endIndex, text[index].isWhitespace {
             index = text.index(after: index)
-        }
-    }
-
-    private func decodeJSON(_ raw: String) -> (any Sendable)? {
-        guard let data = raw.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) else {
-            return nil
-        }
-        return makeSendableJSON(json)
-    }
-
-    private func makeSendableJSON(_ value: Any) -> any Sendable {
-        switch value {
-        case let string as String:
-            return string
-        case let int as Int:
-            return int
-        case let double as Double:
-            return double
-        case let bool as Bool:
-            return bool
-        case let number as NSNumber:
-            if CFGetTypeID(number) == CFBooleanGetTypeID() {
-                return number.boolValue
-            }
-            let doubleValue = number.doubleValue
-            let integerValue = Int(doubleValue)
-            return doubleValue == Double(integerValue) ? integerValue : doubleValue
-        case let dict as [String: Any]:
-            return dict.mapValues { makeSendableJSON($0) }
-        case let array as [Any]:
-            return array.map { makeSendableJSON($0) }
-        case _ as NSNull:
-            return NSNull()
-        default:
-            return String(describing: value)
         }
     }
 }

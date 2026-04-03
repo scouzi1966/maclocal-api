@@ -33,6 +33,7 @@ protocol MLXChatServing {
     var enableGrammarConstraints: Bool { get }
 
     func normalizeModel(_ raw: String) -> String
+    func resolvedToolCallParser(logBypass: Bool) -> String?
     func tryReserveSlot() -> Bool
     func releaseSlot()
 

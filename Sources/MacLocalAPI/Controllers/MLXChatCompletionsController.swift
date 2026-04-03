@@ -283,7 +283,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 // full-text parsing (handles missing <tool_call> wrapper, etc.)
                 if finalToolCalls == nil && chatRequest.tools != nil && !fullText.isEmpty {
                     let trimmed = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let parserName = self.service.toolCallParser ?? "auto"
+                    let parserName = self.service.resolvedToolCallParser(logBypass: false) ?? "auto"
                     let looksLikeToolCall =
                         fullText.contains("<function=") ||
                         fullText.contains("<tool_call>") ||
@@ -295,7 +295,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         fflush(stdout)
                         let (parsed, remaining) = ToolCallStreamingRuntime.parseCompletedToolCalls(
                             from: fullText,
-                            toolCallParser: self.service.toolCallParser,
+                            toolCallParser: self.service.resolvedToolCallParser(logBypass: false),
                             tools: chatRequest.tools
                         )
                         if !parsed.isEmpty {
@@ -584,7 +584,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 let toolRuntime = (toolCallStartTag != nil && toolCallEndTag != nil) ? ToolCallStreamingRuntime(
                     toolCallStartTag: toolCallStartTag!,
                     toolCallEndTag: toolCallEndTag!,
-                    toolCallParser: self.service.toolCallParser,
+                    toolCallParser: self.service.resolvedToolCallParser(logBypass: false),
                     tools: effectiveTools,
                     applyFixToolArgs: { rtc in
                         return self.applyFixToolArgs(rtc, tools: effectiveTools)
@@ -668,9 +668,9 @@ struct MLXChatCompletionsController: RouteCollection {
                     }
 
                     if let toolRuntime {
-                        fullContent += piece
                         let runtimeOutput = toolRuntime.process(piece: piece)
                         if runtimeOutput.handled {
+                            fullContent += piece
                             if runtimeOutput.events.contains(where: {
                                 if case .started = $0 { return true }
                                 return false
@@ -894,7 +894,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     fflush(stdout)
                     let (parsed, _) = ToolCallStreamingRuntime.parseCompletedToolCalls(
                         from: fullContent,
-                        toolCallParser: self.service.toolCallParser,
+                        toolCallParser: self.service.resolvedToolCallParser(logBypass: false),
                         tools: chatRequest.tools
                     )
                     if !parsed.isEmpty {

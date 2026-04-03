@@ -42,6 +42,7 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
     }
 
     func normalizeModel(_ raw: String) -> String { raw }
+    func resolvedToolCallParser(logBypass: Bool) -> String? { toolCallParser }
 
     func tryReserveSlot() -> Bool {
         _lock.lock()

@@ -71,11 +71,11 @@ apply_package_pins() {
   for entry in "${PACKAGE_PINS[@]}"; do
     local search="${entry%%|*}"
     local replace="${entry##*|}"
-    if grep -qF "$replace" "$pkg_file"; then
-      log_info "Already pinned: $replace"
-    elif grep -qF "$search" "$pkg_file"; then
+    if grep -qF "$search" "$pkg_file"; then
       sed -i '' "s|$(echo "$search" | sed 's/[.[\/*^$]/\\&/g')|$(echo "$replace" | sed 's/[&/\]/\\&/g')|g" "$pkg_file"
       log_info "Pinned: $search → $replace"
+    elif grep -qF "$replace" "$pkg_file"; then
+      log_info "Already pinned: $replace"
     else
       log_warn "Pattern not found in Package.swift: $search"
     fi
@@ -88,8 +88,12 @@ check_package_pins() {
   [ -f "$pkg_file" ] || { log_warn "Package.swift not found: $pkg_file"; return 1; }
 
   for entry in "${PACKAGE_PINS[@]}"; do
+    local search="${entry%%|*}"
     local replace="${entry##*|}"
-    if grep -qF "$replace" "$pkg_file"; then
+    if grep -qF "$search" "$pkg_file"; then
+      log_warn "Not pinned (original pattern still present): $search"
+      all_ok=false
+    elif grep -qF "$replace" "$pkg_file"; then
       log_info "Pinned: $replace"
     else
       log_warn "Not pinned: $replace"

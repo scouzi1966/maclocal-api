@@ -132,7 +132,7 @@ final class MLXModelService: @unchecked Sendable {
     var enableGrammarConstraints: Bool = false { didSet { grammarConstraintsActive = enableGrammarConstraints } }
     var trace: Bool = false { didSet { traceLogging = trace } }
     var supportsStrictToolGrammar: Bool {
-        if let parser = toolCallParser {
+        if let parser = resolvedToolCallParser(logBypass: false) {
             switch parser {
             case "afm_adaptive_xml", "qwen3_xml":
                 return true
@@ -150,6 +150,22 @@ final class MLXModelService: @unchecked Sendable {
         default:
             return false
         }
+    }
+
+    private func shouldBypassAdaptiveXMLParserForCurrentModel() -> Bool {
+        guard toolCallParser == "afm_adaptive_xml" else { return false }
+        guard let format = withStateLock({ currentToolCallFormat }) else { return false }
+        return format == .gemma4
+    }
+
+    func resolvedToolCallParser(logBypass: Bool = false) -> String? {
+        guard shouldBypassAdaptiveXMLParserForCurrentModel() else {
+            return toolCallParser
+        }
+        if logBypass {
+            print("[\(ts())] [ToolCallParser] Ignoring afm_adaptive_xml for Gemma 4; using native Gemma 4 tool-calling path")
+        }
+        return nil
     }
     /// Path to write a Metal GPU trace (.gputrace) — captures the first request only, then resets to nil.
     /// Auto-limits max tokens to 5 to keep trace size manageable.
@@ -1057,15 +1073,19 @@ final class MLXModelService: @unchecked Sendable {
         }
         // --tool-call-parser override: force format for the specified parser
         if let parser = toolCallParser {
-            switch parser {
-            case "qwen3_xml", "afm_adaptive_xml":
-                detectedFormat = .xmlFunction
-            case "hermes", "llama3_json", "mistral":
-                detectedFormat = .json
-            case "gemma":
-                detectedFormat = .gemma
-            default:
-                break
+            if parser == "afm_adaptive_xml", detectedFormat == .gemma4 {
+                print("[\(ts())] [ToolCallParser] Ignoring afm_adaptive_xml override for Gemma 4; keeping native Gemma 4 format")
+            } else {
+                switch parser {
+                case "qwen3_xml", "afm_adaptive_xml":
+                    detectedFormat = .xmlFunction
+                case "hermes", "llama3_json", "mistral":
+                    detectedFormat = .json
+                case "gemma":
+                    detectedFormat = .gemma
+                default:
+                    break
+                }
             }
             print("[\(ts())] [ToolCallParser] --tool-call-parser override: \(parser) → \(String(describing: detectedFormat))")
         }
@@ -1752,7 +1772,7 @@ final class MLXModelService: @unchecked Sendable {
             }
             let (parsed, remaining) = ToolCallStreamingRuntime.parseCompletedToolCalls(
                 from: generated,
-                toolCallParser: self.toolCallParser,
+                toolCallParser: self.resolvedToolCallParser(logBypass: false),
                 tools: tools
             )
             if !parsed.isEmpty {
@@ -1891,7 +1911,7 @@ final class MLXModelService: @unchecked Sendable {
                         toolRuntimeConfig = .init(
                             startTag: "<tool_call>",
                             endTag: "</tool_call>",
-                            parser: self.toolCallParser,
+                            parser: self.resolvedToolCallParser(logBypass: false),
                             tools: tools
                         )
                     default:
@@ -1899,7 +1919,7 @@ final class MLXModelService: @unchecked Sendable {
                         toolRuntimeConfig = .init(
                             startTag: parser.startTag ?? "<tool_call>",
                             endTag: parser.endTag ?? "</tool_call>",
-                            parser: self.toolCallParser,
+                            parser: self.resolvedToolCallParser(logBypass: false),
                             tools: tools
                         )
                     }
@@ -1907,7 +1927,7 @@ final class MLXModelService: @unchecked Sendable {
                     toolRuntimeConfig = .init(
                         startTag: "<tool_call>",
                         endTag: "</tool_call>",
-                        parser: self.toolCallParser,
+                        parser: self.resolvedToolCallParser(logBypass: false),
                         tools: tools
                     )
                 }
@@ -3974,7 +3994,7 @@ final class MLXModelService: @unchecked Sendable {
         var input = UserInput(chat: chatMessages, processing: .init(resize: .init(width: 1024, height: 1024)), tools: tools)
 
         // When --tool-call-parser is set and tools are present, override the chat template
-        if let parser = toolCallParser, tools != nil, !tools!.isEmpty {
+        if let parser = resolvedToolCallParser(logBypass: true), tools != nil, !tools!.isEmpty {
             let templateOverride: String?
             switch parser {
             case "qwen3_xml", "afm_adaptive_xml":

@@ -453,7 +453,11 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
 
         try await app.testable(method: .running(port: 0)).test(.POST, "/v1/chat/completions", headers: requestHeaders(for: body), body: body) { res async in
             XCTAssertEqual(res.status, .ok)
-            XCTAssertContains(res.body.string, #"\"content\":\"{\"ok\":true}\""#)
+            guard let response = try? JSONDecoder().decode(ChatCompletionResponse.self, from: Data(res.body.string.utf8)) else {
+                XCTFail("Expected decodable ChatCompletionResponse: \(res.body.string)")
+                return
+            }
+            XCTAssertEqual(response.choices.first?.message.content, #"{"ok":true}"#)
             XCTAssertFalse(res.body.string.contains("```"))
         }
     }
@@ -483,7 +487,22 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         try await app.testable(method: .running(port: 0)).test(.POST, "/v1/chat/completions", headers: requestHeaders(for: body), body: body) { res async in
             XCTAssertEqual(res.status, .ok)
             XCTAssertFalse(res.body.string.contains("```"))
-            XCTAssertContains(res.body.string, #"\"content\":\"{\"ok\":true}\""#)
+            let payloads = res.body.string
+                .split(separator: "\n")
+                .compactMap { line -> [String: Any]? in
+                    guard line.hasPrefix("data: "),
+                          line != "data: [DONE]" else { return nil }
+                    let json = String(line.dropFirst(6))
+                    let data = Data(json.utf8)
+                    return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+                }
+
+            let contentValues = payloads.compactMap { payload -> String? in
+                let choices = payload["choices"] as? [[String: Any]]
+                let delta = choices?.first?["delta"] as? [String: Any]
+                return delta?["content"] as? String
+            }
+            XCTAssertTrue(contentValues.contains(#"{"ok":true}"#), res.body.string)
         }
     }
 
@@ -732,6 +751,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
     }
 
     func normalizeModel(_ raw: String) -> String { raw }
+    func resolvedToolCallParser(logBypass: Bool) -> String? { toolCallParser }
     func tryReserveSlot() -> Bool { true }
     func releaseSlot() {}
     func ensureBatchMode(concurrency: Int) async throws {}
