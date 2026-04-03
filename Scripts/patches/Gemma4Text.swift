@@ -147,7 +147,7 @@ public struct Gemma4Configuration: Codable, Sendable {
 // MARK: - RMSNorm Variants
 
 /// Gemma-style RMSNorm with +1 weight offset (stored weights are shifted by -1).
-private class Gemma4RMSNorm: Module, UnaryLayer {
+class Gemma4RMSNorm: Module, UnaryLayer {
     @ParameterInfo(key: "weight") var weight: MLXArray
     let eps: Float
 
@@ -163,7 +163,7 @@ private class Gemma4RMSNorm: Module, UnaryLayer {
 }
 
 /// RMSNorm without learnable scale (scale_shift=0, no weight parameter).
-private class Gemma4RMSNormNoScale: Module {
+class Gemma4RMSNormNoScale: Module {
     let eps: Float
 
     init(eps: Float = 1e-6) {
@@ -213,7 +213,7 @@ class Gemma4ScaledLinear: Module {
 
 // MARK: - MLP
 
-private class Gemma4MLP: Module {
+class Gemma4MLP: Module {
     @ModuleInfo(key: "gate_proj") var gateProj: Linear
     @ModuleInfo(key: "up_proj") var upProj: Linear
     @ModuleInfo(key: "down_proj") var downProj: Linear
@@ -233,7 +233,7 @@ private class Gemma4MLP: Module {
 // MARK: - Router
 
 /// Expert router: RMSNorm(no-scale) → scale → project → top-k → renormalize.
-private class Gemma4Router: Module {
+class Gemma4Router: Module {
     let numExperts: Int
     let topK: Int
     let rootSize: Float
@@ -277,7 +277,7 @@ private class Gemma4Router: Module {
 // MARK: - Experts (SwitchGLU wrapper)
 
 /// Sparse MoE using SwitchGLU with GeGLU activation.
-private class Gemma4Experts: Module {
+class Gemma4Experts: Module {
     @ModuleInfo(key: "switch_glu") var switchGLU: SwitchGLU
 
     init(hiddenSize: Int, moeIntermediateSize: Int, numExperts: Int) {
@@ -312,7 +312,7 @@ private class Gemma4Experts: Module {
 
 // MARK: - Attention
 
-private class Gemma4Attention: Module {
+class Gemma4Attention: Module {
     let layerIdx: Int
     let isSliding: Bool
     let headDim: Int
@@ -471,7 +471,7 @@ private class Gemma4Attention: Module {
 
 // MARK: - Decoder Layer
 
-private class Gemma4DecoderLayer: Module {
+class Gemma4DecoderLayer: Module {
     let layerType: String
     let enableMoe: Bool
     let hasPerLayerInput: Bool
@@ -616,18 +616,20 @@ private class Gemma4DecoderLayer: Module {
 
 // MARK: - Inner Text Model
 
-class Gemma4TextModelInner: Module {
-    let config: Gemma4TextConfig
+public class Gemma4TextModelInner: Module {
+    public let config: Gemma4TextConfig
     let windowSize: Int
-    let embedScale: Float
+    public let embedScale: Float
 
-    @ModuleInfo(key: "embed_tokens") var embedTokens: Embedding
+    @ModuleInfo(key: "embed_tokens") public var embedTokens: Embedding
 
-    fileprivate let layers: [Gemma4DecoderLayer]
+    // Per-layer input embeddings (E2B/E4B) — public for VLM access
+    @ModuleInfo(key: "embed_tokens_per_layer") public var embedTokensPerLayer: Embedding?
+
+    let layers: [Gemma4DecoderLayer]
     let norm: RMSNorm
 
-    // Per-layer input embeddings (E2B/E4B)
-    @ModuleInfo(key: "embed_tokens_per_layer") var embedTokensPerLayer: Embedding?
+    // Per-layer input (E2B/E4B) — embedTokensPerLayer declared above
     @ModuleInfo(key: "per_layer_model_projection") var perLayerModelProjection: Gemma4ScaledLinear?
     @ModuleInfo(key: "per_layer_projection_norm") var perLayerProjectionNorm: Gemma4RMSNormZeroShift?
     let perLayerInputScale: Float
@@ -664,27 +666,46 @@ class Gemma4TextModelInner: Module {
         }
     }
 
+    /// Standard entry point: token IDs → embeddings → forward pass.
     func callAsFunction(_ inputs: MLXArray, cache: [KVCache]? = nil) -> MLXArray {
-        var h = embedTokens(inputs) * embedScale
+        let h = embedTokens(inputs) * embedScale
+        let perLayerInputs = computePerLayerInputs(inputIds: inputs, embeddings: h)
+        return forward(h: h, perLayerInputs: perLayerInputs, cache: cache)
+    }
 
+    /// VLM entry point: pre-computed embeddings (with image features scattered in).
+    /// perLayerInputTokens: masked token IDs for PLE (image positions zeroed out).
+    public func callWithEmbeddings(
+        _ inputEmbeddings: MLXArray,
+        perLayerInputTokens: MLXArray? = nil,
+        cache: [KVCache]? = nil
+    ) -> MLXArray {
+        var perLayerInputs: MLXArray?
+        if let tokens = perLayerInputTokens {
+            perLayerInputs = computePerLayerInputs(inputIds: tokens, embeddings: inputEmbeddings)
+        }
+        return forward(h: inputEmbeddings, perLayerInputs: perLayerInputs, cache: cache)
+    }
+
+    /// Compute per-layer input gating embeddings (E2B/E4B).
+    private func computePerLayerInputs(inputIds: MLXArray, embeddings: MLXArray) -> MLXArray? {
         let plDim = config.hiddenSizePerLayerInput
         let numLayers = config.numHiddenLayers
+        guard plDim > 0, let embedPL = embedTokensPerLayer, let projPL = perLayerModelProjection,
+              let normPL = perLayerProjectionNorm else { return nil }
 
-        // Compute per-layer inputs (E2B/E4B)
-        var perLayerInputs: MLXArray?
-        if plDim > 0, let embedPL = embedTokensPerLayer, let projPL = perLayerModelProjection,
-            let normPL = perLayerProjectionNorm
-        {
-            // Token-level per-layer embeddings: [B, S] → [B, S, numLayers * plDim]
-            let tokenPL = embedPL(inputs) * Float(plDim).squareRoot()
-            let tokenPLReshaped = tokenPL.reshaped(inputs.shape + [numLayers, plDim])
+        let tokenPL = embedPL(inputIds) * Float(plDim).squareRoot()
+        let tokenPLReshaped = tokenPL.reshaped(inputIds.shape + [numLayers, plDim])
 
-            // Model projection: h → [B, S, numLayers * plDim]
-            let modelPL = projPL(h).reshaped(h.shape.dropLast() + [numLayers, plDim])
-            let modelPLNormed = normPL(modelPL)
+        let modelPL = projPL(embeddings).reshaped(embeddings.shape.dropLast() + [numLayers, plDim])
+        let modelPLNormed = normPL(modelPL)
 
-            perLayerInputs = (modelPLNormed + tokenPLReshaped) * perLayerInputScale
-        }
+        return (modelPLNormed + tokenPLReshaped) * perLayerInputScale
+    }
+
+    /// Core forward pass shared by both entry points.
+    private func forward(h: MLXArray, perLayerInputs: MLXArray?, cache: [KVCache]?) -> MLXArray {
+        var h = h
 
         let cache: [KVCache?] = cache ?? Array(repeating: nil, count: layers.count)
 
@@ -748,10 +769,10 @@ class Gemma4TextModelInner: Module {
 
 // MARK: - Text Model (language_model level)
 
-class Gemma4TextModel: Module {
-    let config: Gemma4TextConfig
+public class Gemma4TextModel: Module {
+    public let config: Gemma4TextConfig
 
-    @ModuleInfo(key: "model") var model: Gemma4TextModelInner
+    @ModuleInfo(key: "model") public var model: Gemma4TextModelInner
     let finalLogitSoftcapping: Float?
 
     init(_ config: Gemma4TextConfig) {
