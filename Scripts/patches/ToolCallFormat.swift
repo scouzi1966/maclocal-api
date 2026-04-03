@@ -54,9 +54,13 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
     /// Example: `func<arg_key>k</arg_key><arg_value>v</arg_value>`
     case glm4
 
-    /// Gemma function call format.
+    /// Gemma 3 function call format.
     /// Example: `call:name{key:value,k:<escape>str<escape>}`
     case gemma
+
+    /// Gemma 4 function call format (new tag scheme).
+    /// Example: `call:name{key:<|"|>value<|"|>,k2:42}`
+    case gemma4
 
     /// Kimi K2 format with functions prefix.
     /// Example: `functions.name:0<|tool_call_argument_begin|>{"key": "value"}`
@@ -82,6 +86,8 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
             return GLM4ToolCallParser()
         case .gemma:
             return GemmaFunctionParser()
+        case .gemma4:
+            return Gemma4FunctionParser()
         case .kimiK2:
             return KimiK2ToolCallParser()
         case .minimaxM2:
@@ -103,8 +109,10 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
         case "glm4", "glm4_moe", "glm4_moe_lite",
              "glm_moe_dsa":
             return .glm4
-        case "gemma", "gemma3_text", "gemma4", "gemma4_text":
+        case "gemma", "gemma3_text":
             return .gemma
+        case "gemma4", "gemma4_text":
+            return .gemma4
         case "qwen3_next", "qwen3_coder", "qwen3_5_moe", "qwen3_5",
              "qwen3_moe", "nemotron_h", "joyai_llm_flash":
             return .xmlFunction
