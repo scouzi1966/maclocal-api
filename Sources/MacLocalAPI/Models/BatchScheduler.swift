@@ -70,8 +70,12 @@ actor BatchScheduler {
         var firstTokenTime: TimeInterval = 0
         let inputTokens: [Int]
         let cachedTokens: Int
-        /// The individual per-layer caches from prefill (retained for prefix cache save).
+        /// Snapshotted per-layer KV state from prefill (for prefix cache save).
+        /// Stored as arrays rather than live KVCache references to avoid mutation
+        /// by the decode loop (batchCaches shares objects in .unbatched mode).
         let prefillCaches: [KVCache]
+        let prefillStates: [[MLXArray]]
+        let prefillMetaStates: [[String]]
 
         // Per-sequence decode state
         var lastTokenId: Int
@@ -137,6 +141,8 @@ actor BatchScheduler {
             self.inputTokens = inputTokens
             self.cachedTokens = cachedTokens
             self.prefillCaches = prefillCaches
+            self.prefillStates = prefillCaches.map { $0.state }
+            self.prefillMetaStates = prefillCaches.map { $0.metaState }
             self.lastTokenId = lastTokenId
             self.lastTokenArray = lastTokenArray
             self.sampler = sampler
@@ -1435,25 +1441,12 @@ actor BatchScheduler {
         var saveTruncateTime: Double? = nil
         var saveInsertTime: Double? = nil
         if let radix = radixCache, !slot.inputTokens.isEmpty {
-            let promptLen = slot.inputTokens.count
-            let cache = slot.prefillCaches
             let tSave0 = Date.timeIntervalSinceReferenceDate
-            for layer in cache {
-                let excess = layer.offset - promptLen
-                if excess > 0 { layer.trim(excess) }
-            }
-            let tSaveTrim = Date.timeIntervalSinceReferenceDate
-            // Physically truncate trimmed cache arrays to eliminate stale data. (#47)
-            for i in 0..<cache.count {
-                if cache[i].isTrimmable && cache[i].offset > 0
-                    && supportsPhysicalTruncation(cache[i])
-                {
-                    cache[i].truncateToOffset()
-                }
-            }
-            let tSaveTruncate = Date.timeIntervalSinceReferenceDate
-            let layerStates = cache.map { $0.state }
-            let layerMetaStates = cache.map { $0.metaState }
+            // Use pre-snapshotted state from prefill time — immune to decode mutations.
+            let layerStates = slot.prefillStates
+            let layerMetaStates = slot.prefillMetaStates
+            let tSaveTrim = tSave0
+            let tSaveTruncate = tSave0
             radix.insert(
                 tokens: slot.inputTokens,
                 layerStates: layerStates,
@@ -1463,15 +1456,15 @@ actor BatchScheduler {
             saveTrimTime = tSaveTrim - tSave0
             saveTruncateTime = tSaveTruncate - tSaveTrim
             saveInsertTime = tSaveInsert - tSaveTruncate
-            let activeLayers = cache.reduce(into: 0) { count, layer in
-                if layer.offset > 0 { count += 1 }
+            let activeLayers = layerStates.reduce(into: 0) { count, state in
+                if !state.isEmpty { count += 1 }
             }
-            let maxOffset = cache.map(\.offset).max() ?? 0
+            let maxOffset = layerStates.map { $0.isEmpty ? 0 : $0[0].dim(2) }.max() ?? 0
             print(
                 "[\(batchTs())] [PrefixCache] Save complete: mode=batch | stored_tokens=\(slot.inputTokens.count) | " +
                     "radix_entries=\(radix.count) | trim=\(String(format: "%.6f", saveTrimTime ?? 0))s | " +
                     "truncate=\(String(format: "%.6f", saveTruncateTime ?? 0))s | insert=\(String(format: "%.6f", saveInsertTime ?? 0))s | " +
-                    "layers=\(cache.count) active_layers=\(activeLayers) max_offset=\(maxOffset)"
+                    "layers=\(layerStates.count) active_layers=\(activeLayers) max_offset=\(maxOffset)"
             )
             DebugLogger.log("[BatchScheduler] Prefix cache save: \(slot.inputTokens.count) tokens")
         }
