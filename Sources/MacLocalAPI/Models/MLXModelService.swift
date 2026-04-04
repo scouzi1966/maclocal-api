@@ -152,10 +152,24 @@ final class MLXModelService: @unchecked Sendable {
         }
     }
 
+    private static let gemma4WrappedToolCallRegex = try! NSRegularExpression(
+        pattern: #"<\|tool_call>\s*(.*?)\s*<tool_call\|>"#,
+        options: [.dotMatchesLineSeparators]
+    )
+    private static let gemma4AdaptiveXMLBypassLog = "Ignoring afm_adaptive_xml for Gemma 4; using native Gemma 4 tool-calling path"
+
+    private static func shouldBypassAdaptiveXMLParser(
+        parser: String?,
+        format: ToolCallFormat?
+    ) -> Bool {
+        parser == "afm_adaptive_xml" && format == .gemma4
+    }
+
     private func shouldBypassAdaptiveXMLParserForCurrentModel() -> Bool {
-        guard toolCallParser == "afm_adaptive_xml" else { return false }
-        guard let format = withStateLock({ currentToolCallFormat }) else { return false }
-        return format == .gemma4
+        Self.shouldBypassAdaptiveXMLParser(
+            parser: toolCallParser,
+            format: withStateLock({ currentToolCallFormat })
+        )
     }
 
     func resolvedToolCallParser(logBypass: Bool = false) -> String? {
@@ -163,7 +177,7 @@ final class MLXModelService: @unchecked Sendable {
             return toolCallParser
         }
         if logBypass {
-            print("[\(ts())] [ToolCallParser] Ignoring afm_adaptive_xml for Gemma 4; using native Gemma 4 tool-calling path")
+            print("[\(ts())] [ToolCallParser] \(Self.gemma4AdaptiveXMLBypassLog)")
         }
         return nil
     }
@@ -1073,8 +1087,8 @@ final class MLXModelService: @unchecked Sendable {
         }
         // --tool-call-parser override: force format for the specified parser
         if let parser = toolCallParser {
-            if parser == "afm_adaptive_xml", detectedFormat == .gemma4 {
-                print("[\(ts())] [ToolCallParser] Ignoring afm_adaptive_xml override for Gemma 4; keeping native Gemma 4 format")
+            if Self.shouldBypassAdaptiveXMLParser(parser: parser, format: detectedFormat) {
+                print("[\(ts())] [ToolCallParser] \(Self.gemma4AdaptiveXMLBypassLog)")
             } else {
                 switch parser {
                 case "qwen3_xml", "afm_adaptive_xml":
@@ -2792,11 +2806,7 @@ final class MLXModelService: @unchecked Sendable {
         var remaining = text
 
         let gemma4Parser = Gemma4FunctionParser()
-        let gemma4Regex = try! NSRegularExpression(
-            pattern: #"<\|tool_call>\s*(.*?)\s*<tool_call\|>"#,
-            options: [.dotMatchesLineSeparators]
-        )
-        let gemma4Matches = gemma4Regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        let gemma4Matches = Self.gemma4WrappedToolCallRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
         for match in gemma4Matches.reversed() {
             guard let fullRange = Range(match.range, in: remaining) else { continue }
             let full = String(remaining[fullRange])

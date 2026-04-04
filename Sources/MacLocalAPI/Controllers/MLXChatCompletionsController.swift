@@ -11,6 +11,11 @@ struct FinalizedAssistantTurn {
 }
 
 struct MLXChatCompletionsController: RouteCollection {
+    private static let degenerateTailRegex = try! NSRegularExpression(pattern: "([!?.:,;`~_\\-*=|])\\1{79,}$")
+    private static let fencedStructuredOutputRegex = try! NSRegularExpression(
+        pattern: #"^\s*```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)\s*```\s*$"#,
+        options: []
+    )
     private let streamingEnabled: Bool
     private let modelID: String
     private let service: any MLXChatServing
@@ -667,10 +672,11 @@ struct MLXChatCompletionsController: RouteCollection {
                         continue
                     }
 
+                    fullContent += piece
+
                     if let toolRuntime {
                         let runtimeOutput = toolRuntime.process(piece: piece)
                         if runtimeOutput.handled {
-                            fullContent += piece
                             if runtimeOutput.events.contains(where: {
                                 if case .started = $0 { return true }
                                 return false
@@ -734,7 +740,6 @@ struct MLXChatCompletionsController: RouteCollection {
                     if let lps = streamChunk.logprobs {
                         logprobBuffer.append(contentsOf: lps)
                     }
-                    fullContent += piece
 
                     // Detect RAW think tags but defer logging until after extraction flush
                     let tst = thinkStartTag ?? "<think>"
@@ -1180,12 +1185,8 @@ struct MLXChatCompletionsController: RouteCollection {
             cleaned = String(cleaned[..<badChar])
         }
 
-        let pattern = "([!?.:,;`~_\\-*=|])\\1{79,}$"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return cleaned
-        }
         let nsrange = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
-        guard let match = regex.firstMatch(in: cleaned, range: nsrange),
+        guard let match = Self.degenerateTailRegex.firstMatch(in: cleaned, range: nsrange),
               let range = Range(match.range, in: cleaned) else {
             return cleaned
         }
@@ -1204,11 +1205,7 @@ struct MLXChatCompletionsController: RouteCollection {
         }
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let regex = try? NSRegularExpression(
-            pattern: #"^\s*```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)\s*```\s*$"#,
-            options: []
-        ),
-        let match = regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+        guard let match = Self.fencedStructuredOutputRegex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
         let contentRange = Range(match.range(at: 1), in: trimmed) else {
             return trimmed
         }
