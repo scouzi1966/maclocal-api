@@ -1855,14 +1855,13 @@ final class MLXModelService: @unchecked Sendable {
 
         // --- Concurrent path: bypass container.perform lock, route through BatchScheduler ---
         if let scheduler = self.scheduler {
-            let constrainedDecoding = try await container.perform { context in
-                self.setupConstrainedDecodingProcessor(
-                    modelID: modelID,
-                    responseFormat: responseFormat,
-                    tokenizer: context.tokenizer,
-                    tools: tools
-                )
-            }
+            // Use scheduler's tokenizer directly — no container lock needed.
+            let constrainedDecoding = self.setupConstrainedDecodingProcessor(
+                modelID: modelID,
+                responseFormat: responseFormat,
+                tokenizer: scheduler.tokenizer,
+                tools: tools
+            )
             if let constrainedDecoding {
                 params.extraProcessor = constrainedDecoding.processor
             }

@@ -43,7 +43,8 @@ actor BatchScheduler {
 
     let maxConcurrent: Int
     private let model: any LanguageModel
-    let tokenizer: Tokenizer
+    /// Tokenizer — nonisolated so concurrent requests can access without actor hop.
+    nonisolated let tokenizer: Tokenizer
     private let processor: any UserInputProcessor
     private let configuration: ModelConfiguration
     private let cacheProfilePath: String?
@@ -433,7 +434,8 @@ actor BatchScheduler {
     var activeCount: Int { slots.count }
 
     /// Prepare UserInput into LMInput (tokenization + chat template).
-    func prepareInput(_ userInput: UserInput) async throws -> LMInput {
+    /// Nonisolated — tokenization can run concurrently without actor serialization.
+    nonisolated func prepareInput(_ userInput: UserInput) async throws -> LMInput {
         try await processor.prepare(input: userInput)
     }
 
