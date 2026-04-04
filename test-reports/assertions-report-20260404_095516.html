@@ -1,0 +1,1199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AFM Assertion Test Report</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif; background: #0d1117; color: #e6edf3; padding: 2rem; }
+  .header { text-align: center; margin-bottom: 2rem; padding: 2rem; background: linear-gradient(135deg, #1a1f2e 0%, #0d1117 100%); border: 1px solid #30363d; border-radius: 12px; }
+  .header h1 { font-size: 1.8rem; margin-bottom: 0.5rem; background: linear-gradient(90deg, #58a6ff, #bc8cff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .header .meta { color: #8b949e; font-size: 0.9rem; line-height: 1.6; }
+  .summary { display: flex; gap: 1rem; justify-content: center; margin: 1.5rem 0; flex-wrap: wrap; }
+  .stat { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 1rem 1.5rem; text-align: center; min-width: 120px; }
+  .stat .value { font-size: 2rem; font-weight: 700; }
+  .stat .label { color: #8b949e; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.25rem; }
+  .stat.pass .value { color: #3fb950; }
+  .stat.fail .value { color: #f85149; }
+  .stat.skip .value { color: #d29922; }
+  .stat.time .value { color: #58a6ff; }
+  .stat.pct .value { color: #d2a8ff; }
+  .progress-bar { width: 100%; height: 8px; background: #21262d; border-radius: 4px; margin: 1rem auto; max-width: 400px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 4px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 1.5rem; }
+  th { background: #161b22; color: #8b949e; font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #30363d; }
+  td { padding: 0.75rem 1rem; border-bottom: 1px solid #21262d; vertical-align: top; }
+  tr:hover { background: #161b22; }
+  .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+  .badge.pass { background: #0d2818; color: #3fb950; border: 1px solid #238636; }
+  .badge.fail { background: #2d1215; color: #f85149; border: 1px solid #da3633; }
+  .badge.skip { background: #2d2400; color: #d29922; border: 1px solid #9e6a03; }
+  .group-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 500; background: #1a1f2e; color: #8b949e; border: 1px solid #30363d; }
+  .group-badge.Preflight { color: #8b949e; border-color: #484f58; }
+  .group-badge.Lifecycle { color: #3fb950; border-color: #238636; }
+  .group-badge.Stop { color: #f85149; border-color: #da3633; }
+  .group-badge.Logprobs { color: #58a6ff; border-color: #1f6feb; }
+  .group-badge.Think { color: #d2a8ff; border-color: #8957e5; }
+  .group-badge.Tools { color: #ffa657; border-color: #d18616; }
+  .group-badge.XMLTools { color: #f0883e; border-color: #bd561d; }
+  .group-badge.Cache { color: #79c0ff; border-color: #388bfd; }
+  .group-badge.Concurrent { color: #f778ba; border-color: #db61a2; }
+  .group-badge.Error { color: #ff7b72; border-color: #da3633; }
+  .group-badge.Kwargs { color: #a5d6ff; border-color: #58a6ff; }
+  .group-badge.Perf { color: #3fb950; border-color: #238636; }
+  .group-badge.Structured { color: #d2a8ff; border-color: #8957e5; }
+  .group-badge.AdaptiveXML { color: #f0883e; border-color: #bd561d; }
+  .group-badge.Grammar { color: #d2a8ff; border-color: #8957e5; }
+  .group-badge.XMLParsing { color: #f0883e; border-color: #bd561d; }
+  .group-badge.NullableSchema { color: #79c0ff; border-color: #388bfd; }
+  .group-badge.UnitTest { color: #a5d6ff; border-color: #58a6ff; }
+  .group-badge.Batch { color: #7ee787; border-color: #3fb950; }
+  .tier-row td { background: #161b22; padding: 0.6rem 1rem; font-weight: 700; font-size: 0.9rem; border-bottom: 2px solid #30363d; border-top: 2px solid #30363d; }
+  .tier-badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600; }
+  .tier-badge.unit { background: #1a1a2e; color: #a5d6ff; border: 1px solid #58a6ff; }
+  .tier-badge.smoke { background: #0d2818; color: #3fb950; border: 1px solid #238636; }
+  .tier-badge.standard { background: #0d1a30; color: #58a6ff; border: 1px solid #1f6feb; }
+  .tier-badge.full { background: #2d1f00; color: #d29922; border: 1px solid #9e6a03; }
+  .detail { font-family: 'SF Mono', 'Menlo', monospace; font-size: 0.8rem; color: #8b949e; white-space: pre-wrap; word-break: break-word; max-height: 100px; overflow-y: auto; background: #0d1117; padding: 0.5rem; border-radius: 6px; border: 1px solid #21262d; margin-top: 0.25rem; }
+  .duration { color: #8b949e; font-family: 'SF Mono', monospace; font-size: 0.85rem; }
+  .test-idx { color: #8b949e; font-family: 'SF Mono', monospace; font-size: 0.85rem; }
+  .footer { text-align: center; margin-top: 2rem; color: #484f58; font-size: 0.8rem; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>AFM Assertion Test Report</h1>
+  <div class="meta">
+    Model: <strong>mlx-community/Qwen3.5-35B-A3B-4bit</strong> &middot; Tier: <strong>standard</strong> &middot; Grammar: <strong>true</strong><br>
+    Server: <code>http://127.0.0.1:9998</code><br>
+    Date: 2026-04-04 09:58:46
+  </div>
+</div>
+<div class="summary">
+  <div class="stat pass"><div class="value">120</div><div class="label">Passed</div></div>
+  <div class="stat fail"><div class="value">3</div><div class="label">Failed</div></div>
+  <div class="stat skip"><div class="value">0</div><div class="label">Skipped</div></div>
+  <div class="stat pct"><div class="value">97%</div><div class="label">Pass Rate</div></div>
+  <div class="stat time"><div class="value">210s</div><div class="label">Total Time</div></div>
+</div>
+<div class="progress-bar"><div class="progress-fill" style="width:97%;background:#f85149;"></div></div>
+<table>
+<thead>
+<tr><th>#</th><th>Test</th><th>Group</th><th>Coverage</th><th>Status</th><th>Duration</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+  <td><span class="test-idx">1</span></td>
+  <td>swift test execution</td>
+  <td><span class="group-badge UnitTest">UnitTest</span></td>
+  <td><span class="tier-badge unit">unit</span> <span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">75.8s</span></td>
+  <td><div class="detail">Expected: test output\nActual: FAIL: no parseable output</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">2</span></td>
+  <td>Binary exists at .build/release/afm</td>
+  <td><span class="group-badge Preflight">Preflight</span></td>
+  <td><span class="tier-badge unit">unit</span> <span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">file exists</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">3</span></td>
+  <td>Server reachable at http://127.0.0.1:9998</td>
+  <td><span class="group-badge Preflight">Preflight</span></td>
+  <td><span class="tier-badge unit">unit</span> <span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">200 OK</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">4</span></td>
+  <td>/v1/models contains model ID</td>
+  <td><span class="group-badge Lifecycle">Lifecycle</span></td>
+  <td><span class="tier-badge unit">unit</span> <span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">model in response</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">5</span></td>
+  <td>Basic completion returns content</td>
+  <td><span class="group-badge Lifecycle">Lifecycle</span></td>
+  <td><span class="tier-badge unit">unit</span> <span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">5.0s</span></td>
+  <td><div class="detail">non-empty content or reasoning</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">6</span></td>
+  <td>Stop string '5' absent from output</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="tier-badge unit">unit</span> <span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.7s</span></td>
+  <td><div class="detail">no '5' in content</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">7</span></td>
+  <td>finish_reason is 'stop' with stop sequence</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="tier-badge unit">unit</span> <span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">stop</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">8</span></td>
+  <td>Multi-word stop 'and' truncates correctly</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="tier-badge unit">unit</span> <span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.7s</span></td>
+  <td><div class="detail">no 'and' in output</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">9</span></td>
+  <td>Stop on newline produces single line</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="tier-badge unit">unit</span> <span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.7s</span></td>
+  <td><div class="detail">single line</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">10</span></td>
+  <td>Multiple stop sequences [7, 12]</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="tier-badge unit">unit</span> <span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.7s</span></td>
+  <td><div class="detail">neither found</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">11</span></td>
+  <td>Empty stop array is no-op</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="tier-badge unit">unit</span> <span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.8s</span></td>
+  <td><div class="detail">valid output</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">12</span></td>
+  <td>Streaming: stop string '5' absent</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="tier-badge unit">unit</span> <span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.8s</span></td>
+  <td><div class="detail">no '5' in stream</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">13</span></td>
+  <td>Stop sequence '3.' truncates list</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">no '3.' in output</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">14</span></td>
+  <td>Stop 'stopped' doesn't fire on 'stopping'</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.9s</span></td>
+  <td><div class="detail">output produced</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">15</span></td>
+  <td>Stop 'llo' fires mid-word in 'hello'</td>
+  <td><span class="group-badge Stop">Stop</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.7s</span></td>
+  <td><div class="detail">no 'llo'</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">16</span></td>
+  <td>ChoiceLogprobs JSON schema valid</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">valid schema</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">17</span></td>
+  <td>top_logprobs count &lt;= requested (5)</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">count valid</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">18</span></td>
+  <td>logprobs=false returns null</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">null logprobs</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">19</span></td>
+  <td>top_logprobs=99 returns 400</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">20</span></td>
+  <td>Streaming logprobs present and valid</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">21</span></td>
+  <td>top_logprobs=0 returns empty arrays</td>
+  <td><span class="group-badge Logprobs">Logprobs</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">empty top_logprobs</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">22</span></td>
+  <td>reasoning_content present in response</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">present</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">23</span></td>
+  <td>No &lt;think&gt; tags in content field</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">clean content</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">24</span></td>
+  <td>Streaming: reasoning_content in deltas</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">present</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">25</span></td>
+  <td>Stop sequence doesn't break think extraction</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.7s</span></td>
+  <td><div class="detail">response ok</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">26</span></td>
+  <td>reasoning_content has meaningful length (&gt;5 chars)</td>
+  <td><span class="group-badge Think">Think</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">&gt;5 chars</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">27</span></td>
+  <td>Basic tool call: finish_reason=tool_calls, valid args</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.4s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">28</span></td>
+  <td>tool_choice=none suppresses tool calls</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">no tool calls</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">29</span></td>
+  <td>Tool arguments are valid JSON dict</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.7s</span></td>
+  <td><div class="detail">valid JSON</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">30</span></td>
+  <td>Streaming: tool calls with finish_reason</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">31</span></td>
+  <td>Multi-tool: at least 1 tool call with 2 tools</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.2s</span></td>
+  <td><div class="detail">&gt;=1 calls</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">32</span></td>
+  <td>Array param: todos is JSON array (not string)</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">array</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">33</span></td>
+  <td>Nullable param: anyOf [string, null] does not crash</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">no crash</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">34</span></td>
+  <td>Multi-turn: tool result produces valid follow-up</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.1s</span></td>
+  <td><div class="detail">text response</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">35</span></td>
+  <td>Multi-turn nullable: full round-trip (anyOf params)</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.6s</span></td>
+  <td><div class="detail">valid follow-up</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">36</span></td>
+  <td>No tools: normal text response</td>
+  <td><span class="group-badge Tools">Tools</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">text response</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">37</span></td>
+  <td>First unique request: uncached suffix remains</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">cached_tokens &lt; prompt_tokens</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">38</span></td>
+  <td>Shared-prefix request: cached_tokens&gt;0</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">&gt;0</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">39</span></td>
+  <td>Exact replay: cached response matches cold response</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">same content</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">40</span></td>
+  <td>Different unique prompt: uncached suffix remains</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">cached_tokens &lt; prompt_tokens</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">41</span></td>
+  <td>Streaming shared-prefix: cached_tokens&gt;0 in usage chunk</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.7s</span></td>
+  <td><div class="detail">&gt;0</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">42</span></td>
+  <td>Streaming replay: content matches non-streaming warmup</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.8s</span></td>
+  <td><div class="detail">same content</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">43</span></td>
+  <td>Concurrent x8 shared-prefix: uncached suffix remains on every branch</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">2.5s</span></td>
+  <td><div class="detail">Expected: 0 &lt; cached_tokens &lt; prompt_tokens for all 8\nActual: FAIL: 2:0/59, 3:0/59, 4:0/59, 5:0/59, 6:0/59, 7:0/59, 8:0/59</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">44</span></td>
+  <td>Concurrent x8 shared-prefix: divergent suffix responses stay isolated</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge fail">FAIL</span></td>
+  <td><span class="duration">2.5s</span></td>
+  <td><div class="detail">Expected: each of 8 responses keeps only its own marker\nActual: FAIL: 1:error=Expecting value: line 1 column 1 (char 0); 2:error=Expecting value: line 1 column 1 (char 0); 3:error=Expecting value: line 1 column 1 (char 0); 4:error=Expecting value: line 1 column 1 (char 0); 5:error=Expecting value: line 1 column 1 (char 0); 6:error=Expecting value: line 1 column 1 (char 0); 7:error=Expecting value: line 1 column 1 (char 0); 8:error=Expecting value: line 1 column 1 (char 0)</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">45</span></td>
+  <td>Two simultaneous requests: both 200</td>
+  <td><span class="group-badge Concurrent">Concurrent</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">200+200</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">46</span></td>
+  <td>Three simultaneous requests: all 200</td>
+  <td><span class="group-badge Concurrent">Concurrent</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">all 200</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">47</span></td>
+  <td>Empty messages → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">48</span></td>
+  <td>Malformed JSON → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">49</span></td>
+  <td>Missing messages field → 400</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">50</span></td>
+  <td>response_format json_object returns valid JSON</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">valid JSON</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">51</span></td>
+  <td>max_tokens=5 is respected</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">&lt;=10 tokens</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">52</span></td>
+  <td>OPTIONS /v1/chat/completions → 200 (CORS)</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">200</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">53</span></td>
+  <td>developer role accepted (mapped to system)</td>
+  <td><span class="group-badge Error">Error</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">4.2s</span></td>
+  <td><div class="detail">valid response</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">54</span></td>
+  <td>enable_thinking=false disables thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">no_think</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">55</span></td>
+  <td>Streaming: enable_thinking=false disables thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">no_think</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">56</span></td>
+  <td>Default (no kwargs) retains thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.4s</span></td>
+  <td><div class="detail">thinking</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">57</span></td>
+  <td>enable_thinking=false (2K tokens) returns content</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">content present, no reasoning</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">58</span></td>
+  <td>enable_thinking=true explicitly keeps thinking</td>
+  <td><span class="group-badge Kwargs">Kwargs</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.4s</span></td>
+  <td><div class="detail">thinking</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">59</span></td>
+  <td>Prefix cache reuse across requests</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">valid response on cache hit</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">60</span></td>
+  <td>Issue #32: sequential guided-json → nullable tool (no crash)</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.9s</span></td>
+  <td><div class="detail">both succeed</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">61</span></td>
+  <td>Sequential: 3 nullable tool calls (cache reuse)</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">3.5s</span></td>
+  <td><div class="detail">3/3 succeed</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">62</span></td>
+  <td>Multi-turn: 5-msg tool conversation with prefix cache</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.5s</span></td>
+  <td><div class="detail">valid response</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">63</span></td>
+  <td>Long system prompt: 3 sequential requests (prefix reuse)</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">4.6s</span></td>
+  <td><div class="detail">3/3 succeed</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">64</span></td>
+  <td>Sequential stress: 5 mixed requests (text/tool/json/stream/nullable)</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">3.3s</span></td>
+  <td><div class="detail">5/5 succeed</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">65</span></td>
+  <td>Multi-turn: 5-turn growing conversation (prefix reuse)</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">3.9s</span></td>
+  <td><div class="detail">5/5 turns</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">66</span></td>
+  <td>Streaming + non-streaming sequential (shared prefix)</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">3/3 succeed</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">67</span></td>
+  <td>Issue #32 comprehensive: nullable tool + multi-turn + prefix</td>
+  <td><span class="group-badge Cache">Cache</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.0s</span></td>
+  <td><div class="detail">valid response</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">68</span></td>
+  <td>json_schema produces valid schema-matching JSON</td>
+  <td><span class="group-badge Structured">Structured</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">valid JSON</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">69</span></td>
+  <td>Function name correctly extracted</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.2s</span></td>
+  <td><div class="detail">get_weather</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">70</span></td>
+  <td>Parameter values are correct string types</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">strings</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">71</span></td>
+  <td>Mixed-type params (string+bool+int) parse correctly</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.3s</span></td>
+  <td><div class="detail">valid types</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">72</span></td>
+  <td>Nested object param survives XML parsing</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.4s</span></td>
+  <td><div class="detail">valid dict</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">73</span></td>
+  <td>tool_choice=required forces tool call</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">tool_calls</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">74</span></td>
+  <td>tool_choice={function: get_time} calls correct function</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">get_time</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">75</span></td>
+  <td>Tool call IDs are unique</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.6s</span></td>
+  <td><div class="detail">unique IDs</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">76</span></td>
+  <td>Streaming: XML tool call assembles valid JSON args</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">77</span></td>
+  <td>Streaming: array param is JSON array (not string)</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">array</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">78</span></td>
+  <td>Tool call matches OpenAI schema (id, type, function.name, function.arguments)</td>
+  <td><span class="group-badge XMLTools">XMLTools</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.2s</span></td>
+  <td><div class="detail">valid schema</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">79</span></td>
+  <td>Normal XML tool call works with afm_adaptive_xml</td>
+  <td><span class="group-badge AdaptiveXML">AdaptiveXML</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">valid tool call</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">80</span></td>
+  <td>Streaming tool call emits valid deltas</td>
+  <td><span class="group-badge AdaptiveXML">AdaptiveXML</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">name + JSON args</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">81</span></td>
+  <td>Multi-turn: model responds after tool result</td>
+  <td><span class="group-badge AdaptiveXML">AdaptiveXML</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.8s</span></td>
+  <td><div class="detail">non-empty content</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">82</span></td>
+  <td>tool_choice=none suppresses tool calls</td>
+  <td><span class="group-badge AdaptiveXML">AdaptiveXML</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.7s</span></td>
+  <td><div class="detail">no tool_calls</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">83</span></td>
+  <td>Multiple tools: correct function selected</td>
+  <td><span class="group-badge AdaptiveXML">AdaptiveXML</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.8s</span></td>
+  <td><div class="detail">get_time</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">84</span></td>
+  <td>Argument types coerced (string, bool, int)</td>
+  <td><span class="group-badge AdaptiveXML">AdaptiveXML</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.2s</span></td>
+  <td><div class="detail">correct types</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">85</span></td>
+  <td>Tool call valid (with or without grammar constraints)</td>
+  <td><span class="group-badge AdaptiveXML">AdaptiveXML</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.3s</span></td>
+  <td><div class="detail">valid</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">86</span></td>
+  <td>Array of objects coercion (question tool pattern)</td>
+  <td><span class="group-badge AdaptiveXML">AdaptiveXML</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.3s</span></td>
+  <td><div class="detail">array of dicts</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">87</span></td>
+  <td>Number (float) and boolean coercion</td>
+  <td><span class="group-badge AdaptiveXML">AdaptiveXML</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.1s</span></td>
+  <td><div class="detail">correct types</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">88</span></td>
+  <td>Nested object with typed fields coercion</td>
+  <td><span class="group-badge AdaptiveXML">AdaptiveXML</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.2s</span></td>
+  <td><div class="detail">correct types</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">89</span></td>
+  <td>Streaming array coercion (incremental path)</td>
+  <td><span class="group-badge AdaptiveXML">AdaptiveXML</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.3s</span></td>
+  <td><div class="detail">array in stream</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">90</span></td>
+  <td>XML entity decoding in tool call values</td>
+  <td><span class="group-badge AdaptiveXML">AdaptiveXML</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.2s</span></td>
+  <td><div class="detail">decoded</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">91</span></td>
+  <td>EBNF grammar enforces all required params present</td>
+  <td><span class="group-badge AdaptiveXML">AdaptiveXML</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">command + description</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">92</span></td>
+  <td>EBNF structured params: array gets json_array constraint</td>
+  <td><span class="group-badge AdaptiveXML">AdaptiveXML</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.5s</span></td>
+  <td><div class="detail">tags is array</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">93</span></td>
+  <td>Calculator tool call (non-streaming)</td>
+  <td><span class="group-badge Grammar">Grammar</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.3s</span></td>
+  <td><div class="detail">calculate(expression)</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">94</span></td>
+  <td>Calculator tool call (streaming)</td>
+  <td><span class="group-badge Grammar">Grammar</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">calculate(expression) via SSE</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">95</span></td>
+  <td>Two tools: grammar allows correct selection</td>
+  <td><span class="group-badge Grammar">Grammar</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.4s</span></td>
+  <td><div class="detail">get_weather selected</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">96</span></td>
+  <td>Two tools: grammar selects calculate</td>
+  <td><span class="group-badge Grammar">Grammar</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">calculate selected</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">97</span></td>
+  <td>Grammar enforces 3 required params (send_email)</td>
+  <td><span class="group-badge Grammar">Grammar</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.7s</span></td>
+  <td><div class="detail">to + subject + body</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">98</span></td>
+  <td>Grammar constrains array param at generation time</td>
+  <td><span class="group-badge Grammar">Grammar</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.7s</span></td>
+  <td><div class="detail">tags is array</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">99</span></td>
+  <td>Grammar array param via streaming</td>
+  <td><span class="group-badge Grammar">Grammar</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.6s</span></td>
+  <td><div class="detail">tags is array (SSE)</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">100</span></td>
+  <td>Complex schema: string + int + array + object</td>
+  <td><span class="group-badge Grammar">Grammar</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.8s</span></td>
+  <td><div class="detail">correct types</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">101</span></td>
+  <td>Header absent when grammar enabled (tool strict:true)</td>
+  <td><span class="group-badge StrictWiring">StrictWiring</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.9s</span></td>
+  <td><div class="detail">no header</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">102</span></td>
+  <td>Header absent when grammar enabled (schema strict:true)</td>
+  <td><span class="group-badge StrictWiring">StrictWiring</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">no header</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">103</span></td>
+  <td>No header when strict absent</td>
+  <td><span class="group-badge StrictWiring">StrictWiring</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.6s</span></td>
+  <td><div class="detail">no header</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">104</span></td>
+  <td>Streaming json_schema strict:true returns valid JSON</td>
+  <td><span class="group-badge StrictWiring">StrictWiring</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">valid JSON with name+age</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">105</span></td>
+  <td>Streaming tool strict:true returns valid tool call</td>
+  <td><span class="group-badge StrictWiring">StrictWiring</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.3s</span></td>
+  <td><div class="detail">get_weather(location)</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">106</span></td>
+  <td>strict:false does not error (best-effort)</td>
+  <td><span class="group-badge StrictWiring">StrictWiring</span></td>
+  <td><span class="tier-badge smoke">smoke</span> <span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">1.0s</span></td>
+  <td><div class="detail">valid response</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">107</span></td>
+  <td>POST /v1/files upload returns file ID</td>
+  <td><span class="group-badge Batch">Batch</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">file-*</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">108</span></td>
+  <td>GET /v1/files/:id returns file metadata</td>
+  <td><span class="group-badge Batch">Batch</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">file object</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">109</span></td>
+  <td>POST /v1/batches creates batch</td>
+  <td><span class="group-badge Batch">Batch</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">in_progress/completed</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">110</span></td>
+  <td>GET /v1/batches/:id polls to completed</td>
+  <td><span class="group-badge Batch">Batch</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">2.1s</span></td>
+  <td><div class="detail">completed</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">111</span></td>
+  <td>Output JSONL contains both results (2/2)</td>
+  <td><span class="group-badge Batch">Batch</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">assert-1 + assert-2</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">112</span></td>
+  <td>GET /v1/batches lists completed batch</td>
+  <td><span class="group-badge Batch">Batch</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">list with ≥1 batch</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">113</span></td>
+  <td>DELETE /v1/files/:id removes uploaded file</td>
+  <td><span class="group-badge Batch">Batch</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">deleted=true</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">114</span></td>
+  <td>SSE multiplex: 2 non-streaming requests tagged with custom_id</td>
+  <td><span class="group-badge Batch">Batch</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">sse-a + sse-b + [DONE]</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">115</span></td>
+  <td>SSE multiplex: streaming interleaved with finish_reason</td>
+  <td><span class="group-badge Batch">Batch</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.3s</span></td>
+  <td><div class="detail">str-x + str-y chunks + stop + [DONE]</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">116</span></td>
+  <td>SSE multiplex rejects duplicate custom_ids</td>
+  <td><span class="group-badge Batch">Batch</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">117</span></td>
+  <td>SSE multiplex rejects empty requests</td>
+  <td><span class="group-badge Batch">Batch</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.0s</span></td>
+  <td><div class="detail">400</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">118</span></td>
+  <td>batch + top_k + streaming</td>
+  <td><span class="group-badge PairwiseSmoke">PairwiseSmoke</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">content present</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">119</span></td>
+  <td>batch + presence_penalty + non-streaming</td>
+  <td><span class="group-badge PairwiseSmoke">PairwiseSmoke</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">finish_reason present</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">120</span></td>
+  <td>batch + repetition_penalty + logprobs</td>
+  <td><span class="group-badge PairwiseSmoke">PairwiseSmoke</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">response valid</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">121</span></td>
+  <td>batch + all sampling params combined</td>
+  <td><span class="group-badge PairwiseSmoke">PairwiseSmoke</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.1s</span></td>
+  <td><div class="detail">response valid</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">122</span></td>
+  <td>streaming parity (same seed → same output)</td>
+  <td><span class="group-badge PairwiseSmoke">PairwiseSmoke</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">match</div></td>
+</tr>
+<tr>
+  <td><span class="test-idx">123</span></td>
+  <td>cache idempotency (same seed → same output)</td>
+  <td><span class="group-badge PairwiseSmoke">PairwiseSmoke</span></td>
+  <td><span class="tier-badge standard">standard</span> <span class="tier-badge full">full</span></td>
+  <td><span class="badge pass">PASS</span></td>
+  <td><span class="duration">0.2s</span></td>
+  <td><div class="detail">match</div></td>
+</tr>
+</tbody>
+</table>
+<div class="footer">
+  Generated by Scripts/test-assertions.sh (tier: standard) &mdash; 2026-04-04 09:58:49
+</div>
+</body>
+</html>
