@@ -438,8 +438,8 @@ actor BatchScheduler {
     var activeCount: Int { slots.count }
 
     /// Prepare UserInput into LMInput (tokenization + chat template).
-    /// Nonisolated — tokenization can run concurrently without actor serialization.
-    nonisolated func prepareInput(_ userInput: UserInput) async throws -> LMInput {
+    /// Actor-isolated — processor.prepare may not be thread-safe despite Sendable conformance.
+    func prepareInput(_ userInput: UserInput) async throws -> LMInput {
         try await processor.prepare(input: userInput)
     }
 
@@ -1110,12 +1110,12 @@ actor BatchScheduler {
 
         // Verify cache types support batching
         let templateCache = model.newCache(parameters: requests[0].parameters)
-        // Gemma 4 (mixed KVCacheSimple + RotatingKVCache) crashes in MLX SDPA at B>=3
-        // during batched prefill. Use individual prefill + merge for these models.
-        // The decode loop handles them correctly in batch via BatchRotatingKVCache.
-        let hasMixedCacheTypes = templateCache.contains { $0 is RotatingKVCache }
-            && templateCache.contains { $0 is KVCacheSimple }
-        let canBatch = !hasMixedCacheTypes && templateCache.allSatisfy { c in
+        // Models with RotatingKVCache layers (Gemma 4) use individual prefill + merge.
+        // MLX's lazy graph overflows SmallVector during batched prefill eval with
+        // BatchRotatingKVCache. The decode loop handles them correctly in batch.
+        // Individual prefill adds <1% overhead (63ms for 15 requests vs 17s decode).
+        let hasRotatingLayers = templateCache.contains { $0 is RotatingKVCache }
+        let canBatch = !hasRotatingLayers && templateCache.allSatisfy { c in
             c is KVCacheSimple || c is ArraysCache || c is CacheList
             || (c as? RotatingKVCache)?.isBatchable == true
         }

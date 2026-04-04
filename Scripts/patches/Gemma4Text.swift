@@ -710,7 +710,11 @@ public class Gemma4TextModelInner: Module {
     }
 
     /// Core forward pass shared by both entry points.
+    /// Known issue: Gemma 4 E4B crashes in MLX at B>=3 during batched prefill.
     private func forward(h: MLXArray, perLayerInputs: MLXArray?, cache: [KVCache]?) -> MLXArray {
+        if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" && h.dim(0) > 1 {
+            print("[Gemma4Forward] B=\(h.dim(0)) L=\(h.dim(1)) H=\(h.dim(2)) perLayerInputs=\(perLayerInputs?.shape.description ?? "nil")")
+        }
         var h = h
 
         let cache: [KVCache?] = cache ?? Array(repeating: nil, count: layers.count)
@@ -734,6 +738,7 @@ public class Gemma4TextModelInner: Module {
         // KV sharing store: layer_idx → (keys, values, offset)
         var sharedKVStore: [Int: ((MLXArray, MLXArray), Int)] = [:]
 
+        let debugBatch = ProcessInfo.processInfo.environment["AFM_DEBUG_PREFILL"] == "1" && h.dim(0) > 2
         for (i, (layer, c)) in zip(layers, cache).enumerated() {
             let isGlobal = layer.layerType == "full_attention"
             let mask = isGlobal ? globalMask : slidingMask
@@ -766,6 +771,14 @@ public class Gemma4TextModelInner: Module {
             // Store KV for sharing if needed
             if attn.storeFullLengthKV, let kv = attn.lastKV {
                 sharedKVStore[i] = (kv, preOffset)
+            }
+
+            // Debug: periodic eval to diagnose MLX lazy graph overflow at B>=3.
+            if debugBatch {
+                MLX.eval(h)
+                if let c = c { MLX.eval(c.innerState()) }
+                print("[Gemma4Forward] layer \(i) B=\(h.dim(0)) OK h=\(h.shape)")
+                fflush(stdout)
             }
         }
 
