@@ -739,43 +739,53 @@ public class BatchRotatingKVCache: BaseKVCache {
         let maxSize = firstRC.cacheSize
         let keepVal = firstRC.keepCount
 
-        var allKeys: [MLXArray] = []
-        var allValues: [MLXArray] = []
-        var lengths: [Int] = []
-
+        // Extract state per cache — nil for empty/fresh caches
+        var perCacheState: [(keys: MLXArray, values: MLXArray, length: Int)?] = []
         for cache in caches {
             let st = cache.state
-            if st.count >= 2 {
-                allKeys.append(st[0])
-                allValues.append(st[1])
-                lengths.append(st[0].dim(2))  // state getter returns temporal-order, trimmed
+            if st.count >= 2, st[0].dim(2) > 0 {
+                perCacheState.append((keys: st[0], values: st[1], length: st[0].dim(2)))
+            } else {
+                perCacheState.append(nil)
             }
         }
 
-        guard !allKeys.isEmpty else {
+        guard perCacheState.contains(where: { $0 != nil }) else {
             return BatchRotatingKVCache(
                 batchSize: B, leftPadding: Array(repeating: 0, count: B),
                 maxCacheSize: maxSize, keep: keepVal
             )
         }
 
-        let maxLen = Swift.min(lengths.max()!, maxSize)
+        // Use first non-nil cache for dtype/shape reference
+        let refState = perCacheState.first(where: { $0 != nil })!!
+        let maxLen = Swift.min(perCacheState.compactMap { $0?.length }.max()!, maxSize)
         var padding = [Int]()
         var paddedKeys = [MLXArray]()
         var paddedValues = [MLXArray]()
 
         for i in 0 ..< B {
-            let seqLen = Swift.min(lengths[i], maxSize)
+            let seqLen: Int
+            var k: MLXArray
+            var v: MLXArray
+
+            if let state = perCacheState[i] {
+                seqLen = Swift.min(state.length, maxSize)
+                k = state.keys
+                v = state.values
+                if k.dim(2) > maxSize {
+                    k = k[.ellipsis, (k.dim(2) - maxSize)..., 0...]
+                    v = v[.ellipsis, (v.dim(2) - maxSize)..., 0...]
+                }
+            } else {
+                // Empty cache — create zero arrays matching reference shape
+                seqLen = 0
+                k = MLXArray.zeros([1, refState.keys.dim(1), 0, refState.keys.dim(3)], dtype: refState.keys.dtype)
+                v = MLXArray.zeros([1, refState.values.dim(1), 0, refState.values.dim(3)], dtype: refState.values.dtype)
+            }
+
             let padAmount = maxLen - seqLen
             padding.append(padAmount)
-
-            var k = allKeys[i]
-            var v = allValues[i]
-            // Truncate to maxSize if longer
-            if k.dim(2) > maxSize {
-                k = k[.ellipsis, (k.dim(2) - maxSize)..., 0...]
-                v = v[.ellipsis, (v.dim(2) - maxSize)..., 0...]
-            }
 
             if padAmount > 0 {
                 let kPad = MLXArray.zeros([k.dim(0), k.dim(1), padAmount, k.dim(3)], dtype: k.dtype)
@@ -796,7 +806,7 @@ public class BatchRotatingKVCache: BaseKVCache {
         batch.values = concatenated(paddedValues, axis: 0)
         batch._idx = maxLen
         batch._offset = maxLen
-        batch.perSeqOffset = MLXArray(lengths.map { Int32(Swift.min($0, maxSize)) })
+        batch.perSeqOffset = MLXArray(perCacheState.map { Int32(Swift.min($0?.length ?? 0, maxSize)) })
         return batch
     }
 }

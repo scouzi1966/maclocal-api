@@ -338,15 +338,18 @@ actor BatchScheduler {
     private static let maxPollInterval: UInt64     = 500_000_000  // 500ms
 
     /// Wait up to `timeout` seconds for a slot to become available.
-    /// Returns true if a slot was reserved, false if timed out.
+    /// Returns true if a slot was reserved, false if timed out, cancelled, or shutdown.
     nonisolated func waitForSlot(timeout: TimeInterval = 30) async -> Bool {
+        if Task.isCancelled || _isShutdown.withLock({ $0 }) { return false }
         if tryReserve() { return true }
 
         let deadline = ContinuousClock.now + .seconds(timeout)
         var delay = Self.initialPollInterval
 
         while ContinuousClock.now < deadline {
+            if Task.isCancelled || _isShutdown.withLock({ $0 }) { return false }
             try? await Task.sleep(nanoseconds: delay)
+            if Task.isCancelled || _isShutdown.withLock({ $0 }) { return false }
             if tryReserve() { return true }
             delay = min(delay * 2, Self.maxPollInterval)
         }
