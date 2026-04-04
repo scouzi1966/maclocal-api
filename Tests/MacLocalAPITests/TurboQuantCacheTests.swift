@@ -237,6 +237,57 @@ struct TurboQuantCacheTests {
         #expect(dense[1].allClose(MLXArray.ones([1, 2, 6, 8]) * 2, atol: 0.75).item(Bool.self))
     }
 
+    @Test("TurboQuant decode after packed cache load preserves history")
+    func turboQuantDecodeAfterPackedCacheLoad() throws {
+        let cache = TurboQuantKVCache(
+            configuration: TurboQuantConfiguration(
+                bits: 3.5,
+                variant: .turboQuant35
+            )
+        )
+
+        let _ = cache.update(
+            keys: MLXArray.ones([1, 1, 4, 8]),
+            values: MLXArray.ones([1, 1, 4, 8]) * 2
+        )
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("safetensors")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try savePromptCache(url: url, cache: [cache], metadata: [:])
+        let (loadedCaches, _) = try loadPromptCache(url: url)
+        let loaded = try #require(loadedCaches.first as? TurboQuantKVCache)
+
+        let queries = MLXArray.ones([1, 2, 1, 8])
+        queries[0, 1, 0] = MLXArray.ones([8]) * 0.5
+        let newKeys = MLXArray.ones([1, 1, 1, 8]) * 0.75
+        let newValues = MLXArray.ones([1, 1, 1, 8]) * 3.0
+
+        let output = loaded.decodeAttention(
+            queries: queries,
+            keys: newKeys,
+            values: newValues,
+            scale: 1.0,
+            mask: .none
+        )
+
+        let dense = loaded.toUnquantized().state
+        let expected = MLXFast.scaledDotProductAttention(
+            queries: queries,
+            keys: dense[0],
+            values: dense[1],
+            scale: 1.0,
+            mask: .none
+        )
+        let maxDiff = abs(output - expected).max().item(Float.self)
+
+        #expect(loaded.offset == 5)
+        #expect(output.shape == [1, 2, 1, 8])
+        #expect(maxDiff < 0.1)
+    }
+
     @Test("MlxCommand parses fractional KV bits and quant scheme")
     func mlxCommandParsesTurboQuantFlags() throws {
         let command = try MlxCommand.parse([
