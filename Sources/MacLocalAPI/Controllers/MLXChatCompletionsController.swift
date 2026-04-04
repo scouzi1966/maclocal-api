@@ -95,8 +95,11 @@ struct MLXChatCompletionsController: RouteCollection {
         return response
     }
 
+    private static let debugPipeline = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
+
     func chatCompletions(req: Request) async throws -> Response {
         do {
+            let httpArrival = Self.debugPipeline ? Date() : Date.distantPast
             let chatRequest = try req.content.decode(ChatCompletionRequest.self)
             if veryVerbose {
                 print("\(Self.pink)[\(Self.timestamp())] RECV MLX full request:\n\(encodeJSON(chatRequest))\(Self.reset)"); fflush(stdout)
@@ -160,6 +163,8 @@ struct MLXChatCompletionsController: RouteCollection {
                 fflush(stdout)
             }
 
+            let tJsonParse = Self.debugPipeline ? Date() : Date.distantPast
+
             // Reserve a concurrent slot — waits up to 4 minutes for a slot to free up.
             // RotatingKVCache models (Gemma 4) fall back to serial execution, so
             // queued requests can wait a long time when all slots are occupied.
@@ -218,6 +223,14 @@ struct MLXChatCompletionsController: RouteCollection {
                     "\(Self.orange)[\(Self.timestamp())] MLX start: stream=false\n  prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens)\n  temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\n  top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none")\n  seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
                 ); fflush(stdout)
             }
+            if Self.debugPipeline {
+                let tSlotReserved = Date()
+                let jsonMs = tJsonParse.timeIntervalSince(httpArrival) * 1000
+                let slotMs = tSlotReserved.timeIntervalSince(tJsonParse) * 1000
+                let totalMs = tSlotReserved.timeIntervalSince(httpArrival) * 1000
+                print("[\(Self.timestamp())] [HTTPPipeline] json_parse=\(String(format: "%.1f", jsonMs))ms slot_wait=\(String(format: "%.1f", slotMs))ms total=\(String(format: "%.1f", totalMs))ms")
+            }
+
             let result: ChatGenerationResult
             if service.maxConcurrent >= 2 {
                 // Batch mode: route through scheduler for batched decode

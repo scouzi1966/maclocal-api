@@ -1855,6 +1855,8 @@ final class MLXModelService: @unchecked Sendable {
 
         // --- Concurrent path: bypass container.perform lock, route through BatchScheduler ---
         if let scheduler = self.scheduler {
+            let pipelineStart = debugLogging ? Date() : Date.distantPast
+
             // Use scheduler's tokenizer directly — no container lock needed.
             let constrainedDecoding = self.setupConstrainedDecodingProcessor(
                 modelID: modelID,
@@ -1865,6 +1867,7 @@ final class MLXModelService: @unchecked Sendable {
             if let constrainedDecoding {
                 params.extraProcessor = constrainedDecoding.processor
             }
+            let tConstraint = debugLogging ? Date() : Date.distantPast
 
             let toolRuntimeConfig: BatchScheduler.ToolCallRuntimeConfiguration?
             if let tools, !tools.isEmpty {
@@ -1899,7 +1902,9 @@ final class MLXModelService: @unchecked Sendable {
                 toolRuntimeConfig = nil
             }
 
+            let tToolSetup = debugLogging ? Date() : Date.distantPast
             let input = try await scheduler.prepareInput(userInput)
+            let tTokenize = debugLogging ? Date() : Date.distantPast
             let preparedPromptTokens = input.text.tokens.reshaped(-1).asArray(Int.self).count
             let schedulerStream = scheduler.submit(
                 input: input,
@@ -1917,6 +1922,16 @@ final class MLXModelService: @unchecked Sendable {
                 thinkEndTag: self.thinkEndTag
             )
             self.cleanupTempFiles(mediaTempFiles)
+
+            if debugLogging {
+                let tSubmit = Date()
+                let total = tSubmit.timeIntervalSince(pipelineStart) * 1000
+                let constraint = tConstraint.timeIntervalSince(pipelineStart) * 1000
+                let toolSetup = tToolSetup.timeIntervalSince(tConstraint) * 1000
+                let tokenize = tTokenize.timeIntervalSince(tToolSetup) * 1000
+                let submit = tSubmit.timeIntervalSince(tTokenize) * 1000
+                print("[\(ts())] [Pipeline] total=\(String(format: "%.1f", total))ms constraint=\(String(format: "%.1f", constraint))ms tool_setup=\(String(format: "%.1f", toolSetup))ms tokenize=\(String(format: "%.1f", tokenize))ms submit=\(String(format: "%.1f", submit))ms tokens=\(preparedPromptTokens)")
+            }
 
             // Derive tool call tags (same logic as serial path, below)
             let toolTags = toolRuntimeConfig.map { ($0.startTag, $0.endTag) }
