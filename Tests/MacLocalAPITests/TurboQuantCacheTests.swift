@@ -223,9 +223,18 @@ struct TurboQuantCacheTests {
         #expect(loaded.offset == 6)
 
         let state = loaded.state
-        #expect(state.count == 2)
-        #expect(state[0].shape == [1, 2, 6, 8])
-        #expect(state[1].shape == [1, 2, 6, 8])
+        #expect(state.count == 4)
+        #expect(state[0].shape == [1, 2, 6])
+        #expect(state[1].shape == [1, 2, 6, 1])
+        #expect(state[2].shape == [1, 2, 6])
+        #expect(state[3].shape == [1, 2, 6, 1])
+
+        let dense = loaded.toUnquantized().state
+        #expect(dense.count == 2)
+        #expect(dense[0].shape == [1, 2, 6, 8])
+        #expect(dense[1].shape == [1, 2, 6, 8])
+        #expect(dense[0].allClose(MLXArray.ones([1, 2, 6, 8]), atol: 0.75).item(Bool.self))
+        #expect(dense[1].allClose(MLXArray.ones([1, 2, 6, 8]) * 2, atol: 0.75).item(Bool.self))
     }
 
     @Test("MlxCommand parses fractional KV bits and quant scheme")
