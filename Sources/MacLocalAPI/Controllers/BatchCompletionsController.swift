@@ -3,6 +3,9 @@ import Foundation
 import os
 
 struct BatchCompletionsController: RouteCollection {
+    /// Maximum requests allowed in a single SSE multiplex batch.
+    private static let maxBatchSize = 200
+
     private let service: any MLXChatServing
     private let modelID: String
     private let temperature: Double?
@@ -53,8 +56,8 @@ struct BatchCompletionsController: RouteCollection {
         guard !batchReq.requests.isEmpty else {
             throw Abort(.badRequest, reason: "Batch must contain at least one request")
         }
-        guard batchReq.requests.count <= 64 else {
-            throw Abort(.badRequest, reason: "Batch size exceeds maximum of 64 requests")
+        guard batchReq.requests.count <= Self.maxBatchSize else {
+            throw Abort(.badRequest, reason: "Batch size exceeds maximum of \(Self.maxBatchSize) requests")
         }
 
         let ids = batchReq.requests.map(\.customId)
