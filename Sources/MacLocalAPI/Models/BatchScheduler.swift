@@ -62,6 +62,7 @@ actor BatchScheduler {
     /// different temperature, top_p, penalties etc.).
     private class SlotState {
         let id: UUID
+        let requestId: String
         let continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation
         let promptTokenCount: Int
         /// Set to the moment prefill begins (prefillStart), so elapsed includes prefill + decode.
@@ -112,6 +113,7 @@ actor BatchScheduler {
         var isCancelled = false
 
         init(
+            requestId: String = "",
             continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation,
             promptTokenCount: Int,
             startTime: Date,
@@ -135,6 +137,7 @@ actor BatchScheduler {
             temperatureForLogprobs: Float = 1.0
         ) {
             self.id = UUID()
+            self.requestId = requestId
             self.continuation = continuation
             self.promptTokenCount = promptTokenCount
             self.prefillTime = prefillTime
@@ -298,6 +301,7 @@ actor BatchScheduler {
     }
 
     struct PendingRequest: @unchecked Sendable {
+        let requestId: String
         let input: LMInput
         let parameters: GenerateParameters
         let promptTokens: Int
@@ -449,7 +453,8 @@ actor BatchScheduler {
         constraintRuntimeConfig: ConstraintRuntimeConfiguration? = nil,
         stopSequences: [String] = [],
         thinkStartTag: String? = nil,
-        thinkEndTag: String? = nil
+        thinkEndTag: String? = nil,
+        requestId: String = ""
     ) -> AsyncThrowingStream<StreamChunk, Error> {
         if _isShutdown.withLock({ $0 }) {
             return AsyncThrowingStream { $0.finish(throwing: MLXServiceError.serviceShuttingDown) }
@@ -460,6 +465,7 @@ actor BatchScheduler {
         // Note: slot already reserved by tryReserve() in the controller layer.
         _pendingQueue.withLock {
             $0.append(PendingRequest(
+                requestId: requestId,
                 input: input,
                 parameters: parameters,
                 promptTokens: promptTokens,
@@ -472,7 +478,7 @@ actor BatchScheduler {
             ))
         }
 
-        DebugLogger.log("[BatchScheduler] Request enqueued (\(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
+        DebugLogger.log("[BatchScheduler] Request enqueued req=\(requestId) (\(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
         Task { await self.ensureLoopRunning() }
 
         return stream
@@ -923,6 +929,7 @@ actor BatchScheduler {
         mergeCacheIntoBatch(individualCache: cache, modelState: result.state)
 
         let slot = SlotState(
+            requestId: req.requestId,
             continuation: req.continuation,
             promptTokenCount: inputTokens.count,
             startTime: prefillStart,
@@ -1004,7 +1011,7 @@ actor BatchScheduler {
         print("[\(batchTs())] [ChunkStats] stage=preliminary | stream=true | cached_tokens=\(cachedTokens) | prompt_tokens=pending | completion_tokens=pending | prompt_time=pending | generate_time=pending")
 
         slots.append(slot)
-        DebugLogger.log("[BatchScheduler] Prefilled slot \(slot.id.uuidString.prefix(8)) (B=\(slots.count), \(cachedTokens > 0 ? "cache hit \(cachedTokens) tokens" : "full prefill"), \(String(format: "%.0f", prefillTime * 1000))ms)")
+        DebugLogger.log("[BatchScheduler] Prefilled slot req=\(slot.requestId) (B=\(slots.count), \(cachedTokens > 0 ? "cache hit \(cachedTokens) tokens" : "full prefill"), \(String(format: "%.0f", prefillTime * 1000))ms)")
     }
 
     // MARK: - Serial Generation (CacheList models)
@@ -1252,6 +1259,7 @@ actor BatchScheduler {
             let firstToken = tokenArrays[i].item(Int.self)
 
             let slot = SlotState(
+                requestId: req.requestId,
                 continuation: req.continuation,
                 promptTokenCount: allInputTokens[i].count,
                 startTime: prefillStart,
@@ -1496,7 +1504,7 @@ actor BatchScheduler {
         slot.constraintRuntime?.matcherHandle?.release()
         _inFlightCount.withLock { $0 = max($0 - 1, 0) }
 
-        DebugLogger.log("[BatchScheduler] Finished slot \(slot.id.uuidString.prefix(8)) (\(slot.tokenCount) tok, \(String(format: "%.2f", elapsed))s, in-flight: \(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
+        DebugLogger.log("[BatchScheduler] Finished slot req=\(slot.requestId) (\(slot.tokenCount) tok, \(String(format: "%.2f", elapsed))s, in-flight: \(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
 
         // Remove from batch cache and state
         let keepIndices = (0..<slots.count).filter { $0 != index }

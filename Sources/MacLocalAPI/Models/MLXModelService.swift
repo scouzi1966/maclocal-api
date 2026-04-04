@@ -1802,8 +1802,10 @@ final class MLXModelService: @unchecked Sendable {
         tools: [RequestTool]? = nil,
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
-        chatTemplateKwargs: [String: AnyCodable]? = nil
+        chatTemplateKwargs: [String: AnyCodable]? = nil,
+        requestId: String? = nil
     ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int, toolCallStartTag: String?, toolCallEndTag: String?, thinkStartTag: String?, thinkEndTag: String?) {
+        let reqId = requestId ?? ""
         try beginOperation()
         var endOperationOnExit = true
         defer {
@@ -1919,7 +1921,8 @@ final class MLXModelService: @unchecked Sendable {
                 },
                 stopSequences: stop ?? [],
                 thinkStartTag: self.thinkStartTag,
-                thinkEndTag: self.thinkEndTag
+                thinkEndTag: self.thinkEndTag,
+                requestId: reqId
             )
             self.cleanupTempFiles(mediaTempFiles)
 
@@ -1930,7 +1933,7 @@ final class MLXModelService: @unchecked Sendable {
                 let toolSetup = tToolSetup.timeIntervalSince(tConstraint) * 1000
                 let tokenize = tTokenize.timeIntervalSince(tToolSetup) * 1000
                 let submit = tSubmit.timeIntervalSince(tTokenize) * 1000
-                print("[\(ts())] [Pipeline] total=\(String(format: "%.1f", total))ms constraint=\(String(format: "%.1f", constraint))ms tool_setup=\(String(format: "%.1f", toolSetup))ms tokenize=\(String(format: "%.1f", tokenize))ms submit=\(String(format: "%.1f", submit))ms tokens=\(preparedPromptTokens)")
+                print("[\(ts())] [Pipeline] req=\(reqId) total=\(String(format: "%.1f", total))ms constraint=\(String(format: "%.1f", constraint))ms tool_setup=\(String(format: "%.1f", toolSetup))ms tokenize=\(String(format: "%.1f", tokenize))ms submit=\(String(format: "%.1f", submit))ms tokens=\(preparedPromptTokens)")
             }
 
             // Derive tool call tags (same logic as serial path, below)
