@@ -211,7 +211,8 @@ final class ToolCallStreamingRuntime {
         let responseToolCall = MLXModelService.convertToolCall(
             cleanedToolCall,
             index: index,
-            paramNameMapping: paramNameMapping
+            paramNameMapping: paramNameMapping,
+            tools: tools
         )
         let fixedToolCall = applyFixToolArgs(responseToolCall)
         return MLXModelService.coerceArgumentTypes(fixedToolCall, tools: tools)

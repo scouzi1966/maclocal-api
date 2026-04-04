@@ -338,6 +338,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     }
                 }
 
+                // Tool-call argument coercion is handled in convertToolCall (pre-serialization)
+                // and in the streaming vendor path. No additional pass needed here.
                 result = (
                     modelID: streamResult.modelID,
                     content: fullText,
@@ -661,25 +663,27 @@ struct MLXChatCompletionsController: RouteCollection {
                     // Handle tool call chunks from the vendor parser
                     if let tcs = streamChunk.toolCalls, !tcs.isEmpty {
                         for tc in tcs {
+                            // Coerce argument types before emitting (Gemma 4 escape markers, etc.)
+                            let coercedToolCall = MLXModelService.coerceArgumentTypes(tc, tools: effectiveTools)
                             guard Self.isToolCallAllowed(
-                                tc,
+                                coercedToolCall,
                                 toolChoice: chatRequest.toolChoice,
                                 allowedFunctionName: allowedToolName,
                                 permittedToolIndices: &permittedToolIndices
                             ) else { continue }
                             hasToolCalls = true
-                            collectedToolCalls.append(tc)
+                            collectedToolCalls.append(coercedToolCall)
                             if self.veryVerbose {
-                                print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (vendor): \(tc.function.name)\n  id=\(tc.id)\n  args=\(tc.function.arguments)\(Self.reset)")
+                                print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (vendor): \(coercedToolCall.function.name)\n  id=\(coercedToolCall.id)\n  args=\(coercedToolCall.function.arguments)\(Self.reset)")
                                 fflush(stdout)
                             }
                             let delta = StreamDeltaToolCall(
                                 index: collectedToolCalls.count - 1,
-                                id: tc.id,
-                                type: tc.type,
+                                id: coercedToolCall.id,
+                                type: coercedToolCall.type,
                                 function: StreamDeltaFunction(
-                                    name: tc.function.name,
-                                    arguments: tc.function.arguments
+                                    name: coercedToolCall.function.name,
+                                    arguments: coercedToolCall.function.arguments
                                 )
                             )
                             let tcChunk = ChatCompletionStreamResponse(
