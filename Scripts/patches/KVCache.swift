@@ -118,6 +118,203 @@ public protocol QuantizedKVCacheProtocol: KVCache {
     func getQuantizedState() -> ((MLXArray, MLXArray, MLXArray?), (MLXArray, MLXArray, MLXArray?))?
 }
 
+public enum KVCacheFormat: String, Codable, Sendable {
+    case auto
+    case standard
+    case turboQuant
+}
+
+public enum TurboQuantVariant: String, Codable, Sendable {
+    case turboQuant25 = "turboquant25"
+    case turboQuant35 = "turboquant35"
+
+    public var outlierRatio: Double {
+        switch self {
+        case .turboQuant25:
+            return 0.25
+        case .turboQuant35:
+            return 0.50
+        }
+    }
+}
+
+public struct TurboQuantConfiguration: Codable, Equatable, Sendable {
+    public static let metadataVersion = 1
+    public static let transformVersion = "structured_hadamard_v1"
+    public static let codebookVersion = "lloyd_beta_v1"
+    public static let groupAlignment = 16
+    public static let defaultMetadataFilename = "turboquant_kv.json"
+
+    public var variant: TurboQuantVariant
+    public var metadataPath: String?
+    public var metadataVersion: Int
+    public var transformVersion: String
+    public var codebookVersion: String
+
+    public init(
+        variant: TurboQuantVariant = .turboQuant25,
+        metadataPath: String? = nil,
+        metadataVersion: Int = TurboQuantConfiguration.metadataVersion,
+        transformVersion: String = TurboQuantConfiguration.transformVersion,
+        codebookVersion: String = TurboQuantConfiguration.codebookVersion
+    ) {
+        self.variant = variant
+        self.metadataPath = metadataPath
+        self.metadataVersion = metadataVersion
+        self.transformVersion = transformVersion
+        self.codebookVersion = codebookVersion
+    }
+}
+
+public struct TurboQuantTensorMetadata: Codable, Equatable, Sendable {
+    public var highPrecisionIndices: [[Int]]
+
+    public init(highPrecisionIndices: [[Int]]) {
+        self.highPrecisionIndices = highPrecisionIndices
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self.highPrecisionIndices = try container.decode([[Int]].self)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(highPrecisionIndices)
+    }
+}
+
+public struct TurboQuantLayerMetadata: Codable, Equatable, Sendable {
+    public var key: TurboQuantTensorMetadata
+    public var value: TurboQuantTensorMetadata
+
+    enum CodingKeys: String, CodingKey {
+        case keyHighPrecisionIndices = "key_high_precision_indices"
+        case valueHighPrecisionIndices = "value_high_precision_indices"
+    }
+
+    public init(key: TurboQuantTensorMetadata, value: TurboQuantTensorMetadata) {
+        self.key = key
+        self.value = value
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.key = try container.decode(TurboQuantTensorMetadata.self, forKey: .keyHighPrecisionIndices)
+        self.value = try container.decode(TurboQuantTensorMetadata.self, forKey: .valueHighPrecisionIndices)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(key, forKey: .keyHighPrecisionIndices)
+        try container.encode(value, forKey: .valueHighPrecisionIndices)
+    }
+}
+
+public struct TurboQuantCalibrationMetadata: Codable, Equatable, Sendable {
+    public var method: String
+    public var objective: String
+    public var numPrompts: Int
+    public var maxSeqLen: Int
+    public var batchSize: Int
+    public var numObservedTokens: Int
+    public var dtype: String
+    public var device: String
+    public var promptsSHA256: String
+
+    enum CodingKeys: String, CodingKey {
+        case method
+        case objective
+        case numPrompts = "num_prompts"
+        case maxSeqLen = "max_seq_len"
+        case batchSize = "batch_size"
+        case numObservedTokens = "num_observed_tokens"
+        case dtype
+        case device
+        case promptsSHA256 = "prompts_sha256"
+    }
+
+    public init(
+        method: String,
+        objective: String,
+        numPrompts: Int,
+        maxSeqLen: Int,
+        batchSize: Int,
+        numObservedTokens: Int,
+        dtype: String,
+        device: String,
+        promptsSHA256: String
+    ) {
+        self.method = method
+        self.objective = objective
+        self.numPrompts = numPrompts
+        self.maxSeqLen = maxSeqLen
+        self.batchSize = batchSize
+        self.numObservedTokens = numObservedTokens
+        self.dtype = dtype
+        self.device = device
+        self.promptsSHA256 = promptsSHA256
+    }
+}
+
+public struct TurboQuantMetadataArtifact: Codable, Equatable, Sendable {
+    public var recipe: String
+    public var headSize: Int
+    public var modelName: String?
+    public var layers: [String: TurboQuantLayerMetadata]
+    public var calibration: TurboQuantCalibrationMetadata?
+    public var version: Int
+    public var transformVersion: String
+    public var codebookVersion: String
+
+    enum CodingKeys: String, CodingKey {
+        case recipe
+        case headSize = "head_size"
+        case modelName = "model_name"
+        case layers
+        case calibration
+        case version
+        case transformVersion = "transform_version"
+        case codebookVersion = "codebook_version"
+    }
+
+    public init(
+        recipe: String,
+        headSize: Int,
+        modelName: String? = nil,
+        layers: [String: TurboQuantLayerMetadata],
+        calibration: TurboQuantCalibrationMetadata? = nil,
+        version: Int = TurboQuantConfiguration.metadataVersion,
+        transformVersion: String = TurboQuantConfiguration.transformVersion,
+        codebookVersion: String = TurboQuantConfiguration.codebookVersion
+    ) {
+        self.recipe = recipe
+        self.headSize = headSize
+        self.modelName = modelName
+        self.layers = layers
+        self.calibration = calibration
+        self.version = version
+        self.transformVersion = transformVersion
+        self.codebookVersion = codebookVersion
+    }
+}
+
+public protocol TurboQuantKVCacheProtocol: KVCache {
+    var configuration: TurboQuantConfiguration { get }
+}
+
+public func loadTurboQuantMetadata(url: URL) throws -> TurboQuantMetadataArtifact {
+    let data = try Data(contentsOf: url)
+    return try JSONDecoder().decode(TurboQuantMetadataArtifact.self, from: data)
+}
+
+public func saveTurboQuantMetadata(_ metadata: TurboQuantMetadataArtifact, url: URL) throws {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let data = try encoder.encode(metadata)
+    try data.write(to: url, options: .atomic)
+}
+
 /// Base cache implementation providing default behaviors
 open class BaseKVCache: KVCache {
     public var offset: Int = 0
@@ -807,6 +1004,190 @@ public class RotatingKVCache: BaseKVCache, CustomDebugStringConvertible {
     }
 }
 
+/// TurboQuant cache scaffold.
+///
+/// This preserves a distinct cache identity and metadata surface for TurboQuant while
+/// keeping dense storage until the accelerated attention/update kernels land.
+public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDebugStringConvertible {
+    internal var keys: MLXArray?
+    internal var values: MLXArray?
+    public var configuration: TurboQuantConfiguration
+    public var step = 256
+    public var didGrow = false
+
+    public init(configuration: TurboQuantConfiguration = .init()) {
+        self.configuration = configuration
+        super.init()
+    }
+
+    public override func innerState() -> [MLXArray] {
+        [self.keys, self.values].compactMap { $0 }
+    }
+
+    public override func update(keys: MLXArray, values: MLXArray) -> (MLXArray, MLXArray) {
+        let previous = self.offset
+        let newTokens = keys.dim(2)
+        let needed = previous + newTokens
+
+        let needsGrow =
+            if let currentKeys = self.keys, needed > currentKeys.dim(2) {
+                true
+            } else {
+                self.keys == nil
+            }
+        if needsGrow {
+            let B = keys.dim(0)
+            let kvHeads = keys.dim(1)
+            let kHeadDim = keys.dim(3)
+            let vHeadDim = values.dim(3)
+
+            let currentCapacity = self.keys?.dim(2) ?? 0
+            let newCapacity: Int
+            if currentCapacity == 0 {
+                let nSteps = (newTokens + step - 1) / step
+                newCapacity = nSteps * step
+            } else {
+                var cap = currentCapacity * 2
+                while cap < needed {
+                    cap *= 2
+                }
+                newCapacity = cap
+            }
+
+            let growBy = newCapacity - currentCapacity
+            let kShape = [B, kvHeads, growBy, kHeadDim]
+            let vShape = [B, kvHeads, growBy, vHeadDim]
+            let newK = MLXArray.zeros(kShape, dtype: keys.dtype)
+            let newV = MLXArray.zeros(vShape, dtype: values.dtype)
+
+            if var currentKeys = self.keys, var currentValues = self.values {
+                if previous != currentCapacity {
+                    currentKeys = currentKeys[.ellipsis, ..<previous, 0...]
+                    if currentValues.dim(3) > 0 {
+                        currentValues = currentValues[.ellipsis, ..<previous, 0...]
+                    }
+                }
+                self.keys = concatenated([currentKeys, newK], axis: 2)
+                if currentValues.dim(3) > 0 {
+                    self.values = concatenated([currentValues, newV], axis: 2)
+                } else {
+                    self.values = MLXArray.zeros(
+                        [self.keys!.dim(0), currentValues.dim(1), self.keys!.dim(2), 0],
+                        dtype: currentValues.dtype)
+                }
+            } else {
+                self.keys = newK
+                self.values = newV
+            }
+            didGrow = true
+        }
+
+        self.offset += newTokens
+        self.keys?[.ellipsis, previous ..< self.offset, 0...] = keys
+        if values.dim(3) > 0 {
+            self.values?[.ellipsis, previous ..< self.offset, 0...] = values
+        }
+
+        let returnedKeys = self.keys![.ellipsis, ..<self.offset, 0...]
+        let returnedValues: MLXArray
+        if self.values!.dim(3) > 0 {
+            returnedValues = self.values![.ellipsis, ..<self.offset, 0...]
+        } else {
+            returnedValues = MLXArray.zeros(
+                [returnedKeys.dim(0), self.values!.dim(1), self.offset, 0],
+                dtype: self.values!.dtype)
+        }
+
+        return (returnedKeys, returnedValues)
+    }
+
+    public override var state: [MLXArray] {
+        get {
+            guard let keys = self.keys, let values = self.values else { return [] }
+            if offset == keys.dim(2) {
+                return [keys, values]
+            } else {
+                let kSlice = keys[.ellipsis, ..<offset, 0...]
+                let vSlice = values.dim(3) > 0
+                    ? values[.ellipsis, ..<offset, 0...]
+                    : MLXArray.zeros([keys.dim(0), values.dim(1), offset, 0], dtype: values.dtype)
+                return [kSlice, vSlice]
+            }
+        }
+        set {
+            guard newValue.count == 2 else {
+                if newValue.isEmpty {
+                    self.keys = nil
+                    self.values = nil
+                    self.offset = 0
+                    return
+                }
+                fatalError("TurboQuantKVCache state must have exactly 2 arrays (keys, values)")
+            }
+            self.keys = newValue[0]
+            self.values = newValue[1]
+            self.offset = self.keys!.dim(2)
+        }
+    }
+
+    public override var metaState: [String] {
+        get {
+            [
+                String(step),
+                String(offset),
+                configuration.variant.rawValue,
+                configuration.metadataPath ?? "",
+                String(configuration.metadataVersion),
+                configuration.transformVersion,
+                configuration.codebookVersion,
+            ]
+        }
+        set {
+            guard newValue.count == 7 else {
+                fatalError("TurboQuantKVCache metaState must have exactly 7 values")
+            }
+            self.step = Int(newValue[0]) ?? self.step
+            self.offset = Int(newValue[1]) ?? 0
+            self.configuration = TurboQuantConfiguration(
+                variant: TurboQuantVariant(rawValue: newValue[2]) ?? .turboQuant25,
+                metadataPath: newValue[3].isEmpty ? nil : newValue[3],
+                metadataVersion: Int(newValue[4]) ?? TurboQuantConfiguration.metadataVersion,
+                transformVersion: newValue[5],
+                codebookVersion: newValue[6]
+            )
+        }
+    }
+
+    public override var isTrimmable: Bool { true }
+
+    @discardableResult
+    public override func trim(_ n: Int) -> Int {
+        let trimmed = min(offset, n)
+        offset -= trimmed
+        return trimmed
+    }
+
+    public override func truncateToOffset() {
+        guard let k = keys, let v = values, offset < k.dim(2) else { return }
+        keys = k[.ellipsis, ..<offset, 0...]
+        if v.dim(3) > 0 {
+            values = v[.ellipsis, ..<offset, 0...]
+        } else {
+            values = MLXArray.zeros([k.dim(0), v.dim(1), offset, 0], dtype: v.dtype)
+        }
+    }
+
+    public func toUnquantized() -> KVCacheSimple {
+        let simpleCache = KVCacheSimple()
+        simpleCache.state = state
+        return simpleCache
+    }
+
+    public var debugDescription: String {
+        "\(String(describing: Self.self)) \(Unmanaged.passUnretained(self).toOpaque()), offset: \(offset), variant: \(configuration.variant.rawValue), metadataPath: \(configuration.metadataPath ?? "-")"
+    }
+}
+
 /// Quantized KV cache for memory efficiency using MLX quantization
 public class QuantizedKVCache: BaseKVCache, QuantizedKVCacheProtocol {
     private var keys: (MLXArray, MLXArray, MLXArray?)?
@@ -1308,6 +1689,8 @@ public func savePromptCache(
     // Use Python-compatible class names for cross-platform compatibility
     let cacheClasses = cache.map { cache -> String in
         switch cache {
+        case is TurboQuantKVCache:
+            return "TurboQuantKVCache"
         case is KVCacheSimple:
             return "KVCache"  // Python uses "KVCache" for the basic cache
         case is RotatingKVCache:
@@ -1393,6 +1776,8 @@ public func loadPromptCache(
 
         var cache: KVCache
         switch className {
+        case "TurboQuantKVCache":
+            cache = TurboQuantKVCache()
         case "KVCache", "KVCacheSimple":  // Handle both Python and Swift names
             cache = KVCacheSimple()
         case "RotatingKVCache":
@@ -1558,6 +1943,20 @@ public func makePromptCacheWithLayerCount(
     }
 }
 
+public func makeAttentionKVCache(
+    parameters: GenerateParameters? = nil,
+    maxSize: Int? = nil,
+    keep: Int = 4
+) -> KVCache {
+    if let maxSize {
+        return RotatingKVCache(maxSize: maxSize, keep: keep)
+    }
+    if let turboQuant = parameters?.turboQuantConfiguration {
+        return TurboQuantKVCache(configuration: turboQuant)
+    }
+    return KVCacheSimple()
+}
+
 /// Check if model's cache can be trimmed.
 public func canTrimPromptCache(_ cache: [KVCache]) -> Bool {
     return cache.allSatisfy { $0.isTrimmable }
@@ -1692,6 +2091,7 @@ public func maybeQuantizeKVCache(
 ) {
     guard let kvBits = kvBits,
         !cache.isEmpty,
+        !(cache[0] is TurboQuantKVCache),
         !(cache[0] is QuantizedKVCache),
         cache[0].offset > quantizedKVStart
     else {

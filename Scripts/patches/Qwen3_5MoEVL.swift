@@ -1169,7 +1169,7 @@ public final class Qwen3_5MoEVL: Module, VLMModel, KVCacheDimensionProvider {
             if isLinear {
                 return MambaCache() as any KVCache
             } else {
-                return KVCacheSimple() as any KVCache
+                return makeAttentionKVCache(parameters: parameters) as any KVCache
             }
         }
     }

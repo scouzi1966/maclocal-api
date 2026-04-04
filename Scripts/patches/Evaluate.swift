@@ -91,6 +91,15 @@ public struct GenerateParameters: Sendable {
     /// Step to begin using a quantized KV cache when kvBits is non-nil (default: 0)
     public var quantizedKVStart: Int
 
+    /// Cache format preference. `.auto` preserves current behavior.
+    public var kvCacheFormat: KVCacheFormat
+
+    /// Optional TurboQuant recipe when `kvCacheFormat == .turboQuant`.
+    public var turboQuantVariant: TurboQuantVariant?
+
+    /// Optional path to TurboQuant per-layer metadata.
+    public var turboQuantMetadataPath: String?
+
     /// sampling temperature
     public var temperature: Float
 
@@ -141,13 +150,19 @@ public struct GenerateParameters: Sendable {
         seed: UInt64? = nil,
         computeLogprobs: Bool = false,
         topLogprobsCount: Int = 0,
-        prefillStepSize: Int = 512
+        prefillStepSize: Int = 512,
+        kvCacheFormat: KVCacheFormat = .auto,
+        turboQuantVariant: TurboQuantVariant? = nil,
+        turboQuantMetadataPath: String? = nil
     ) {
         self.maxTokens = maxTokens
         self.maxKVSize = maxKVSize
         self.kvBits = kvBits
         self.kvGroupSize = kvGroupSize
         self.quantizedKVStart = quantizedKVStart
+        self.kvCacheFormat = kvCacheFormat
+        self.turboQuantVariant = turboQuantVariant
+        self.turboQuantMetadataPath = turboQuantMetadataPath
         self.temperature = temperature
         self.topP = topP
         self.repetitionPenalty = repetitionPenalty
@@ -159,6 +174,22 @@ public struct GenerateParameters: Sendable {
         self.computeLogprobs = computeLogprobs
         self.topLogprobsCount = min(max(topLogprobsCount, 0), 20)
         self.prefillStepSize = prefillStepSize
+    }
+
+    public var usesTurboQuantKVCache: Bool {
+        kvCacheFormat == .turboQuant
+    }
+
+    public var turboQuantConfiguration: TurboQuantConfiguration? {
+        guard usesTurboQuantKVCache else { return nil }
+        return TurboQuantConfiguration(
+            variant: turboQuantVariant ?? .turboQuant25,
+            metadataPath: turboQuantMetadataPath
+        )
+    }
+
+    public var usesDynamicKVQuantization: Bool {
+        kvBits != nil && !usesTurboQuantKVCache
     }
 
     public func sampler() -> LogitSampler {
@@ -607,7 +638,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         self.kvBits = parameters.kvBits
         self.kvGroupSize = parameters.kvGroupSize
         self.quantizedKVStart = parameters.quantizedKVStart
-        self.shouldQuantizeCache = parameters.kvBits != nil
+        self.shouldQuantizeCache = parameters.usesDynamicKVQuantization
 
         self.computeLogprobs = parameters.computeLogprobs
         self.topLogprobsCount = parameters.topLogprobsCount
@@ -645,7 +676,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         self.kvBits = parameters.kvBits
         self.kvGroupSize = parameters.kvGroupSize
         self.quantizedKVStart = parameters.quantizedKVStart
-        self.shouldQuantizeCache = parameters.kvBits != nil
+        self.shouldQuantizeCache = parameters.usesDynamicKVQuantization
 
         self.computeLogprobs = parameters.computeLogprobs
         self.topLogprobsCount = parameters.topLogprobsCount
