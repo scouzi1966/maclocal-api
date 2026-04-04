@@ -349,6 +349,19 @@ enum AnyCodableValue: Codable, Sendable {
                 if case .null = value { continue } // Strip null-valued keys
                 result[key] = value.toJinjaCompatible()
             }
+            // Flatten anyOf/oneOf nullable patterns for Jinja template compatibility.
+            // e.g. {"anyOf": [{"type": "string"}, {"type": "null"}]} → {"type": "string"}
+            // Templates like Gemma 4 do `value['type'] | upper` which crashes on anyOf dicts.
+            if result["type"] == nil, let anyOf = result["anyOf"] as? [[String: Any]] ?? result["oneOf"] as? [[String: Any]] {
+                let nonNull = anyOf.filter { ($0["type"] as? String) != "null" }
+                if nonNull.count == 1, let single = nonNull.first {
+                    var flattened = result
+                    flattened.removeValue(forKey: "anyOf")
+                    flattened.removeValue(forKey: "oneOf")
+                    for (k, v) in single { flattened[k] = v }
+                    return flattened
+                }
+            }
             return result
         }
     }

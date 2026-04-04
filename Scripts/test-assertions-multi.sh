@@ -176,10 +176,10 @@ for model in "${MODEL_LIST[@]}"; do
   model=$(echo "$model" | xargs)  # trim whitespace
 
   if [ -n "$FORCED_PARSER" ]; then
-    run_one_config "$model" "$FORCED_PARSER" "--tool-call-parser $FORCED_PARSER $GRAMMAR_SERVER_FLAG"
+    run_one_config "$model" "$FORCED_PARSER" "--tool-call-parser $FORCED_PARSER --enable-prefix-caching $GRAMMAR_SERVER_FLAG"
   else
     # Auto-detect
-    run_one_config "$model" "auto" "$GRAMMAR_SERVER_FLAG"
+    run_one_config "$model" "auto" "--enable-prefix-caching $GRAMMAR_SERVER_FLAG"
 
     # Also forced parser if requested
     if [ -n "$ALSO_FORCED_PARSER" ]; then
