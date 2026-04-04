@@ -330,6 +330,20 @@ public struct TurboQuantMetadataArtifact: Codable, Equatable, Sendable {
 
 public protocol TurboQuantKVCacheProtocol: KVCache {
     var configuration: TurboQuantConfiguration { get }
+    func decodeAttention(
+        queries: MLXArray,
+        keys: MLXArray,
+        values: MLXArray,
+        scale: Float,
+        mask: MLXFast.ScaledDotProductAttentionMaskMode
+    ) -> MLXArray
+    func prefillAttention(
+        queries: MLXArray,
+        keys: MLXArray,
+        values: MLXArray,
+        scale: Float,
+        mask: MLXFast.ScaledDotProductAttentionMaskMode
+    ) -> MLXArray
 }
 
 public func loadTurboQuantMetadata(url: URL) throws -> TurboQuantMetadataArtifact {
@@ -1143,6 +1157,55 @@ public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDe
         }
 
         return (returnedKeys, returnedValues)
+    }
+
+    private func fallbackAttention(
+        queries: MLXArray,
+        keys: MLXArray,
+        values: MLXArray,
+        scale: Float,
+        mask: MLXFast.ScaledDotProductAttentionMaskMode
+    ) -> MLXArray {
+        let (cachedKeys, cachedValues) = update(keys: keys, values: values)
+        return MLXFast.scaledDotProductAttention(
+            queries: queries,
+            keys: cachedKeys,
+            values: cachedValues,
+            scale: scale,
+            mask: mask
+        )
+    }
+
+    public func decodeAttention(
+        queries: MLXArray,
+        keys: MLXArray,
+        values: MLXArray,
+        scale: Float,
+        mask: MLXFast.ScaledDotProductAttentionMaskMode = .none
+    ) -> MLXArray {
+        fallbackAttention(
+            queries: queries,
+            keys: keys,
+            values: values,
+            scale: scale,
+            mask: mask
+        )
+    }
+
+    public func prefillAttention(
+        queries: MLXArray,
+        keys: MLXArray,
+        values: MLXArray,
+        scale: Float,
+        mask: MLXFast.ScaledDotProductAttentionMaskMode = .none
+    ) -> MLXArray {
+        fallbackAttention(
+            queries: queries,
+            keys: keys,
+            values: values,
+            scale: scale,
+            mask: mask
+        )
     }
 
     public override var state: [MLXArray] {

@@ -1,11 +1,75 @@
 import Foundation
 import MLX
+import MLXFast
 import MLXLMCommon
 import Testing
 
 @testable import MacLocalAPI
 
+@Suite(.serialized)
 struct TurboQuantCacheTests {
+    final class FakeTurboQuantCache: TurboQuantKVCacheProtocol {
+        var configuration = TurboQuantConfiguration(bits: 3.5)
+        var offset: Int = 0
+        var maxSize: Int? = nil
+        var state: [MLXArray] = []
+        var metaState: [String] = []
+        var isTrimmable: Bool = true
+        private(set) var decodeCalls = 0
+        private(set) var prefillCalls = 0
+
+        init() {}
+
+        func innerState() -> [MLXArray] {
+            state
+        }
+
+        func update(keys: MLXArray, values: MLXArray) -> (MLXArray, MLXArray) {
+            offset += keys.dim(2)
+            state = [keys, values]
+            return (keys, values)
+        }
+
+        @discardableResult
+        func trim(_ n: Int) -> Int {
+            let trimmed = min(offset, n)
+            offset -= trimmed
+            return trimmed
+        }
+
+        func truncateToOffset() {}
+
+        func makeMask(
+            n: Int,
+            windowSize: Int?,
+            returnArray: Bool
+        ) -> MLXFast.ScaledDotProductAttentionMaskMode {
+            .none
+        }
+
+        func decodeAttention(
+            queries: MLXArray,
+            keys: MLXArray,
+            values: MLXArray,
+            scale: Float,
+            mask: MLXFast.ScaledDotProductAttentionMaskMode
+        ) -> MLXArray {
+            decodeCalls += 1
+            return MLXArray.ones(queries.shape) * 7
+        }
+
+        func prefillAttention(
+            queries: MLXArray,
+            keys: MLXArray,
+            values: MLXArray,
+            scale: Float,
+            mask: MLXFast.ScaledDotProductAttentionMaskMode
+        ) -> MLXArray {
+            prefillCalls += 1
+            return MLXArray.ones(queries.shape) * 9
+        }
+    }
+
     init() throws {
         try MLXMetalLibrary.ensureAvailable(verbose: false)
     }
@@ -173,5 +237,47 @@ struct TurboQuantCacheTests {
 
         #expect(command.kvBits == 3.5)
         #expect(command.kvQuantScheme == "turboquant")
+    }
+
+    @Test("Attention utils route single-token decode through TurboQuant cache")
+    func attentionUtilsRouteDecode() {
+        let cache = FakeTurboQuantCache()
+        let queries = MLXArray.ones([1, 2, 1, 8])
+        let keys = MLXArray.ones([1, 2, 1, 8])
+        let values = MLXArray.ones([1, 2, 1, 8]) * 2
+
+        let output = attentionWithCacheUpdate(
+            queries: queries,
+            keys: keys,
+            values: values,
+            cache: cache,
+            scale: 1.0
+        )
+
+        #expect(cache.decodeCalls == 1)
+        #expect(cache.prefillCalls == 0)
+        #expect(output.shape == [1, 2, 1, 8])
+        #expect(output[0, 0, 0, 0].item(Float.self) == 7)
+    }
+
+    @Test("Attention utils route prefill through TurboQuant cache")
+    func attentionUtilsRoutePrefill() {
+        let cache = FakeTurboQuantCache()
+        let queries = MLXArray.ones([1, 2, 3, 8])
+        let keys = MLXArray.ones([1, 2, 3, 8])
+        let values = MLXArray.ones([1, 2, 3, 8]) * 2
+
+        let output = attentionWithCacheUpdate(
+            queries: queries,
+            keys: keys,
+            values: values,
+            cache: cache,
+            scale: 1.0
+        )
+
+        #expect(cache.decodeCalls == 0)
+        #expect(cache.prefillCalls == 1)
+        #expect(output.shape == [1, 2, 3, 8])
+        #expect(output[0, 0, 0, 0].item(Float.self) == 9)
     }
 }
