@@ -433,7 +433,8 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
         }
         set {
             guard newValue.count == 2 else {
-                fatalError("KVCacheSimple state must have exactly 2 arrays (keys, values)")
+                if newValue.isEmpty { return }  // No-op for empty state (fresh/cleared cache)
+                fatalError("KVCacheSimple state must have exactly 2 arrays (keys, values), got \(newValue.count)")
             }
             self.keys = newValue[0]
             self.values = newValue[1]
@@ -535,6 +536,13 @@ public class RotatingKVCache: BaseKVCache, CustomDebugStringConvertible {
     private var idx: Int = 0
 
     public override var maxSize: Int? { maxCacheSize }
+
+    /// Whether this cache supports batched operation (requires keep=0 so all sequences wrap simultaneously).
+    public var isBatchable: Bool { keep == 0 }
+    /// Number of sink tokens preserved at the front of the circular buffer.
+    public var keepCount: Int { keep }
+    /// Fixed circular buffer size (sliding window).
+    public var cacheSize: Int { maxCacheSize }
 
     public init(maxSize: Int, keep: Int = 0, step: Int = 256) {
         self.maxCacheSize = maxSize
@@ -685,7 +693,8 @@ public class RotatingKVCache: BaseKVCache, CustomDebugStringConvertible {
         }
         set {
             guard newValue.count == 2 else {
-                fatalError("RotatingKVCache state must have exactly 2 arrays")
+                if newValue.isEmpty { return }  // No-op for empty state (fresh/cleared cache)
+                fatalError("RotatingKVCache state must have exactly 2 arrays, got \(newValue.count): shapes=\(newValue.map { "\($0.shape)" })")
             }
             self.keys = newValue[0]
             self.values = newValue[1]

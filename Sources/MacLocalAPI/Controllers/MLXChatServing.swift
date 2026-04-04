@@ -35,6 +35,7 @@ protocol MLXChatServing {
     func normalizeModel(_ raw: String) -> String
     func resolvedToolCallParser(logBypass: Bool) -> String?
     func tryReserveSlot() -> Bool
+    func waitForSlot(timeout: TimeInterval) async -> Bool
     func releaseSlot()
 
     func ensureBatchMode(concurrency: Int) async throws
@@ -80,8 +81,28 @@ protocol MLXChatServing {
         tools: [RequestTool]?,
         stop: [String]?,
         responseFormat: ResponseFormat?,
-        chatTemplateKwargs: [String: AnyCodable]?
+        chatTemplateKwargs: [String: AnyCodable]?,
+        requestId: String?
     ) async throws -> ChatStreamingResult
+}
+
+extension MLXChatServing {
+    /// Convenience overload without requestId for batch/internal callers.
+    func generateStreaming(
+        model: String, messages: [Message], temperature: Double?, maxTokens: Int?,
+        topP: Double?, repetitionPenalty: Double?, topK: Int?, minP: Double?,
+        presencePenalty: Double?, seed: Int?, logprobs: Bool?, topLogprobs: Int?,
+        tools: [RequestTool]?, stop: [String]?, responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?
+    ) async throws -> ChatStreamingResult {
+        try await generateStreaming(
+            model: model, messages: messages, temperature: temperature, maxTokens: maxTokens,
+            topP: topP, repetitionPenalty: repetitionPenalty, topK: topK, minP: minP,
+            presencePenalty: presencePenalty, seed: seed, logprobs: logprobs, topLogprobs: topLogprobs,
+            tools: tools, stop: stop, responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs, requestId: nil
+        )
+    }
 }
 
 extension MLXModelService: MLXChatServing {}

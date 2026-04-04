@@ -170,6 +170,10 @@ Server-level single-slot token-level prefix matching (llama.cpp style). `PromptC
 ### Supported Tool Call Formats
 Defined in `vendor/.../ToolCallFormat.swift`: `json`, `lfm2`, `xmlFunction`, `glm4`, `gemma`, `kimiK2`, `minimaxM2`. Auto-detected from `model_type` in config.json via `ToolCallFormat.infer()`.
 
+## Coding Rules
+
+- **No magic numbers.** Define numeric constants (timeouts, buffer sizes, thresholds, retry counts, port numbers, etc.) as named constants at the top of the file or in a shared `Constants` enum. Never hard-code literal values in logic. Example: use `static let slotQueueTimeout: TimeInterval = 240` not `timeout: 240` inline.
+
 ## Architecture Notes
 
 ### MLXModelService

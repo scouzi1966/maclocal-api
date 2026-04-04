@@ -43,7 +43,8 @@ actor BatchScheduler {
 
     let maxConcurrent: Int
     private let model: any LanguageModel
-    let tokenizer: Tokenizer
+    /// Tokenizer — nonisolated so concurrent requests can access without actor hop.
+    nonisolated let tokenizer: Tokenizer
     private let processor: any UserInputProcessor
     private let configuration: ModelConfiguration
     private let cacheProfilePath: String?
@@ -61,6 +62,7 @@ actor BatchScheduler {
     /// different temperature, top_p, penalties etc.).
     private class SlotState {
         let id: UUID
+        let requestId: String
         let continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation
         let promptTokenCount: Int
         /// Set to the moment prefill begins (prefillStart), so elapsed includes prefill + decode.
@@ -70,8 +72,12 @@ actor BatchScheduler {
         var firstTokenTime: TimeInterval = 0
         let inputTokens: [Int]
         let cachedTokens: Int
-        /// The individual per-layer caches from prefill (retained for prefix cache save).
+        /// Snapshotted per-layer KV state from prefill (for prefix cache save).
+        /// Stored as arrays rather than live KVCache references to avoid mutation
+        /// by the decode loop (batchCaches shares objects in .unbatched mode).
         let prefillCaches: [KVCache]
+        let prefillStates: [[MLXArray]]
+        let prefillMetaStates: [[String]]
 
         // Per-sequence decode state
         var lastTokenId: Int
@@ -107,6 +113,7 @@ actor BatchScheduler {
         var isCancelled = false
 
         init(
+            requestId: String = "",
             continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation,
             promptTokenCount: Int,
             startTime: Date,
@@ -130,6 +137,7 @@ actor BatchScheduler {
             temperatureForLogprobs: Float = 1.0
         ) {
             self.id = UUID()
+            self.requestId = requestId
             self.continuation = continuation
             self.promptTokenCount = promptTokenCount
             self.prefillTime = prefillTime
@@ -137,6 +145,8 @@ actor BatchScheduler {
             self.inputTokens = inputTokens
             self.cachedTokens = cachedTokens
             self.prefillCaches = prefillCaches
+            self.prefillStates = prefillCaches.map { $0.state }
+            self.prefillMetaStates = prefillCaches.map { $0.metaState }
             self.lastTokenId = lastTokenId
             self.lastTokenArray = lastTokenArray
             self.sampler = sampler
@@ -196,15 +206,8 @@ actor BatchScheduler {
 
     private func restoredMetaState(for cache: KVCache, savedMetaState: [String]?) -> [String]? {
         guard let savedMetaState else { return nil }
-        if cache is RotatingKVCache, savedMetaState.count >= 3 {
-            let restoredCount = cache.offset
-            return [
-                savedMetaState[0],
-                savedMetaState[1],
-                savedMetaState[2],
-                String(restoredCount),
-                String(restoredCount),
-            ]
+        if cache is RotatingKVCache, savedMetaState.count == 5 {
+            return savedMetaState
         }
         return savedMetaState
     }
@@ -298,6 +301,7 @@ actor BatchScheduler {
     }
 
     struct PendingRequest: @unchecked Sendable {
+        let requestId: String
         let input: LMInput
         let parameters: GenerateParameters
         let promptTokens: Int
@@ -327,6 +331,29 @@ actor BatchScheduler {
             count += 1
             return true
         }
+    }
+
+    /// Exponential backoff constants for slot polling.
+    private static let initialPollInterval: UInt64 = 10_000_000   // 10ms
+    private static let maxPollInterval: UInt64     = 500_000_000  // 500ms
+
+    /// Wait up to `timeout` seconds for a slot to become available.
+    /// Returns true if a slot was reserved, false if timed out, cancelled, or shutdown.
+    nonisolated func waitForSlot(timeout: TimeInterval = 30) async -> Bool {
+        if Task.isCancelled || _isShutdown.withLock({ $0 }) { return false }
+        if tryReserve() { return true }
+
+        let deadline = ContinuousClock.now + .seconds(timeout)
+        var delay = Self.initialPollInterval
+
+        while ContinuousClock.now < deadline {
+            if Task.isCancelled || _isShutdown.withLock({ $0 }) { return false }
+            try? await Task.sleep(nanoseconds: delay)
+            if Task.isCancelled || _isShutdown.withLock({ $0 }) { return false }
+            if tryReserve() { return true }
+            delay = min(delay * 2, Self.maxPollInterval)
+        }
+        return false
     }
 
     /// Release a reserved slot (call if request fails before reaching submit).
@@ -414,6 +441,7 @@ actor BatchScheduler {
     var activeCount: Int { slots.count }
 
     /// Prepare UserInput into LMInput (tokenization + chat template).
+    /// Actor-isolated — processor.prepare may not be thread-safe despite Sendable conformance.
     func prepareInput(_ userInput: UserInput) async throws -> LMInput {
         try await processor.prepare(input: userInput)
     }
@@ -428,7 +456,8 @@ actor BatchScheduler {
         constraintRuntimeConfig: ConstraintRuntimeConfiguration? = nil,
         stopSequences: [String] = [],
         thinkStartTag: String? = nil,
-        thinkEndTag: String? = nil
+        thinkEndTag: String? = nil,
+        requestId: String = ""
     ) -> AsyncThrowingStream<StreamChunk, Error> {
         if _isShutdown.withLock({ $0 }) {
             return AsyncThrowingStream { $0.finish(throwing: MLXServiceError.serviceShuttingDown) }
@@ -439,6 +468,7 @@ actor BatchScheduler {
         // Note: slot already reserved by tryReserve() in the controller layer.
         _pendingQueue.withLock {
             $0.append(PendingRequest(
+                requestId: requestId,
                 input: input,
                 parameters: parameters,
                 promptTokens: promptTokens,
@@ -451,7 +481,7 @@ actor BatchScheduler {
             ))
         }
 
-        DebugLogger.log("[BatchScheduler] Request enqueued (\(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
+        DebugLogger.log("[BatchScheduler] Request enqueued req=\(requestId) (\(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
         Task { await self.ensureLoopRunning() }
 
         return stream
@@ -879,13 +909,14 @@ actor BatchScheduler {
         let firstToken = tokenArray.item(Int.self)
         let prefillTime = Date().timeIntervalSince(prefillStart)
 
-        // RotatingKVCache models (Mistral3, etc.) must stay serial — BatchKVCacheSimple
-        // doesn't support sliding window attention, causing degenerate output.
-        // See: https://github.com/scouzi1966/maclocal-api/issues/68
-        // TODO: Implement BatchRotatingKVCache for proper concurrent support.
-        let hasRotatingCache = cache.contains { $0 is RotatingKVCache }
-        if hasRotatingCache {
-            print("[\(batchTs())] [BatchScheduler] RotatingKVCache detected — running serial (sliding window not supported in batch mode)")
+        // RotatingKVCache models with keep>0 (e.g. some Mistral variants) must stay serial.
+        // Models with keep=0 (Gemma 4) can batch via BatchRotatingKVCache.
+        let hasUnbatchableRotating = cache.contains { c in
+            if let rc = c as? RotatingKVCache { return !rc.isBatchable }
+            return false
+        }
+        if hasUnbatchableRotating {
+            print("[\(batchTs())] [BatchScheduler] RotatingKVCache (keep>0) detected — running serial")
             runSerialGeneration(
                 req: req, cache: cache, modelState: result.state,
                 firstToken: tokenArray, inputTokens: inputTokens,
@@ -901,6 +932,7 @@ actor BatchScheduler {
         mergeCacheIntoBatch(individualCache: cache, modelState: result.state)
 
         let slot = SlotState(
+            requestId: req.requestId,
             continuation: req.continuation,
             promptTokenCount: inputTokens.count,
             startTime: prefillStart,
@@ -982,7 +1014,7 @@ actor BatchScheduler {
         print("[\(batchTs())] [ChunkStats] stage=preliminary | stream=true | cached_tokens=\(cachedTokens) | prompt_tokens=pending | completion_tokens=pending | prompt_time=pending | generate_time=pending")
 
         slots.append(slot)
-        DebugLogger.log("[BatchScheduler] Prefilled slot \(slot.id.uuidString.prefix(8)) (B=\(slots.count), \(cachedTokens > 0 ? "cache hit \(cachedTokens) tokens" : "full prefill"), \(String(format: "%.0f", prefillTime * 1000))ms)")
+        DebugLogger.log("[BatchScheduler] Prefilled slot req=\(slot.requestId) (B=\(slots.count), \(cachedTokens > 0 ? "cache hit \(cachedTokens) tokens" : "full prefill"), \(String(format: "%.0f", prefillTime * 1000))ms)")
     }
 
     // MARK: - Serial Generation (CacheList models)
@@ -1079,13 +1111,18 @@ actor BatchScheduler {
         let B = requests.count
         guard B > 0 else { return }
 
-        // Verify cache types support batching (KVCacheSimple + MambaCache/ArraysCache only)
+        // Verify cache types support batching
         let templateCache = model.newCache(parameters: requests[0].parameters)
-        // Check if all cache types support batching. CacheList is supported via BatchCacheList.
-        // Only RotatingKVCache (and unknown types) fall back to individual prefill.
-        let canBatch = templateCache.allSatisfy { $0 is KVCacheSimple || $0 is ArraysCache || $0 is CacheList }
+        // Models with RotatingKVCache layers (Gemma 4) use individual prefill + merge.
+        // MLX's lazy graph overflows SmallVector during batched prefill eval with
+        // BatchRotatingKVCache. The decode loop handles them correctly in batch.
+        // Individual prefill adds <1% overhead (63ms for 15 requests vs 17s decode).
+        let hasRotatingLayers = templateCache.contains { $0 is RotatingKVCache }
+        let canBatch = !hasRotatingLayers && templateCache.allSatisfy { c in
+            c is KVCacheSimple || c is ArraysCache || c is CacheList
+            || (c as? RotatingKVCache)?.isBatchable == true
+        }
         if !canBatch {
-            // Fall back to individual prefill for unsupported cache types (RotatingKVCache, etc.)
             for req in requests { prefillOne(req) }
             return
         }
@@ -1131,12 +1168,19 @@ actor BatchScheduler {
                 return BatchCacheList.forPrefill(template: cl, batchSize: B, leftPadding: leftPads) as KVCache
             } else if layerCache is ArraysCache {
                 return MambaCache(leftPadding: leftPads) as KVCache
+            } else if let rc = layerCache as? RotatingKVCache, rc.isBatchable {
+                return BatchRotatingKVCache(batchSize: B, leftPadding: leftPads,
+                                            maxCacheSize: rc.cacheSize, keep: rc.keepCount) as KVCache
             } else {
                 return BatchKVCacheSimple(batchSize: B, leftPadding: leftPads) as KVCache
             }
         }
 
         // Phase 4: Single model forward pass
+        if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" {
+            print("[prefillBatch] B=\(B) maxLen=\(maxLen) tokens=\(batchTokens.shape) caches=\(prefillCaches.count) types=\(prefillCaches.prefix(3).map { type(of: $0) })")
+            fflush(stdout)
+        }
         let input = LMInput.Text(tokens: batchTokens)
         let result = model(input, cache: prefillCaches, state: nil)
 
@@ -1167,6 +1211,18 @@ actor BatchScheduler {
             if let bclCache = cache as? BatchCacheList {
                 for i in 0..<B {
                     perRequestCaches[i].append(bclCache.extract(i) as KVCache)
+                }
+            } else if let brcCache = cache as? BatchRotatingKVCache {
+                for i in 0..<B {
+                    let (k, v, tokenCount) = brcCache.extract(i)
+                    let individual = RotatingKVCache(maxSize: brcCache.maxCacheSize, keep: brcCache.keep)
+                    individual.state = [k, v]
+                    // Restore metaState with correct offset/idx from extraction
+                    individual.metaState = [
+                        "\(brcCache.keep)", "\(brcCache.maxCacheSize)",
+                        "\(BatchRotatingKVCache.preAllocStep)", "\(tokenCount)", "\(tokenCount)"
+                    ]
+                    perRequestCaches[i].append(individual as KVCache)
                 }
             } else if let bkvCache = cache as? BatchKVCacheSimple {
                 for i in 0..<B {
@@ -1206,6 +1262,7 @@ actor BatchScheduler {
             let firstToken = tokenArrays[i].item(Int.self)
 
             let slot = SlotState(
+                requestId: req.requestId,
                 continuation: req.continuation,
                 promptTokenCount: allInputTokens[i].count,
                 startTime: prefillStart,
@@ -1283,8 +1340,11 @@ actor BatchScheduler {
     private func mergeCacheIntoBatch(individualCache: [KVCache], modelState: LMOutput.State?) {
         switch cacheMode {
         case .empty:
-            // B=0 → B=1: Keep individual caches if all are simple types (zero overhead)
-            let allSimple = individualCache.allSatisfy { $0 is KVCacheSimple || $0 is ArraysCache || $0 is CacheList }
+            // B=0 → B=1: Keep individual caches if all are simple/batchable types (zero overhead)
+            let allSimple = individualCache.allSatisfy {
+                $0 is KVCacheSimple || $0 is ArraysCache || $0 is CacheList
+                || ($0 as? RotatingKVCache)?.isBatchable == true
+            }
             if allSimple {
                 batchCaches = individualCache.map { layerCache in
                     if layerCache is ArraysCache && !(layerCache is CacheList) {
@@ -1292,12 +1352,12 @@ actor BatchScheduler {
                         copy.state = layerCache.state
                         return copy as KVCache
                     } else {
-                        return layerCache  // Keep as KVCacheSimple or CacheList — zero batch overhead
+                        return layerCache  // Keep as KVCacheSimple, RotatingKVCache, or CacheList
                     }
                 }
                 cacheMode = .unbatched
             } else {
-                // QuantizedKVCache etc. — promote to BatchKVCacheSimple immediately
+                // QuantizedKVCache etc. — promote to batch immediately
                 batchCaches = individualCache.map { layerCache in
                     if layerCache is ArraysCache && !(layerCache is CacheList) {
                         let copy = MambaCache()
@@ -1305,6 +1365,8 @@ actor BatchScheduler {
                         return copy as KVCache
                     } else if layerCache is CacheList {
                         return BatchCacheList.merge([layerCache], leftPadding: [0]) as KVCache
+                    } else if let rc = layerCache as? RotatingKVCache, rc.isBatchable {
+                        return BatchRotatingKVCache.merge([layerCache]) as KVCache
                     } else {
                         return BatchKVCacheSimple.merge([layerCache]) as KVCache
                     }
@@ -1313,7 +1375,7 @@ actor BatchScheduler {
             }
 
         case .unbatched:
-            // B=1 → B≥2: Promote existing + new to BatchKVCacheSimple/BatchCacheList
+            // B=1 → B≥2: Promote existing + new to batch caches
             Stream.gpu.synchronize()  // Ensure B=1 cache arrays are fully evaluated
             batchCaches = zip(batchCaches, individualCache).map { existing, new in
                 if let existingCL = existing as? CacheList, new is CacheList {
@@ -1322,6 +1384,8 @@ actor BatchScheduler {
                    let newAC = new as? ArraysCache {
                     existingAC.extend(other: newAC)
                     return existingAC as KVCache
+                } else if existing is RotatingKVCache || new is RotatingKVCache {
+                    return BatchRotatingKVCache.merge([existing, new]) as KVCache
                 } else {
                     return BatchKVCacheSimple.merge([existing, new]) as KVCache
                 }
@@ -1333,7 +1397,6 @@ actor BatchScheduler {
             for layer in 0..<batchCaches.count where layer < individualCache.count {
                 if let batchBCL = batchCaches[layer] as? BatchCacheList,
                    let newCL = individualCache[layer] as? CacheList {
-                    // Extend each sub-cache in the BatchCacheList
                     for subIdx in 0..<batchBCL.count where subIdx < newCL.count {
                         if let batchAC = batchBCL[subIdx] as? ArraysCache,
                            let newAC = newCL[subIdx] as? ArraysCache {
@@ -1346,6 +1409,9 @@ actor BatchScheduler {
                 } else if let batchAC = batchCaches[layer] as? ArraysCache,
                    let newAC = individualCache[layer] as? ArraysCache {
                     batchAC.extend(other: newAC)
+                } else if let batchBRC = batchCaches[layer] as? BatchRotatingKVCache {
+                    let single = BatchRotatingKVCache.merge([individualCache[layer]])
+                    batchBRC.extend(with: single)
                 } else {
                     let singleBatch = BatchKVCacheSimple.merge([individualCache[layer]])
                     (batchCaches[layer] as! BatchKVCacheSimple).extend(with: singleBatch)
@@ -1388,25 +1454,12 @@ actor BatchScheduler {
         var saveTruncateTime: Double? = nil
         var saveInsertTime: Double? = nil
         if let radix = radixCache, !slot.inputTokens.isEmpty {
-            let promptLen = slot.inputTokens.count
-            let cache = slot.prefillCaches
             let tSave0 = Date.timeIntervalSinceReferenceDate
-            for layer in cache {
-                let excess = layer.offset - promptLen
-                if excess > 0 { layer.trim(excess) }
-            }
-            let tSaveTrim = Date.timeIntervalSinceReferenceDate
-            // Physically truncate trimmed cache arrays to eliminate stale data. (#47)
-            for i in 0..<cache.count {
-                if cache[i].isTrimmable && cache[i].offset > 0
-                    && supportsPhysicalTruncation(cache[i])
-                {
-                    cache[i].truncateToOffset()
-                }
-            }
-            let tSaveTruncate = Date.timeIntervalSinceReferenceDate
-            let layerStates = cache.map { $0.state }
-            let layerMetaStates = cache.map { $0.metaState }
+            // Use pre-snapshotted state from prefill time — immune to decode mutations.
+            let layerStates = slot.prefillStates
+            let layerMetaStates = slot.prefillMetaStates
+            let tSaveTrim = tSave0
+            let tSaveTruncate = tSave0
             radix.insert(
                 tokens: slot.inputTokens,
                 layerStates: layerStates,
@@ -1416,15 +1469,15 @@ actor BatchScheduler {
             saveTrimTime = tSaveTrim - tSave0
             saveTruncateTime = tSaveTruncate - tSaveTrim
             saveInsertTime = tSaveInsert - tSaveTruncate
-            let activeLayers = cache.reduce(into: 0) { count, layer in
-                if layer.offset > 0 { count += 1 }
+            let activeLayers = layerStates.reduce(into: 0) { count, state in
+                if !state.isEmpty { count += 1 }
             }
-            let maxOffset = cache.map(\.offset).max() ?? 0
+            let maxOffset = layerStates.map { $0.isEmpty ? 0 : $0[0].dim(2) }.max() ?? 0
             print(
                 "[\(batchTs())] [PrefixCache] Save complete: mode=batch | stored_tokens=\(slot.inputTokens.count) | " +
                     "radix_entries=\(radix.count) | trim=\(String(format: "%.6f", saveTrimTime ?? 0))s | " +
                     "truncate=\(String(format: "%.6f", saveTruncateTime ?? 0))s | insert=\(String(format: "%.6f", saveInsertTime ?? 0))s | " +
-                    "layers=\(cache.count) active_layers=\(activeLayers) max_offset=\(maxOffset)"
+                    "layers=\(layerStates.count) active_layers=\(activeLayers) max_offset=\(maxOffset)"
             )
             DebugLogger.log("[BatchScheduler] Prefix cache save: \(slot.inputTokens.count) tokens")
         }
@@ -1454,7 +1507,7 @@ actor BatchScheduler {
         slot.constraintRuntime?.matcherHandle?.release()
         _inFlightCount.withLock { $0 = max($0 - 1, 0) }
 
-        DebugLogger.log("[BatchScheduler] Finished slot \(slot.id.uuidString.prefix(8)) (\(slot.tokenCount) tok, \(String(format: "%.2f", elapsed))s, in-flight: \(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
+        DebugLogger.log("[BatchScheduler] Finished slot req=\(slot.requestId) (\(slot.tokenCount) tok, \(String(format: "%.2f", elapsed))s, in-flight: \(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
 
         // Remove from batch cache and state
         let keepIndices = (0..<slots.count).filter { $0 != index }
@@ -1478,6 +1531,8 @@ actor BatchScheduler {
                                 acSub.filter(batchIndices: idxArray)
                             }
                         }
+                    } else if let brcCache = batchCaches[layer] as? BatchRotatingKVCache {
+                        brcCache.filter(keepIndices)
                     } else if let bkvCache = batchCaches[layer] as? BatchKVCacheSimple {
                         bkvCache.filter(keepIndices)
                     } else if let acCache = batchCaches[layer] as? ArraysCache {

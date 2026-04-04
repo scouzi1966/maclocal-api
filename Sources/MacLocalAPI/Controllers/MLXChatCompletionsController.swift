@@ -16,6 +16,11 @@ struct MLXChatCompletionsController: RouteCollection {
         pattern: #"^\s*```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)\s*```\s*$"#,
         options: []
     )
+
+    /// Max time (seconds) to wait for a concurrent slot before returning 503.
+    /// RotatingKVCache models run serial, so queued requests can wait a long time.
+    private static let slotQueueTimeout: TimeInterval = 240
+
     private let streamingEnabled: Bool
     private let modelID: String
     private let service: any MLXChatServing
@@ -96,8 +101,12 @@ struct MLXChatCompletionsController: RouteCollection {
         return response
     }
 
+    private static let debugPipeline = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
+
     func chatCompletions(req: Request) async throws -> Response {
+        let reqId = String(UUID().uuidString.prefix(8))
         do {
+            let httpArrival = Self.debugPipeline ? Date() : Date.distantPast
             let chatRequest = try req.content.decode(ChatCompletionRequest.self)
             if veryVerbose {
                 print("\(Self.pink)[\(Self.timestamp())] RECV MLX full request:\n\(encodeJSON(chatRequest))\(Self.reset)"); fflush(stdout)
@@ -164,12 +173,15 @@ struct MLXChatCompletionsController: RouteCollection {
                 fflush(stdout)
             }
 
-            // Atomically reserve a concurrent slot (check + increment in one lock).
-            // Serial mode always returns true. Returns 503 if at capacity.
-            guard service.tryReserveSlot() else {
+            let tJsonParse = Self.debugPipeline ? Date() : Date.distantPast
+
+            // Reserve a concurrent slot — waits up to 4 minutes for a slot to free up.
+            // RotatingKVCache models (Gemma 4) fall back to serial execution, so
+            // queued requests can wait a long time when all slots are occupied.
+            guard await service.waitForSlot(timeout: Self.slotQueueTimeout) else {
                 let peer = req.peerAddress?.description ?? "unknown"
                 let ua = req.headers.first(name: .userAgent) ?? "unknown"
-                req.logger.warning("Connection refused: at capacity (\(service.maxConcurrent)/\(service.maxConcurrent)) — client=\(peer) ua=\(ua)")
+                req.logger.warning("Connection refused: at capacity after \(Int(Self.slotQueueTimeout))s wait (\(service.maxConcurrent)/\(service.maxConcurrent)) — client=\(peer) ua=\(ua)")
                 let response = Response(status: .serviceUnavailable)
                 response.headers.add(name: .contentType, value: "application/json")
                 response.headers.add(name: .accessControlAllowOrigin, value: "*")
@@ -189,7 +201,7 @@ struct MLXChatCompletionsController: RouteCollection {
             let extractThinking = !rawOutput || isWebUI
 
             if chatRequest.stream == true && streamingEnabled {
-                return try await createStreamingResponse(req: req, chatRequest: chatRequest, extractThinking: extractThinking, grammarDowngraded: grammarDowngraded)
+                return try await createStreamingResponse(req: req, chatRequest: chatRequest, extractThinking: extractThinking, grammarDowngraded: grammarDowngraded, requestId: reqId)
             }
 
             // In concurrent mode, non-streaming requests currently bypass the
@@ -221,6 +233,14 @@ struct MLXChatCompletionsController: RouteCollection {
                     "\(Self.orange)[\(Self.timestamp())] MLX start: stream=false\n  prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens)\n  temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\n  top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none")\n  seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
                 ); fflush(stdout)
             }
+            if Self.debugPipeline {
+                let tSlotReserved = Date()
+                let jsonMs = tJsonParse.timeIntervalSince(httpArrival) * 1000
+                let slotMs = tSlotReserved.timeIntervalSince(tJsonParse) * 1000
+                let totalMs = tSlotReserved.timeIntervalSince(httpArrival) * 1000
+                print("[\(Self.timestamp())] [HTTPPipeline] req=\(reqId) json_parse=\(String(format: "%.1f", jsonMs))ms slot_wait=\(String(format: "%.1f", slotMs))ms total=\(String(format: "%.1f", totalMs))ms")
+            }
+
             let result: ChatGenerationResult
             if service.maxConcurrent >= 2 {
                 // Batch mode: route through scheduler for batched decode
@@ -240,7 +260,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     tools: effectiveTools,
                     stop: effectiveStop,
                     responseFormat: chatRequest.responseFormat,
-                    chatTemplateKwargs: chatRequest.chatTemplateKwargs
+                    chatTemplateKwargs: chatRequest.chatTemplateKwargs,
+                    requestId: reqId
                 )
 
                 // Collect stream into complete response
@@ -473,7 +494,7 @@ struct MLXChatCompletionsController: RouteCollection {
         }
     }
 
-    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, extractThinking: Bool, grammarDowngraded: Bool = false) async throws -> Response {
+    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, extractThinking: Bool, grammarDowngraded: Bool = false, requestId: String = "") async throws -> Response {
         let httpResponse = Response(status: .ok)
         httpResponse.headers.add(name: .contentType, value: "text/event-stream")
         httpResponse.headers.add(name: .cacheControl, value: "no-cache")
@@ -493,6 +514,7 @@ struct MLXChatCompletionsController: RouteCollection {
         let wantStreamExtended = streamProfileHeader == "extended"
         if wantStreamProfile { service.startAPIProfile() }
 
+        let streamReqId = requestId
         httpResponse.body = .init(asyncStream: { writer in
             let encoder = JSONEncoder()
             var fullContent = ""
@@ -542,7 +564,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     tools: effectiveTools,
                     stop: effectiveStop,
                     responseFormat: chatRequest.responseFormat,
-                    chatTemplateKwargs: chatRequest.chatTemplateKwargs
+                    chatTemplateKwargs: chatRequest.chatTemplateKwargs,
+                    requestId: streamReqId
                 )
                 // Emit an initial assistant delta so clients always open a response container.
                 let initialChunk = ChatCompletionStreamResponse(

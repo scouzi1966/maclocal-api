@@ -216,6 +216,11 @@ final class MLXModelService: @unchecked Sendable {
 
     /// Atomically reserve a concurrent slot. Returns true if reserved (or serial mode).
     func tryReserveSlot() -> Bool { scheduler?.tryReserve() ?? true }
+    /// Wait for a concurrent slot with timeout. Returns true if reserved (or serial mode).
+    func waitForSlot(timeout: TimeInterval = 30) async -> Bool {
+        guard let sched = scheduler else { return true }
+        return await sched.waitForSlot(timeout: timeout)
+    }
     /// Release a reserved slot (call if request fails before generation starts).
     func releaseSlot() { scheduler?.releaseReservation() }
     init(resolver: MLXCacheResolver) {
@@ -1851,8 +1856,10 @@ final class MLXModelService: @unchecked Sendable {
         tools: [RequestTool]? = nil,
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
-        chatTemplateKwargs: [String: AnyCodable]? = nil
+        chatTemplateKwargs: [String: AnyCodable]? = nil,
+        requestId: String? = nil
     ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int, toolCallStartTag: String?, toolCallEndTag: String?, thinkStartTag: String?, thinkEndTag: String?) {
+        let reqId = requestId ?? ""
         try beginOperation()
         var endOperationOnExit = true
         defer {
@@ -1904,17 +1911,19 @@ final class MLXModelService: @unchecked Sendable {
 
         // --- Concurrent path: bypass container.perform lock, route through BatchScheduler ---
         if let scheduler = self.scheduler {
-            let constrainedDecoding = try await container.perform { context in
-                self.setupConstrainedDecodingProcessor(
-                    modelID: modelID,
-                    responseFormat: responseFormat,
-                    tokenizer: context.tokenizer,
-                    tools: tools
-                )
-            }
+            let pipelineStart = debugLogging ? Date() : Date.distantPast
+
+            // Use scheduler's tokenizer directly — no container lock needed.
+            let constrainedDecoding = self.setupConstrainedDecodingProcessor(
+                modelID: modelID,
+                responseFormat: responseFormat,
+                tokenizer: scheduler.tokenizer,
+                tools: tools
+            )
             if let constrainedDecoding {
                 params.extraProcessor = constrainedDecoding.processor
             }
+            let tConstraint = debugLogging ? Date() : Date.distantPast
 
             let toolRuntimeConfig: BatchScheduler.ToolCallRuntimeConfiguration?
             if let tools, !tools.isEmpty {
@@ -1949,7 +1958,9 @@ final class MLXModelService: @unchecked Sendable {
                 toolRuntimeConfig = nil
             }
 
+            let tToolSetup = debugLogging ? Date() : Date.distantPast
             let input = try await scheduler.prepareInput(userInput)
+            let tTokenize = debugLogging ? Date() : Date.distantPast
             let preparedPromptTokens = input.text.tokens.reshaped(-1).asArray(Int.self).count
             let schedulerStream = scheduler.submit(
                 input: input,
@@ -1964,9 +1975,20 @@ final class MLXModelService: @unchecked Sendable {
                 },
                 stopSequences: stop ?? [],
                 thinkStartTag: self.thinkStartTag,
-                thinkEndTag: self.thinkEndTag
+                thinkEndTag: self.thinkEndTag,
+                requestId: reqId
             )
             self.cleanupTempFiles(mediaTempFiles)
+
+            if debugLogging {
+                let tSubmit = Date()
+                let total = tSubmit.timeIntervalSince(pipelineStart) * 1000
+                let constraint = tConstraint.timeIntervalSince(pipelineStart) * 1000
+                let toolSetup = tToolSetup.timeIntervalSince(tConstraint) * 1000
+                let tokenize = tTokenize.timeIntervalSince(tToolSetup) * 1000
+                let submit = tSubmit.timeIntervalSince(tTokenize) * 1000
+                print("[\(ts())] [Pipeline] req=\(reqId) total=\(String(format: "%.1f", total))ms constraint=\(String(format: "%.1f", constraint))ms tool_setup=\(String(format: "%.1f", toolSetup))ms tokenize=\(String(format: "%.1f", tokenize))ms submit=\(String(format: "%.1f", submit))ms tokens=\(preparedPromptTokens)")
+            }
 
             // Derive tool call tags (same logic as serial path, below)
             let toolTags = toolRuntimeConfig.map { ($0.startTag, $0.endTag) }
@@ -4412,15 +4434,11 @@ final class MLXModelService: @unchecked Sendable {
 
     private func restoredMetaState(for cache: KVCache, savedMetaState: [String]?) -> [String]? {
         guard let savedMetaState else { return nil }
-        if cache is RotatingKVCache, savedMetaState.count >= 3 {
-            let restoredCount = cache.offset
-            return [
-                savedMetaState[0],
-                savedMetaState[1],
-                savedMetaState[2],
-                String(restoredCount),
-                String(restoredCount),
-            ]
+        if cache is RotatingKVCache, savedMetaState.count == 5 {
+            // Use saved offset/idx directly — they were captured at save time and
+            // reflect the correct rotation state. The state setter already set
+            // offset = keys.dim(2); metaState setter will override with saved values.
+            return savedMetaState
         }
         return savedMetaState
     }
