@@ -124,6 +124,11 @@ public enum KVCacheFormat: String, Codable, Sendable {
     case turboQuant
 }
 
+public enum KVQuantizationScheme: String, Codable, Sendable {
+    case uniform
+    case turboQuant = "turboquant"
+}
+
 public enum TurboQuantVariant: String, Codable, Sendable {
     case turboQuant25 = "turboquant25"
     case turboQuant35 = "turboquant35"
@@ -138,6 +143,23 @@ public enum TurboQuantVariant: String, Codable, Sendable {
     }
 }
 
+public func normalizedUniformKVBits(_ bits: Float?) -> Int? {
+    guard let bits, bits >= 1 else { return nil }
+    let rounded = Int(bits.rounded())
+    return abs(bits - Float(rounded)) < 0.000_1 ? rounded : nil
+}
+
+public func turboQuantEnabled(
+    kvBits: Float?,
+    kvQuantScheme: KVQuantizationScheme = .uniform
+) -> Bool {
+    guard let kvBits, kvBits >= 1 else { return false }
+    if kvQuantScheme == .turboQuant {
+        return true
+    }
+    return normalizedUniformKVBits(kvBits) == nil
+}
+
 public struct TurboQuantConfiguration: Codable, Equatable, Sendable {
     public static let metadataVersion = 1
     public static let transformVersion = "structured_hadamard_v1"
@@ -145,20 +167,27 @@ public struct TurboQuantConfiguration: Codable, Equatable, Sendable {
     public static let groupAlignment = 16
     public static let defaultMetadataFilename = "turboquant_kv.json"
 
+    public var bits: Float
     public var variant: TurboQuantVariant
     public var metadataPath: String?
     public var metadataVersion: Int
     public var transformVersion: String
     public var codebookVersion: String
 
+    public static func defaultVariant(for bits: Float) -> TurboQuantVariant {
+        bits >= 3.5 ? .turboQuant35 : .turboQuant25
+    }
+
     public init(
-        variant: TurboQuantVariant = .turboQuant25,
+        bits: Float = 4.0,
+        variant: TurboQuantVariant? = nil,
         metadataPath: String? = nil,
         metadataVersion: Int = TurboQuantConfiguration.metadataVersion,
         transformVersion: String = TurboQuantConfiguration.transformVersion,
         codebookVersion: String = TurboQuantConfiguration.codebookVersion
     ) {
-        self.variant = variant
+        self.bits = bits
+        self.variant = variant ?? Self.defaultVariant(for: bits)
         self.metadataPath = metadataPath
         self.metadataVersion = metadataVersion
         self.transformVersion = transformVersion
@@ -1020,6 +1049,21 @@ public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDe
         super.init()
     }
 
+    public static func fromCache(
+        _ cache: KVCache,
+        configuration: TurboQuantConfiguration
+    ) -> TurboQuantKVCache {
+        if let cache = cache as? TurboQuantKVCache {
+            return cache
+        }
+        let turboCache = TurboQuantKVCache(configuration: configuration)
+        if cache.offset > 0 {
+            turboCache.state = cache.state
+        }
+        turboCache.offset = cache.offset
+        return turboCache
+    }
+
     public override func innerState() -> [MLXArray] {
         [self.keys, self.values].compactMap { $0 }
     }
@@ -1135,6 +1179,7 @@ public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDe
             [
                 String(step),
                 String(offset),
+                String(configuration.bits),
                 configuration.variant.rawValue,
                 configuration.metadataPath ?? "",
                 String(configuration.metadataVersion),
@@ -1143,18 +1188,32 @@ public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDe
             ]
         }
         set {
-            guard newValue.count == 7 else {
-                fatalError("TurboQuantKVCache metaState must have exactly 7 values")
+            guard newValue.count == 7 || newValue.count == 8 else {
+                fatalError("TurboQuantKVCache metaState must have exactly 7 or 8 values")
             }
             self.step = Int(newValue[0]) ?? self.step
             self.offset = Int(newValue[1]) ?? 0
-            self.configuration = TurboQuantConfiguration(
-                variant: TurboQuantVariant(rawValue: newValue[2]) ?? .turboQuant25,
-                metadataPath: newValue[3].isEmpty ? nil : newValue[3],
-                metadataVersion: Int(newValue[4]) ?? TurboQuantConfiguration.metadataVersion,
-                transformVersion: newValue[5],
-                codebookVersion: newValue[6]
-            )
+            if newValue.count == 8 {
+                self.configuration = TurboQuantConfiguration(
+                    bits: Float(newValue[2]) ?? 4.0,
+                    variant: TurboQuantVariant(rawValue: newValue[3]),
+                    metadataPath: newValue[4].isEmpty ? nil : newValue[4],
+                    metadataVersion: Int(newValue[5]) ?? TurboQuantConfiguration.metadataVersion,
+                    transformVersion: newValue[6],
+                    codebookVersion: newValue[7]
+                )
+            } else {
+                let legacyVariant = TurboQuantVariant(rawValue: newValue[2]) ?? .turboQuant25
+                let legacyBits: Float = legacyVariant == .turboQuant35 ? 3.5 : 2.5
+                self.configuration = TurboQuantConfiguration(
+                    bits: legacyBits,
+                    variant: legacyVariant,
+                    metadataPath: newValue[3].isEmpty ? nil : newValue[3],
+                    metadataVersion: Int(newValue[4]) ?? TurboQuantConfiguration.metadataVersion,
+                    transformVersion: newValue[5],
+                    codebookVersion: newValue[6]
+                )
+            }
         }
     }
 
@@ -1184,7 +1243,7 @@ public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDe
     }
 
     public var debugDescription: String {
-        "\(String(describing: Self.self)) \(Unmanaged.passUnretained(self).toOpaque()), offset: \(offset), variant: \(configuration.variant.rawValue), metadataPath: \(configuration.metadataPath ?? "-")"
+        "\(String(describing: Self.self)) \(Unmanaged.passUnretained(self).toOpaque()), offset: \(offset), bits: \(configuration.bits), variant: \(configuration.variant.rawValue), metadataPath: \(configuration.metadataPath ?? "-")"
     }
 }
 
@@ -1606,6 +1665,10 @@ public class CacheList: BaseKVCache {
     public init(caches: [KVCache]) {
         self.caches = caches
         super.init()
+    }
+
+    func replaceCaches(_ caches: [KVCache]) {
+        self.caches = caches
     }
 
     public var count: Int { caches.count }
@@ -2083,14 +2146,57 @@ public func quantizedScaledDotProductAttention(
 ///   - kvBits: Number of bits for quantization (nil = no quantization)
 ///   - kvGroupSize: Group size for quantization
 ///   - quantizedKVStart: Token count threshold to begin quantizing
+private func turboQuantizeCacheEntry(
+    _ entry: KVCache,
+    configuration: TurboQuantConfiguration,
+    quantizedKVStart: Int
+) -> KVCache {
+    switch entry {
+    case let turboCache as TurboQuantKVCache:
+        return turboCache
+    case is RotatingKVCache, is ArraysCache, is QuantizedKVCache:
+        return entry
+    case let cacheList as CacheList:
+        cacheList.replaceCaches(cacheList.caches.map {
+            turboQuantizeCacheEntry($0, configuration: configuration, quantizedKVStart: quantizedKVStart)
+        })
+        return cacheList
+    case let simpleCache as KVCacheSimple:
+        if simpleCache.offset == 0 {
+            return TurboQuantKVCache(configuration: configuration)
+        }
+        if simpleCache.offset < quantizedKVStart {
+            return simpleCache
+        }
+        return TurboQuantKVCache.fromCache(simpleCache, configuration: configuration)
+    default:
+        return entry
+    }
+}
+
 public func maybeQuantizeKVCache(
     cache: inout [KVCache],
-    kvBits: Int?,
+    kvBits: Float?,
     kvGroupSize: Int = 64,
-    quantizedKVStart: Int = 0
+    quantizedKVStart: Int = 0,
+    kvQuantScheme: KVQuantizationScheme = .uniform
 ) {
-    guard let kvBits = kvBits,
-        !cache.isEmpty,
+    guard !cache.isEmpty else { return }
+
+    if turboQuantEnabled(kvBits: kvBits, kvQuantScheme: kvQuantScheme), let kvBits {
+        let configuration = TurboQuantConfiguration(bits: kvBits)
+        let lastIdx = cache.count > 2 ? cache.count - 1 : -1
+        for i in 0 ..< cache.count where i != lastIdx {
+            cache[i] = turboQuantizeCacheEntry(
+                cache[i],
+                configuration: configuration,
+                quantizedKVStart: quantizedKVStart
+            )
+        }
+        return
+    }
+
+    guard let uniformBits = normalizedUniformKVBits(kvBits),
         !(cache[0] is TurboQuantKVCache),
         !(cache[0] is QuantizedKVCache),
         cache[0].offset > quantizedKVStart
@@ -2099,9 +2205,8 @@ public func maybeQuantizeKVCache(
     }
 
     for i in 0 ..< cache.count {
-        // Handle cache types that support quantization
         if let simpleCache = cache[i] as? KVCacheSimple {
-            cache[i] = simpleCache.toQuantized(groupSize: kvGroupSize, bits: kvBits)
+            cache[i] = simpleCache.toQuantized(groupSize: kvGroupSize, bits: uniformBits)
         }
         // TODO: RotatingKVCache.toQuantized() is not implemented yet, like in Python.
         // When implemented, add: else if let rotatingCache = cache[i] as? RotatingKVCache { ... }

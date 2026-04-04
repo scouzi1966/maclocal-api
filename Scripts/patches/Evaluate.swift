@@ -83,7 +83,7 @@ public struct GenerateParameters: Sendable {
     public var maxKVSize: Int?
 
     /// Number of bits to use for KV cache quantization. nil implies no cache quantization.
-    public var kvBits: Int?
+    public var kvBits: Float?
 
     /// Group size for KV cache quantization (default: 64)
     public var kvGroupSize: Int
@@ -93,6 +93,9 @@ public struct GenerateParameters: Sendable {
 
     /// Cache format preference. `.auto` preserves current behavior.
     public var kvCacheFormat: KVCacheFormat
+
+    /// Quantization backend for the KV cache.
+    public var kvQuantScheme: KVQuantizationScheme
 
     /// Optional TurboQuant recipe when `kvCacheFormat == .turboQuant`.
     public var turboQuantVariant: TurboQuantVariant?
@@ -137,7 +140,7 @@ public struct GenerateParameters: Sendable {
     public init(
         maxTokens: Int? = nil,
         maxKVSize: Int? = nil,
-        kvBits: Int? = nil,
+        kvBits: Float? = nil,
         kvGroupSize: Int = 64,
         quantizedKVStart: Int = 0,
         temperature: Float = 0.6,
@@ -152,6 +155,7 @@ public struct GenerateParameters: Sendable {
         topLogprobsCount: Int = 0,
         prefillStepSize: Int = 512,
         kvCacheFormat: KVCacheFormat = .auto,
+        kvQuantScheme: KVQuantizationScheme = .uniform,
         turboQuantVariant: TurboQuantVariant? = nil,
         turboQuantMetadataPath: String? = nil
     ) {
@@ -161,6 +165,7 @@ public struct GenerateParameters: Sendable {
         self.kvGroupSize = kvGroupSize
         self.quantizedKVStart = quantizedKVStart
         self.kvCacheFormat = kvCacheFormat
+        self.kvQuantScheme = kvQuantScheme
         self.turboQuantVariant = turboQuantVariant
         self.turboQuantMetadataPath = turboQuantMetadataPath
         self.temperature = temperature
@@ -177,19 +182,32 @@ public struct GenerateParameters: Sendable {
     }
 
     public var usesTurboQuantKVCache: Bool {
-        kvCacheFormat == .turboQuant
+        switch kvCacheFormat {
+        case .turboQuant:
+            return kvBits != nil
+        case .standard:
+            return false
+        case .auto:
+            return turboQuantEnabled(kvBits: kvBits, kvQuantScheme: kvQuantScheme)
+        }
     }
 
     public var turboQuantConfiguration: TurboQuantConfiguration? {
-        guard usesTurboQuantKVCache else { return nil }
+        guard usesTurboQuantKVCache, let kvBits else { return nil }
         return TurboQuantConfiguration(
+            bits: kvBits,
             variant: turboQuantVariant ?? .turboQuant25,
             metadataPath: turboQuantMetadataPath
         )
     }
 
     public var usesDynamicKVQuantization: Bool {
-        kvBits != nil && !usesTurboQuantKVCache
+        uniformKVBits != nil && !usesTurboQuantKVCache
+    }
+
+    public var uniformKVBits: Int? {
+        guard let kvBits, !usesTurboQuantKVCache else { return nil }
+        return normalizedUniformKVBits(kvBits)
     }
 
     public func sampler() -> LogitSampler {
@@ -585,7 +603,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
     let maxTokens: Int?
 
     // Cache quantization parameters
-    let kvBits: Int?
+    let kvBits: Float?
     let kvGroupSize: Int
     let quantizedKVStart: Int
     let shouldQuantizeCache: Bool
@@ -635,7 +653,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         self.sampler = parameters.sampler()
         self.maxTokens = parameters.maxTokens
 
-        self.kvBits = parameters.kvBits
+        self.kvBits = parameters.uniformKVBits.map(Float.init)
         self.kvGroupSize = parameters.kvGroupSize
         self.quantizedKVStart = parameters.quantizedKVStart
         self.shouldQuantizeCache = parameters.usesDynamicKVQuantization
@@ -673,7 +691,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         self.sampler = parameters.sampler()
         self.maxTokens = parameters.maxTokens
 
-        self.kvBits = parameters.kvBits
+        self.kvBits = parameters.uniformKVBits.map(Float.init)
         self.kvGroupSize = parameters.kvGroupSize
         self.quantizedKVStart = parameters.quantizedKVStart
         self.shouldQuantizeCache = parameters.usesDynamicKVQuantization
