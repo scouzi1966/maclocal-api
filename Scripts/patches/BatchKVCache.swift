@@ -452,9 +452,7 @@ public class BatchRotatingKVCache: BaseKVCache {
         return (self.keys!, self.values!)
     }
 
-    /// Multi-token prefill: use the same allocate-and-write pattern as BatchKVCacheSimple.
-    /// This ensures the MLX compute graph uses scatter writes rather than direct assignment,
-    /// which is required for correct GPU evaluation with batched prefill.
+    /// Multi-token prefill: identical allocate-and-write pattern as BatchKVCacheSimple.update().
     private func updateConcat(keys newKeys: MLXArray, values newValues: MLXArray) -> (MLXArray, MLXArray) {
         if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" && batchSize > 1 {
             print("[BatchRotatingKV] updateConcat B=\(batchSize) newKeys=\(newKeys.shape) _idx=\(_idx) _offset=\(_offset) maxCache=\(maxCacheSize) existing=\(keys?.shape.description ?? "nil")")
@@ -462,25 +460,31 @@ public class BatchRotatingKVCache: BaseKVCache {
         let prev = _idx
         let newTokens = newKeys.dim(2)
 
-        if self.keys == nil || (prev + newTokens) > (self.keys?.dim(2) ?? 0) {
-            // Allocate or grow — same pattern as BatchKVCacheSimple but capped at maxCacheSize
+        if self.keys == nil || (prev + newTokens) > self.keys!.dim(2) {
             let B = newKeys.dim(0)
             let kvHeads = newKeys.dim(1)
             let kHeadDim = newKeys.dim(3)
             let vHeadDim = newValues.dim(3)
-            let allocSize = prev + newTokens  // Don't cap to maxCacheSize during prefill — trim later
-            let kZeros = MLXArray.zeros([B, kvHeads, allocSize - prev, kHeadDim], dtype: newKeys.dtype)
-            let vZeros = MLXArray.zeros([B, kvHeads, allocSize - prev, vHeadDim], dtype: newValues.dtype)
+            let nSteps = (Self.preAllocStep + newTokens - 1) / Self.preAllocStep
+            let kShape = [B, kvHeads, nSteps * Self.preAllocStep, kHeadDim]
+            let vShape = [B, kvHeads, nSteps * Self.preAllocStep, vHeadDim]
+            let newK = MLXArray.zeros(kShape, dtype: newKeys.dtype)
+            let newV = MLXArray.zeros(vShape, dtype: newValues.dtype)
 
-            if let existingK = self.keys, let existingV = self.values {
-                // Restore temporal order before growing
-                let orderedK = batchTemporalOrder(existingK)
-                let orderedV = batchTemporalOrder(existingV)
-                self.keys = concatenated([orderedK[.ellipsis, ..<prev, 0...], kZeros], axis: 2)
-                self.values = concatenated([orderedV[.ellipsis, ..<prev, 0...], vZeros], axis: 2)
+            if let existingKeys = self.keys, let existingValues = self.values {
+                var ek = existingKeys
+                if prev % Self.preAllocStep != 0 {
+                    ek = ek[.ellipsis, ..<prev, 0...]
+                }
+                self.keys = concatenated([ek, newK], axis: 2)
+                var ev = existingValues
+                if prev % Self.preAllocStep != 0 {
+                    ev = ev[.ellipsis, ..<prev, 0...]
+                }
+                self.values = concatenated([ev, newV], axis: 2)
             } else {
-                self.keys = kZeros
-                self.values = vZeros
+                self.keys = newK
+                self.values = newV
             }
         }
 
@@ -488,7 +492,6 @@ public class BatchRotatingKVCache: BaseKVCache {
         _idx = prev + newTokens
         perSeqOffset = perSeqOffset + Int32(newTokens)
 
-        // Write new tokens into pre-allocated buffer (scatter write)
         self.keys![.ellipsis, prev ..< _idx, 0...] = newKeys
         self.values![.ellipsis, prev ..< _idx, 0...] = newValues
 

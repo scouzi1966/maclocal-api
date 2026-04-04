@@ -1110,9 +1110,9 @@ actor BatchScheduler {
 
         // Verify cache types support batching
         let templateCache = model.newCache(parameters: requests[0].parameters)
-        // Models with mixed cache types (KVCacheSimple + RotatingKVCache like Gemma 4)
-        // use individual prefill + merge instead of batched prefill. The batched decode
-        // loop handles them correctly once merged; only the prefill is individual.
+        // Gemma 4 (mixed KVCacheSimple + RotatingKVCache) crashes in MLX SDPA at B>=3
+        // during batched prefill. Use individual prefill + merge for these models.
+        // The decode loop handles them correctly in batch via BatchRotatingKVCache.
         let hasMixedCacheTypes = templateCache.contains { $0 is RotatingKVCache }
             && templateCache.contains { $0 is KVCacheSimple }
         let canBatch = !hasMixedCacheTypes && templateCache.allSatisfy { c in

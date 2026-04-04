@@ -1,0 +1,15 @@
+LICENSE
+MANIFEST.in
+README.md
+pyproject.toml
+macafm_next/__init__.py
+macafm_next/cli.py
+macafm_next.egg-info/PKG-INFO
+macafm_next.egg-info/SOURCES.txt
+macafm_next.egg-info/dependency_links.txt
+macafm_next.egg-info/entry_points.txt
+macafm_next.egg-info/requires.txt
+macafm_next.egg-info/top_level.txt
+macafm_next/bin/afm
+macafm_next/bin/default.metallib
+macafm_next/share/webui/index.html.gz
