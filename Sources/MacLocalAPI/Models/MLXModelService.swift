@@ -131,6 +131,56 @@ final class MLXModelService: @unchecked Sendable {
     var enablePrefixCaching: Bool = false
     var enableGrammarConstraints: Bool = false { didSet { grammarConstraintsActive = enableGrammarConstraints } }
     var trace: Bool = false { didSet { traceLogging = trace } }
+    var supportsStrictToolGrammar: Bool {
+        if let parser = resolvedToolCallParser(logBypass: false) {
+            switch parser {
+            case "afm_adaptive_xml", "qwen3_xml":
+                return true
+            default:
+                return false
+            }
+        }
+
+        guard let format = withStateLock({ currentToolCallFormat }) else {
+            return false
+        }
+        switch format {
+        case .xmlFunction:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static let gemma4WrappedToolCallRegex = try! NSRegularExpression(
+        pattern: #"<\|tool_call>\s*(.*?)\s*<tool_call\|>"#,
+        options: [.dotMatchesLineSeparators]
+    )
+    private static let gemma4AdaptiveXMLBypassLog = "Ignoring afm_adaptive_xml for Gemma 4; using native Gemma 4 tool-calling path"
+
+    private static func shouldBypassAdaptiveXMLParser(
+        parser: String?,
+        format: ToolCallFormat?
+    ) -> Bool {
+        parser == "afm_adaptive_xml" && format == .gemma4
+    }
+
+    private func shouldBypassAdaptiveXMLParserForCurrentModel() -> Bool {
+        Self.shouldBypassAdaptiveXMLParser(
+            parser: toolCallParser,
+            format: withStateLock({ currentToolCallFormat })
+        )
+    }
+
+    func resolvedToolCallParser(logBypass: Bool = false) -> String? {
+        guard shouldBypassAdaptiveXMLParserForCurrentModel() else {
+            return toolCallParser
+        }
+        if logBypass {
+            print("[\(ts())] [ToolCallParser] \(Self.gemma4AdaptiveXMLBypassLog)")
+        }
+        return nil
+    }
     /// Path to write a Metal GPU trace (.gputrace) — captures the first request only, then resets to nil.
     /// Auto-limits max tokens to 5 to keep trace size manageable.
     var gpuCapturePath: String?
@@ -1037,15 +1087,19 @@ final class MLXModelService: @unchecked Sendable {
         }
         // --tool-call-parser override: force format for the specified parser
         if let parser = toolCallParser {
-            switch parser {
-            case "qwen3_xml", "afm_adaptive_xml":
-                detectedFormat = .xmlFunction
-            case "hermes", "llama3_json", "mistral":
-                detectedFormat = .json
-            case "gemma":
-                detectedFormat = .gemma
-            default:
-                break
+            if Self.shouldBypassAdaptiveXMLParser(parser: parser, format: detectedFormat) {
+                print("[\(ts())] [ToolCallParser] \(Self.gemma4AdaptiveXMLBypassLog)")
+            } else {
+                switch parser {
+                case "qwen3_xml", "afm_adaptive_xml":
+                    detectedFormat = .xmlFunction
+                case "hermes", "llama3_json", "mistral":
+                    detectedFormat = .json
+                case "gemma":
+                    detectedFormat = .gemma
+                default:
+                    break
+                }
             }
             print("[\(ts())] [ToolCallParser] --tool-call-parser override: \(parser) → \(String(describing: detectedFormat))")
         }
@@ -1732,7 +1786,7 @@ final class MLXModelService: @unchecked Sendable {
             }
             let (parsed, remaining) = ToolCallStreamingRuntime.parseCompletedToolCalls(
                 from: generated,
-                toolCallParser: self.toolCallParser,
+                toolCallParser: self.resolvedToolCallParser(logBypass: false),
                 tools: tools
             )
             if !parsed.isEmpty {
@@ -1871,7 +1925,7 @@ final class MLXModelService: @unchecked Sendable {
                         toolRuntimeConfig = .init(
                             startTag: "<tool_call>",
                             endTag: "</tool_call>",
-                            parser: self.toolCallParser,
+                            parser: self.resolvedToolCallParser(logBypass: false),
                             tools: tools
                         )
                     default:
@@ -1879,7 +1933,7 @@ final class MLXModelService: @unchecked Sendable {
                         toolRuntimeConfig = .init(
                             startTag: parser.startTag ?? "<tool_call>",
                             endTag: parser.endTag ?? "</tool_call>",
-                            parser: self.toolCallParser,
+                            parser: self.resolvedToolCallParser(logBypass: false),
                             tools: tools
                         )
                     }
@@ -1887,7 +1941,7 @@ final class MLXModelService: @unchecked Sendable {
                     toolRuntimeConfig = .init(
                         startTag: "<tool_call>",
                         endTag: "</tool_call>",
-                        parser: self.toolCallParser,
+                        parser: self.resolvedToolCallParser(logBypass: false),
                         tools: tools
                     )
                 }
@@ -2751,6 +2805,17 @@ final class MLXModelService: @unchecked Sendable {
         var toolCalls = [ToolCall]()
         var remaining = text
 
+        let gemma4Parser = Gemma4FunctionParser()
+        let gemma4Matches = Self.gemma4WrappedToolCallRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        for match in gemma4Matches.reversed() {
+            guard let fullRange = Range(match.range, in: remaining) else { continue }
+            let full = String(remaining[fullRange])
+            if let tc = gemma4Parser.parse(content: full, tools: nil) {
+                toolCalls.insert(tc, at: 0)
+                remaining.removeSubrange(fullRange)
+            }
+        }
+
         // Match <tool_call>...</tool_call> blocks (dotMatchesLineSeparators for multiline)
         let toolCallRegex = try! NSRegularExpression(
             pattern: #"<tool_call>\s*(.*?)\s*</tool_call>"#,
@@ -2919,6 +2984,15 @@ final class MLXModelService: @unchecked Sendable {
                     toolCalls.append(tc)
                     remaining = ""
                 }
+            }
+        }
+
+        if toolCalls.isEmpty {
+            let trimmed = remaining.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.contains("call:"),
+               let tc = gemma4Parser.parse(content: trimmed, tools: nil) {
+                toolCalls.append(tc)
+                remaining = ""
             }
         }
 
@@ -3285,6 +3359,17 @@ final class MLXModelService: @unchecked Sendable {
         responseFormat?.type == "json_schema" && responseFormat?.jsonSchema?.strict == true
     }
 
+    static func shouldDowngradeGrammarConstraints(
+        responseFormat: ResponseFormat?,
+        tools: [RequestTool]?,
+        supportsStrictToolGrammar: Bool,
+        enableGrammarConstraints: Bool
+    ) -> Bool {
+        let strictSchema = hasStrictSchema(responseFormat)
+        let strictTools = hasStrictTools(tools) && supportsStrictToolGrammar
+        return (strictSchema || strictTools) && !enableGrammarConstraints
+    }
+
     /// Set up grammar-constrained decoding based on strict × CLI policy.
     /// Returns a ConstrainedDecodingSetup on success, nil on failure (falls back to prompt injection).
     /// Policy: strict: true is the per-request opt-in, --enable-grammar-constraints is the admin opt-in.
@@ -3295,7 +3380,7 @@ final class MLXModelService: @unchecked Sendable {
         tools: [RequestTool]?
     ) -> ConstrainedDecodingSetup? {
         let wantStrictSchema = Self.hasStrictSchema(responseFormat) && self.enableGrammarConstraints
-        let wantStrictTools = Self.hasStrictTools(tools) && self.enableGrammarConstraints
+        let wantStrictTools = Self.hasStrictTools(tools) && self.enableGrammarConstraints && self.supportsStrictToolGrammar
 
         if wantStrictSchema {
             guard let processor = setupGrammarConstraint(
@@ -3331,9 +3416,13 @@ final class MLXModelService: @unchecked Sendable {
             if Self.hasStrictSchema(responseFormat) {
                 print("[\(ts())] [XGrammar] strict: true on json_schema but --enable-grammar-constraints not set; best-effort")
             }
-            if Self.hasStrictTools(tools) {
+            if Self.hasStrictTools(tools) && self.supportsStrictToolGrammar {
                 print("[\(ts())] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort")
             }
+        }
+
+        if self.enableGrammarConstraints && Self.hasStrictTools(tools) && !self.supportsStrictToolGrammar {
+            print("[\(ts())] [XGrammar] strict: true on tools requested for unsupported tool-call format; skipping tool grammar")
         }
 
         return nil
@@ -3915,7 +4004,7 @@ final class MLXModelService: @unchecked Sendable {
         var input = UserInput(chat: chatMessages, processing: .init(resize: .init(width: 1024, height: 1024)), tools: tools)
 
         // When --tool-call-parser is set and tools are present, override the chat template
-        if let parser = toolCallParser, tools != nil, !tools!.isEmpty {
+        if let parser = resolvedToolCallParser(logBypass: true), tools != nil, !tools!.isEmpty {
             let templateOverride: String?
             switch parser {
             case "qwen3_xml", "afm_adaptive_xml":

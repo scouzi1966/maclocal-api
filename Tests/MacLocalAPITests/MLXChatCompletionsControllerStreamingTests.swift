@@ -422,20 +422,142 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         XCTAssertFalse(readme.body.string.contains("\"get_weather\""))
     }
 
+    func testNonStreamingStructuredOutputStripsMarkdownFences() async throws {
+        let service = FakeMLXChatService(
+            generateResult: (
+                modelID: "test-model",
+                content: "```json\n{\"ok\":true}\n```",
+                promptTokens: 8,
+                completionTokens: 4,
+                tokenLogprobs: nil,
+                toolCalls: nil,
+                cachedTokens: 0,
+                promptTime: 0.01,
+                generateTime: 0.01,
+                stoppedBySequence: false
+            ),
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(
+            stream: false,
+            toolsJSON: "[]",
+            responseFormatJSON: #"{"type":"json_object"}"#
+        )
+
+        try await app.testable(method: .running(port: 0)).test(.POST, "/v1/chat/completions", headers: requestHeaders(for: body), body: body) { res async in
+            XCTAssertEqual(res.status, .ok)
+            guard let response = try? JSONDecoder().decode(ChatCompletionResponse.self, from: Data(res.body.string.utf8)) else {
+                XCTFail("Expected decodable ChatCompletionResponse: \(res.body.string)")
+                return
+            }
+            XCTAssertEqual(response.choices.first?.message.content, #"{"ok":true}"#)
+            XCTAssertFalse(res.body.string.contains("```"))
+        }
+    }
+
+    func testStreamingStructuredOutputStripsMarkdownFences() async throws {
+        let service = FakeMLXChatService(
+            streamingResult: makeStreamingResult(chunks: [
+                StreamChunk(text: "```json\n"),
+                StreamChunk(text: "{\"ok\":true}\n"),
+                StreamChunk(text: "```"),
+                StreamChunk(text: "", promptTokens: 8, completionTokens: 4, cachedTokens: 0, promptTime: 0.01, generateTime: 0.01),
+            ])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(
+            stream: true,
+            toolsJSON: "[]",
+            responseFormatJSON: #"{"type":"json_object"}"#
+        )
+
+        try await app.testable(method: .running(port: 0)).test(.POST, "/v1/chat/completions", headers: requestHeaders(for: body), body: body) { res async in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertFalse(res.body.string.contains("```"))
+            let payloads = res.body.string
+                .split(separator: "\n")
+                .compactMap { line -> [String: Any]? in
+                    guard line.hasPrefix("data: "),
+                          line != "data: [DONE]" else { return nil }
+                    let json = String(line.dropFirst(6))
+                    let data = Data(json.utf8)
+                    return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+                }
+
+            let contentValues = payloads.compactMap { payload -> String? in
+                let choices = payload["choices"] as? [[String: Any]]
+                let delta = choices?.first?["delta"] as? [String: Any]
+                return delta?["content"] as? String
+            }
+            XCTAssertTrue(contentValues.contains(#"{"ok":true}"#), res.body.string)
+        }
+    }
+
+    func testStrictToolGrammarHeaderSkippedWhenFormatUnsupported() async throws {
+        let service = FakeMLXChatService(
+            supportsStrictToolGrammar: false,
+            streamingResult: makeStreamingResult(chunks: [
+                StreamChunk(text: "", promptTokens: 2, completionTokens: 1, cachedTokens: 0, promptTime: 0.01, generateTime: 0.01),
+            ])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(
+            stream: false,
+            toolsJSON: """
+            [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "strict": true,
+                  "parameters": { "type": "object", "properties": { "city": { "type": "string" } } }
+                }
+              }
+            ]
+            """
+        )
+
+        try await app.testable(method: .running(port: 0)).test(.POST, "/v1/chat/completions", headers: requestHeaders(for: body), body: body) { res async in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertNil(res.headers.first(name: "X-Grammar-Constraints"))
+        }
+    }
+
     private func requestBody(
         stream: Bool = true,
         prompt: String = "What is the weather in Berlin?",
         toolsJSON: String = weatherToolsJSON,
-        toolChoiceJSON: String? = nil
+        toolChoiceJSON: String? = nil,
+        responseFormatJSON: String? = nil
     ) throws -> ByteBuffer {
         let toolChoiceLine = toolChoiceJSON.map { "\n          \"tool_choice\": \($0)," } ?? ""
+        let responseFormatLine = responseFormatJSON.map { "\n          \"response_format\": \($0)," } ?? ""
         let json = """
         {
           "model": "test-model",
           "stream": \(stream ? "true" : "false"),
           "messages": [
             { "role": "user", "content": "\(prompt)" }
-          ],\(toolChoiceLine)
+          ],\(toolChoiceLine)\(responseFormatLine)
           "tools": \(toolsJSON)
         }
         """
@@ -553,6 +675,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
 private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
     let maxConcurrent: Int
     let toolCallParser: String?
+    let supportsStrictToolGrammar: Bool
     let thinkStartTag: String?
     let thinkEndTag: String?
     let fixToolArgs: Bool
@@ -567,6 +690,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
     init(
         maxConcurrent: Int = 1,
         toolCallParser: String? = nil,
+        supportsStrictToolGrammar: Bool = false,
         thinkStartTag: String? = nil,
         thinkEndTag: String? = nil,
         fixToolArgs: Bool = false,
@@ -575,6 +699,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
     ) {
         self.maxConcurrent = maxConcurrent
         self.toolCallParser = toolCallParser
+        self.supportsStrictToolGrammar = supportsStrictToolGrammar
         self.thinkStartTag = thinkStartTag
         self.thinkEndTag = thinkEndTag
         self.fixToolArgs = fixToolArgs
@@ -597,6 +722,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
     init(
         maxConcurrent: Int = 1,
         toolCallParser: String? = nil,
+        supportsStrictToolGrammar: Bool = false,
         thinkStartTag: String? = nil,
         thinkEndTag: String? = nil,
         fixToolArgs: Bool = false,
@@ -604,6 +730,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
     ) {
         self.maxConcurrent = maxConcurrent
         self.toolCallParser = toolCallParser
+        self.supportsStrictToolGrammar = supportsStrictToolGrammar
         self.thinkStartTag = thinkStartTag
         self.thinkEndTag = thinkEndTag
         self.fixToolArgs = fixToolArgs
@@ -624,6 +751,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
     }
 
     func normalizeModel(_ raw: String) -> String { raw }
+    func resolvedToolCallParser(logBypass: Bool) -> String? { toolCallParser }
     func tryReserveSlot() -> Bool { true }
     func releaseSlot() {}
     func ensureBatchMode(concurrency: Int) async throws {}

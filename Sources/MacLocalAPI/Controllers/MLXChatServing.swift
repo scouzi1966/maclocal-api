@@ -26,12 +26,14 @@ typealias ChatStreamingResult = (
 protocol MLXChatServing {
     var maxConcurrent: Int { get }
     var toolCallParser: String? { get }
+    var supportsStrictToolGrammar: Bool { get }
     var thinkStartTag: String? { get }
     var thinkEndTag: String? { get }
     var fixToolArgs: Bool { get }
     var enableGrammarConstraints: Bool { get }
 
     func normalizeModel(_ raw: String) -> String
+    func resolvedToolCallParser(logBypass: Bool) -> String?
     func tryReserveSlot() -> Bool
     func releaseSlot()
 

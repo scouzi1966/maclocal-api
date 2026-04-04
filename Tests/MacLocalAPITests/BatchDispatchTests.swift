@@ -13,6 +13,7 @@ import Testing
 private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
     let maxConcurrent: Int
     let toolCallParser: String? = nil
+    var supportsStrictToolGrammar: Bool = false
     let thinkStartTag: String? = nil
     let thinkEndTag: String? = nil
     let fixToolArgs: Bool = false
@@ -41,6 +42,7 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
     }
 
     func normalizeModel(_ raw: String) -> String { raw }
+    func resolvedToolCallParser(logBypass: Bool) -> String? { toolCallParser }
 
     func tryReserveSlot() -> Bool {
         _lock.lock()
@@ -1790,7 +1792,7 @@ struct BatchPostProcessingParityTests {
         defer { Task { try await app.asyncShutdown() } }
 
         let svc = FakeBatchService(maxConcurrent: 8)
-        // enableGrammarConstraints is false by default in FakeBatchService
+        svc.supportsStrictToolGrammar = true
         let controller = BatchCompletionsController(service: svc, modelID: "test-model")
         try app.register(collection: controller)
 
@@ -1806,6 +1808,60 @@ struct BatchPostProcessingParityTests {
             #expect(res.status == .ok)
             let grammarHeader = res.headers.first(name: "X-Grammar-Constraints")
             #expect(grammarHeader == "downgraded")
+        }
+    }
+
+    @Test("BatchCompletionsController skips grammar downgrade header for unsupported strict tool grammar")
+    func grammarDowngradeHeaderSkippedForUnsupportedToolGrammar() async throws {
+        let app = try await Application.make(.testing)
+        defer { Task { try await app.asyncShutdown() } }
+
+        let svc = FakeBatchService(maxConcurrent: 8)
+        svc.supportsStrictToolGrammar = false
+        let controller = BatchCompletionsController(service: svc, modelID: "test-model")
+        try app.register(collection: controller)
+
+        let body = """
+        {"requests":[{"custom_id":"strict-1","body":{"model":"test-model","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"test","strict":true,"parameters":{"type":"object","properties":{"x":{"type":"string"}}}}}]}}]}
+        """
+
+        try await app.test(.POST, "/v1/batch/completions", beforeRequest: { req in
+            req.headers.contentType = .json
+            req.body = .init(string: body)
+        }) { res async in
+            #expect(res.status == .ok)
+            #expect(res.headers.first(name: "X-Grammar-Constraints") == nil)
+        }
+    }
+
+    @Test("BatchCompletionsController sanitizes fenced JSON in non-streaming results")
+    func structuredOutputSanitizedInNonStreamingBatch() async throws {
+        let app = try await Application.make(.testing)
+        defer { Task { try await app.asyncShutdown() } }
+
+        let svc = FakeBatchService(maxConcurrent: 8)
+        svc.streamingResultFactory = { _ in
+            FakeBatchService.makeStreamingResult(chunks: [
+                StreamChunk(text: "```json\n"),
+                StreamChunk(text: "{\"ok\":true}\n"),
+                StreamChunk(text: "```"),
+                StreamChunk(text: "", promptTokens: 6, completionTokens: 4, cachedTokens: 0, promptTime: 0.01, generateTime: 0.01),
+            ])
+        }
+        let controller = BatchCompletionsController(service: svc, modelID: "test-model")
+        try app.register(collection: controller)
+
+        let body = """
+        {"requests":[{"custom_id":"json-1","body":{"model":"test-model","stream":false,"messages":[{"role":"user","content":"hi"}],"tools":[],"response_format":{"type":"json_object"}}}]}
+        """
+
+        try await app.test(.POST, "/v1/batch/completions", beforeRequest: { req in
+            req.headers.contentType = .json
+            req.body = .init(string: body)
+        }) { res async in
+            #expect(res.status == .ok)
+            #expect(res.body.string.contains(#""content":"{\"ok\":true}""#))
+            #expect(!res.body.string.contains("```"))
         }
     }
 }
