@@ -159,7 +159,7 @@ final class ToolCallStreamingRuntime {
 
     private func parseIncrementalToolCalls(includeTrailingPartial: Bool) -> [ToolCall] {
         let wrapped = "\(toolCallStartTag)\(currentToolText)\(toolCallEndTag)"
-        let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped)
+        let (parsed, _) = MLXModelService.extractToolCallsFallback(from: wrapped, tools: tools)
         if !parsed.isEmpty {
             return parsed
         }
@@ -437,7 +437,7 @@ final class ToolCallStreamingRuntime {
            let direct = parseSingleAdaptiveJSONToolCall(from: text, tools: tools) {
             return direct
         }
-        let (parsed, remaining) = MLXModelService.extractToolCallsFallback(from: text)
+        let (parsed, remaining) = MLXModelService.extractToolCallsFallback(from: text, tools: tools)
         guard !parsed.isEmpty else { return (parsed, remaining) }
         return (normalizeParsedToolCalls(parsed, toolCallParser: toolCallParser, tools: tools), remaining)
     }

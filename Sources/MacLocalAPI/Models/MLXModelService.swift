@@ -2749,7 +2749,22 @@ final class MLXModelService: @unchecked Sendable {
             default: return nil
             }
         case "array", "object":
+            // Try raw JSON first
             if let jsonData = stringValue.data(using: .utf8),
+               let parsed = try? JSONSerialization.jsonObject(with: jsonData) {
+                return parsed
+            }
+            // Gemma 4 uses <|"|> as string escapes and bare keys: {key:<|"|>val<|"|>}
+            // Convert to valid JSON: quote keys and replace escape markers with quotes
+            var normalized = stringValue.replacingOccurrences(of: "<|\"|>", with: "\"")
+            // Quote bare keys: word characters before a colon that aren't already quoted
+            if let regex = try? NSRegularExpression(pattern: #"(?<=[\{,])\s*(\w+)\s*:"#) {
+                normalized = regex.stringByReplacingMatches(
+                    in: normalized,
+                    range: NSRange(normalized.startIndex..., in: normalized),
+                    withTemplate: "\"$1\":")
+            }
+            if let jsonData = normalized.data(using: .utf8),
                let parsed = try? JSONSerialization.jsonObject(with: jsonData) {
                 return parsed
             }
@@ -2823,16 +2838,22 @@ final class MLXModelService: @unchecked Sendable {
     /// Handles <tool_call><function=name><parameter=key>value</parameter></function></tool_call>
     /// and <tool_call>{"name":"func","arguments":{...}}</tool_call> patterns.
     /// Returns extracted ToolCalls and remaining non-tool-call content.
-    static func extractToolCallsFallback(from text: String) -> ([ToolCall], String) {
+    static func extractToolCallsFallback(from text: String, tools: [RequestTool]? = nil) -> ([ToolCall], String) {
         var toolCalls = [ToolCall]()
         var remaining = text
 
         let gemma4Parser = Gemma4FunctionParser()
+        // Convert RequestTool to ToolSpec format for schema-aware coercion
+        let toolSpecs: [[String: any Sendable]]? = tools?.map { t in
+            var funcDict: [String: any Sendable] = ["name": t.function.name]
+            if let params = t.function.parameters { funcDict["parameters"] = params.toSendable() }
+            return ["type": t.type, "function": funcDict] as [String: any Sendable]
+        }
         let gemma4Matches = Self.gemma4WrappedToolCallRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
         for match in gemma4Matches.reversed() {
             guard let fullRange = Range(match.range, in: remaining) else { continue }
             let full = String(remaining[fullRange])
-            if let tc = gemma4Parser.parse(content: full, tools: nil) {
+            if let tc = gemma4Parser.parse(content: full, tools: toolSpecs) {
                 toolCalls.insert(tc, at: 0)
                 remaining.removeSubrange(fullRange)
             }
@@ -3012,7 +3033,7 @@ final class MLXModelService: @unchecked Sendable {
         if toolCalls.isEmpty {
             let trimmed = remaining.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.contains("call:"),
-               let tc = gemma4Parser.parse(content: trimmed, tools: nil) {
+               let tc = gemma4Parser.parse(content: trimmed, tools: toolSpecs) {
                 toolCalls.append(tc)
                 remaining = ""
             }

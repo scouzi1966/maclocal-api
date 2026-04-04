@@ -41,10 +41,11 @@ public struct Gemma4FunctionParser: ToolCallParser, Sendable {
         guard !functionName.isEmpty else { return nil }
 
         let argsBody = String(payload[payload.index(after: braceStart)..<braceEnd])
+        let arguments = parseArguments(argsBody)
         return ToolCall(
             function: .init(
                 name: functionName,
-                arguments: parseArguments(argsBody)
+                arguments: arguments
             )
         )
     }
@@ -161,4 +162,5 @@ public struct Gemma4FunctionParser: ToolCallParser, Sendable {
             index = text.index(after: index)
         }
     }
+
 }
