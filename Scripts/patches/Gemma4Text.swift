@@ -455,19 +455,8 @@ class Gemma4Attention: Module {
             values = values.transposed(0, 2, 1, 3)
 
             keys = keys.transposed(0, 2, 1, 3)
-            if let batchedOffset, L > 1 {
-                // Prefill with different lengths: must use dynamic RoPE
+            if let batchedOffset {
                 keys = rope(keys, offset: batchedOffset)
-            } else if let batchedOffset, L == 1 {
-                // Decode: apply scalar RoPE per-sequence to use the same Metal
-                // kernel as B=1, avoiding numerical divergence from kernel dispatch
-                // differences between mlx_fast_rope and mlx_fast_rope_dynamic.
-                var ropeKeys = [MLXArray]()
-                for b in 0..<B {
-                    let off = Int(batchedOffset[b].item(Int32.self))
-                    ropeKeys.append(rope(keys[b...(b), 0..., 0..., 0...], offset: off))
-                }
-                keys = concatenated(ropeKeys, axis: 0)
             } else {
                 keys = rope(keys, offset: scalarOffset)
             }
@@ -482,15 +471,8 @@ class Gemma4Attention: Module {
         }
 
         queries = queries.transposed(0, 2, 1, 3)
-        if let batchedOffset, L > 1 {
+        if let batchedOffset {
             queries = rope(queries, offset: batchedOffset)
-        } else if let batchedOffset, L == 1 {
-            var ropeQ = [MLXArray]()
-            for b in 0..<B {
-                let off = Int(batchedOffset[b].item(Int32.self))
-                ropeQ.append(rope(queries[b...(b), 0..., 0..., 0...], offset: off))
-            }
-            queries = concatenated(ropeQ, axis: 0)
         } else {
             queries = rope(queries, offset: scalarOffset)
         }
