@@ -417,8 +417,14 @@ class Gemma4Attention: Module {
         let B = shape[0]
         let L = shape[1]
 
-        // Read offset BEFORE cache update — keys and queries must use the same offset
-        let offset = cache?.offset ?? 0
+        // Read offset BEFORE cache update — keys and queries must use the same offset.
+        // Batched caches provide per-sequence offsets for correct RoPE positions.
+        // Only use array offset when it matches the batch dimension of the input.
+        let scalarOffset = cache?.offset ?? 0
+        let batchedOffset: MLXArray? = {
+            guard let arr = cache?.offsetArray, arr.dim(0) == B else { return nil }
+            return arr
+        }()
 
         var queries = qProj(x).reshaped(B, L, nHeads, headDim)
         queries = qNorm(queries)
@@ -445,7 +451,11 @@ class Gemma4Attention: Module {
             values = values.transposed(0, 2, 1, 3)
 
             keys = keys.transposed(0, 2, 1, 3)
-            keys = rope(keys, offset: offset)
+            if let batchedOffset {
+                keys = rope(keys, offset: batchedOffset)
+            } else {
+                keys = rope(keys, offset: scalarOffset)
+            }
 
             if let cache {
                 (keys, values) = cache.update(keys: keys, values: values)
@@ -457,7 +467,11 @@ class Gemma4Attention: Module {
         }
 
         queries = queries.transposed(0, 2, 1, 3)
-        queries = rope(queries, offset: offset)
+        if let batchedOffset {
+            queries = rope(queries, offset: batchedOffset)
+        } else {
+            queries = rope(queries, offset: scalarOffset)
+        }
 
         if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" && B > 1 {
             var maskDesc = "symbolic"

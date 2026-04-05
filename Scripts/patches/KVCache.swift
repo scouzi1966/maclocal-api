@@ -39,6 +39,9 @@ public protocol KVCache: Evaluatable, Updatable {
     /// get the current offset
     var offset: Int { get }
 
+    /// Per-sequence offsets [B] for batched RoPE. Nil for non-batched caches.
+    var offsetArray: MLXArray? { get }
+
     /// get the maximum size (if any)
     var maxSize: Int? { get }
 
@@ -122,6 +125,7 @@ public protocol QuantizedKVCacheProtocol: KVCache {
 open class BaseKVCache: KVCache {
     public var offset: Int = 0
     public var maxSize: Int? { nil }
+    public var offsetArray: MLXArray? { nil }
 
     public func innerState() -> [MLXArray] { [] }
 

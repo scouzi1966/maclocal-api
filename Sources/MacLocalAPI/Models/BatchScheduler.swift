@@ -916,11 +916,10 @@ actor BatchScheduler {
 
         // RotatingKVCache models with keep>0 (e.g. some Mistral variants) must stay serial.
         // Models with keep=0 (Gemma 4) can batch via BatchRotatingKVCache.
-        // RotatingKVCache models use serial decode to avoid RoPE position mismatch (#92).
-        // Individual prefill encodes RoPE at positions 0..N, but BatchRotatingKVCache merge
-        // left-pads keys to positions P..P+N — the RoPE positions don't match the batch layout.
-        // Serial decode with slot queueing (240s) still provides correct results at good throughput.
-        let hasUnbatchableRotating = cache.contains { $0 is RotatingKVCache }
+        let hasUnbatchableRotating = cache.contains { c in
+            if let rc = c as? RotatingKVCache { return !rc.isBatchable }
+            return false
+        }
         if hasUnbatchableRotating {
             print("[\(batchTs())] [BatchScheduler] RotatingKVCache (keep>0) detected — running serial")
             runSerialGeneration(
