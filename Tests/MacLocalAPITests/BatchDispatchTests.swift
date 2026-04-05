@@ -51,6 +51,10 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
         return !shouldFailReserveSlot
     }
 
+    func waitForSlot(timeout: TimeInterval) async -> Bool {
+        !shouldFailReserveSlot
+    }
+
     func releaseSlot() {
         _lock.lock()
         releaseSlotCallCount += 1
@@ -108,7 +112,8 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
         topP: Double?, repetitionPenalty: Double?, topK: Int?, minP: Double?,
         presencePenalty: Double?, seed: Int?, logprobs: Bool?, topLogprobs: Int?,
         tools: [RequestTool]?, stop: [String]?, responseFormat: ResponseFormat?,
-        chatTemplateKwargs: [String: AnyCodable]?
+        chatTemplateKwargs: [String: AnyCodable]?,
+        requestId: String?
     ) async throws -> ChatStreamingResult {
         _lock.lock()
         generateStreamingCallCount += 1

@@ -126,7 +126,8 @@ final class MLXModelService: @unchecked Sendable {
     var toolCallParser: String?
     var fixToolArgs: Bool = false
     var forceVLM: Bool = false
-    var kvBits: Int?
+    var kvBits: Float?
+    var kvQuantScheme: KVQuantizationScheme = .uniform
     var kvEvictionPolicy: String = "none"  // "none" or "streaming"
     var enablePrefixCaching: Bool = false
     var enableGrammarConstraints: Bool = false { didSet { grammarConstraintsActive = enableGrammarConstraints } }
@@ -1370,22 +1371,17 @@ final class MLXModelService: @unchecked Sendable {
         let wantLogprobs = logprobs == true
         let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
 
-        var params = GenerateParameters(
-            maxTokens: effectiveMaxTokens,
-            kvBits: self.kvBits,
-            kvGroupSize: 64,
-            quantizedKVStart: 0,
-            temperature: normalizedTemperature(temperature),
-            topP: normalizedTopP(topP),
-            repetitionPenalty: normalizedRepetitionPenalty(repetitionPenalty),
-            repetitionContextSize: 64,
-            topK: normalizedTopK(topK),
-            minP: normalizedMinP(minP),
-            presencePenalty: normalizedPresencePenalty(presencePenalty),
-            seed: normalizedSeed(seed),
-            computeLogprobs: wantLogprobs,
-            topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
-            prefillStepSize: self.prefillStepSize
+        var params = makeGenerateParameters(
+            effectiveMaxTokens: effectiveMaxTokens,
+            temperature: temperature,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            wantLogprobs: wantLogprobs,
+            topLogprobs: topLogprobs
         )
 
         var collectedLogprobs = [TokenLogprobData]()
@@ -1891,22 +1887,17 @@ final class MLXModelService: @unchecked Sendable {
         let wantLogprobs = logprobs == true
         let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
 
-        var params = GenerateParameters(
-            maxTokens: effectiveMaxTokens,
-            kvBits: self.kvBits,
-            kvGroupSize: 64,
-            quantizedKVStart: 0,
-            temperature: normalizedTemperature(temperature),
-            topP: normalizedTopP(topP),
-            repetitionPenalty: normalizedRepetitionPenalty(repetitionPenalty),
-            repetitionContextSize: 64,
-            topK: normalizedTopK(topK),
-            minP: normalizedMinP(minP),
-            presencePenalty: normalizedPresencePenalty(presencePenalty),
-            seed: normalizedSeed(seed),
-            computeLogprobs: wantLogprobs,
-            topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
-            prefillStepSize: self.prefillStepSize
+        var params = makeGenerateParameters(
+            effectiveMaxTokens: effectiveMaxTokens,
+            temperature: temperature,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            wantLogprobs: wantLogprobs,
+            topLogprobs: topLogprobs
         )
 
         // --- Concurrent path: bypass container.perform lock, route through BatchScheduler ---
@@ -4492,6 +4483,38 @@ final class MLXModelService: @unchecked Sendable {
     /// Check if the LMInput contains multimodal content (images/video) which we don't cache.
     private func isMultimodalInput(_ input: LMInput) -> Bool {
         input.image != nil || input.video != nil
+    }
+
+    private func makeGenerateParameters(
+        effectiveMaxTokens: Int,
+        temperature: Double?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        wantLogprobs: Bool,
+        topLogprobs: Int?
+    ) -> GenerateParameters {
+        GenerateParameters(
+            maxTokens: effectiveMaxTokens,
+            kvBits: self.kvBits,
+            kvGroupSize: 64,
+            quantizedKVStart: 0,
+            temperature: normalizedTemperature(temperature),
+            topP: normalizedTopP(topP),
+            repetitionPenalty: normalizedRepetitionPenalty(repetitionPenalty),
+            repetitionContextSize: 64,
+            topK: normalizedTopK(topK),
+            minP: normalizedMinP(minP),
+            presencePenalty: normalizedPresencePenalty(presencePenalty),
+            seed: normalizedSeed(seed),
+            computeLogprobs: wantLogprobs,
+            topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
+            prefillStepSize: self.prefillStepSize,
+            kvQuantScheme: self.kvQuantScheme
+        )
     }
 
     private func normalizedRepetitionPenalty(_ value: Double?) -> Float? {

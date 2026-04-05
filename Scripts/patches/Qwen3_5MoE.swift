@@ -922,7 +922,7 @@ public class Qwen3_5MoEModel: Module, LLMModel, KVCacheDimensionProvider {
             if isLinear {
                 return MambaCache() as any KVCache
             } else {
-                return KVCacheSimple() as any KVCache
+                return makeAttentionKVCache(parameters: parameters) as any KVCache
             }
         }
     }
