@@ -330,6 +330,20 @@ public struct TurboQuantMetadataArtifact: Codable, Equatable, Sendable {
 
 public protocol TurboQuantKVCacheProtocol: KVCache {
     var configuration: TurboQuantConfiguration { get }
+    func decodeAttention(
+        queries: MLXArray,
+        keys: MLXArray,
+        values: MLXArray,
+        scale: Float,
+        mask: MLXFast.ScaledDotProductAttentionMaskMode
+    ) -> MLXArray
+    func prefillAttention(
+        queries: MLXArray,
+        keys: MLXArray,
+        values: MLXArray,
+        scale: Float,
+        mask: MLXFast.ScaledDotProductAttentionMaskMode
+    ) -> MLXArray
 }
 
 public func loadTurboQuantMetadata(url: URL) throws -> TurboQuantMetadataArtifact {
@@ -342,6 +356,436 @@ public func saveTurboQuantMetadata(_ metadata: TurboQuantMetadataArtifact, url: 
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     let data = try encoder.encode(metadata)
     try data.write(to: url, options: .atomic)
+}
+
+private let turboQuantDefaultSeed = 0
+private let turboQuantEpsilon: Float = 1e-6
+
+private struct TurboQuantSplitMix64: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seed: UInt64) {
+        self.state = seed &+ 0x9E37_79B9_7F4A_7C15
+    }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
+
+private func validateTurboQuantBits(_ bits: Float) -> Float {
+    precondition(bits >= 1, "TurboQuant requires kvBits >= 1.")
+    let rounded = (bits * 2).rounded() / 2
+    precondition(
+        abs(bits - rounded) < 0.000_1,
+        "TurboQuant currently supports integer and .5 bit-widths."
+    )
+    return rounded
+}
+
+private func turboQuantKeyBits(for bits: Float) -> Int {
+    Int(floor(validateTurboQuantBits(bits)))
+}
+
+private func turboQuantValueBits(for bits: Float) -> Int {
+    Int(ceil(validateTurboQuantBits(bits)))
+}
+
+private func turboQuantPackedWidth(length: Int, bits: Int) -> Int {
+    guard length > 0, bits > 0 else { return 0 }
+    return (length * bits + 31) / 32
+}
+
+private func turboQuantIsPowerOfTwo(_ value: Int) -> Bool {
+    value > 0 && (value & (value - 1)) == 0
+}
+
+private enum TurboQuantTableCache {
+    static let lock = NSLock()
+    nonisolated(unsafe) static var signVectors: [String: MLXArray] = [:]
+    nonisolated(unsafe) static var codebooks: [String: MLXArray] = [:]
+    nonisolated(unsafe) static var midpoints: [String: [Float]] = [:]
+}
+
+private func turboQuantSignVector(dim: Int, seed: Int) -> MLXArray {
+    let cacheKey = "\(dim):\(seed)"
+    TurboQuantTableCache.lock.lock()
+    if let cached = TurboQuantTableCache.signVectors[cacheKey] {
+        TurboQuantTableCache.lock.unlock()
+        return cached
+    }
+    TurboQuantTableCache.lock.unlock()
+
+    var generator = TurboQuantSplitMix64(seed: UInt64(seed &+ dim &* 7_919))
+    let values = (0 ..< dim).map { _ in ((generator.next() & 1) == 0) ? Float(-1) : Float(1) }
+    let signs = MLXArray(values)
+
+    TurboQuantTableCache.lock.lock()
+    TurboQuantTableCache.signVectors[cacheKey] = signs
+    TurboQuantTableCache.lock.unlock()
+    return signs
+}
+
+private func turboQuantBetaPDF(grid: [Double], dim: Int) -> [Double] {
+    guard dim > 1 else {
+        let weight = 1.0 / Double(max(grid.count, 1))
+        return Array(repeating: weight, count: grid.count)
+    }
+
+    let logCoeff =
+        Foundation.lgamma(Double(dim) / 2)
+        - 0.5 * Foundation.log(Double.pi)
+        - Foundation.lgamma(Double(dim - 1) / 2)
+
+    var logPDF: [Double] = []
+    logPDF.reserveCapacity(grid.count)
+    var maxLog = -Double.infinity
+    for value in grid {
+        let inner = max(1.0 - value * value, 1e-30)
+        let next = logCoeff + (Double(dim - 3) / 2) * Foundation.log(inner)
+        logPDF.append(next)
+        maxLog = max(maxLog, next)
+    }
+
+    var weights: [Double] = []
+    weights.reserveCapacity(grid.count)
+    var total = 0.0
+    for value in logPDF {
+        let weight = Foundation.exp(value - maxLog)
+        weights.append(weight)
+        total += weight
+    }
+
+    guard total > 0 else {
+        let weight = 1.0 / Double(max(grid.count, 1))
+        return Array(repeating: weight, count: grid.count)
+    }
+
+    return weights.map { $0 / total }
+}
+
+private func turboQuantInterpolate(grid: [Double], cdf: [Double], quantile: Double) -> Double {
+    guard !grid.isEmpty else { return 0 }
+    if quantile <= cdf[0] { return grid[0] }
+    if quantile >= cdf[cdf.count - 1] { return grid[grid.count - 1] }
+
+    var low = 0
+    var high = cdf.count - 1
+    while low < high {
+        let mid = (low + high) / 2
+        if cdf[mid] < quantile {
+            low = mid + 1
+        } else {
+            high = mid
+        }
+    }
+
+    let upper = low
+    let lower = max(upper - 1, 0)
+    let lowerCDF = cdf[lower]
+    let upperCDF = cdf[upper]
+    let t =
+        if abs(upperCDF - lowerCDF) < 1e-12 {
+            0.0
+        } else {
+            (quantile - lowerCDF) / (upperCDF - lowerCDF)
+        }
+    return grid[lower] + (grid[upper] - grid[lower]) * t
+}
+
+private func turboQuantBuildCodebook(dim: Int, bits: Int) -> [Float] {
+    guard bits > 0 else { return [] }
+    let levels = 1 << bits
+
+    if dim <= 1 {
+        guard levels > 1 else { return [0] }
+        return (0 ..< levels).map { index in
+            -1 + 2 * Float(index) / Float(levels - 1)
+        }
+    }
+
+    let gridCount = 4_096
+    let lower = -1.0 + 1e-6
+    let upper = 1.0 - 1e-6
+    let step = (upper - lower) / Double(gridCount - 1)
+    let grid = (0 ..< gridCount).map { lower + Double($0) * step }
+    let weights = turboQuantBetaPDF(grid: grid, dim: dim)
+
+    var cdf: [Double] = []
+    cdf.reserveCapacity(weights.count)
+    var running = 0.0
+    for weight in weights {
+        running += weight
+        cdf.append(running)
+    }
+
+    var centroids = (0 ..< levels).map { index in
+        turboQuantInterpolate(
+            grid: grid,
+            cdf: cdf,
+            quantile: (Double(index) + 0.5) / Double(levels)
+        )
+    }
+
+    for _ in 0 ..< 32 {
+        var boundaries = Array(repeating: 0.0, count: levels + 1)
+        boundaries[0] = -1.0
+        boundaries[levels] = 1.0
+        if levels > 1 {
+            for index in 1 ..< levels {
+                boundaries[index] = 0.5 * (centroids[index - 1] + centroids[index])
+            }
+        }
+
+        var next = centroids
+        for level in 0 ..< levels {
+            let start = boundaries[level]
+            let end = boundaries[level + 1]
+            var weightedSum = 0.0
+            var totalWeight = 0.0
+
+            for gridIndex in 0 ..< grid.count {
+                let value = grid[gridIndex]
+                let inBucket =
+                    if level == levels - 1 {
+                        value >= start && value <= end
+                    } else {
+                        value >= start && value < end
+                    }
+                guard inBucket else { continue }
+                let weight = weights[gridIndex]
+                weightedSum += weight * value
+                totalWeight += weight
+            }
+
+            if totalWeight > 0 {
+                next[level] = weightedSum / totalWeight
+            }
+        }
+
+        let delta = zip(next, centroids).map { abs($0 - $1) }.max() ?? 0
+        centroids = next
+        if delta < 1e-6 {
+            break
+        }
+    }
+
+    return centroids.map(Float.init)
+}
+
+private func turboQuantCodebook(dim: Int, bits: Int) -> (MLXArray, [Float]) {
+    let cacheKey = "\(dim):\(bits)"
+    TurboQuantTableCache.lock.lock()
+    if let codebook = TurboQuantTableCache.codebooks[cacheKey],
+        let midpoints = TurboQuantTableCache.midpoints[cacheKey]
+    {
+        TurboQuantTableCache.lock.unlock()
+        return (codebook, midpoints)
+    }
+    TurboQuantTableCache.lock.unlock()
+
+    let codebookValues = turboQuantBuildCodebook(dim: dim, bits: bits)
+    let codebook = MLXArray(codebookValues)
+    let midpoints: [Float] =
+        if codebookValues.count > 1 {
+            zip(codebookValues, codebookValues.dropFirst()).map { ($0 + $1) * 0.5 }
+        } else {
+            []
+        }
+
+    TurboQuantTableCache.lock.lock()
+    TurboQuantTableCache.codebooks[cacheKey] = codebook
+    TurboQuantTableCache.midpoints[cacheKey] = midpoints
+    TurboQuantTableCache.lock.unlock()
+    return (codebook, midpoints)
+}
+
+private struct TurboQuantMSEState {
+    var norms: MLXArray
+    var indices: MLXArray
+}
+
+private func turboQuantStateLength(_ state: TurboQuantMSEState?) -> Int {
+    state?.norms.dim(2) ?? 0
+}
+
+private func turboQuantSliceState(_ state: TurboQuantMSEState, end: Int) -> TurboQuantMSEState {
+    TurboQuantMSEState(
+        norms: state.norms[.ellipsis, ..<end],
+        indices: state.indices[.ellipsis, ..<end, 0...]
+    )
+}
+
+private func turboQuantAllocateStateLike(_ state: TurboQuantMSEState, length: Int) -> TurboQuantMSEState {
+    TurboQuantMSEState(
+        norms: MLXArray.zeros([state.norms.dim(0), state.norms.dim(1), length], dtype: state.norms.dtype),
+        indices: MLXArray.zeros(
+            [state.indices.dim(0), state.indices.dim(1), length, state.indices.dim(3)],
+            dtype: state.indices.dtype)
+    )
+}
+
+private func turboQuantWriteState(
+    _ destination: inout TurboQuantMSEState,
+    _ source: TurboQuantMSEState,
+    start: Int
+) {
+    let end = start + source.norms.dim(2)
+    destination.norms[.ellipsis, start ..< end] = source.norms
+    destination.indices[.ellipsis, start ..< end, 0...] = source.indices
+}
+
+private func turboQuantReserveStateCapacity(
+    _ state: TurboQuantMSEState,
+    used: Int,
+    needed: Int,
+    step: Int
+) -> TurboQuantMSEState {
+    let capacity = turboQuantStateLength(state)
+    guard capacity < needed else { return state }
+
+    let newCapacity = ((needed + step - 1) / step) * step
+    var grown = turboQuantAllocateStateLike(state, length: newCapacity)
+    if used > 0 {
+        turboQuantWriteState(&grown, turboQuantSliceState(state, end: used), start: 0)
+    }
+    return grown
+}
+
+private func turboQuantPackLowBit(_ values: MLXArray, bits: Int) -> MLXArray {
+    guard bits > 0 else {
+        var outputShape = Array(values.shape.dropLast())
+        outputShape.append(0)
+        return MLXArray.zeros(outputShape, dtype: .uint32)
+    }
+
+    let values = values.asType(.uint32)
+    let length = values.dim(-1)
+    let packedWidth = turboQuantPackedWidth(length: length, bits: bits)
+    let flat = values.reshaped(-1, length)
+    let packed = MLXArray.zeros([flat.dim(0), packedWidth], dtype: .uint32)
+    let mask = MLXArray(UInt32((1 << bits) - 1))
+
+    for index in 0 ..< length {
+        let bitOffset = index * bits
+        let wordIndex = bitOffset / 32
+        let offset = bitOffset % 32
+        let value = flat[.ellipsis, index].asType(.uint32) & mask
+        packed[.ellipsis, wordIndex] = packed[.ellipsis, wordIndex] | (value << offset)
+
+        let spill = offset + bits - 32
+        if spill > 0 && wordIndex + 1 < packedWidth {
+            packed[.ellipsis, wordIndex + 1] =
+                packed[.ellipsis, wordIndex + 1] | (value >> (bits - spill))
+        }
+    }
+
+    var outputShape = Array(values.shape.dropLast())
+    outputShape.append(packedWidth)
+    return packed.reshaped(outputShape)
+}
+
+private func turboQuantUnpackLowBit(_ packed: MLXArray, bits: Int, length: Int) -> MLXArray {
+    guard bits > 0 else {
+        var outputShape = Array(packed.shape.dropLast())
+        outputShape.append(0)
+        return MLXArray.zeros(outputShape, dtype: .uint32)
+    }
+
+    let packed = packed.asType(.uint32)
+    let flat = packed.reshaped(-1, packed.dim(-1))
+    let unpacked = MLXArray.zeros([flat.dim(0), length], dtype: .uint32)
+    let mask = MLXArray(UInt32((1 << bits) - 1))
+
+    for index in 0 ..< length {
+        let bitOffset = index * bits
+        let wordIndex = bitOffset / 32
+        let offset = bitOffset % 32
+        var value = flat[.ellipsis, wordIndex] >> offset
+        let spill = offset + bits - 32
+        if spill > 0 && wordIndex + 1 < flat.dim(1) {
+            value = value | (flat[.ellipsis, wordIndex + 1] << (bits - spill))
+        }
+        unpacked[.ellipsis, index] = value & mask
+    }
+
+    var outputShape = Array(packed.shape.dropLast())
+    outputShape.append(length)
+    return unpacked.reshaped(outputShape)
+}
+
+private struct TurboQuantMSECodec {
+    let dim: Int
+    let bits: Int
+    let useRHT: Bool
+    let signs: MLXArray?
+    let codebook: MLXArray
+    let midpoints: [Float]
+
+    init(dim: Int, bits: Int, seed: Int) {
+        self.dim = dim
+        self.bits = bits
+        self.useRHT = turboQuantIsPowerOfTwo(dim)
+        self.signs = useRHT ? turboQuantSignVector(dim: dim, seed: seed) : nil
+        (self.codebook, self.midpoints) = turboQuantCodebook(dim: dim, bits: bits)
+    }
+
+    private func rotateForward(_ array: MLXArray) -> MLXArray {
+        guard useRHT, let signs else { return array }
+        let scale = 1.0 / Float(Foundation.sqrt(Double(dim)))
+        return hadamardTransform(array * signs, scale: scale)
+    }
+
+    private func rotateInverse(_ array: MLXArray) -> MLXArray {
+        guard useRHT, let signs else { return array }
+        let scale = 1.0 / Float(Foundation.sqrt(Double(dim)))
+        return hadamardTransform(array, scale: scale) * signs
+    }
+
+    func quantize(_ vectors: MLXArray) -> TurboQuantMSEState {
+        let vectorsF32 = vectors.asType(.float32)
+        let norms = sqrt(sum(square(vectorsF32), axis: -1))
+
+        guard dim > 0, bits > 0 else {
+            return TurboQuantMSEState(
+                norms: norms.asType(.float16),
+                indices: MLXArray.zeros(
+                    [vectors.dim(0), vectors.dim(1), vectors.dim(2), 0],
+                    dtype: .uint32)
+            )
+        }
+
+        let safeNorms = maximum(norms, turboQuantEpsilon)[.ellipsis, .newAxis]
+        let unitVectors = vectorsF32 / safeNorms
+        let rotated = rotateForward(unitVectors)
+
+        var indices = MLXArray.zeros(rotated.shape, dtype: .uint32)
+        for midpoint in midpoints {
+            indices = indices + (rotated .> midpoint).asType(.uint32)
+        }
+
+        return TurboQuantMSEState(
+            norms: norms.asType(.float16),
+            indices: turboQuantPackLowBit(indices, bits: bits)
+        )
+    }
+
+    func dequantize(_ state: TurboQuantMSEState) -> MLXArray {
+        guard dim > 0, bits > 0 else {
+            return MLXArray.zeros(
+                [state.norms.dim(0), state.norms.dim(1), state.norms.dim(2), dim],
+                dtype: .float32)
+        }
+
+        let unpacked = turboQuantUnpackLowBit(state.indices, bits: bits, length: dim).asType(.int32)
+        let rotated = take(codebook, unpacked, axis: 0)
+        let unitVectors = rotateInverse(rotated)
+        return state.norms[.ellipsis, .newAxis].asType(.float32) * unitVectors
+    }
 }
 
 /// Base cache implementation providing default behaviors
@@ -1033,13 +1477,21 @@ public class RotatingKVCache: BaseKVCache, CustomDebugStringConvertible {
     }
 }
 
-/// TurboQuant cache scaffold.
+/// TurboQuant cache with packed MSE-style state and dense shadow buffers.
 ///
-/// This preserves a distinct cache identity and metadata surface for TurboQuant while
-/// keeping dense storage until the accelerated attention/update kernels land.
+/// The packed norms/indices arrays are the serialized source of truth. Dense key/value
+/// tensors are maintained only as runtime shadow state for the current fallback attention
+/// path until the fused TurboQuant kernels land.
 public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDebugStringConvertible {
-    internal var keys: MLXArray?
-    internal var values: MLXArray?
+    private var keyState: TurboQuantMSEState?
+    private var valueState: TurboQuantMSEState?
+    private var shadowKeys: MLXArray?
+    private var shadowValues: MLXArray?
+    private var legacyDenseState: (keys: MLXArray, values: MLXArray)?
+    private var keyCodec: TurboQuantMSECodec?
+    private var valueCodec: TurboQuantMSECodec?
+    private var keyDimension: Int?
+    private var valueDimension: Int?
     public var configuration: TurboQuantConfiguration
     public var step = 256
     public var didGrow = false
@@ -1057,27 +1509,51 @@ public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDe
             return cache
         }
         let turboCache = TurboQuantKVCache(configuration: configuration)
-        if cache.offset > 0 {
-            turboCache.state = cache.state
+        if cache.offset > 0, cache.state.count == 2 {
+            let denseState = cache.state
+            turboCache.rebuildFromDenseState(keys: denseState[0], values: denseState[1])
         }
         turboCache.offset = cache.offset
         return turboCache
     }
 
     public override func innerState() -> [MLXArray] {
-        [self.keys, self.values].compactMap { $0 }
+        [
+            keyState?.norms, keyState?.indices,
+            valueState?.norms, valueState?.indices,
+            shadowKeys, shadowValues,
+        ].compactMap { $0 }
     }
 
-    public override func update(keys: MLXArray, values: MLXArray) -> (MLXArray, MLXArray) {
-        let previous = self.offset
+    private func ensureCodecs(keyDim: Int, valueDim: Int) {
+        let normalizedBits = validateTurboQuantBits(configuration.bits)
+        let keyBits = turboQuantKeyBits(for: normalizedBits)
+        let valueBits = turboQuantValueBits(for: normalizedBits)
+
+        if keyCodec?.dim != keyDim || keyCodec?.bits != keyBits {
+            keyCodec = TurboQuantMSECodec(dim: keyDim, bits: keyBits, seed: turboQuantDefaultSeed)
+        }
+        if valueCodec?.dim != valueDim || valueCodec?.bits != valueBits {
+            valueCodec = TurboQuantMSECodec(
+                dim: valueDim,
+                bits: valueBits,
+                seed: turboQuantDefaultSeed + 1
+            )
+        }
+
+        keyDimension = keyDim
+        valueDimension = valueDim
+    }
+
+    private func appendShadow(keys: MLXArray, values: MLXArray, previous: Int) {
         let newTokens = keys.dim(2)
         let needed = previous + newTokens
 
         let needsGrow =
-            if let currentKeys = self.keys, needed > currentKeys.dim(2) {
+            if let currentKeys = self.shadowKeys, needed > currentKeys.dim(2) {
                 true
             } else {
-                self.keys == nil
+                self.shadowKeys == nil
             }
         if needsGrow {
             let B = keys.dim(0)
@@ -1085,7 +1561,7 @@ public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDe
             let kHeadDim = keys.dim(3)
             let vHeadDim = values.dim(3)
 
-            let currentCapacity = self.keys?.dim(2) ?? 0
+            let currentCapacity = self.shadowKeys?.dim(2) ?? 0
             let newCapacity: Int
             if currentCapacity == 0 {
                 let nSteps = (newTokens + step - 1) / step
@@ -1104,79 +1580,247 @@ public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDe
             let newK = MLXArray.zeros(kShape, dtype: keys.dtype)
             let newV = MLXArray.zeros(vShape, dtype: values.dtype)
 
-            if var currentKeys = self.keys, var currentValues = self.values {
+            if var currentKeys = self.shadowKeys, var currentValues = self.shadowValues {
                 if previous != currentCapacity {
                     currentKeys = currentKeys[.ellipsis, ..<previous, 0...]
                     if currentValues.dim(3) > 0 {
                         currentValues = currentValues[.ellipsis, ..<previous, 0...]
                     }
                 }
-                self.keys = concatenated([currentKeys, newK], axis: 2)
+                self.shadowKeys = concatenated([currentKeys, newK], axis: 2)
                 if currentValues.dim(3) > 0 {
-                    self.values = concatenated([currentValues, newV], axis: 2)
+                    self.shadowValues = concatenated([currentValues, newV], axis: 2)
                 } else {
-                    self.values = MLXArray.zeros(
-                        [self.keys!.dim(0), currentValues.dim(1), self.keys!.dim(2), 0],
+                    self.shadowValues = MLXArray.zeros(
+                        [self.shadowKeys!.dim(0), currentValues.dim(1), self.shadowKeys!.dim(2), 0],
                         dtype: currentValues.dtype)
                 }
             } else {
-                self.keys = newK
-                self.values = newV
+                self.shadowKeys = newK
+                self.shadowValues = newV
             }
             didGrow = true
         }
 
-        self.offset += newTokens
-        self.keys?[.ellipsis, previous ..< self.offset, 0...] = keys
+        self.shadowKeys?[.ellipsis, previous ..< needed, 0...] = keys
         if values.dim(3) > 0 {
-            self.values?[.ellipsis, previous ..< self.offset, 0...] = values
+            self.shadowValues?[.ellipsis, previous ..< needed, 0...] = values
         }
+    }
 
-        let returnedKeys = self.keys![.ellipsis, ..<self.offset, 0...]
-        let returnedValues: MLXArray
-        if self.values!.dim(3) > 0 {
-            returnedValues = self.values![.ellipsis, ..<self.offset, 0...]
+    private func appendPackedState(
+        current: inout TurboQuantMSEState?,
+        update: TurboQuantMSEState,
+        previous: Int
+    ) {
+        let needed = previous + update.norms.dim(2)
+        if var currentState = current {
+            if turboQuantStateLength(currentState) < needed {
+                didGrow = true
+                currentState = turboQuantReserveStateCapacity(
+                    currentState,
+                    used: previous,
+                    needed: needed,
+                    step: step
+                )
+            }
+            turboQuantWriteState(&currentState, update, start: previous)
+            current = currentState
+            return
         } else {
-            returnedValues = MLXArray.zeros(
-                [returnedKeys.dim(0), self.values!.dim(1), self.offset, 0],
-                dtype: self.values!.dtype)
+            let capacity = ((needed + step - 1) / step) * step
+            var allocated = turboQuantAllocateStateLike(update, length: capacity)
+            turboQuantWriteState(&allocated, update, start: previous)
+            current = allocated
+            return
+        }
+    }
+
+    private func rebuildFromDenseState(keys: MLXArray, values: MLXArray) {
+        ensureCodecs(keyDim: keys.dim(3), valueDim: values.dim(3))
+        offset = keys.dim(2)
+        legacyDenseState = nil
+
+        shadowKeys = keys
+        shadowValues =
+            if values.dim(3) > 0 {
+                values
+            } else {
+                MLXArray.zeros([keys.dim(0), values.dim(1), offset, 0], dtype: values.dtype)
+            }
+
+        if offset == 0 {
+            keyState = nil
+            valueState = nil
+            return
         }
 
-        return (returnedKeys, returnedValues)
+        keyState = keyCodec?.quantize(keys)
+        valueState = valueCodec?.quantize(values)
+    }
+
+    private func rehydrateShadowFromPackedState() {
+        guard let keyState, let valueState, let keyDimension, let valueDimension else { return }
+        ensureCodecs(keyDim: keyDimension, valueDim: valueDimension)
+        shadowKeys = keyCodec?.dequantize(turboQuantSliceState(keyState, end: offset))
+        shadowValues = valueCodec?.dequantize(turboQuantSliceState(valueState, end: offset))
+    }
+
+    private func denseState() -> (MLXArray, MLXArray) {
+        if let dense = legacyDenseState {
+            rebuildFromDenseState(keys: dense.keys, values: dense.values)
+        }
+        if shadowKeys == nil || shadowValues == nil {
+            rehydrateShadowFromPackedState()
+        }
+
+        guard let shadowKeys, let shadowValues else {
+            let keyDim = keyDimension ?? 0
+            let valueDim = valueDimension ?? 0
+            return (
+                MLXArray.zeros([1, 0, 0, keyDim], dtype: .float32),
+                MLXArray.zeros([1, 0, 0, valueDim], dtype: .float32)
+            )
+        }
+
+        let keys = shadowKeys[.ellipsis, ..<offset, 0...]
+        let values =
+            if shadowValues.dim(3) > 0 {
+                shadowValues[.ellipsis, ..<offset, 0...]
+            } else {
+                MLXArray.zeros([keys.dim(0), shadowValues.dim(1), offset, 0], dtype: shadowValues.dtype)
+            }
+        return (keys, values)
+    }
+
+    public override func update(keys: MLXArray, values: MLXArray) -> (MLXArray, MLXArray) {
+        let previous = offset
+        ensureCodecs(keyDim: keys.dim(3), valueDim: values.dim(3))
+
+        let quantizedKeys = keyCodec!.quantize(keys)
+        let quantizedValues = valueCodec!.quantize(values)
+
+        appendPackedState(current: &keyState, update: quantizedKeys, previous: previous)
+        appendPackedState(current: &valueState, update: quantizedValues, previous: previous)
+        appendShadow(keys: keys, values: values, previous: previous)
+        legacyDenseState = nil
+        offset += keys.dim(2)
+
+        return denseState()
+    }
+
+    private func fallbackAttention(
+        queries: MLXArray,
+        keys: MLXArray,
+        values: MLXArray,
+        scale: Float,
+        mask: MLXFast.ScaledDotProductAttentionMaskMode
+    ) -> MLXArray {
+        let (cachedKeys, cachedValues) = update(keys: keys, values: values)
+        return MLXFast.scaledDotProductAttention(
+            queries: queries,
+            keys: cachedKeys,
+            values: cachedValues,
+            scale: scale,
+            mask: mask
+        )
+    }
+
+    public func decodeAttention(
+        queries: MLXArray,
+        keys: MLXArray,
+        values: MLXArray,
+        scale: Float,
+        mask: MLXFast.ScaledDotProductAttentionMaskMode = .none
+    ) -> MLXArray {
+        fallbackAttention(
+            queries: queries,
+            keys: keys,
+            values: values,
+            scale: scale,
+            mask: mask
+        )
+    }
+
+    public func prefillAttention(
+        queries: MLXArray,
+        keys: MLXArray,
+        values: MLXArray,
+        scale: Float,
+        mask: MLXFast.ScaledDotProductAttentionMaskMode = .none
+    ) -> MLXArray {
+        fallbackAttention(
+            queries: queries,
+            keys: keys,
+            values: values,
+            scale: scale,
+            mask: mask
+        )
     }
 
     public override var state: [MLXArray] {
         get {
-            guard let keys = self.keys, let values = self.values else { return [] }
-            if offset == keys.dim(2) {
-                return [keys, values]
-            } else {
-                let kSlice = keys[.ellipsis, ..<offset, 0...]
-                let vSlice = values.dim(3) > 0
-                    ? values[.ellipsis, ..<offset, 0...]
-                    : MLXArray.zeros([keys.dim(0), values.dim(1), offset, 0], dtype: values.dtype)
-                return [kSlice, vSlice]
+            if let dense = legacyDenseState {
+                return [dense.keys, dense.values]
             }
+            guard let keyState, let valueState else { return [] }
+            let trimmedKeyState = turboQuantSliceState(keyState, end: offset)
+            let trimmedValueState = turboQuantSliceState(valueState, end: offset)
+            return [
+                trimmedKeyState.norms,
+                trimmedKeyState.indices,
+                trimmedValueState.norms,
+                trimmedValueState.indices,
+            ]
         }
         set {
-            guard newValue.count == 2 else {
+            if newValue.isEmpty {
+                keyState = nil
+                valueState = nil
+                shadowKeys = nil
+                shadowValues = nil
+                legacyDenseState = nil
+                keyCodec = nil
+                valueCodec = nil
+                keyDimension = nil
+                valueDimension = nil
+                offset = 0
+                return
+            }
+
+            if newValue.count == 2 {
+                keyState = nil
+                valueState = nil
+                legacyDenseState = (newValue[0], newValue[1])
+                shadowKeys = newValue[0]
+                shadowValues = newValue[1]
+                keyDimension = newValue[0].dim(3)
+                valueDimension = newValue[1].dim(3)
+                offset = newValue[0].dim(2)
+                return
+            }
+
+            guard newValue.count == 4 else {
                 if newValue.isEmpty {
-                    self.keys = nil
-                    self.values = nil
-                    self.offset = 0
                     return
                 }
-                fatalError("TurboQuantKVCache state must have exactly 2 arrays (keys, values)")
+                fatalError("TurboQuantKVCache state must have exactly 2 or 4 arrays")
             }
-            self.keys = newValue[0]
-            self.values = newValue[1]
-            self.offset = self.keys!.dim(2)
+
+            keyState = TurboQuantMSEState(norms: newValue[0], indices: newValue[1])
+            valueState = TurboQuantMSEState(norms: newValue[2], indices: newValue[3])
+            legacyDenseState = nil
+            shadowKeys = nil
+            shadowValues = nil
+            offset = newValue[0].dim(2)
         }
     }
 
     public override var metaState: [String] {
         get {
-            [
+            let keyDimension = keyDimension ?? shadowKeys?.dim(3) ?? 0
+            let valueDimension = valueDimension ?? shadowValues?.dim(3) ?? 0
+            return [
                 String(step),
                 String(offset),
                 String(configuration.bits),
@@ -1185,15 +1829,28 @@ public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDe
                 String(configuration.metadataVersion),
                 configuration.transformVersion,
                 configuration.codebookVersion,
+                String(keyDimension),
+                String(valueDimension),
             ]
         }
         set {
-            guard newValue.count == 7 || newValue.count == 8 else {
-                fatalError("TurboQuantKVCache metaState must have exactly 7 or 8 values")
+            guard newValue.count == 7 || newValue.count == 8 || newValue.count == 10 else {
+                fatalError("TurboQuantKVCache metaState must have exactly 7, 8, or 10 values")
             }
             self.step = Int(newValue[0]) ?? self.step
             self.offset = Int(newValue[1]) ?? 0
-            if newValue.count == 8 {
+            if newValue.count == 10 {
+                self.configuration = TurboQuantConfiguration(
+                    bits: Float(newValue[2]) ?? 4.0,
+                    variant: TurboQuantVariant(rawValue: newValue[3]),
+                    metadataPath: newValue[4].isEmpty ? nil : newValue[4],
+                    metadataVersion: Int(newValue[5]) ?? TurboQuantConfiguration.metadataVersion,
+                    transformVersion: newValue[6],
+                    codebookVersion: newValue[7]
+                )
+                self.keyDimension = Int(newValue[8])
+                self.valueDimension = Int(newValue[9])
+            } else if newValue.count == 8 {
                 self.configuration = TurboQuantConfiguration(
                     bits: Float(newValue[2]) ?? 4.0,
                     variant: TurboQuantVariant(rawValue: newValue[3]),
@@ -1213,6 +1870,14 @@ public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDe
                     transformVersion: newValue[5],
                     codebookVersion: newValue[6]
                 )
+                self.keyDimension = nil
+                self.valueDimension = nil
+            }
+
+            if let dense = legacyDenseState {
+                rebuildFromDenseState(keys: dense.keys, values: dense.values)
+            } else if keyState != nil && valueState != nil && keyDimension != nil && valueDimension != nil {
+                rehydrateShadowFromPackedState()
             }
         }
     }
@@ -1227,23 +1892,37 @@ public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDe
     }
 
     public override func truncateToOffset() {
-        guard let k = keys, let v = values, offset < k.dim(2) else { return }
-        keys = k[.ellipsis, ..<offset, 0...]
-        if v.dim(3) > 0 {
-            values = v[.ellipsis, ..<offset, 0...]
-        } else {
-            values = MLXArray.zeros([k.dim(0), v.dim(1), offset, 0], dtype: v.dtype)
+        if let keyState, let valueState, offset < turboQuantStateLength(keyState) {
+            self.keyState = turboQuantSliceState(keyState, end: offset)
+            self.valueState = turboQuantSliceState(valueState, end: offset)
+        }
+        if let dense = legacyDenseState, offset < dense.keys.dim(2) {
+            legacyDenseState = (
+                dense.keys[.ellipsis, ..<offset, 0...],
+                dense.values[.ellipsis, ..<offset, 0...]
+            )
+        }
+        if let shadowKeys, let shadowValues, offset < shadowKeys.dim(2) {
+            self.shadowKeys = shadowKeys[.ellipsis, ..<offset, 0...]
+            if shadowValues.dim(3) > 0 {
+                self.shadowValues = shadowValues[.ellipsis, ..<offset, 0...]
+            } else {
+                self.shadowValues = MLXArray.zeros(
+                    [shadowKeys.dim(0), shadowValues.dim(1), offset, 0],
+                    dtype: shadowValues.dtype)
+            }
         }
     }
 
     public func toUnquantized() -> KVCacheSimple {
         let simpleCache = KVCacheSimple()
-        simpleCache.state = state
+        let (keys, values) = denseState()
+        simpleCache.state = [keys, values]
         return simpleCache
     }
 
     public var debugDescription: String {
-        "\(String(describing: Self.self)) \(Unmanaged.passUnretained(self).toOpaque()), offset: \(offset), bits: \(configuration.bits), variant: \(configuration.variant.rawValue), metadataPath: \(configuration.metadataPath ?? "-")"
+        "\(String(describing: Self.self)) \(Unmanaged.passUnretained(self).toOpaque()), offset: \(offset), bits: \(configuration.bits), variant: \(configuration.variant.rawValue), metadataPath: \(configuration.metadataPath ?? "-"), keyDim: \(keyDimension ?? -1), valueDim: \(valueDimension ?? -1)"
     }
 }
 
