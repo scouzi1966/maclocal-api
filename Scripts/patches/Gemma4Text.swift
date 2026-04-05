@@ -419,10 +419,14 @@ class Gemma4Attention: Module {
 
         // Read offset BEFORE cache update — keys and queries must use the same offset.
         // Batched caches provide per-sequence offsets for correct RoPE positions.
-        // Only use array offset when it matches the batch dimension of the input.
+        // Only use array offset when sequences have different lengths. When all
+        // per-seq offsets are equal, use the scalar path — this ensures bit-identical
+        // RoPE computation between B=1 and B>=2. The `allOffsetsEqual` flag is cached
+        // on the batch cache to avoid expensive eval() on every layer.
         let scalarOffset = cache?.offset ?? 0
         let batchedOffset: MLXArray? = {
             guard let arr = cache?.offsetArray, arr.dim(0) == B else { return nil }
+            if (cache as? BaseKVCache)?.allOffsetsEqual == true { return nil }
             return arr
         }()
 
@@ -451,8 +455,19 @@ class Gemma4Attention: Module {
             values = values.transposed(0, 2, 1, 3)
 
             keys = keys.transposed(0, 2, 1, 3)
-            if let batchedOffset {
+            if let batchedOffset, L > 1 {
+                // Prefill with different lengths: must use dynamic RoPE
                 keys = rope(keys, offset: batchedOffset)
+            } else if let batchedOffset, L == 1 {
+                // Decode: apply scalar RoPE per-sequence to use the same Metal
+                // kernel as B=1, avoiding numerical divergence from kernel dispatch
+                // differences between mlx_fast_rope and mlx_fast_rope_dynamic.
+                var ropeKeys = [MLXArray]()
+                for b in 0..<B {
+                    let off = Int(batchedOffset[b].item(Int32.self))
+                    ropeKeys.append(rope(keys[b...(b), 0..., 0..., 0...], offset: off))
+                }
+                keys = concatenated(ropeKeys, axis: 0)
             } else {
                 keys = rope(keys, offset: scalarOffset)
             }
@@ -467,23 +482,22 @@ class Gemma4Attention: Module {
         }
 
         queries = queries.transposed(0, 2, 1, 3)
-        if let batchedOffset {
+        if let batchedOffset, L > 1 {
             queries = rope(queries, offset: batchedOffset)
+        } else if let batchedOffset, L == 1 {
+            var ropeQ = [MLXArray]()
+            for b in 0..<B {
+                let off = Int(batchedOffset[b].item(Int32.self))
+                ropeQ.append(rope(queries[b...(b), 0..., 0..., 0...], offset: off))
+            }
+            queries = concatenated(ropeQ, axis: 0)
         } else {
             queries = rope(queries, offset: scalarOffset)
         }
 
-        if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" && B > 1 {
-            var maskDesc = "symbolic"
-            if case .array(let m) = mask { maskDesc = "\(m.shape)" }
-            print("[Gemma4Attn] layer=\(layerIdx) B=\(B) L=\(L) Q=\(queries.shape) K=\(keys.shape) V=\(values.shape) mask=\(maskDesc) sliding=\(isSliding)")
-            fflush(stdout)
-        }
         let output = MLXFast.scaledDotProductAttention(
             queries: queries, keys: keys, values: values,
-            scale: 1.0,  // Gemma4 uses scale=1.0 (scaling is in q/k norms)
-            mask: mask
-        )
+            scale: 1.0, mask: mask)
 
         return oProj(output.transposed(0, 2, 1, 3).reshaped(B, L, -1))
     }
@@ -749,8 +763,8 @@ public class Gemma4TextModelInner: Module {
         let slidingMask = createAttentionMask(
             h: h, cache: slidingCacheIdx.flatMap { cache[$0] }, windowSize: windowSize)
 
-        // KV sharing store: layer_idx → (keys, values, offset)
-        var sharedKVStore: [Int: ((MLXArray, MLXArray), Int)] = [:]
+        // KV sharing store: layer_idx → (keys, values, scalarOffset, perSeqOffsets?)
+        var sharedKVStore: [Int: ((MLXArray, MLXArray), Int, MLXArray?)] = [:]
 
         let debugBatch = ProcessInfo.processInfo.environment["AFM_DEBUG_PREFILL"] == "1" && h.dim(0) > 2
         for (i, (layer, c)) in zip(layers, cache).enumerated() {
@@ -769,22 +783,31 @@ public class Gemma4TextModelInner: Module {
             var layerSharedKV: (MLXArray, MLXArray)?
             let attn = layer.selfAttn
             if attn.isKvSharedLayer, let refIdx = attn.kvSharedLayerIndex,
-                let (kv, refOffset) = sharedKVStore[refIdx]
+                let (kv, refOffset, refOffsetArray) = sharedKVStore[refIdx]
             {
                 layerSharedKV = kv
-                // Sync offset so RoPE positions match the shared KV
+                // Sync offset so RoPE positions match the shared KV.
+                // Must sync BOTH scalar offset AND per-sequence offsets —
+                // KV-shared layers skip cache.update(), so their batch cache
+                // perSeqOffset stays at the stale merge-time value (e.g. [0,0]).
+                // Without this, batch mode uses wrong RoPE positions for 67%
+                // of Gemma 4 E4B layers.
                 if let baseCache = c as? BaseKVCache {
                     baseCache.offset = refOffset
+                    if let refArr = refOffsetArray {
+                        baseCache.syncPerSeqOffsets(refArr)
+                    }
                 }
             }
 
             let preOffset = c?.offset ?? 0
+            let preOffsetArray = c?.offsetArray
 
             h = layer(h, mask: mask, cache: c, perLayerInput: plInput, sharedKV: layerSharedKV)
 
             // Store KV for sharing if needed
             if attn.storeFullLengthKV, let kv = attn.lastKV {
-                sharedKVStore[i] = (kv, preOffset)
+                sharedKVStore[i] = (kv, preOffset, preOffsetArray)
             }
 
             // Debug: periodic eval to diagnose MLX lazy graph overflow at B>=3.

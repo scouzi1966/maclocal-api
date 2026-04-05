@@ -21,7 +21,7 @@ public class BatchKVCacheSimple: BaseKVCache {
     /// Per-sequence left padding [B], int32
     var leftPadding: MLXArray
 
-    /// Per-sequence logical offsets [B], int32 (initialized as -leftPadding)
+    /// Per-sequence logical offsets [B], int32
     var perSeqOffset: MLXArray
 
     /// Global write cursor (same for all sequences)
@@ -33,6 +33,11 @@ public class BatchKVCacheSimple: BaseKVCache {
     /// Current batch size
     var batchSize: Int
 
+    /// Cached result of whether all offsets are equal (nil = unknown).
+    /// Set to nil when offsets change non-uniformly (merge, extend, filter).
+    /// Preserved across update() since uniform add maintains equality.
+    var _allOffsetsEqual: Bool?
+
     public override var offset: Int {
         get { _idx }
         set { _idx = newValue }
@@ -40,6 +45,21 @@ public class BatchKVCacheSimple: BaseKVCache {
     public override var offsetArray: MLXArray? { perSeqOffset }
     public override var maxSize: Int? { nil }
     public override var isTrimmable: Bool { true }
+
+    /// True when all per-sequence offsets are equal (same-length sequences).
+    /// update() increments all offsets uniformly, so this flag is sticky after initial merge.
+    public override var allOffsetsEqual: Bool {
+        if let cached = _allOffsetsEqual { return cached }
+        // Only eval once — result is cached until perSeqOffset is replaced
+        let result = batchSize <= 1 || (perSeqOffset .== perSeqOffset[0]).all().item(Bool.self)
+        _allOffsetsEqual = result
+        return result
+    }
+
+    public override func syncPerSeqOffsets(_ offsets: MLXArray) {
+        perSeqOffset = offsets
+        _allOffsetsEqual = nil
+    }
 
     public init(batchSize: Int, leftPadding: [Int]) {
         self.batchSize = batchSize
@@ -130,6 +150,7 @@ public class BatchKVCacheSimple: BaseKVCache {
             perSeqOffset = newValue[2]
             leftPadding = newValue[3]
             _idx = newValue[0].dim(2)
+            _allOffsetsEqual = nil
         }
     }
 
@@ -157,17 +178,24 @@ public class BatchKVCacheSimple: BaseKVCache {
         let totalLen = _idx + n
         guard batchSize > 0 && totalLen > 0 else { return .none }
 
+        if n == 1 {
+            // Decode: single new token — causal constraint is automatic.
+            // When all padding is zero (same-length sequences), return .none to match
+            // the B=1 serial path, ensuring bit-identical SDPA computation.
+            if leftPadding.max().item(Int32.self) == 0 {
+                return .none
+            }
+            // Different-length sequences: need padding mask [B, 1, 1, totalLen]
+            let keyIndices = MLXArray(Int32(0) ..< Int32(totalLen)).reshaped([1, 1, totalLen])
+            let padMask = keyIndices .>= leftPadding.reshaped([batchSize, 1, 1])
+            return .array(padMask.expandedDimensions(axis: 1))
+        }
+
         // Key indices: [1, 1, totalLen]
         let keyIndices = MLXArray(Int32(0) ..< Int32(totalLen)).reshaped([1, 1, totalLen])
         // Padding mask: attend only to non-padding positions
         // leftPadding: [B] → [B, 1, 1]
         let padMask = keyIndices .>= leftPadding.reshaped([batchSize, 1, 1])
-
-        if n == 1 {
-            // Decode: single new token — causal constraint is automatic
-            // Shape: [B, 1, 1, totalLen]
-            return .array(padMask.expandedDimensions(axis: 1))
-        }
 
         // Prefill: need causal + padding
         // Query indices: [1, n, 1] — queries cover positions [_idx, _idx+n)
@@ -195,6 +223,7 @@ public class BatchKVCacheSimple: BaseKVCache {
         perSeqOffset = perSeqOffset[indices]
         leftPadding = leftPadding[indices]
         batchSize = keepIndices.count
+        _allOffsetsEqual = nil
 
         // Shift left to reduce padding waste
         let minPad = leftPadding.min().item(Int32.self)
@@ -256,6 +285,7 @@ public class BatchKVCacheSimple: BaseKVCache {
         perSeqOffset = concatenated([ro1, ro2], axis: 0)
         _idx = maxIdx
         batchSize += other.batchSize
+        _allOffsetsEqual = nil
     }
 
     /// Extract a single sequence's cache (for saving to prefix cache or removal).
@@ -367,6 +397,9 @@ public class BatchRotatingKVCache: BaseKVCache {
     /// Current batch size
     public var batchSize: Int
 
+    /// Cached result of whether all offsets are equal
+    private var _allOffsetsEqual: Bool?
+
     public override var offset: Int {
         get { _offset }
         set { _offset = newValue }
@@ -375,6 +408,18 @@ public class BatchRotatingKVCache: BaseKVCache {
     public override var offsetArray: MLXArray? { perSeqOffset }
     public override var maxSize: Int? { maxCacheSize }
     public override var isTrimmable: Bool { _offset < maxCacheSize }
+
+    public override var allOffsetsEqual: Bool {
+        if let cached = _allOffsetsEqual { return cached }
+        let result = batchSize <= 1 || (perSeqOffset .== perSeqOffset[0]).all().item(Bool.self)
+        _allOffsetsEqual = result
+        return result
+    }
+
+    public override func syncPerSeqOffsets(_ offsets: MLXArray) {
+        perSeqOffset = offsets
+        _allOffsetsEqual = nil
+    }
 
     public init(batchSize: Int, leftPadding: [Int], maxCacheSize: Int, keep: Int = 0) {
         precondition(keep == 0, "BatchRotatingKVCache requires keep=0 for synchronized wrapping")
@@ -396,6 +441,9 @@ public class BatchRotatingKVCache: BaseKVCache {
         let storedCount: Int
         let actualOffset: Int32
     }
+
+    /// Public accessor for current per-sequence padding (used by per-sequence SDPA path).
+    public func currentPaddingArray() -> MLXArray { currentPadding() }
 
     /// Current per-sequence padding count.
     ///
@@ -464,6 +512,7 @@ public class BatchRotatingKVCache: BaseKVCache {
             values = nil
             leftPadding = MLXArray([])
             perSeqOffset = MLXArray([])
+            _allOffsetsEqual = nil
             _idx = 0
             _offset = 0
             batchSize = 0
@@ -505,6 +554,7 @@ public class BatchRotatingKVCache: BaseKVCache {
         let maxOffset = sequences.map { Swift.max(0, Int($0.actualOffset)) }.max() ?? 0
         _offset = Swift.max(targetLen, maxOffset)
         batchSize = sequences.count
+        _allOffsetsEqual = nil
     }
 
     // MARK: - Update
@@ -670,6 +720,7 @@ public class BatchRotatingKVCache: BaseKVCache {
             leftPadding = newValue[3]
             _offset = newValue[0].dim(2)
             _idx = _offset
+            _allOffsetsEqual = nil
         }
     }
 
@@ -702,24 +753,33 @@ public class BatchRotatingKVCache: BaseKVCache {
             print("[BatchRotatingKV] makeMask B=\(batchSize) n=\(n) _idx=\(_idx) _offset=\(_offset) totalLen=\(totalLen) window=\(windowSize?.description ?? "nil")")
         }
 
-        let keyIndices = MLXArray(Int32(0) ..< Int32(totalLen)).reshaped([1, 1, totalLen])
-        let currentPad = currentPadding()
-        let padMask = keyIndices .>= currentPad.reshaped([batchSize, 1, 1])
-
         if n == 1 {
             // Decode: single token
-            var decodePadMask = padMask
-            var writeIndex = _idx
-            if _offset >= maxCacheSize {
-                if writeIndex >= maxCacheSize { writeIndex = keep }
-                let remainingPad = currentPadding(afterAdding: 1).reshaped([batchSize, 1, 1])
-                let rotatedIndices =
-                    (keyIndices - Int32(writeIndex + 1) + Int32(maxCacheSize))
-                    % Int32(maxCacheSize)
-                decodePadMask = rotatedIndices .>= remainingPad
+            if _offset < maxCacheSize {
+                // Pre-wrap: same-length sequences with zero padding can use .none,
+                // matching the B=1 serial path for bit-identical SDPA.
+                let currentPad = currentPadding()
+                if currentPad.max().item(Int32.self) == 0 {
+                    return .none
+                }
+                let keyIndices = MLXArray(Int32(0) ..< Int32(totalLen)).reshaped([1, 1, totalLen])
+                let padMask = keyIndices .>= currentPad.reshaped([batchSize, 1, 1])
+                return .array(padMask.expandedDimensions(axis: 1))
             }
 
-            if _offset >= maxCacheSize, let windowSize, maxCacheSize > windowSize {
+            // Post-wrap: buffer is full, need rotation-aware masking
+            let keyIndices = MLXArray(Int32(0) ..< Int32(totalLen)).reshaped([1, 1, totalLen])
+            let currentPad = currentPadding()
+            var decodePadMask = keyIndices .>= currentPad.reshaped([batchSize, 1, 1])
+            var writeIndex = _idx
+            if writeIndex >= maxCacheSize { writeIndex = keep }
+            let remainingPad = currentPadding(afterAdding: 1).reshaped([batchSize, 1, 1])
+            let rotatedIndices =
+                (keyIndices - Int32(writeIndex + 1) + Int32(maxCacheSize))
+                % Int32(maxCacheSize)
+            decodePadMask = rotatedIndices .>= remainingPad
+
+            if let windowSize, maxCacheSize > windowSize {
                 // Buffer has wrapped AND window < maxCacheSize: need rotation-aware mask
                 let currentIdx = writeIndex
                 let maskSize = maxCacheSize
@@ -731,9 +791,13 @@ public class BatchRotatingKVCache: BaseKVCache {
                 let combined = rolledMask .&& decodePadMask
                 return .array(combined.expandedDimensions(axis: 1))
             }
-            // Pre-wrap or windowSize == maxCacheSize: padding mask only
+            // Post-wrap, window == maxCacheSize: just padding mask
             return .array(decodePadMask.expandedDimensions(axis: 1))
         }
+
+        let keyIndices = MLXArray(Int32(0) ..< Int32(totalLen)).reshaped([1, 1, totalLen])
+        let currentPad = currentPadding()
+        let padMask = keyIndices .>= currentPad.reshaped([batchSize, 1, 1])
 
         // Prefill: causal + padding (+ optional window)
         let queryStart = Int32(_idx)
@@ -766,6 +830,7 @@ public class BatchRotatingKVCache: BaseKVCache {
         perSeqOffset = perSeqOffset[indices]
         leftPadding = leftPadding[indices]
         batchSize = keepIndices.count
+        _allOffsetsEqual = nil
 
         // Shift left to reduce padding waste (only before buffer wraps)
         if _offset < maxCacheSize {

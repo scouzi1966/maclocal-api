@@ -127,6 +127,16 @@ open class BaseKVCache: KVCache {
     public var maxSize: Int? { nil }
     public var offsetArray: MLXArray? { nil }
 
+    /// Sync per-sequence offsets from a reference cache's offsetArray.
+    /// Used for KV-shared layers whose caches are never updated via update(keys:values:).
+    /// Override in subclasses that maintain per-sequence offsets (batch caches).
+    open func syncPerSeqOffsets(_ offsets: MLXArray) {}
+
+    /// Whether all per-sequence offsets are equal (same-length sequences).
+    /// When true, attention code uses scalar RoPE and `.none` mask for bit-identical
+    /// computation to B=1. Override in batch cache subclasses.
+    open var allOffsetsEqual: Bool { true }
+
     public func innerState() -> [MLXArray] { [] }
 
     open func update(keys: MLXArray, values: MLXArray) -> (MLXArray, MLXArray) {
