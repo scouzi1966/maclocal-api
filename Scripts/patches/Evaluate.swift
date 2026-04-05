@@ -196,7 +196,7 @@ public struct GenerateParameters: Sendable {
         guard usesTurboQuantKVCache, let kvBits else { return nil }
         return TurboQuantConfiguration(
             bits: kvBits,
-            variant: turboQuantVariant ?? .turboQuant25,
+            variant: turboQuantVariant ?? TurboQuantConfiguration.defaultVariant(for: kvBits),
             metadataPath: turboQuantMetadataPath
         )
     }
