@@ -39,6 +39,9 @@ public protocol KVCache: Evaluatable, Updatable {
     /// get the current offset
     var offset: Int { get }
 
+    /// Per-sequence offsets [B] for batched RoPE. Nil for non-batched caches.
+    var offsetArray: MLXArray? { get }
+
     /// get the maximum size (if any)
     var maxSize: Int? { get }
 
@@ -122,6 +125,17 @@ public protocol QuantizedKVCacheProtocol: KVCache {
 open class BaseKVCache: KVCache {
     public var offset: Int = 0
     public var maxSize: Int? { nil }
+    public var offsetArray: MLXArray? { nil }
+
+    /// Sync per-sequence offsets from a reference cache's offsetArray.
+    /// Pass `allEqual` to propagate the cached equality flag without forcing eval.
+    /// Used for KV-shared layers whose caches are never updated via update(keys:values:).
+    open func syncPerSeqOffsets(_ offsets: MLXArray, allEqual: Bool? = nil) {}
+
+    /// Whether all per-sequence offsets are equal (same-length sequences).
+    /// When true, attention code uses scalar RoPE and `.none` mask for bit-identical
+    /// computation to B=1. Override in batch cache subclasses.
+    open var allOffsetsEqual: Bool { true }
 
     public func innerState() -> [MLXArray] { [] }
 

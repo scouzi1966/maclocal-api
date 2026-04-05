@@ -2500,10 +2500,10 @@ final class MLXModelService: @unchecked Sendable {
     }
 
     /// Convert a vendor ToolCall to an OpenAI-compatible ResponseToolCall.
-    static func convertToolCall(_ tc: ToolCall, index: Int, paramNameMapping: [String: String] = [:]) -> ResponseToolCall {
+    static func convertToolCall(_ tc: ToolCall, index: Int, paramNameMapping: [String: String] = [:], tools: [RequestTool]? = nil) -> ResponseToolCall {
         // Apply parameter name mapping (e.g. snake_case → camelCase) if provided.
         // Qwen3-Coder converts camelCase param names to snake_case in XML output.
-        let argsDict: [String: Any]
+        var argsDict: [String: Any]
         if paramNameMapping.isEmpty {
             argsDict = tc.function.arguments.mapValues { $0.anyValue }
         } else {
@@ -2514,6 +2514,24 @@ final class MLXModelService: @unchecked Sendable {
             }
             argsDict = mapped
         }
+
+        // Pre-serialization type coercion: convert string values to their schema types
+        // BEFORE JSON serialization. This handles Gemma 4's escape markers (<|"|>) which
+        // become un-coerceable once embedded in a JSON string.
+        if let tools,
+           let tool = tools.first(where: { $0.function.name == tc.function.name }),
+           let paramsAny = tool.function.parameters?.toSendable() as? [String: Any],
+           let props = paramsAny["properties"] as? [String: Any] {
+            for (key, value) in argsDict {
+                guard let stringValue = value as? String,
+                      let propSchema = props[key] as? [String: Any],
+                      let schemaType = propSchema["type"] as? String else { continue }
+                if let coerced = coerceStringValue(stringValue, schemaType: schemaType) {
+                    argsDict[key] = coerced
+                }
+            }
+        }
+
         let argsJSON: String
         if let data = try? JSONSerialization.data(withJSONObject: argsDict, options: [.sortedKeys]),
            let str = String(data: data, encoding: .utf8) {
@@ -2545,7 +2563,7 @@ final class MLXModelService: @unchecked Sendable {
         tools: [RequestTool]? = nil,
         fixToolArgs: Bool = false
     ) -> ResponseToolCall {
-        var converted = convertToolCall(tc, index: index, paramNameMapping: paramNameMapping)
+        var converted = convertToolCall(tc, index: index, paramNameMapping: paramNameMapping, tools: tools)
         if fixToolArgs, let tools, !tools.isEmpty {
             converted = remapResponseToolCallArguments(converted, tools: tools)
         }
@@ -3087,6 +3105,16 @@ final class MLXModelService: @unchecked Sendable {
         }
 
         guard let funcName else { return nil }
+
+        // Reject function names that contain JSON structural characters — indicates
+        // the hybrid regex matched a JSON tool call body, not an XML function tag.
+        // Let the JSON fallback parser handle these instead.
+        if funcName.contains("\"") || funcName.contains("{") || funcName.contains(",") {
+            if debugLogging {
+                print("[\(ts())] [ToolCallParser] parseXMLFunction: rejected \(funcName.prefix(40)) (contains JSON chars)")
+            }
+            return nil
+        }
 
         if debugLogging {
             print("[\(ts())] [ToolCallParser] parseXMLFunction: \(funcName) (\(content.count) chars)")
