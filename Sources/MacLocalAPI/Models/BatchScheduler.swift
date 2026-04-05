@@ -145,7 +145,12 @@ actor BatchScheduler {
             self.inputTokens = inputTokens
             self.cachedTokens = cachedTokens
             self.prefillCaches = prefillCaches
-            self.prefillStates = prefillCaches.map { $0.state }
+            // Snapshot prefill KV state for radix cache save.
+            // Must contiguous-copy the arrays — MLX sliced views share the underlying
+            // buffer with batchCaches, so batched decode mutations would corrupt the snapshot.
+            self.prefillStates = prefillCaches.map { cache in
+                cache.state.map { MLX.contiguous($0) }
+            }
             self.prefillMetaStates = prefillCaches.map { $0.metaState }
             self.lastTokenId = lastTokenId
             self.lastTokenArray = lastTokenArray

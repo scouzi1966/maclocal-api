@@ -3106,6 +3106,16 @@ final class MLXModelService: @unchecked Sendable {
 
         guard let funcName else { return nil }
 
+        // Reject function names that contain JSON structural characters — indicates
+        // the hybrid regex matched a JSON tool call body, not an XML function tag.
+        // Let the JSON fallback parser handle these instead.
+        if funcName.contains("\"") || funcName.contains("{") || funcName.contains(",") {
+            if debugLogging {
+                print("[\(ts())] [ToolCallParser] parseXMLFunction: rejected \(funcName.prefix(40)) (contains JSON chars)")
+            }
+            return nil
+        }
+
         if debugLogging {
             print("[\(ts())] [ToolCallParser] parseXMLFunction: \(funcName) (\(content.count) chars)")
         }
