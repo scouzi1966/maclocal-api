@@ -2168,6 +2168,12 @@ public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDe
             self.keyState = turboQuantSliceState(keyState, end: offset)
             self.valueState = turboQuantSliceState(valueState, end: offset)
         }
+        if let dense = legacyDenseState, offset < dense.keys.dim(2) {
+            legacyDenseState = (
+                dense.keys[.ellipsis, ..<offset, 0...],
+                dense.values[.ellipsis, ..<offset, 0...]
+            )
+        }
         if let shadowKeys, let shadowValues, offset < shadowKeys.dim(2) {
             self.shadowKeys = shadowKeys[.ellipsis, ..<offset, 0...]
             if shadowValues.dim(3) > 0 {
