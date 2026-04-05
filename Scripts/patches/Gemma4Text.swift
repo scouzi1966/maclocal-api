@@ -745,8 +745,8 @@ public class Gemma4TextModelInner: Module {
         let slidingMask = createAttentionMask(
             h: h, cache: slidingCacheIdx.flatMap { cache[$0] }, windowSize: windowSize)
 
-        // KV sharing store: layer_idx → (keys, values, scalarOffset, perSeqOffsets?)
-        var sharedKVStore: [Int: ((MLXArray, MLXArray), Int, MLXArray?)] = [:]
+        // KV sharing store: layer_idx → (keys, values, scalarOffset, perSeqOffsets?, allEqual?)
+        var sharedKVStore: [Int: ((MLXArray, MLXArray), Int, MLXArray?, Bool?)] = [:]
 
         let debugBatch = ProcessInfo.processInfo.environment["AFM_DEBUG_PREFILL"] == "1" && h.dim(0) > 2
         for (i, (layer, c)) in zip(layers, cache).enumerated() {
@@ -765,7 +765,7 @@ public class Gemma4TextModelInner: Module {
             var layerSharedKV: (MLXArray, MLXArray)?
             let attn = layer.selfAttn
             if attn.isKvSharedLayer, let refIdx = attn.kvSharedLayerIndex,
-                let (kv, refOffset, refOffsetArray) = sharedKVStore[refIdx]
+                let (kv, refOffset, refOffsetArray, refAllEqual) = sharedKVStore[refIdx]
             {
                 layerSharedKV = kv
                 // Sync offset so RoPE positions match the shared KV.
@@ -777,19 +777,20 @@ public class Gemma4TextModelInner: Module {
                 if let baseCache = c as? BaseKVCache {
                     baseCache.offset = refOffset
                     if let refArr = refOffsetArray {
-                        baseCache.syncPerSeqOffsets(refArr)
+                        baseCache.syncPerSeqOffsets(refArr, allEqual: refAllEqual)
                     }
                 }
             }
 
             let preOffset = c?.offset ?? 0
             let preOffsetArray = c?.offsetArray
+            let preAllEqual = (c as? BaseKVCache)?.allOffsetsEqual
 
             h = layer(h, mask: mask, cache: c, perLayerInput: plInput, sharedKV: layerSharedKV)
 
             // Store KV for sharing if needed
             if attn.storeFullLengthKV, let kv = attn.lastKV {
-                sharedKVStore[i] = (kv, preOffset, preOffsetArray)
+                sharedKVStore[i] = (kv, preOffset, preOffsetArray, preAllEqual)
             }
 
             // Debug: periodic eval to diagnose MLX lazy graph overflow at B>=3.
