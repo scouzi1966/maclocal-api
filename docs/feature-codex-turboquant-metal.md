@@ -21,7 +21,7 @@ This branch introduces the first inline Metal-backed execution path for TurboQua
 Following the `mlx-vlm` pattern, the branch uses inline Metal kernel source strings compiled through MLXFast rather than standalone `.metal` files.
 
 Implemented in:
-- [KVCache.swift](/Volumes/edata/codex/dev/git/apr3/maclocal-api/Scripts/patches/KVCache.swift)
+- [KVCache.swift](../Scripts/patches/KVCache.swift)
 
 The current kernelized pieces are centered on MSE score computation for grouped decode queries.
 
@@ -49,8 +49,8 @@ This avoids shipping a numerically unstable packed-value fast path while still e
 
 ## Files
 
-- [Scripts/patches/KVCache.swift](/Volumes/edata/codex/dev/git/apr3/maclocal-api/Scripts/patches/KVCache.swift)
-- [Tests/MacLocalAPITests/TurboQuantCacheTests.swift](/Volumes/edata/codex/dev/git/apr3/maclocal-api/Tests/MacLocalAPITests/TurboQuantCacheTests.swift)
+- [Scripts/patches/KVCache.swift](../Scripts/patches/KVCache.swift)
+- [Tests/MacLocalAPITests/TurboQuantCacheTests.swift](../Tests/MacLocalAPITests/TurboQuantCacheTests.swift)
 
 ## Current Behavior
 

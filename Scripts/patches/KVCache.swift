@@ -750,10 +750,6 @@ private struct TurboQuantMSECodec {
         rotateForward(queries.asType(.float32))
     }
 
-    func finalizeWeightedSum(_ output: MLXArray) -> MLXArray {
-        rotateInverse(output.asType(.float32))
-    }
-
     func quantize(_ vectors: MLXArray) -> TurboQuantMSEState {
         let vectorsF32 = vectors.asType(.float32)
         let norms = sqrt(sum(square(vectorsF32), axis: -1))
@@ -845,67 +841,13 @@ private func makeTurboQuantMSEScoreKernel() -> MLXFast.MLXFastKernel? {
     )
 }
 
-private func makeTurboQuantMSEWeightedSumKernel() -> MLXFast.MLXFastKernel? {
-    let source = """
-        auto lane = thread_position_in_grid.x;
-        auto repeat_idx = thread_position_in_grid.y;
-        auto n = thread_position_in_grid.z;
-
-        auto token_count = norms_shape[2];
-        auto kv_heads = norms_shape[1];
-        auto bh = n / Dim;
-        auto dim_idx = n % Dim;
-        auto b = bh / kv_heads;
-        auto h = bh % kv_heads;
-
-        auto weights_ptr = weights + ((b * kv_heads + h) * RepeatCount + repeat_idx) * token_count;
-        auto norms_ptr = norms + (b * kv_heads + h) * token_count;
-        auto packed_base = packed + ((b * kv_heads + h) * token_count) * PackedWidth;
-
-        int bit_offset = dim_idx * Bits;
-        int word_idx = bit_offset / 32;
-        int offset = bit_offset % 32;
-
-        float acc = 0.0f;
-        for (int t = lane; t < token_count; t += 32) {
-            auto packed_ptr = packed_base + t * PackedWidth;
-            uint value = packed_ptr[word_idx] >> offset;
-            int spill = offset + Bits - 32;
-            if (spill > 0) {
-                value |= packed_ptr[word_idx + 1] << (Bits - spill);
-            }
-            value &= ((1u << Bits) - 1u);
-
-            float code = static_cast<float>(codebook[value]);
-            float norm = static_cast<float>(norms_ptr[t]);
-            float weight = static_cast<float>(weights_ptr[t]);
-            acc += weight * norm * code;
-        }
-
-        acc = simd_sum(acc);
-        if (thread_index_in_simdgroup == 0) {
-            auto out_idx = ((b * kv_heads + h) * RepeatCount + repeat_idx) * Dim + dim_idx;
-            out[out_idx] = acc;
-        }
-    """
-
-    return MLXFast.metalKernel(
-        name: "turboquant_mse_decode_weighted_sum",
-        inputNames: ["weights", "norms", "packed", "codebook"],
-        outputNames: ["out"],
-        source: source
-    )
-}
-
 private final class TurboQuantMSEKernelManager: @unchecked Sendable {
     static let shared = TurboQuantMSEKernelManager()
 
     let scoreKernel: MLXFast.MLXFastKernel?
-    let weightedSumKernel: MLXFast.MLXFastKernel?
 
     private init() {
         scoreKernel = makeTurboQuantMSEScoreKernel()
-        weightedSumKernel = makeTurboQuantMSEWeightedSumKernel()
     }
 }
 
@@ -929,6 +871,16 @@ private func turboQuantMSEDecodeScores(
     let R = queries.dim(2)
     let D = queries.dim(3)
     let T = state.norms.dim(2)
+    guard
+        state.norms.ndim == 3,
+        state.indices.ndim == 4,
+        B == state.norms.dim(0),
+        H == state.norms.dim(1),
+        T == state.indices.dim(2),
+        state.indices.dim(3) > 0
+    else {
+        return nil
+    }
 
     return kernel(
         [queries, state.norms, state.indices, codebook],
@@ -941,43 +893,6 @@ private func turboQuantMSEDecodeScores(
         grid: (32, R, B * H * T),
         threadGroup: (32, 1, 1),
         outputShapes: [[B, H, R, T]],
-        outputDTypes: [.float32]
-    )[0]
-}
-
-private func turboQuantMSEDecodeWeightedSum(
-    weights: MLXArray,
-    state: TurboQuantMSEState,
-    bits: Int,
-    codebook: MLXArray,
-    dimension: Int
-) -> MLXArray? {
-    guard
-        bits > 0,
-        weights.ndim == 4,
-        state.norms.dim(2) > 0,
-        let kernel = TurboQuantMSEKernelManager.shared.weightedSumKernel
-    else {
-        return nil
-    }
-
-    let B = weights.dim(0)
-    let H = weights.dim(1)
-    let R = weights.dim(2)
-    let T = weights.dim(3)
-    guard dimension > 0, T == state.norms.dim(2) else { return nil }
-
-    return kernel(
-        [weights, state.norms, state.indices, codebook],
-        template: [
-            ("Dim", dimension),
-            ("RepeatCount", R),
-            ("Bits", bits),
-            ("PackedWidth", state.indices.dim(3)),
-        ],
-        grid: (32, R, B * H * dimension),
-        threadGroup: (32, 1, 1),
-        outputShapes: [[B, H, R, dimension]],
         outputDTypes: [.float32]
     )[0]
 }
@@ -1893,15 +1808,15 @@ public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDe
 
     @discardableResult
     private func ingest(keys: MLXArray, values: MLXArray) -> (TurboQuantMSEState, TurboQuantMSEState) {
-        let previous = offset
+        let previousOffset = offset
         ensureCodecs(keyDim: keys.dim(3), valueDim: values.dim(3))
 
         let quantizedKeys = keyCodec!.quantize(keys)
         let quantizedValues = valueCodec!.quantize(values)
 
-        appendPackedState(current: &keyState, update: quantizedKeys, previous: previous)
-        appendPackedState(current: &valueState, update: quantizedValues, previous: previous)
-        appendShadow(keys: keys, values: values, previous: previous)
+        appendPackedState(current: &keyState, update: quantizedKeys, previous: previousOffset)
+        appendPackedState(current: &valueState, update: quantizedValues, previous: previousOffset)
+        appendShadow(keys: keys, values: values, previous: previousOffset)
         legacyDenseState = nil
         offset += keys.dim(2)
 
