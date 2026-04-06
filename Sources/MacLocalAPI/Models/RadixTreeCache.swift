@@ -17,10 +17,9 @@ final class KVCacheEntry: @unchecked Sendable {
         // Snapshot into standalone contiguous buffers before storing in the radix tree.
         // Raw MLX slices keep the full backing Metal allocation alive and can also
         // retain lazy graph links to the live cache buffers from the completed request.
-        let snapshottedStates = layerStates.map { state in
-            state.map { MLX.contiguous($0) }
-        }
-        MLX.eval(snapshottedStates.flatMap { $0 })
+        let snapshottedStates = layerStates.map { $0.map { MLX.contiguous($0) } }
+        let allArrays = snapshottedStates.flatMap { $0 }
+        MLX.eval(allArrays)
         self.layerStates = snapshottedStates
         self.layerMetaStates = layerMetaStates
         self.lastAccessTime = mach_absolute_time()

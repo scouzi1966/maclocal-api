@@ -1691,15 +1691,9 @@ final class MLXModelService: @unchecked Sendable {
             }
 
             // Save prompt cache state into radix tree.
-            // Skip save when RotatingKVCache has wrapped past maxCacheSize — the
-            // trim/truncate/state-read cycle on wrapped rotating caches corrupts
-            // internal MLX state, causing the next request's prefill to SIGTRAP.
-            // (#94). Non-rotating models and pre-wrap rotating caches save normally.
-            let hasWrappedRotating = generationCache.contains { cache in
-                guard let rc = cache as? RotatingKVCache else { return false }
-                return rc.offset > rc.cacheSize
-            }
-            if useCache, let radix = self.radixCache, !inputTokens.isEmpty, !hasWrappedRotating {
+            // Skip save when RotatingKVCache has wrapped past maxCacheSize (#94).
+            if useCache, let radix = self.radixCache, !inputTokens.isEmpty,
+               !self.hasWrappedRotatingCache(generationCache) {
                 let promptLen = inputTokens.count
                 let tSave0 = Date.timeIntervalSinceReferenceDate
                 if debugLogging {
@@ -2350,11 +2344,8 @@ final class MLXModelService: @unchecked Sendable {
 
                         // Save prompt cache state into radix tree.
                         // Skip when RotatingKVCache has wrapped (#94).
-                        let hasWrappedRotating = generationCache.contains { cache in
-                            guard let rc = cache as? RotatingKVCache else { return false }
-                            return rc.offset > rc.cacheSize
-                        }
-                        if useCache, let radix = self.radixCache, !inputTokens.isEmpty, !Task.isCancelled, !hasWrappedRotating {
+                        if useCache, let radix = self.radixCache, !inputTokens.isEmpty, !Task.isCancelled,
+                           !self.hasWrappedRotatingCache(generationCache) {
                             let promptLen = inputTokens.count
                             let tSave0 = Date.timeIntervalSinceReferenceDate
                             for layer in generationCache {
@@ -4517,6 +4508,15 @@ final class MLXModelService: @unchecked Sendable {
 
     private func supportsPhysicalTruncation(_ cache: KVCache) -> Bool {
         !(cache is RotatingKVCache)
+    }
+
+    /// Check if any RotatingKVCache in the array has wrapped past maxCacheSize.
+    /// Wrapped rotating caches cannot be safely saved to the radix tree (#94).
+    private func hasWrappedRotatingCache(_ caches: [KVCache]) -> Bool {
+        caches.contains { cache in
+            guard let rc = cache as? RotatingKVCache else { return false }
+            return rc.offset > rc.cacheSize
+        }
     }
 
     private func restoredMetaState(for cache: KVCache, savedMetaState: [String]?) -> [String]? {
