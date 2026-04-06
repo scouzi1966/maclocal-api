@@ -19,15 +19,30 @@ public enum Chat {
         /// function produced the tool result.
         public var name: String?
 
+        /// Structured tool calls for multi-turn assistant messages.
+        /// Templates like Gemma 4 check `message['tool_calls']` to format
+        /// tool calls in the model's native syntax (e.g. `<|tool_call>...<tool_call|>`).
+        /// Each element: `["function": ["name": String, "arguments": dict/string]]`
+        public var toolCalls: [[String: Any]]?
+
+        /// Structured tool responses for tool result messages.
+        /// Templates like Gemma 4 check `message['tool_responses']` to format
+        /// results in native syntax (e.g. `<|tool_response>...<tool_response|>`).
+        /// Each element: `["name": String, "response": dict/string]`
+        public var toolResponses: [[String: Any]]?
+
         public init(
             role: Role, content: String, images: [UserInput.Image] = [],
-            videos: [UserInput.Video] = [], name: String? = nil
+            videos: [UserInput.Video] = [], name: String? = nil,
+            toolCalls: [[String: Any]]? = nil, toolResponses: [[String: Any]]? = nil
         ) {
             self.role = role
             self.content = content
             self.images = images
             self.videos = videos
             self.name = name
+            self.toolCalls = toolCalls
+            self.toolResponses = toolResponses
         }
 
         public static func system(
@@ -93,6 +108,12 @@ extension MessageGenerator {
         ]
         if let name = message.name {
             msg["name"] = name
+        }
+        if let toolCalls = message.toolCalls {
+            msg["tool_calls"] = toolCalls
+        }
+        if let toolResponses = message.toolResponses {
+            msg["tool_responses"] = toolResponses
         }
         return msg
     }

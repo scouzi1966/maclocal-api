@@ -3980,24 +3980,37 @@ final class MLXModelService: @unchecked Sendable {
             case "assistant":
                 flushSystemParts()
                 if let toolCalls = m.toolCalls, !toolCalls.isEmpty {
-                    // Reconstruct assistant tool-call message as text for the chat template.
-                    // Models expect tool calls in a specific format that the template handles.
-                    var parts: [String] = []
-                    if !text.isEmpty {
-                        parts.append(text)
-                    }
+                    // Pass structured tool calls for templates that check message['tool_calls']
+                    // (e.g. Gemma 4 uses native <|tool_call>...<tool_call|> format).
+                    // Also include text fallback for templates that only read content.
+                    var structuredCalls: [[String: Any]] = []
+                    var textParts: [String] = []
+                    if !text.isEmpty { textParts.append(text) }
                     for tc in toolCalls {
-                        parts.append("<tool_call>\n{\"name\": \"\(tc.function.name)\", \"arguments\": \(tc.function.arguments)}\n</tool_call>")
+                        // Parse arguments string into dict if possible
+                        var argsValue: Any = tc.function.arguments
+                        if let data = tc.function.arguments.data(using: .utf8),
+                           let parsed = try? JSONSerialization.jsonObject(with: data) {
+                            argsValue = parsed
+                        }
+                        structuredCalls.append([
+                            "function": ["name": tc.function.name, "arguments": argsValue]
+                        ])
+                        textParts.append("<tool_call>\n{\"name\": \"\(tc.function.name)\", \"arguments\": \(tc.function.arguments)}\n</tool_call>")
                     }
-                    chatMessages.append(.assistant(parts.joined(separator: "\n")))
+                    var msg = Chat.Message(
+                        role: .assistant,
+                        content: textParts.joined(separator: "\n"),
+                        toolCalls: structuredCalls
+                    )
+                    chatMessages.append(msg)
                 } else {
                     chatMessages.append(.assistant(text))
                 }
             case "tool":
                 flushSystemParts()
-                // Tool result messages — use the vendor's .tool() factory.
-                // Resolve function name from tool_call_id if not provided (OpenAI spec
-                // makes name optional, but some templates like Gemma require it).
+                // Tool result messages — resolve function name from tool_call_id if not
+                // provided (OpenAI spec makes name optional, but templates like Gemma require it).
                 var resolvedName = m.name
                 if resolvedName == nil, let callId = m.toolCallId {
                     for prev in messages {
@@ -4009,13 +4022,25 @@ final class MLXModelService: @unchecked Sendable {
                         }
                     }
                 }
+                // Build structured tool_responses for templates that check message['tool_responses']
+                var toolResponses: [[String: Any]]?
+                if let name = resolvedName {
+                    var responseValue: Any = text
+                    if let data = text.data(using: .utf8),
+                       let parsed = try? JSONSerialization.jsonObject(with: data) {
+                        responseValue = parsed
+                    }
+                    toolResponses = [["name": name, "response": responseValue]]
+                }
+                // Text fallback for templates that only read content
                 let toolContent: String
                 if let name = resolvedName {
                     toolContent = "<tool_response>\n{\"name\": \"\(name)\", \"content\": \(text)}\n</tool_response>"
                 } else {
                     toolContent = text
                 }
-                chatMessages.append(.tool(toolContent, name: resolvedName))
+                var msg = Chat.Message(role: .tool, content: toolContent, name: resolvedName, toolResponses: toolResponses)
+                chatMessages.append(msg)
             default:
                 flushSystemParts()
                 chatMessages.append(.user(text, images: media.images, videos: media.videos))

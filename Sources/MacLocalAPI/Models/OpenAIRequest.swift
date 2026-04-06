@@ -349,6 +349,9 @@ enum AnyCodableValue: Codable, Sendable {
                 if case .null = value { continue } // Strip null-valued keys
                 result[key] = value.toJinjaCompatible()
             }
+            // Strip $schema if present (not used by any chat template)
+            result.removeValue(forKey: "$schema")
+
             // Flatten anyOf/oneOf nullable patterns for Jinja template compatibility.
             // e.g. {"anyOf": [{"type": "string"}, {"type": "null"}]} → {"type": "string"}
             // Templates like Gemma 4 do `value['type'] | upper` which crashes on anyOf dicts.
