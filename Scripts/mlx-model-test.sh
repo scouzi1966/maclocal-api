@@ -117,7 +117,12 @@ set -uo pipefail
 # (e.g. when this script is launched via --smart from an active Claude Code terminal)
 unset CLAUDECODE 2>/dev/null || true
 
-AFM="${AFM_BIN:-afm}"
+# Prefer local build over PATH (Homebrew install may be stale)
+if [ -z "$AFM_BIN" ] && [ -x ".build/arm64-apple-macosx/release/afm" ]; then
+  AFM=".build/arm64-apple-macosx/release/afm"
+else
+  AFM="${AFM_BIN:-afm}"
+fi
 export MACAFM_MLX_MODEL_CACHE="${MACAFM_MLX_MODEL_CACHE:-/Volumes/edata/models/vesta-test-cache}"
 PORT=9877
 DEFAULT_PROMPT="Explain calculus concepts from limits through multivariable calculus with rigorous mathematical notation"
