@@ -197,6 +197,16 @@ When running tests autonomously (Claude Code, Codex, or other AI agents):
 
 ## Architecture Notes
 
+### Metal Buffer Lifecycle (cache materialization every 512 steps)
+
+MLX uses lazy graph evaluation — operations build a compute graph that is only materialized when explicitly requested. In the BatchScheduler decode loop, each step's `cache.update()` does a slice assignment (`self.keys![..., idx, ...] = newKeys`) that creates a new MLXArray under copy-on-write semantics. The old array becomes garbage only if no other reference holds it, but the lazy graph retains intermediate arrays until the next materialization.
+
+With 60 layers x 2 arrays (K+V) = 120 new Metal buffer allocations per decode step, the OS Metal allocation limit (499,000 buffers) is reached after ~4,000 steps — crashing the server with `[metal::malloc] Resource limit exceeded`.
+
+**Fix**: `BatchScheduler.generationLoop()` calls `MLX.eval()` on all cache arrays every 512 decode steps. This materializes all cache state, collapsing the lazy graph and releasing intermediate Metal buffers. The 512-step interval balances buffer pressure against the materialization overhead (~2ms on M3 Ultra).
+
+This is invisible to the model — the arrays hold the same values before and after. It only affects when the GPU physically executes the accumulated operations.
+
 ### MLXModelService
 - `ModelContainer` uses `SerialAccessContainer` (async mutex) for thread-safe model access
 - `container.perform {}` holds lock for entire generation — ensures single-sequence access
