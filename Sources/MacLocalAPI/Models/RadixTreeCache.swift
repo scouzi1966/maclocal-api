@@ -14,7 +14,14 @@ final class KVCacheEntry: @unchecked Sendable {
 
     init(tokens: [Int], layerStates: [[MLXArray]], layerMetaStates: [[String]] = []) {
         self.tokens = tokens
-        self.layerStates = layerStates
+        // Snapshot into standalone contiguous buffers before storing in the radix tree.
+        // Raw MLX slices keep the full backing Metal allocation alive and can also
+        // retain lazy graph links to the live cache buffers from the completed request.
+        let snapshottedStates = layerStates.map { state in
+            state.map { MLX.contiguous($0) }
+        }
+        MLX.eval(snapshottedStates.flatMap { $0 })
+        self.layerStates = snapshottedStates
         self.layerMetaStates = layerMetaStates
         self.lastAccessTime = mach_absolute_time()
     }

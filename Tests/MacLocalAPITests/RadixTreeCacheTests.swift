@@ -184,6 +184,28 @@ struct RadixTreeCacheTests {
         #expect(len == 3)
     }
 
+    @Test("insert snapshots MLXArray views into independent storage")
+    func insertSnapshotsMLXArrayViews() {
+        let cache = RadixTreeCache(modelID: "test", maxEntries: 64)
+        let backing = MLXArray([Int32(10), Int32(20), Int32(30), Int32(40)])
+        let view = backing[..<3]
+
+        cache.insert(tokens: [1, 2, 3], layerStates: [[view]])
+
+        backing[..<3] = MLXArray([Int32(90), Int32(91), Int32(92)])
+        MLX.eval([backing])
+
+        let (prefixLen, states, _) = cache.findPrefix([1, 2, 3])
+        #expect(prefixLen == 3)
+        guard let storedStates = states else {
+            Issue.record("Expected stored radix state")
+            return
+        }
+        #expect(storedStates.count == 1)
+        #expect(storedStates[0].count == 1)
+        #expect(storedStates[0][0].asArray(Int32.self) == [10, 20, 30])
+    }
+
     @Test("insert: partial edge split with remaining tokens")
     func insertSplitWithRemaining() {
         let cache = RadixTreeCache(modelID: "test", maxEntries: 64)
