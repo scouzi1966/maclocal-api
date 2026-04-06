@@ -173,6 +173,8 @@ def config_panel(r):
     label = r.get("label", "")
     if label:
         api_badges.append(config_badge("variant", label, "#a371f7"))
+    if r.get("is_baseline"):
+        api_badges.append(config_badge("baseline", "yes", "#8b949e"))
     temp = r.get("temperature", "")
     if temp != "":
         api_badges.append(config_badge("temp", temp, "#d29922"))

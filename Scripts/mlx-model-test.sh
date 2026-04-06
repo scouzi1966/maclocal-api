@@ -801,7 +801,8 @@ if run.get('skip', False):
     print(json.dumps({'skip': True}))
     sys.exit(0)
 
-# Merge prompts: all + run-specific
+# Merge prompts: all + run-specific. Track baseline count for tagging.
+num_baseline = len(all_prompts)
 prompts = list(all_prompts) + run.get('prompts', [])
 
 # Merge params: defaults < run-specific
@@ -832,6 +833,7 @@ result = {
     'model': run['model'],
     'label': run.get('label', ''),
     'prompts': prompts,
+    'num_baseline': num_baseline,
     'max_tokens': max_tokens,
     'temperature': temperature,
     'system': system,
@@ -949,8 +951,9 @@ import json, sys
 c = json.load(sys.stdin)
 c['display_name'] = sys.argv[1]
 c['prompt_text'] = sys.argv[2]
+c['prompt_idx'] = int(sys.argv[3])
 print(json.dumps(c))
-" "$display_name" "$prompt_text")
+" "$display_name" "$prompt_text" "$pidx")
 
   # Single python3 block: builds OpenAI SDK call, sends request, outputs JSONL result
   METRICS=$(_SEND_CONFIG="$send_config" python3 - "$PORT" "$load_time" "$TIMEOUT_GENERATE" <<'SEND_PYEOF'
@@ -1095,6 +1098,7 @@ try:
         'model': display_name,
         'label': label,
         'prompt': prompt_text,
+        'is_baseline': config.get('prompt_idx', 0) < config.get('num_baseline', 0),
         'status': 'OK',
         'load_time_s': load_time,
         'gen_time_s': round(gen_time, 2),
@@ -1281,6 +1285,8 @@ print(f'API: {api}' if api else 'API: (none)')
 
   readarray -t PROMPTS_ARRAY <<< "$prompt_list"
   num_prompts=${#PROMPTS_ARRAY[@]}
+  local num_baseline
+  num_baseline=$(echo "$run_config" | python3 -c "import json,sys; print(json.load(sys.stdin).get('num_baseline',0))")
 
   for pidx in "${!PROMPTS_ARRAY[@]}"; do
     prompt_text="${PROMPTS_ARRAY[$pidx]}"
@@ -1546,6 +1552,12 @@ IMPORTANT scoring notes:
 - A response that works but has minor formatting issues is still a 4 or 5.
 - Repetitive/looping text is a 2. Completely off-topic or garbled is a 2.
 - Reserve score 1 strictly for: status=FAIL, server crashes, load failures.
+- FORMAT COMPLIANCE: For tests with response_format=json_object or guided-json (afm: --guided-json),
+  the variant-specific prompt output MUST be valid JSON. Plain text output = score 2.
+  The [all] baseline prompt may produce unconstrained text under these variants — that is expected,
+  score it normally on text quality. Only apply format checks to variant-specific prompts.
+- STOP COMPLIANCE: For stop sequence tests, output must NOT contain the stop string past the
+  expected truncation point. If it does, score 2.
 
 Output the block EXACTLY like this (one line, valid JSON array):
 <!-- AI_SCORES [{"i":0,"s":5},{"i":1,"s":3},{"i":2,"s":1}] -->
@@ -1597,6 +1609,11 @@ Scoring rules:
 - For stop sequence tests: output MUST NOT contain the stop string. If it does, score 2.
 - For seed/determinism tests: flag if paired runs differ (but score the content itself).
 - For tool call tests: verify finish_reason="tool_calls" and valid function/args.
+- For response_format=json_object tests: output MUST be valid JSON. Plain text = score 2.
+- For guided-json tests (afm: --guided-json): output MUST be valid JSON matching the schema. Plain text = score 2.
+- For [all] baseline prompts running under a guided-json or response_format variant:
+  the baseline may produce unconstrained text — this is expected. Score the text quality
+  normally but note that format constraints only apply to variant-specific prompts.
 
 Respond with EXACTLY one line of JSON, nothing else:
 {"score": N, "reason": "brief explanation referencing expected outcome"}
@@ -1694,7 +1711,10 @@ $jsonl_line"
             PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" -p - 2>/tmp/smart-${tool}-stderr.log)
             ;;
           codex)
-            PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" exec --skip-git-repo-check - 2>/tmp/smart-${tool}-stderr.log)
+            local codex_tmp="/tmp/smart-codex-pertest-$$.txt"
+            echo "$PERTEST_INPUT" > "$codex_tmp"
+            PERTEST_SCORE=$("$tool" exec --skip-git-repo-check "Read and score the test result in $codex_tmp. Output exactly one JSON line: {\"score\": N, \"reason\": \"...\"}" 2>/tmp/smart-${tool}-stderr.log)
+            rm -f "$codex_tmp"
             ;;
           afm)
             PERTEST_SCORE=$("$AFM" -s "$PERTEST_INPUT" 2>/tmp/smart-${tool}-stderr.log)
@@ -1795,13 +1815,9 @@ $SMART_TEST_FILE_SECTION
           "$tool" -p "$CLAUDE_PROMPT" < "$RESULTS_FILE" > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr.log
           ;;
         codex)
-          # codex exec: prompt as argument, data file path embedded in prompt
-          "$tool" exec --skip-git-repo-check "$ANALYSIS_PROMPT
-$SMART_TEST_FILE_SECTION
-
---- JSONL DATA (read from file) ---
-File: $RESULTS_FILE
-$(cat "$RESULTS_FILE")" > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr.log
+          # codex exec: use temp file to avoid ARG_MAX limit on command line
+          # (91+ test results with full responses easily exceed OS argument length)
+          "$tool" exec --skip-git-repo-check "Read and follow the analysis instructions in $SMART_INPUT. Score every JSONL entry and output the AI_SCORES block as specified." > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr.log
           ;;
         afm)
           # afm uses Apple Foundation Models — context window is limited (~4K tokens).
