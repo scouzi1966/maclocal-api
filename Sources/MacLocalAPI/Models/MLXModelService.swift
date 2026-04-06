@@ -1690,8 +1690,16 @@ final class MLXModelService: @unchecked Sendable {
                 print("[\(ts())] [KVCache] Timing: TTFT=\(String(format: "%.3f", ttft))s total=\(String(format: "%.3f", total))s prompt_tokens=\(promptTok) gen_tokens=\(genTok)")
             }
 
-            // Save prompt cache state into radix tree
-            if useCache, let radix = self.radixCache, !inputTokens.isEmpty {
+            // Save prompt cache state into radix tree.
+            // Skip save when RotatingKVCache has wrapped past maxCacheSize — the
+            // trim/truncate/state-read cycle on wrapped rotating caches corrupts
+            // internal MLX state, causing the next request's prefill to SIGTRAP.
+            // (#94). Non-rotating models and pre-wrap rotating caches save normally.
+            let hasWrappedRotating = generationCache.contains { cache in
+                guard let rc = cache as? RotatingKVCache else { return false }
+                return rc.offset > rc.cacheSize
+            }
+            if useCache, let radix = self.radixCache, !inputTokens.isEmpty, !hasWrappedRotating {
                 let promptLen = inputTokens.count
                 let tSave0 = Date.timeIntervalSinceReferenceDate
                 if debugLogging {
@@ -2340,8 +2348,13 @@ final class MLXModelService: @unchecked Sendable {
                         var saveTruncateTime: Double? = nil
                         var saveInsertTime: Double? = nil
 
-                        // Save prompt cache state into radix tree
-                        if useCache, let radix = self.radixCache, !inputTokens.isEmpty, !Task.isCancelled {
+                        // Save prompt cache state into radix tree.
+                        // Skip when RotatingKVCache has wrapped (#94).
+                        let hasWrappedRotating = generationCache.contains { cache in
+                            guard let rc = cache as? RotatingKVCache else { return false }
+                            return rc.offset > rc.cacheSize
+                        }
+                        if useCache, let radix = self.radixCache, !inputTokens.isEmpty, !Task.isCancelled, !hasWrappedRotating {
                             let promptLen = inputTokens.count
                             let tSave0 = Date.timeIntervalSinceReferenceDate
                             for layer in generationCache {
