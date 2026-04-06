@@ -145,7 +145,12 @@ actor BatchScheduler {
             self.inputTokens = inputTokens
             self.cachedTokens = cachedTokens
             self.prefillCaches = prefillCaches
-            self.prefillStates = prefillCaches.map { $0.state }
+            // Snapshot prefill KV state for radix cache save.
+            // Must contiguous-copy the arrays — MLX sliced views share the underlying
+            // buffer with batchCaches, so batched decode mutations would corrupt the snapshot.
+            self.prefillStates = prefillCaches.map { cache in
+                cache.state.map { MLX.contiguous($0) }
+            }
             self.prefillMetaStates = prefillCaches.map { $0.metaState }
             self.lastTokenId = lastTokenId
             self.lastTokenArray = lastTokenArray
@@ -750,6 +755,15 @@ actor BatchScheduler {
             totalTokensGenerated += activeB
             if totalTokensGenerated % 1024 < activeB {
                 Memory.clearCache()
+            }
+
+            // Periodically eval cache arrays to collapse the lazy compute graph.
+            // Without this, slice-assignment in cache.update() accumulates ~120 new
+            // Metal buffers per step (60 layers × 2 K/V). At the OS limit of 499K
+            // buffers, the server crashes after ~4000 steps. Eval every 512 steps
+            // materializes the arrays and releases graph intermediates.
+            if stepCount % 512 == 0 {
+                eval(batchCaches.flatMap { $0.innerState() })
             }
 
             // Yield rarely — just for cooperative scheduling / graceful shutdown.

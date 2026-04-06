@@ -170,11 +170,42 @@ Server-level single-slot token-level prefix matching (llama.cpp style). `PromptC
 ### Supported Tool Call Formats
 Defined in `vendor/.../ToolCallFormat.swift`: `json`, `lfm2`, `xmlFunction`, `glm4`, `gemma`, `kimiK2`, `minimaxM2`. Auto-detected from `model_type` in config.json via `ToolCallFormat.infer()`.
 
+## Testing (Autonomous Agent Protocol)
+
+When running tests autonomously (Claude Code, Codex, or other AI agents):
+
+1. **Inform the user of intent first** — state model, port, mode, expected duration before proceeding
+2. **End-to-end control** — start server, run tests, parse results, diagnose failures, fix, re-test autonomously
+3. **End-to-end visibility** — log intermediate results, show pass/fail, surface actual errors
+4. **Port 9999** — ToolCall-15 browser GUI is hardcoded to port 9999. Always use this port for tool-call testing.
+5. **Full model names for batch endpoint** — `POST /v1/batch/completions` requires the full HuggingFace model ID (e.g., `mlx-community/gemma-4-31b-it-4bit`), not short aliases. The regular `/v1/chat/completions` accepts aliases but batch does not.
+6. **Batch request format** — requires `custom_id` per request: `{"requests":[{"custom_id":"tc-01","body":{...}}]}`
+
+### Test Suites Available
+
+| Suite | Command | Description |
+|-------|---------|-------------|
+| Assertions | `./Scripts/test-assertions-multi.sh --models MODEL --tier standard` | 65+ deterministic pass/fail tests |
+| ToolCall Matrix | `./Scripts/test-toolcall-matrix.sh --models MODEL --port 9999` | Tool call accuracy across parser configs |
+| Promptfoo Agentic | `./Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh` | 137 cases across 16 configs |
+| Batch Validation | `./Scripts/feature-mlx-concurrent-batch/validate_responses.py` | Known-answer correctness at B=1,2,4,8 |
+| Smart Analysis | `./Scripts/mlx-model-test.sh` | AI-judge quality scoring |
+
 ## Coding Rules
 
 - **No magic numbers.** Define numeric constants (timeouts, buffer sizes, thresholds, retry counts, port numbers, etc.) as named constants at the top of the file or in a shared `Constants` enum. Never hard-code literal values in logic. Example: use `static let slotQueueTimeout: TimeInterval = 240` not `timeout: 240` inline.
 
 ## Architecture Notes
+
+### Metal Buffer Lifecycle (cache materialization every 512 steps)
+
+MLX uses lazy graph evaluation — operations build a compute graph that is only materialized when explicitly requested. In the BatchScheduler decode loop, each step's `cache.update()` does a slice assignment (`self.keys![..., idx, ...] = newKeys`) that creates a new MLXArray under copy-on-write semantics. The old array becomes garbage only if no other reference holds it, but the lazy graph retains intermediate arrays until the next materialization.
+
+With 60 layers x 2 arrays (K+V) = 120 new Metal buffer allocations per decode step, the OS Metal allocation limit (499,000 buffers) is reached after ~4,000 steps — crashing the server with `[metal::malloc] Resource limit exceeded`.
+
+**Fix**: `BatchScheduler.generationLoop()` calls `MLX.eval()` on all cache arrays every 512 decode steps. This materializes all cache state, collapsing the lazy graph and releasing intermediate Metal buffers. The 512-step interval balances buffer pressure against the materialization overhead (~2ms on M3 Ultra).
+
+This is invisible to the model — the arrays hold the same values before and after. It only affects when the GPU physically executes the accumulated operations.
 
 ### MLXModelService
 - `ModelContainer` uses `SerialAccessContainer` (async mutex) for thread-safe model access
