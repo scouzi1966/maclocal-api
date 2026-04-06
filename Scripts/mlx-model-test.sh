@@ -118,7 +118,7 @@ set -uo pipefail
 unset CLAUDECODE 2>/dev/null || true
 
 # Prefer local build over PATH (Homebrew install may be stale)
-if [ -z "$AFM_BIN" ] && [ -x ".build/arm64-apple-macosx/release/afm" ]; then
+if [ -z "${AFM_BIN:-}" ] && [ -x ".build/arm64-apple-macosx/release/afm" ]; then
   AFM=".build/arm64-apple-macosx/release/afm"
 else
   AFM="${AFM_BIN:-afm}"
