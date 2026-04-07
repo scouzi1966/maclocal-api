@@ -1653,14 +1653,18 @@ for line in lines:
     if stripped.startswith('#'):
         comment_buf.append(stripped)
     elif re.match(r'^\[.+\]$', stripped):
-        # Extract label from [org/model @ label]
-        m = re.match(r'^\[(.+?)(?:\s*@\s*(.+?))?\]$', stripped)
-        if m:
-            label = (m.group(2) or '').strip()
-            if label:
-                # Keep the AI: comments + section header
-                spec_lines = [c for c in comment_buf if '# AI:' in c or c.startswith('# ---')]
-                specs[label] = '\n'.join(spec_lines) if spec_lines else ''
+        # Extract label from [org/model @ label] OR [@ label] (template mode)
+        m_template = re.match(r'^\[@\s*(.+?)\s*\]$', stripped)
+        m_named = re.match(r'^\[(.+?)\s*@\s*(.+?)\]$', stripped)
+        label = ''
+        if m_template:
+            label = m_template.group(1).strip()
+        elif m_named:
+            label = m_named.group(2).strip()
+        if label:
+            # Keep the AI: comments + section header
+            spec_lines = [c for c in comment_buf if '# AI:' in c or c.startswith('# ---')]
+            specs[label] = '\n'.join(spec_lines) if spec_lines else ''
         comment_buf = []
     else:
         if not stripped.startswith(('temperature:', 'max_tokens:', 'stop:', 'afm:', 'system:',
