@@ -2016,7 +2016,7 @@ fi
 if ! $NO_REPORT; then
   echo "=== Generating HTML report ==="
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  REPORT_OUTPUT_DIR="$(pwd)" SMART_TIMESTAMP="${SMART_TIMESTAMP:-}" python3 "$SCRIPT_DIR/generate-report.py"
+  RESULTS_FILE="$RESULTS_FILE" REPORT_OUTPUT_DIR="$(pwd)" SMART_TIMESTAMP="${SMART_TIMESTAMP:-}" python3 "$SCRIPT_DIR/generate-report.py"
 else
   echo "=== Skipping HTML report (--no-report) ==="
   echo "  JSONL: $RESULTS_FILE"

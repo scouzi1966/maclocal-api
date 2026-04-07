@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 import json, html, datetime, re, os, sys, shutil, subprocess
 
+# Read JSONL path from env (set by mlx-model-test.sh) or fall back to hardcoded path
+RESULTS_FILE = os.environ.get("RESULTS_FILE", "/tmp/mlx-test-results.jsonl")
+
 results = []
 run_meta = {}
-with open("/tmp/mlx-test-results.jsonl") as f:
+with open(RESULTS_FILE) as f:
     for line in f:
         line = line.strip()
         if line:
@@ -689,7 +692,7 @@ with open(html_path, "w") as f:
     f.write(report)
 
 # Copy results JSONL alongside the HTML report with matching timestamp
-shutil.copy2("/tmp/mlx-test-results.jsonl", jsonl_path)
+shutil.copy2(RESULTS_FILE, jsonl_path)
 
 print(f"Report: {html_path}")
 print(f"  Data: {jsonl_path}")
