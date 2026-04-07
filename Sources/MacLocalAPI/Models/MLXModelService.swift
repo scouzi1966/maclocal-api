@@ -132,6 +132,14 @@ final class MLXModelService: @unchecked Sendable {
     /// Server-level default JSON schema from `--guided-json` CLI flag.
     /// Applied to requests that don't specify their own response_format. (#97)
     var defaultGuidedJsonSchema: ResponseFormat?
+
+    /// Resolve the effective response format for an incoming request.
+    /// Per-request `response_format` takes precedence over the server-level
+    /// `--guided-json` default. (#97)
+    func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? {
+        requestFormat ?? defaultGuidedJsonSchema
+    }
+
     var enableGrammarConstraints: Bool = false { didSet { grammarConstraintsActive = enableGrammarConstraints } }
     var trace: Bool = false { didSet { traceLogging = trace } }
     var supportsStrictToolGrammar: Bool {

@@ -117,7 +117,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 }
             }
             // Apply server-level --guided-json default when request omits response_format (#97)
-            let effectiveResponseFormat = chatRequest.responseFormat ?? service.defaultGuidedJsonSchema
+            let effectiveResponseFormat = service.effectiveResponseFormat(requestFormat: chatRequest.responseFormat)
 
             // Detect strict-mode downgrade: user requested grammar enforcement but admin didn't enable the engine
             let grammarDowngraded = MLXModelService.shouldDowngradeGrammarConstraints(
@@ -204,7 +204,7 @@ struct MLXChatCompletionsController: RouteCollection {
             let extractThinking = !rawOutput || isWebUI
 
             if chatRequest.stream == true && streamingEnabled {
-                return try await createStreamingResponse(req: req, chatRequest: chatRequest, extractThinking: extractThinking, grammarDowngraded: grammarDowngraded, requestId: reqId, effectiveResponseFormat: effectiveResponseFormat)
+                return try await createStreamingResponse(req: req, chatRequest: chatRequest, extractThinking: extractThinking, effectiveResponseFormat: effectiveResponseFormat, grammarDowngraded: grammarDowngraded, requestId: reqId)
             }
 
             // In concurrent mode, non-streaming requests currently bypass the
@@ -499,7 +499,7 @@ struct MLXChatCompletionsController: RouteCollection {
         }
     }
 
-    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, extractThinking: Bool, grammarDowngraded: Bool = false, requestId: String = "", effectiveResponseFormat: ResponseFormat? = nil) async throws -> Response {
+    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, extractThinking: Bool, effectiveResponseFormat: ResponseFormat?, grammarDowngraded: Bool = false, requestId: String = "") async throws -> Response {
         let httpResponse = Response(status: .ok)
         httpResponse.headers.add(name: .contentType, value: "text/event-stream")
         httpResponse.headers.add(name: .cacheControl, value: "no-cache")

@@ -79,10 +79,9 @@ struct BatchCompletionsController: RouteCollection {
 
         // Grammar constraint header: check if any request has strict tools/schema
         // Apply server-level --guided-json default for requests without response_format (#97)
-        let serverDefault = service.defaultGuidedJsonSchema
         let anyStrict = batchReq.requests.contains { item in
             MLXModelService.shouldDowngradeGrammarConstraints(
-                responseFormat: item.body.responseFormat ?? serverDefault,
+                responseFormat: service.effectiveResponseFormat(requestFormat: item.body.responseFormat),
                 tools: item.body.tools,
                 supportsStrictToolGrammar: service.supportsStrictToolGrammar,
                 enableGrammarConstraints: service.enableGrammarConstraints
@@ -185,7 +184,7 @@ struct BatchCompletionsController: RouteCollection {
             let effectiveModel = service.normalizeModel(chatReq.model ?? modelID)
             let effectiveMaxTokens = chatReq.effectiveMaxTokens ?? maxTokens ?? Int.max
             // Apply server-level --guided-json default when request omits response_format (#97)
-            let effectiveResponseFormat = chatReq.responseFormat ?? service.defaultGuidedJsonSchema
+            let effectiveResponseFormat = service.effectiveResponseFormat(requestFormat: chatReq.responseFormat)
 
             let streamResult = try await service.generateStreaming(
                 model: effectiveModel,
