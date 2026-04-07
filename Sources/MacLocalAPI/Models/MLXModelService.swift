@@ -129,6 +129,9 @@ final class MLXModelService: @unchecked Sendable {
     var kvBits: Int?
     var kvEvictionPolicy: String = "none"  // "none" or "streaming"
     var enablePrefixCaching: Bool = false
+    /// Server-level default JSON schema from `--guided-json` CLI flag.
+    /// Applied to requests that don't specify their own response_format. (#97)
+    var defaultGuidedJsonSchema: ResponseFormat?
     var enableGrammarConstraints: Bool = false { didSet { grammarConstraintsActive = enableGrammarConstraints } }
     var trace: Bool = false { didSet { traceLogging = trace } }
     var supportsStrictToolGrammar: Bool {

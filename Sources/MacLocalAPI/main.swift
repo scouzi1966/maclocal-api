@@ -507,7 +507,8 @@ struct MlxCommand: ParsableCommand {
         }
 
         if let guidedJson {
-            _ = try parseGuidedJsonSchema(guidedJson)
+            let schema = try parseGuidedJsonSchema(guidedJson)
+            service.defaultGuidedJsonSchema = ResponseFormat(type: "json_schema", jsonSchema: schema)
         }
 
         _ = try service.revalidateRegistry()

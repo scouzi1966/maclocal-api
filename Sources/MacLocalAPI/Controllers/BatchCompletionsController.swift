@@ -78,9 +78,11 @@ struct BatchCompletionsController: RouteCollection {
         response.headers.add(name: .accessControlAllowOrigin, value: "*")
 
         // Grammar constraint header: check if any request has strict tools/schema
+        // Apply server-level --guided-json default for requests without response_format (#97)
+        let serverDefault = service.defaultGuidedJsonSchema
         let anyStrict = batchReq.requests.contains { item in
             MLXModelService.shouldDowngradeGrammarConstraints(
-                responseFormat: item.body.responseFormat,
+                responseFormat: item.body.responseFormat ?? serverDefault,
                 tools: item.body.tools,
                 supportsStrictToolGrammar: service.supportsStrictToolGrammar,
                 enableGrammarConstraints: service.enableGrammarConstraints
@@ -182,6 +184,8 @@ struct BatchCompletionsController: RouteCollection {
 
             let effectiveModel = service.normalizeModel(chatReq.model ?? modelID)
             let effectiveMaxTokens = chatReq.effectiveMaxTokens ?? maxTokens ?? Int.max
+            // Apply server-level --guided-json default when request omits response_format (#97)
+            let effectiveResponseFormat = chatReq.responseFormat ?? service.defaultGuidedJsonSchema
 
             let streamResult = try await service.generateStreaming(
                 model: effectiveModel,
@@ -198,7 +202,7 @@ struct BatchCompletionsController: RouteCollection {
                 topLogprobs: chatReq.topLogprobs,
                 tools: chatReq.tools,
                 stop: chatReq.stop,
-                responseFormat: chatReq.responseFormat,
+                responseFormat: effectiveResponseFormat,
                 chatTemplateKwargs: chatReq.chatTemplateKwargs
             )
 
@@ -215,7 +219,7 @@ struct BatchCompletionsController: RouteCollection {
                 var hasToolCalls = false
                 var fullText = ""
                 let deferStructuredOutputContent =
-                    MLXChatCompletionsController.requiresStructuredOutputSanitization(chatReq.responseFormat)
+                    MLXChatCompletionsController.requiresStructuredOutputSanitization(effectiveResponseFormat)
 
                 // Think extraction state
                 var thinkBuffer = ""
@@ -313,7 +317,7 @@ struct BatchCompletionsController: RouteCollection {
                         if deferStructuredOutputContent && !hasToolCalls && chunk.toolCalls == nil {
                             let sanitized = MLXChatCompletionsController.sanitizeStructuredOutput(
                                 fullText,
-                                responseFormat: chatReq.responseFormat
+                                responseFormat: effectiveResponseFormat
                             )
                             if !sanitized.isEmpty {
                                 delta["content"] = sanitized
@@ -365,7 +369,7 @@ struct BatchCompletionsController: RouteCollection {
                 } else {
                     message["content"] = MLXChatCompletionsController.sanitizeStructuredOutput(
                         collected.content ?? "",
-                        responseFormat: chatReq.responseFormat
+                        responseFormat: effectiveResponseFormat
                     )
                     if let reasoning = collected.reasoningContent {
                         message["reasoning_content"] = reasoning

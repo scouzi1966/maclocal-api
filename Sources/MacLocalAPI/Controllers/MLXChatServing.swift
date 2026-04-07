@@ -31,6 +31,7 @@ protocol MLXChatServing {
     var thinkEndTag: String? { get }
     var fixToolArgs: Bool { get }
     var enableGrammarConstraints: Bool { get }
+    var defaultGuidedJsonSchema: ResponseFormat? { get }
 
     func normalizeModel(_ raw: String) -> String
     func resolvedToolCallParser(logBypass: Bool) -> String?
