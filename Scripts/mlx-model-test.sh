@@ -126,7 +126,7 @@ fi
 export MACAFM_MLX_MODEL_CACHE="${MACAFM_MLX_MODEL_CACHE:-/Volumes/edata/models/vesta-test-cache}"
 PORT=9877
 DEFAULT_PROMPT="Explain calculus concepts from limits through multivariable calculus with rigorous mathematical notation"
-RESULTS_FILE="/tmp/mlx-test-results.jsonl"
+RESULTS_FILE="/tmp/mlx-test-results-$(date +%Y%m%d_%H%M%S)-$$.jsonl"
 DEFAULT_MAX_TOKENS=5000
 DEFAULT_TEMPERATURE=0.7
 TIMEOUT_LOAD=900     # seconds to wait for server to start (15 min)
@@ -1253,7 +1253,7 @@ print(f'API: {api}' if api else 'API: (none)')
   fi
 
   # Start server
-  SERVER_LOG="/tmp/mlx-server-${idx}.log"
+  SERVER_LOG="/tmp/mlx-server-${idx}-$$.log"
   load_start=$SECONDS
   "$AFM" mlx -m "$model" -p "$PORT" ${SERVER_EXTRA_ARGS[@]+"${SERVER_EXTRA_ARGS[@]}"} > "$SERVER_LOG" 2>&1 &
   SERVER_PID=$!
@@ -1713,19 +1713,19 @@ $jsonl_line"
 
         case "$tool" in
           claude)
-            PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" -p - 2>/tmp/smart-${tool}-stderr.log)
+            PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" -p - 2>/tmp/smart-${tool}-stderr-$$.log)
             ;;
           codex)
-            CODEX_TMP="/tmp/smart-codex-pertest-$$.txt"
+            CODEX_TMP="$(mktemp /tmp/smart-codex-pertest-XXXXXX.txt)"
             echo "$PERTEST_INPUT" > "$CODEX_TMP"
-            PERTEST_SCORE=$("$tool" exec --skip-git-repo-check "Read and score the test result in $CODEX_TMP. Output exactly one JSON line: {\"score\": N, \"reason\": \"...\"}" 2>/tmp/smart-${tool}-stderr.log)
+            PERTEST_SCORE=$("$tool" exec --skip-git-repo-check "Read and score the test result in $CODEX_TMP. Output exactly one JSON line: {\"score\": N, \"reason\": \"...\"}" 2>/tmp/smart-${tool}-stderr-$$.log)
             rm -f "$CODEX_TMP"
             ;;
           afm)
-            PERTEST_SCORE=$("$AFM" -s "$PERTEST_INPUT" 2>/tmp/smart-${tool}-stderr.log)
+            PERTEST_SCORE=$("$AFM" -s "$PERTEST_INPUT" 2>/tmp/smart-${tool}-stderr-$$.log)
             ;;
           *)
-            PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" 2>/tmp/smart-${tool}-stderr.log)
+            PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" 2>/tmp/smart-${tool}-stderr-$$.log)
             ;;
         esac
 
@@ -1817,12 +1817,12 @@ print('\n'.join(report_lines))
 $SMART_TEST_FILE_SECTION
 
 --- JSONL DATA ---"
-          "$tool" -p "$CLAUDE_PROMPT" < "$RESULTS_FILE" > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr.log
+          "$tool" -p "$CLAUDE_PROMPT" < "$RESULTS_FILE" > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr-$$.log
           ;;
         codex)
           # codex exec: use temp file to avoid ARG_MAX limit on command line
           # (91+ test results with full responses easily exceed OS argument length)
-          "$tool" exec --skip-git-repo-check "Read and follow the analysis instructions in $SMART_INPUT. Score every JSONL entry and output the AI_SCORES block as specified." > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr.log
+          "$tool" exec --skip-git-repo-check "Read and follow the analysis instructions in $SMART_INPUT. Score every JSONL entry and output the AI_SCORES block as specified." > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr-$$.log
           ;;
         afm)
           # afm uses Apple Foundation Models — context window is limited (~4K tokens).
@@ -1911,7 +1911,7 @@ Test expectation: $afm_spec"
 TEST RESULT:
 $jsonl_line"
 
-            AFM_SCORE=$("$AFM" -s "$AFM_SCORE_PROMPT" 2>/tmp/smart-afm-stderr.log)
+            AFM_SCORE=$("$AFM" -s "$AFM_SCORE_PROMPT" 2>/tmp/smart-afm-stderr-$$.log)
 
             echo "$AFM_SCORE" > "$AFM_SCORES_DIR/score_${line_idx}.txt"
             score_val=$(echo "$AFM_SCORE" | python3 -c "
@@ -1979,7 +1979,7 @@ Produce a brief markdown report:
 
 $AFM_META_DATA
 SUMMARY_PROMPT_END
-)" 2>/tmp/smart-afm-stderr.log)
+)" 2>/tmp/smart-afm-stderr-$$.log)
 
           {
             echo "$AFM_SUMMARY"
@@ -1995,7 +1995,7 @@ SUMMARY_PROMPT_END
 $SMART_TEST_FILE_SECTION
 
 --- JSONL DATA ---"
-          "$tool" -p "$GENERIC_PROMPT" < "$RESULTS_FILE" > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr.log
+          "$tool" -p "$GENERIC_PROMPT" < "$RESULTS_FILE" > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr-$$.log
           ;;
       esac
     fi
