@@ -1716,10 +1716,10 @@ $jsonl_line"
             PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" -p - 2>/tmp/smart-${tool}-stderr.log)
             ;;
           codex)
-            local codex_tmp="/tmp/smart-codex-pertest-$$.txt"
-            echo "$PERTEST_INPUT" > "$codex_tmp"
-            PERTEST_SCORE=$("$tool" exec --skip-git-repo-check "Read and score the test result in $codex_tmp. Output exactly one JSON line: {\"score\": N, \"reason\": \"...\"}" 2>/tmp/smart-${tool}-stderr.log)
-            rm -f "$codex_tmp"
+            CODEX_TMP="/tmp/smart-codex-pertest-$$.txt"
+            echo "$PERTEST_INPUT" > "$CODEX_TMP"
+            PERTEST_SCORE=$("$tool" exec --skip-git-repo-check "Read and score the test result in $CODEX_TMP. Output exactly one JSON line: {\"score\": N, \"reason\": \"...\"}" 2>/tmp/smart-${tool}-stderr.log)
+            rm -f "$CODEX_TMP"
             ;;
           afm)
             PERTEST_SCORE=$("$AFM" -s "$PERTEST_INPUT" 2>/tmp/smart-${tool}-stderr.log)
