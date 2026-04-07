@@ -116,9 +116,12 @@ struct MLXChatCompletionsController: RouteCollection {
                     print("\(Self.red)[\(Self.timestamp())] RECV MLX user prompt:\n  \(truncated)\(Self.reset)"); fflush(stdout)
                 }
             }
+            // Apply server-level --guided-json default when request omits response_format (#97)
+            let effectiveResponseFormat = service.effectiveResponseFormat(requestFormat: chatRequest.responseFormat)
+
             // Detect strict-mode downgrade: user requested grammar enforcement but admin didn't enable the engine
             let grammarDowngraded = MLXModelService.shouldDowngradeGrammarConstraints(
-                responseFormat: chatRequest.responseFormat,
+                responseFormat: effectiveResponseFormat,
                 tools: chatRequest.tools,
                 supportsStrictToolGrammar: service.supportsStrictToolGrammar,
                 enableGrammarConstraints: service.enableGrammarConstraints
@@ -201,7 +204,7 @@ struct MLXChatCompletionsController: RouteCollection {
             let extractThinking = !rawOutput || isWebUI
 
             if chatRequest.stream == true && streamingEnabled {
-                return try await createStreamingResponse(req: req, chatRequest: chatRequest, extractThinking: extractThinking, grammarDowngraded: grammarDowngraded, requestId: reqId)
+                return try await createStreamingResponse(req: req, chatRequest: chatRequest, extractThinking: extractThinking, effectiveResponseFormat: effectiveResponseFormat, grammarDowngraded: grammarDowngraded, requestId: reqId)
             }
 
             // In concurrent mode, non-streaming requests currently bypass the
@@ -259,7 +262,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     topLogprobs: chatRequest.topLogprobs,
                     tools: effectiveTools,
                     stop: effectiveStop,
-                    responseFormat: chatRequest.responseFormat,
+                    responseFormat: effectiveResponseFormat,
                     chatTemplateKwargs: chatRequest.chatTemplateKwargs,
                     requestId: reqId
                 )
@@ -369,7 +372,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     topLogprobs: chatRequest.topLogprobs,
                     tools: effectiveTools,
                     stop: effectiveStop,
-                    responseFormat: chatRequest.responseFormat,
+                    responseFormat: effectiveResponseFormat,
                     chatTemplateKwargs: chatRequest.chatTemplateKwargs
                 )
             }
@@ -381,7 +384,7 @@ struct MLXChatCompletionsController: RouteCollection {
             let sanitizeContent: (String) -> String = {
                 Self.sanitizeStructuredOutput(
                     self.sanitizeDegenerateTail($0),
-                    responseFormat: chatRequest.responseFormat
+                    responseFormat: effectiveResponseFormat
                 )
             }
             let finalizedTurn = Self.finalizeAssistantTurn(
@@ -496,7 +499,7 @@ struct MLXChatCompletionsController: RouteCollection {
         }
     }
 
-    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, extractThinking: Bool, grammarDowngraded: Bool = false, requestId: String = "") async throws -> Response {
+    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, extractThinking: Bool, effectiveResponseFormat: ResponseFormat?, grammarDowngraded: Bool = false, requestId: String = "") async throws -> Response {
         let httpResponse = Response(status: .ok)
         httpResponse.headers.add(name: .contentType, value: "text/event-stream")
         httpResponse.headers.add(name: .cacheControl, value: "no-cache")
@@ -530,11 +533,11 @@ struct MLXChatCompletionsController: RouteCollection {
             let effectivePresencePenalty = chatRequest.presencePenalty ?? self.presencePenalty
             let effectiveSeed = chatRequest.seed ?? self.seed
             let effectiveStop = self.mergeStopSequences(cliStop: self.stop, apiStop: chatRequest.stop)
-            let deferStructuredOutputContent = Self.requiresStructuredOutputSanitization(chatRequest.responseFormat)
+            let deferStructuredOutputContent = Self.requiresStructuredOutputSanitization(effectiveResponseFormat)
             let sanitizeContent: (String) -> String = {
                 Self.sanitizeStructuredOutput(
                     self.sanitizeDegenerateTail($0),
-                    responseFormat: chatRequest.responseFormat
+                    responseFormat: effectiveResponseFormat
                 )
             }
 
@@ -565,7 +568,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     topLogprobs: chatRequest.topLogprobs,
                     tools: effectiveTools,
                     stop: effectiveStop,
-                    responseFormat: chatRequest.responseFormat,
+                    responseFormat: effectiveResponseFormat,
                     chatTemplateKwargs: chatRequest.chatTemplateKwargs,
                     requestId: streamReqId
                 )
