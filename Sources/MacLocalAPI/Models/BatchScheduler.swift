@@ -787,7 +787,12 @@ actor BatchScheduler {
             // buffers, the server crashes after ~4000 steps. Eval every 512 steps
             // materializes the arrays and releases graph intermediates.
             if stepCount % 512 == 0 {
+                let flushStart = debugTiming ? Date() : Date.distantPast
                 eval(batchCaches.flatMap { $0.innerState() })
+                if debugTiming {
+                    let flushWall = Date().timeIntervalSince(flushStart)
+                    print("[\(batchTs())] [BatchScheduler] EVAL FLUSH (512-step): B=\(slots.count), wall=\(String(format: "%.3f", flushWall))s")
+                }
             }
 
             // Yield rarely — just for cooperative scheduling / graceful shutdown.
@@ -1566,6 +1571,18 @@ actor BatchScheduler {
 
         // Remove from batch cache and state
         let keepIndices = (0..<slots.count).filter { $0 != index }
+        let filterStart = debugTiming ? Date() : Date.distantPast
+        let bBefore = slots.count
+        // Track the max seqLen across BatchKVCacheSimple layers so the probe can
+        // report the B × seqLen product that drives the cost.
+        var probeMaxSeqLen = 0
+        if debugTiming {
+            for c in batchCaches {
+                if let bkv = c as? BatchKVCacheSimple {
+                    probeMaxSeqLen = max(probeMaxSeqLen, bkv.offset)
+                }
+            }
+        }
         if keepIndices.isEmpty {
             batchCaches = []
             batchState = nil
@@ -1604,6 +1621,14 @@ actor BatchScheduler {
         }
 
         Stream.gpu.synchronize()
+        if debugTiming {
+            let filterWall = Date().timeIntervalSince(filterStart)
+            // Only log "expensive" filters (>10ms) to avoid flooding the log
+            // with the thousands of fast filters at small B / low seqLen.
+            if filterWall > 0.010 {
+                print("[\(batchTs())] [BatchScheduler] FILTER: B_before=\(bBefore) → \(keepIndices.count), seqLen=\(probeMaxSeqLen), wall=\(String(format: "%.3f", filterWall))s")
+            }
+        }
         if debugTiming {
             let totalTime = Date().timeIntervalSince(finishStart) * 1000
             let cacheTime = Date().timeIntervalSince(cacheStart) * 1000
