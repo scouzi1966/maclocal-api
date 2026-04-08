@@ -240,8 +240,21 @@ sed -i '' "s|url \".*\"|url \"${DOWNLOAD_URL}\"|" afm-next.rb
 sed -i '' "s/version \".*\"/version \"${VERSION}\"/" afm-next.rb
 sed -i '' "s/sha256 \".*\"/sha256 \"${SHA256}\"/" afm-next.rb
 
-git add afm-next.rb
-git commit -m "afm-next ${VERSION} (${SHORT_SHA})"
+# Also emit a pinned versioned formula (afm-next@YYYYMMDD.rb) and prune older nightlies
+# beyond the last 10. This lets users do `brew install scouzi1966/afm/afm-next@20260408`
+# for reproducible installs.
+cd "$ROOT_DIR"
+if [ -x "$SCRIPT_DIR/generate-tap-versioned.sh" ]; then
+  log_info "Generating versioned nightly formula afm-next@${DATE}.rb"
+  TAP_DIR="$TAP_DIR" "$SCRIPT_DIR/generate-tap-versioned.sh" \
+    --add-next "$RELEASE_TAG" "$VERSION" "$DOWNLOAD_URL" "$SHA256"
+fi
+cd "$TAP_DIR"
+
+git add afm-next.rb "afm-next@${DATE}.rb" 2>/dev/null || true
+# If prune removed older files, stage the deletions too
+git add -u .
+git commit -m "afm-next ${VERSION} (${SHORT_SHA}) + pinned afm-next@${DATE}"
 git push
 
 log_info "Tap updated"
