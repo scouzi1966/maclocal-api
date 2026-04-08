@@ -242,8 +242,16 @@ public struct TopPSampler: LogitSampler {
             let probs = softmax(logits / temp, axis: -1)
             let sortedIndices = argSort(probs, axis: -1)
 
-            // probs shape is [B,V] and after take it will be [1, B, V], so we squeeze it back to [B, V]
-            let sortedProbs = take(probs, sortedIndices, axis: -1).squeezed(axis: 0)
+            // Handle both 1D [vocabSize] (BatchScheduler per-slot decode) and 2D [1, vocabSize]
+            // (single-sequence path). The 2D path goes through `take` + squeeze which assumes
+            // a leading singleton; the 1D path uses `takeAlong` for a direct gather along axis -1.
+            let sortedProbs: MLXArray
+            if logits.ndim == 1 {
+                sortedProbs = takeAlong(probs, sortedIndices, axis: -1)
+            } else {
+                // probs shape is [B,V] and after take it will be [1, B, V], so we squeeze it back to [B, V]
+                sortedProbs = take(probs, sortedIndices, axis: -1).squeezed(axis: 0)
+            }
 
             let cumulativeProbs = cumsum(sortedProbs, axis: -1)
 
@@ -251,7 +259,11 @@ public struct TopPSampler: LogitSampler {
                 cumulativeProbs .> (1 - topP), sortedProbs, zeros(like: sortedProbs))
 
             let sortedToken = categorical(log(topProbs))
-            return sortedIndices.squeezed(axis: 0)[sortedToken]
+            if logits.ndim == 1 {
+                return sortedIndices[sortedToken]
+            } else {
+                return sortedIndices.squeezed(axis: 0)[sortedToken]
+            }
         }
     }
 }
