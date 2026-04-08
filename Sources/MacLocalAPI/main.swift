@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import Darwin
+import MLXLMCommon
 
 // Global references for signal handling
 private var globalServer: Server?
@@ -189,7 +190,8 @@ struct MlxCommand: ParsableCommand {
           --raw: Output raw model text without extracting <think> tags
           --vlm: Force load as vision model (VLM) instead of text-only LLM
           --media: Image/video paths for VLM single-prompt mode (implies --vlm)
-          --kv-bits: Quantize KV cache (4 or 8 bits) to reduce memory
+          --kv-bits: Quantize KV cache to this bit-width. Fractional values auto-enable TurboQuant.
+          --kv-quant-scheme: KV cache quantization backend: uniform or turboquant
           --prefill-step-size: Prompt tokens per GPU pass (default: 1024)
           --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
           --tool-call-parser: Override tool call format (afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml)
@@ -274,6 +276,7 @@ struct MlxCommand: ParsableCommand {
           - afm mlx -m org/model --vlm --media photo.jpg -s "Describe this image"
           - afm mlx -m org/model --no-think --tool-call-parser qwen3_xml
           - afm mlx -m org/model --kv-bits 4 --enable-prefix-caching
+          - afm mlx -m org/model --kv-bits 3.5 --kv-quant-scheme turboquant
           - 'curl http://127.0.0.1:9999/v1/chat/completions -d ''{"model":"m","messages":[{"role":"user","content":"Hi"}],"stream":true}'''
           - MACAFM_MLX_MODEL_CACHE=/path/to/cache afm mlx -m org/model
         ---
@@ -342,8 +345,10 @@ struct MlxCommand: ParsableCommand {
     var repetitionPenalty: Double?
     @Option(name: .long, help: "KV cache size (compatibility)")
     var maxKVSize: Int?
-    @Option(name: .long, help: "Quantize KV cache to this many bits (4 or 8) to reduce memory usage")
-    var kvBits: Int?
+    @Option(name: .long, help: "Quantize KV cache to this bit-width. Integer values use uniform quantization by default; fractional values auto-enable TurboQuant.")
+    var kvBits: Double?
+    @Option(name: .long, help: "KV cache quantization backend: uniform or turboquant. Fractional --kv-bits values use turboquant automatically.")
+    var kvQuantScheme: String = KVQuantizationScheme.uniform.rawValue
     @Option(name: .long, help: "Prefill step size — number of prompt tokens processed per GPU pass (default: 2048)")
     var prefillStepSize: Int?
     @Flag(name: .long, help: "Trust remote code (compatibility)")
@@ -458,12 +463,22 @@ struct MlxCommand: ParsableCommand {
 
         emitCompatibilityWarnings()
 
+        guard let parsedKVQuantScheme = normalizedKVQuantScheme(kvQuantScheme) else {
+            fputs("Error: --kv-quant-scheme must be 'uniform' or 'turboquant'\n", stderr)
+            throw ExitCode.failure
+        }
+        if let kvBits, kvBits <= 0 {
+            fputs("Error: --kv-bits must be greater than 0\n", stderr)
+            throw ExitCode.failure
+        }
+
         let resolver = MLXCacheResolver()
         let service = MLXModelService(resolver: resolver)
         service.toolCallParser = toolCallParser
         service.fixToolArgs = fixToolArgs
         service.forceVLM = vlm || !media.isEmpty
-        service.kvBits = kvBits
+        service.kvBits = kvBits.map(Float.init)
+        service.kvQuantScheme = parsedKVQuantScheme
         if let prefillStepSize { service.prefillStepSize = prefillStepSize }
         service.kvEvictionPolicy = kvEviction ?? "none"
         service.enablePrefixCaching = enablePrefixCaching
@@ -686,6 +701,10 @@ struct MlxCommand: ParsableCommand {
         signal(SIGTERM, handleShutdown)
         while shouldKeepRunning && runLoop.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) {}
         print("Server shutdown complete.")
+    }
+
+    private func normalizedKVQuantScheme(_ value: String) -> KVQuantizationScheme? {
+        KVQuantizationScheme(rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
     }
 
     private func runSinglePrompt(_ prompt: String, service: MLXModelService, modelID: String, mediaPaths: [String] = []) throws {

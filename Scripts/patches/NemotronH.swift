@@ -761,7 +761,7 @@ public class NemotronHModel: Module, LLMModel, KVCacheDimensionProvider, LoRAMod
             case .mamba:
                 return MambaCache()
             case .attention:
-                return KVCacheSimple()
+                return makeAttentionKVCache(parameters: parameters)
             case .mlp, .moe:
                 return nil  // No cache needed for MLP/MoE layers
             }
