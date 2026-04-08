@@ -1,0 +1,102 @@
+{"index": 1, "group": "UnitTest", "name": "swift test execution", "status": "FAIL", "duration_ms": 78113, "tier": "unit"}
+{"index": 2, "group": "Preflight", "name": "Binary exists at .build/release/afm", "status": "PASS", "duration_ms": 17, "tier": "unit"}
+{"index": 3, "group": "Preflight", "name": "Server reachable at http://127.0.0.1:9998", "status": "PASS", "duration_ms": 26, "tier": "unit"}
+{"index": 4, "group": "Lifecycle", "name": "/v1/models contains model ID", "status": "PASS", "duration_ms": 45, "tier": "unit"}
+{"index": 5, "group": "Lifecycle", "name": "Basic completion returns content", "status": "PASS", "duration_ms": 4757, "tier": "unit"}
+{"index": 6, "group": "Stop", "name": "Stop string '5' absent from output", "status": "PASS", "duration_ms": 1720, "tier": "unit"}
+{"index": 7, "group": "Stop", "name": "finish_reason is 'stop' with stop sequence", "status": "PASS", "duration_ms": 37, "tier": "unit"}
+{"index": 8, "group": "Stop", "name": "Multi-word stop 'and' truncates correctly", "status": "PASS", "duration_ms": 1724, "tier": "unit"}
+{"index": 9, "group": "Stop", "name": "Stop on newline produces single line", "status": "PASS", "duration_ms": 1679, "tier": "unit"}
+{"index": 10, "group": "Stop", "name": "Multiple stop sequences [7, 12]", "status": "PASS", "duration_ms": 1695, "tier": "unit"}
+{"index": 11, "group": "Stop", "name": "Empty stop array is no-op", "status": "PASS", "duration_ms": 2867, "tier": "unit"}
+{"index": 12, "group": "Stop", "name": "Streaming: stop string '5' absent", "status": "PASS", "duration_ms": 1749, "tier": "unit"}
+{"index": 13, "group": "Stop", "name": "Stop sequence '3.' truncates list", "status": "PASS", "duration_ms": 901, "tier": "standard"}
+{"index": 14, "group": "Stop", "name": "Stop 'stopped' doesn't fire on 'stopping'", "status": "PASS", "duration_ms": 1964, "tier": "standard"}
+{"index": 15, "group": "Stop", "name": "Stop 'llo' fires mid-word in 'hello'", "status": "PASS", "duration_ms": 2696, "tier": "standard"}
+{"index": 16, "group": "Logprobs", "name": "ChoiceLogprobs JSON schema valid", "status": "PASS", "duration_ms": 125, "tier": "smoke"}
+{"index": 17, "group": "Logprobs", "name": "top_logprobs count <= requested (5)", "status": "PASS", "duration_ms": 129, "tier": "smoke"}
+{"index": 18, "group": "Logprobs", "name": "logprobs=false returns null", "status": "PASS", "duration_ms": 103, "tier": "smoke"}
+{"index": 19, "group": "Logprobs", "name": "top_logprobs=99 returns 400", "status": "PASS", "duration_ms": 27, "tier": "smoke"}
+{"index": 20, "group": "Logprobs", "name": "Streaming logprobs present and valid", "status": "PASS", "duration_ms": 129, "tier": "standard"}
+{"index": 21, "group": "Logprobs", "name": "top_logprobs=0 returns empty arrays", "status": "PASS", "duration_ms": 116, "tier": "standard"}
+{"index": 22, "group": "Think", "name": "reasoning_content present in response", "status": "PASS", "duration_ms": 19, "tier": "smoke"}
+{"index": 23, "group": "Think", "name": "No <think> tags in content field", "status": "PASS", "duration_ms": 39, "tier": "smoke"}
+{"index": 24, "group": "Think", "name": "Streaming: reasoning_content in deltas", "status": "PASS", "duration_ms": 873, "tier": "smoke"}
+{"index": 25, "group": "Think", "name": "Stop sequence doesn't break think extraction", "status": "PASS", "duration_ms": 1679, "tier": "smoke"}
+{"index": 26, "group": "Think", "name": "reasoning_content has meaningful length (>5 chars)", "status": "PASS", "duration_ms": 36, "tier": "smoke"}
+{"index": 27, "group": "Tools", "name": "Basic tool call: finish_reason=tool_calls, valid args", "status": "PASS", "duration_ms": 1246, "tier": "smoke"}
+{"index": 28, "group": "Tools", "name": "tool_choice=none suppresses tool calls", "status": "PASS", "duration_ms": 873, "tier": "smoke"}
+{"index": 29, "group": "Tools", "name": "Tool arguments are valid JSON dict", "status": "PASS", "duration_ms": 677, "tier": "standard"}
+{"index": 30, "group": "Tools", "name": "Streaming: tool calls with finish_reason", "status": "PASS", "duration_ms": 984, "tier": "standard"}
+{"index": 31, "group": "Tools", "name": "Multi-tool: at least 1 tool call with 2 tools", "status": "PASS", "duration_ms": 1222, "tier": "standard"}
+{"index": 32, "group": "Tools", "name": "Array param: todos is JSON array (not string)", "status": "PASS", "duration_ms": 1010, "tier": "standard"}
+{"index": 33, "group": "Tools", "name": "Nullable param: anyOf [string, null] does not crash", "status": "PASS", "duration_ms": 901, "tier": "standard"}
+{"index": 34, "group": "Tools", "name": "Multi-turn: tool result produces valid follow-up", "status": "PASS", "duration_ms": 2124, "tier": "standard"}
+{"index": 35, "group": "Tools", "name": "Multi-turn nullable: full round-trip (anyOf params)", "status": "PASS", "duration_ms": 2583, "tier": "standard"}
+{"index": 36, "group": "Tools", "name": "No tools: normal text response", "status": "PASS", "duration_ms": 229, "tier": "standard"}
+{"index": 37, "group": "Cache", "name": "First unique request: uncached suffix remains", "status": "PASS", "duration_ms": 259, "tier": "standard"}
+{"index": 38, "group": "Cache", "name": "Shared-prefix request: cached_tokens>0", "status": "PASS", "duration_ms": 162, "tier": "standard"}
+{"index": 39, "group": "Cache", "name": "Exact replay: cached response matches cold response", "status": "PASS", "duration_ms": 255, "tier": "standard"}
+{"index": 40, "group": "Cache", "name": "Different unique prompt: uncached suffix remains", "status": "PASS", "duration_ms": 261, "tier": "standard"}
+{"index": 41, "group": "Cache", "name": "Streaming shared-prefix: cached_tokens>0 in usage chunk", "status": "PASS", "duration_ms": 685, "tier": "standard"}
+{"index": 42, "group": "Cache", "name": "Streaming replay: content matches non-streaming warmup", "status": "PASS", "duration_ms": 755, "tier": "standard"}
+{"index": 43, "group": "Cache", "name": "Concurrent x8 shared-prefix: uncached suffix remains on every branch", "status": "FAIL", "duration_ms": 2579, "tier": "standard"}
+{"index": 44, "group": "Cache", "name": "Concurrent x8 shared-prefix: divergent suffix responses stay isolated", "status": "FAIL", "duration_ms": 2579, "tier": "standard"}
+{"index": 45, "group": "Concurrent", "name": "Two simultaneous requests: both 200", "status": "PASS", "duration_ms": 194, "tier": "standard"}
+{"index": 46, "group": "Concurrent", "name": "Three simultaneous requests: all 200", "status": "PASS", "duration_ms": 248, "tier": "standard"}
+{"index": 47, "group": "Error", "name": "Empty messages \u2192 400", "status": "PASS", "duration_ms": 29, "tier": "smoke"}
+{"index": 48, "group": "Error", "name": "Malformed JSON \u2192 400", "status": "PASS", "duration_ms": 26, "tier": "smoke"}
+{"index": 49, "group": "Error", "name": "Missing messages field \u2192 400", "status": "PASS", "duration_ms": 27, "tier": "smoke"}
+{"index": 50, "group": "Error", "name": "response_format json_object returns valid JSON", "status": "PASS", "duration_ms": 190, "tier": "smoke"}
+{"index": 51, "group": "Error", "name": "max_tokens=5 is respected", "status": "PASS", "duration_ms": 107, "tier": "smoke"}
+{"index": 52, "group": "Error", "name": "OPTIONS /v1/chat/completions \u2192 200 (CORS)", "status": "PASS", "duration_ms": 26, "tier": "smoke"}
+{"index": 53, "group": "Error", "name": "developer role accepted (mapped to system)", "status": "PASS", "duration_ms": 4156, "tier": "smoke"}
+{"index": 54, "group": "Kwargs", "name": "enable_thinking=false disables thinking", "status": "PASS", "duration_ms": 100, "tier": "standard"}
+{"index": 55, "group": "Kwargs", "name": "Streaming: enable_thinking=false disables thinking", "status": "PASS", "duration_ms": 93, "tier": "standard"}
+{"index": 56, "group": "Kwargs", "name": "Default (no kwargs) retains thinking", "status": "PASS", "duration_ms": 1409, "tier": "standard"}
+{"index": 57, "group": "Kwargs", "name": "enable_thinking=false (2K tokens) returns content", "status": "PASS", "duration_ms": 91, "tier": "standard"}
+{"index": 58, "group": "Kwargs", "name": "enable_thinking=true explicitly keeps thinking", "status": "PASS", "duration_ms": 1419, "tier": "standard"}
+{"index": 59, "group": "Cache", "name": "Prefix cache reuse across requests", "status": "PASS", "duration_ms": 266, "tier": "standard"}
+{"index": 60, "group": "Cache", "name": "Issue #32: sequential guided-json \u2192 nullable tool (no crash)", "status": "PASS", "duration_ms": 2932, "tier": "standard"}
+{"index": 61, "group": "Cache", "name": "Sequential: 3 nullable tool calls (cache reuse)", "status": "PASS", "duration_ms": 3568, "tier": "standard"}
+{"index": 62, "group": "Cache", "name": "Multi-turn: 5-msg tool conversation with prefix cache", "status": "PASS", "duration_ms": 1490, "tier": "standard"}
+{"index": 63, "group": "Cache", "name": "Long system prompt: 3 sequential requests (prefix reuse)", "status": "PASS", "duration_ms": 4611, "tier": "standard"}
+{"index": 64, "group": "Cache", "name": "Sequential stress: 5 mixed requests (text/tool/json/stream/nullable)", "status": "PASS", "duration_ms": 3253, "tier": "standard"}
+{"index": 65, "group": "Cache", "name": "Multi-turn: 5-turn growing conversation (prefix reuse)", "status": "PASS", "duration_ms": 3928, "tier": "standard"}
+{"index": 66, "group": "Cache", "name": "Streaming + non-streaming sequential (shared prefix)", "status": "PASS", "duration_ms": 942, "tier": "standard"}
+{"index": 67, "group": "Cache", "name": "Issue #32 comprehensive: nullable tool + multi-turn + prefix", "status": "PASS", "duration_ms": 1985, "tier": "standard"}
+{"index": 68, "group": "Structured", "name": "json_schema produces valid schema-matching JSON", "status": "PASS", "duration_ms": 212, "tier": "standard"}
+{"index": 69, "group": "Perf", "name": "TTFT < 5s", "status": "PASS", "duration_ms": 490, "tier": "full"}
+{"index": 70, "group": "Perf", "name": "tok/s > 1 (108.2 tok/s)", "status": "PASS", "duration_ms": 462, "tier": "full"}
+{"index": 71, "group": "Perf", "name": "Long context (~2K tokens) no crash", "status": "PASS", "duration_ms": 4478, "tier": "full"}
+{"index": 72, "group": "Perf", "name": "Very long context (~4K tokens) no NaN/garbage", "status": "PASS", "duration_ms": 4960, "tier": "full"}
+{"index": 73, "group": "XMLTools", "name": "Function name correctly extracted", "status": "PASS", "duration_ms": 1203, "tier": "standard"}
+{"index": 74, "group": "XMLTools", "name": "Parameter values are correct string types", "status": "PASS", "duration_ms": 986, "tier": "standard"}
+{"index": 75, "group": "XMLTools", "name": "Mixed-type params (string+bool+int) parse correctly", "status": "PASS", "duration_ms": 1227, "tier": "standard"}
+{"index": 76, "group": "XMLTools", "name": "Nested object param survives XML parsing", "status": "PASS", "duration_ms": 1422, "tier": "standard"}
+{"index": 77, "group": "XMLTools", "name": "tool_choice=required forces tool call", "status": "PASS", "duration_ms": 952, "tier": "standard"}
+{"index": 78, "group": "XMLTools", "name": "tool_choice={function: get_time} calls correct function", "status": "PASS", "duration_ms": 927, "tier": "standard"}
+{"index": 79, "group": "XMLTools", "name": "Tool call IDs are unique", "status": "PASS", "duration_ms": 1580, "tier": "standard"}
+{"index": 80, "group": "XMLTools", "name": "Streaming: XML tool call assembles valid JSON args", "status": "PASS", "duration_ms": 874, "tier": "standard"}
+{"index": 81, "group": "XMLTools", "name": "Streaming: array param is JSON array (not string)", "status": "PASS", "duration_ms": 1019, "tier": "standard"}
+{"index": 82, "group": "XMLTools", "name": "Tool call matches OpenAI schema (id, type, function.name, function.arguments)", "status": "PASS", "duration_ms": 1227, "tier": "standard"}
+{"index": 83, "group": "AdaptiveXML", "name": "Normal XML tool call works with afm_adaptive_xml", "status": "PASS", "duration_ms": 1096, "tier": "standard"}
+{"index": 84, "group": "AdaptiveXML", "name": "Streaming tool call emits valid deltas", "status": "PASS", "duration_ms": 927, "tier": "standard"}
+{"index": 85, "group": "AdaptiveXML", "name": "Multi-turn: model responds after tool result", "status": "PASS", "duration_ms": 386, "tier": "standard"}
+{"index": 86, "group": "AdaptiveXML", "name": "tool_choice=none suppresses tool calls", "status": "PASS", "duration_ms": 1695, "tier": "standard"}
+{"index": 87, "group": "AdaptiveXML", "name": "Multiple tools: correct function selected", "status": "PASS", "duration_ms": 838, "tier": "standard"}
+{"index": 88, "group": "AdaptiveXML", "name": "Argument types coerced (string, bool, int)", "status": "PASS", "duration_ms": 1270, "tier": "standard"}
+{"index": 89, "group": "AdaptiveXML", "name": "Tool call valid (with or without grammar constraints)", "status": "PASS", "duration_ms": 1290, "tier": "standard"}
+{"index": 90, "group": "AdaptiveXML", "name": "Array of objects coercion (question tool pattern)", "status": "PASS", "duration_ms": 2303, "tier": "standard"}
+{"index": 91, "group": "AdaptiveXML", "name": "Number (float) and boolean coercion", "status": "PASS", "duration_ms": 1123, "tier": "standard"}
+{"index": 92, "group": "AdaptiveXML", "name": "Nested object with typed fields coercion", "status": "PASS", "duration_ms": 1234, "tier": "standard"}
+{"index": 93, "group": "AdaptiveXML", "name": "Streaming array coercion (incremental path)", "status": "PASS", "duration_ms": 1299, "tier": "standard"}
+{"index": 94, "group": "AdaptiveXML", "name": "XML entity decoding in tool call values", "status": "PASS", "duration_ms": 2161, "tier": "standard"}
+{"index": 95, "group": "AdaptiveXML", "name": "EBNF grammar enforces all required params present", "status": "PASS", "duration_ms": 876, "tier": "standard"}
+{"index": 96, "group": "AdaptiveXML", "name": "EBNF structured params: array gets json_array constraint", "status": "PASS", "duration_ms": 1494, "tier": "standard"}
+{"index": 97, "group": "StrictWiring", "name": "X-Grammar-Constraints: downgraded header (tool strict:true)", "status": "PASS", "duration_ms": 703, "tier": "smoke"}
+{"index": 98, "group": "StrictWiring", "name": "X-Grammar-Constraints: downgraded header (schema strict:true)", "status": "PASS", "duration_ms": 231, "tier": "smoke"}
+{"index": 99, "group": "StrictWiring", "name": "No header when strict absent", "status": "PASS", "duration_ms": 591, "tier": "smoke"}
+{"index": 100, "group": "StrictWiring", "name": "Streaming json_schema strict:true returns valid JSON", "status": "PASS", "duration_ms": 185, "tier": "smoke"}
+{"index": 101, "group": "StrictWiring", "name": "Streaming tool strict:true returns valid tool call", "status": "PASS", "duration_ms": 1033, "tier": "smoke"}
+{"index": 102, "group": "StrictWiring", "name": "strict:false does not error (best-effort)", "status": "PASS", "duration_ms": 995, "tier": "smoke"}
