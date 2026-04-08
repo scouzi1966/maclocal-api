@@ -18,6 +18,11 @@
 #   --model MODEL              MLX model ID or local path (default: Qwen3.5-35B-A3B-4bit)
 #   --concurrent N             Peak virtual users AND server --concurrent slots (default: 200)
 #   --ramp S                   Seconds to ramp 0 -> N (default: 45)
+#   --ramp-jitter-pct PCT      Randomize each step's sleep by ±PCT percent
+#                              (step mode only; default: 0 = periodic).
+#                              Use to break the ramp's fixed cadence when
+#                              diagnosing periodic throughput dips.
+#   --ramp-jitter-seed N       RNG seed for jitter (default: -1 = random).
 #   --hold S                   Seconds to hold at N after ramp (default: 75)
 #   --mode general|prefix-cache|mixed  Prompt profile (default: general)
 #   --max-tokens N             Per-request max_tokens (default: 192)
@@ -52,6 +57,8 @@ RAMP_STEP_USERS=2
 RAMP_STEP_S=5
 RAMP_DOWN_STEP_USERS=-1     # -1 = match RAMP_STEP_USERS
 RAMP_DOWN_STEP_S=-1         # -1 = match RAMP_STEP_S
+RAMP_JITTER_PCT=0           # step mode: randomize each step's sleep by ±pct
+RAMP_JITTER_SEED=-1         # step mode: RNG seed (-1 = random)
 HOLD_S=25
 COOLDOWN_S=30              # zero-activity tail after ramp-down; early-exit on sustained idle
 SMOOTHING_WINDOW=20        # moving-average window (samples) for the tok/sec line on the chart
@@ -104,6 +111,8 @@ while [ $# -gt 0 ]; do
     --ramp)            RAMP_S="$2"; shift 2 ;;
     --ramp-step-users) RAMP_STEP_USERS="$2"; shift 2 ;;
     --ramp-step-s)     RAMP_STEP_S="$2"; shift 2 ;;
+    --ramp-jitter-pct) RAMP_JITTER_PCT="$2"; shift 2 ;;
+    --ramp-jitter-seed) RAMP_JITTER_SEED="$2"; shift 2 ;;
     --ramp-down-step-users) RAMP_DOWN_STEP_USERS="$2"; shift 2 ;;
     --ramp-down-step-s)     RAMP_DOWN_STEP_S="$2"; shift 2 ;;
     --hold)            HOLD_S="$2"; shift 2 ;;
@@ -262,6 +271,8 @@ run_load() {
     --ramp-step-s "$RAMP_STEP_S" \
     --ramp-down-step-users "$RAMP_DOWN_STEP_USERS" \
     --ramp-down-step-s "$RAMP_DOWN_STEP_S" \
+    --ramp-jitter-pct "$RAMP_JITTER_PCT" \
+    --ramp-jitter-seed "$RAMP_JITTER_SEED" \
     --hold-s "$HOLD_S" \
     --cooldown-s "$COOLDOWN_S" \
     --max-tokens "$MAX_TOKENS" \

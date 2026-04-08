@@ -434,6 +434,28 @@ async def ramp_controller(
     step_s: float = cfg["ramp_step_s"]
     down_step_users: int = cfg.get("ramp_down_step_users", step_users)
     down_step_s: float = cfg.get("ramp_down_step_s", step_s)
+    jitter_pct: float = float(cfg.get("ramp_jitter_pct", 0.0))
+    jitter_seed: int = int(cfg.get("ramp_jitter_seed", -1))
+
+    # Deterministic RNG when seed provided, so runs are reproducible.
+    import random as _rand
+    _rng = _rand.Random(jitter_seed if jitter_seed >= 0 else None)
+
+    def _jittered(base_s: float) -> float:
+        """Return base_s ± (jitter_pct/100 * base_s), uniformly sampled.
+        At jitter_pct=0 this is a no-op and returns base_s exactly."""
+        if jitter_pct <= 0:
+            return base_s
+        frac = jitter_pct / 100.0
+        low = base_s * (1.0 - frac)
+        high = base_s * (1.0 + frac)
+        # Clamp low at 0.01s to avoid absurdly tight bursts.
+        return max(0.01, _rng.uniform(low, high))
+
+    if jitter_pct > 0:
+        print(f"[driver] ramp jitter : ±{jitter_pct:.0f}% of step_s "
+              f"(seed={jitter_seed if jitter_seed >= 0 else 'random'})",
+              flush=True)
 
     # Ramp up in discrete steps. Each step spawns `step_users` new users
     # and waits step_s seconds before the next step. This gives the
@@ -444,7 +466,7 @@ async def ramp_controller(
         while len(users) < current_target:
             _spawn(len(users))
         state.active_target = current_target
-        await asyncio.sleep(step_s)
+        await asyncio.sleep(_jittered(step_s))
 
     # Hold at target.
     await asyncio.sleep(hold_s)
@@ -472,7 +494,7 @@ async def ramp_controller(
                 exit_events[i].set()
                 signaled += 1
         state.active_target = current_target
-        await asyncio.sleep(down_step_s)
+        await asyncio.sleep(_jittered(down_step_s))
 
     # All users have been signaled to exit. Wait for them to finish
     # their current requests (no hard timeout — this is the "let
@@ -931,6 +953,15 @@ def main() -> None:
     ap.add_argument("--ramp-down-step-s", type=float, default=-1.0,
                     help="[step mode] Seconds between ramp-down steps. "
                          "Default (-1) = match --ramp-step-s.")
+    ap.add_argument("--ramp-jitter-pct", type=float, default=0.0,
+                    help="[step mode] Randomize each step's sleep by +/- "
+                         "pct percent of ramp-step-s (e.g. 30 -> each gap "
+                         "uniformly in [0.7*step_s, 1.3*step_s]). Use this "
+                         "to break the ramp's fixed period when diagnosing "
+                         "whether throughput dips are caused by the ramp "
+                         "cadence or by something intrinsic to the server.")
+    ap.add_argument("--ramp-jitter-seed", type=int, default=-1,
+                    help="[step mode] RNG seed for ramp jitter. -1 = random.")
     ap.add_argument("--hold-s", type=float, default=25.0,
                     help="Seconds to hold at peak before ramp-down begins.")
     ap.add_argument("--cooldown-s", type=float, default=30.0,
@@ -956,7 +987,7 @@ def main() -> None:
                          "expected wall time of a single request at peak batch size. "
                          "With --concurrent 200 + --max-tokens 3000, per-sequence decode "
                          "is ~5 tok/s → worst-case request ≈600s. Default 900s (15 min) "
-                         "gives 50% headroom. Increase if you see 'client timeout' errors.")
+                         "gives 50 percent headroom. Increase if you see 'client timeout' errors.")
     ap.add_argument("--smoothing-window-s", type=float, default=2.0,
                     help="Sliding window width in seconds for agg_tps computation.")
     ap.add_argument("--initial-tps-max", type=float, default=1300.0,
@@ -1025,6 +1056,8 @@ def main() -> None:
         "ramp_step_s": args.ramp_step_s,
         "ramp_down_step_users": down_step_users,
         "ramp_down_step_s": down_step_s,
+        "ramp_jitter_pct": args.ramp_jitter_pct,
+        "ramp_jitter_seed": args.ramp_jitter_seed,
         "ramp_up_s": ramp_up_s,
         "ramp_down_s": ramp_down_s,
         "cooldown_s": cooldown_s,
