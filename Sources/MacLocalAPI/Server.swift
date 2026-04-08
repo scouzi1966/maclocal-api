@@ -294,6 +294,14 @@ class Server {
                 maxLogprobs: mlxMaxLogprobs
             )
             try app.register(collection: batchCompletionsController)
+
+            // Seed the metrics aggregator with the live model id and the
+            // configured concurrency so /metrics labels are correct from
+            // the first scrape.
+            StatsAggregator.shared.setModel(
+                mlxModelID,
+                maxConcurrent: mlxModelService.maxConcurrent
+            )
         } else {
             let chatController = ChatCompletionsController(
                 streamingEnabled: streamingEnabled,
@@ -307,6 +315,10 @@ class Server {
             )
             try app.register(collection: chatController)
         }
+
+        // Prometheus metrics — always on, regardless of backend.
+        // GET /metrics returns afm:* counters/gauges modelled after vLLM.
+        try app.register(collection: MetricsController())
 
         // Props endpoint for llama.cpp webui compatibility (per-model capabilities)
         app.get("props") { [self] req async -> PropsResponse in

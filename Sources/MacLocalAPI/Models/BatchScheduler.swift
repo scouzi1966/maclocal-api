@@ -440,6 +440,28 @@ actor BatchScheduler {
             }
         }
         self.eosTokenIds = eos
+
+        // Wire gauge readers into the global stats aggregator. `num_running`
+        // is (inflight - waiting), since _inFlightCount covers both actively
+        // decoding and still-pending requests. `num_waiting` reads the
+        // pending queue directly. Both closures read nonisolated state
+        // through existing unfair locks — no actor hop, no async.
+        //
+        // These closures hold weak references to `self` via the unowned
+        // nonisolated lock pointers, so they do not extend scheduler
+        // lifetime beyond MLXModelService's hold.
+        let pending = self._pendingQueue
+        let inflight = self._inFlightCount
+        StatsAggregator.shared.registerGaugeReaders(
+            running: {
+                let total = inflight.withLock { $0 }
+                let queued = pending.withLock { $0.count }
+                return max(0, total - queued)
+            },
+            waiting: {
+                return pending.withLock { $0.count }
+            }
+        )
     }
 
     /// Number of requests currently generating.
@@ -486,6 +508,7 @@ actor BatchScheduler {
             ))
         }
 
+        StatsAggregator.shared.requestStarted()
         DebugLogger.log("[BatchScheduler] Request enqueued req=\(requestId) (\(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
         Task { await self.ensureLoopRunning() }
 
@@ -729,6 +752,7 @@ actor BatchScheduler {
                     slot.detokenizer.append(token: token)
                     if let chunk = slot.detokenizer.next() {
                         slot.tokenCount += 1
+                        StatsAggregator.shared.addGenTokens(1)
                         if yieldTextChunk(chunk, for: slot, logprobs: logprobsForThisToken) {
                             completedIndices.append(i)
                         }
@@ -944,6 +968,17 @@ actor BatchScheduler {
         }
 
         mergeCacheIntoBatch(individualCache: cache, modelState: result.state)
+
+        // Only count the un-cached suffix in prompt_tokens_total so the
+        // counter reflects tokens the GPU actually prefilled, not tokens
+        // served from the radix cache. This matches vLLM semantics.
+        let suffixPromptTokens = max(0, inputTokens.count - cachedTokens)
+        StatsAggregator.shared.addPromptTokens(suffixPromptTokens)
+        if cachedTokens > 0 {
+            StatsAggregator.shared.cacheHit()
+        } else if !isMultimodal {
+            StatsAggregator.shared.cacheMiss()
+        }
 
         let slot = SlotState(
             requestId: req.requestId,
@@ -1343,6 +1378,11 @@ actor BatchScheduler {
         let totalInputTokens = lengths.reduce(0, +)
         print("[\(batchTs())] [BatchScheduler] Batched prefill: B=\(B), maxLen=\(maxLen), totalTokens=\(totalInputTokens), leftPads=\(leftPads), time=\(String(format: "%.3f", prefillTime))s (\(String(format: "%.0f", Double(totalInputTokens) / prefillTime)) tok/s)")
         DebugLogger.log("[BatchScheduler] Batched prefill complete: B=\(B), \(String(format: "%.0f", prefillTime * 1000))ms")
+        StatsAggregator.shared.addPromptTokens(totalInputTokens)
+        // Batched prefill requires fresh (empty) caches — every request in
+        // it is a cache miss by definition. Requests that hit the radix
+        // cache go through prefillOne and are counted there.
+        for _ in 0..<B { StatsAggregator.shared.cacheMiss() }
     }
 
     /// Merge a newly-prefilled individual cache into the batch.
@@ -1520,6 +1560,7 @@ actor BatchScheduler {
         slot.continuation.finish()
         slot.constraintRuntime?.matcherHandle?.release()
         _inFlightCount.withLock { $0 = max($0 - 1, 0) }
+        StatsAggregator.shared.requestCompleted()
 
         DebugLogger.log("[BatchScheduler] Finished slot req=\(slot.requestId) (\(slot.tokenCount) tok, \(String(format: "%.2f", elapsed))s, in-flight: \(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
 
