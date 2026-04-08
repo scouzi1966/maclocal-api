@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "macafm-next"
-version = "0.9.10.dev20260403"
+version = "0.9.10.dev20260408"
 description = "Nightly build of AFM — local LLM inference on Apple Silicon via OpenAI-compatible API"
 readme = "README.md"
 license = "MIT"

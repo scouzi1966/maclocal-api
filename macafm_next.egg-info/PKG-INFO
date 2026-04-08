@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: macafm-next
-Version: 0.9.10.dev20260403
+Version: 0.9.10.dev20260408
 Summary: Nightly build of AFM — local LLM inference on Apple Silicon via OpenAI-compatible API
 Author: Sylvain Cousineau
 License-Expression: MIT
@@ -74,7 +74,7 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 |---|---|---|
 | **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
 | **pip** | `pip install macafm` | `pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next` |
-| **Release notes** | [v0.9.9](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.9) | [v0.9.10-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260403-be55f89) |
+| **Release notes** | [v0.9.9](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.9) | [v0.9.10-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260403-2b647b2) |
 
 > [!NOTE]
 > The stable release (v0.9.9) and the latest nightly are currently at the same level. Either one will give you the same experience.
