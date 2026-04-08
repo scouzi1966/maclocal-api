@@ -314,6 +314,33 @@ async def virtual_user(
             state.completed += 1
 
         t_mono_end = time.monotonic()
+        wall = t_mono_end - t_mono_start
+        # Two throughput metrics per request:
+        #   tg_per_sec_wall = completion_tokens / wall_seconds
+        #     User-observed. Wall includes queue wait + prefill + decode,
+        #     so this is a LOWER BOUND on the model's pure decode rate.
+        #   tg_per_sec_pure = completion_tokens / completion_time
+        #     Server-reported pure decode rate (from the `usage` field's
+        #     completion_tokens_per_second, or derived from completion_time).
+        #     This excludes queue and prefill time — it's what the GPU
+        #     actually decodes at during this request's decode phase.
+        tg_per_sec_wall: float | None = None
+        tg_per_sec_pure: float | None = None
+        if isinstance(usage, dict):
+            ct = usage.get("completion_tokens")
+            if isinstance(ct, int) and ct > 0 and wall > 0:
+                tg_per_sec_wall = round(ct / wall, 2)
+            # Prefer the server's own reported rate if it sent one; fall
+            # back to deriving from completion_time so this still works on
+            # older servers that don't include the _per_second field.
+            pure = usage.get("completion_tokens_per_second")
+            if isinstance(pure, (int, float)) and pure > 0:
+                tg_per_sec_pure = round(float(pure), 2)
+            elif isinstance(ct, int) and ct > 0:
+                comp_time = usage.get("completion_time")
+                if isinstance(comp_time, (int, float)) and comp_time > 0:
+                    tg_per_sec_pure = round(ct / float(comp_time), 2)
+
         record: dict[str, Any] = {
             "corr_id": corr_id,
             "user_id": user_id,
@@ -327,7 +354,9 @@ async def virtual_user(
             "reasoning_content": "".join(reasoning_parts),
             "finish_reason": finish_reason,
             "usage": usage,
-            "wall_seconds": round(t_mono_end - t_mono_start, 3),
+            "wall_seconds": round(wall, 3),
+            "tg_per_sec_wall": tg_per_sec_wall,
+            "tg_per_sec_pure": tg_per_sec_pure,
             "t_start_rel": round(t_mono_start - state.start_time, 3),
             "t_end_rel": round(t_mono_end - state.start_time, 3),
             "started_at_epoch": round(t_client_start, 3),
@@ -790,6 +819,35 @@ async def run(cfg: dict[str, Any], output_path: Path) -> dict[str, Any]:
                         u.cancel()
                 await asyncio.gather(*users, return_exceptions=True)
 
+        # -------- Cooldown tail --------
+        # At this point every virtual user has been signaled to exit and
+        # either finished gracefully (step mode) or been cancelled (linear
+        # mode). BUT the server may still be finishing the very last
+        # streaming responses — the scheduler's batch isn't empty yet. We
+        # keep the sampler running for up to `cooldown_s` more seconds so
+        # the chart tail shows the activity draining to zero. Exit early
+        # as soon as we've seen sustained idle (inflight == 0 AND server
+        # num_requests_running == 0) for ~2 consecutive seconds.
+        cooldown_s = float(cfg.get("cooldown_s", 0.0))
+        if cooldown_s > 0 and not state.stop.is_set():
+            idle_streak_s = 0.0
+            idle_threshold_s = 2.0
+            tick = 0.5
+            cooldown_deadline = time.monotonic() + cooldown_s
+            while time.monotonic() < cooldown_deadline:
+                driver_idle = state.inflight == 0
+                server_idle = (
+                    state.server_inflight == 0
+                    if state.server_metrics_available else True
+                )
+                if driver_idle and server_idle:
+                    idle_streak_s += tick
+                    if idle_streak_s >= idle_threshold_s:
+                        break
+                else:
+                    idle_streak_s = 0.0
+                await asyncio.sleep(tick)
+
         # Allow sampler to emit its tail line
         await asyncio.sleep(0.3)
         sampler_task.cancel()
@@ -875,6 +933,13 @@ def main() -> None:
                          "Default (-1) = match --ramp-step-s.")
     ap.add_argument("--hold-s", type=float, default=25.0,
                     help="Seconds to hold at peak before ramp-down begins.")
+    ap.add_argument("--cooldown-s", type=float, default=30.0,
+                    help="After the ramp-down finishes (all users signaled to exit, all "
+                         "in-flight requests drained), keep recording for up to this many "
+                         "seconds so the chart tail shows the run settling to zero. "
+                         "The driver exits EARLY as soon as both the driver-side "
+                         "inflight counter AND the server /metrics num_requests_running "
+                         "have been 0 for ~2 seconds. Set to 0 to skip cooldown.")
     ap.add_argument("--sample-ms", type=int, default=250, help="Metrics sample interval in ms.")
     ap.add_argument("--max-tokens", type=int, default=3000,
                     help="Target max_tokens ceiling. Default 3000 is high enough that most responses "
@@ -886,7 +951,12 @@ def main() -> None:
                          "With a 3000-token ceiling, natural EOS variance dominates — 0.1 is plenty.")
     ap.add_argument("--temperature", type=float, default=0.7)
     ap.add_argument("--top-p", type=float, default=1.0, help="1.0 avoids the known TopPSampler path; set <1 to exercise it.")
-    ap.add_argument("--request-timeout", type=float, default=120.0)
+    ap.add_argument("--request-timeout", type=float, default=900.0,
+                    help="Per-request aiohttp client timeout (seconds). Must exceed the "
+                         "expected wall time of a single request at peak batch size. "
+                         "With --concurrent 200 + --max-tokens 3000, per-sequence decode "
+                         "is ~5 tok/s → worst-case request ≈600s. Default 900s (15 min) "
+                         "gives 50% headroom. Increase if you see 'client timeout' errors.")
     ap.add_argument("--smoothing-window-s", type=float, default=2.0,
                     help="Sliding window width in seconds for agg_tps computation.")
     ap.add_argument("--initial-tps-max", type=float, default=1300.0,
@@ -942,7 +1012,8 @@ def main() -> None:
     else:
         ramp_up_s = args.ramp_s
         ramp_down_s = 0.0
-    total_seconds = ramp_up_s + args.hold_s + ramp_down_s
+    cooldown_s = max(0.0, float(args.cooldown_s))
+    total_seconds = ramp_up_s + args.hold_s + ramp_down_s + cooldown_s
 
     cfg = {
         "endpoint": args.endpoint,
@@ -956,6 +1027,7 @@ def main() -> None:
         "ramp_down_step_s": down_step_s,
         "ramp_up_s": ramp_up_s,
         "ramp_down_s": ramp_down_s,
+        "cooldown_s": cooldown_s,
         "total_seconds": total_seconds,
         "hold_s": args.hold_s,
         "sample_ms": args.sample_ms,
@@ -986,6 +1058,7 @@ def main() -> None:
         print(f"[driver] ramp up     : 0 -> {args.target_users} over ~{ramp_up_s:.0f}s")
         print(f"[driver] hold        : {args.hold_s}s at {args.target_users}")
         print(f"[driver] ramp down   : {args.target_users} -> 0 over ~{ramp_down_s:.0f}s, -{down_step_users}/step, {down_step_s}s between steps (graceful drain)")
+        print(f"[driver] cooldown    : up to {cooldown_s:.0f}s zero-activity tail, early-exit on sustained idle")
         print(f"[driver] total       : ~{total_seconds:.0f}s recorded run ({total_seconds/60:.1f} min)")
     else:
         print(f"[driver] ramp        : 0 -> {args.target_users} users over {args.ramp_s}s, hold {args.hold_s}s (linear)")
@@ -1003,10 +1076,21 @@ def main() -> None:
 
     # Write summary alongside the trace
     summary_path = output_path.with_suffix(".summary.json")
+    # Exclude prompt pools (too big), internal async state, and coerce
+    # Path objects to strings. Anything else non-JSON is dropped.
+    _SUMMARY_EXCLUDE = {"prompts", "system", "_exit_events"}
+    def _jsonable(v):
+        if isinstance(v, Path):
+            return str(v)
+        try:
+            json.dumps(v)
+            return v
+        except TypeError:
+            return repr(v)
     summary["cfg"] = {
-        k: (str(v) if isinstance(v, Path) else v)
+        k: _jsonable(v)
         for k, v in cfg.items()
-        if k != "prompts" and k != "system"
+        if not k.startswith("_") and k not in _SUMMARY_EXCLUDE
     }
     with summary_path.open("w") as f:
         json.dump(summary, f, indent=2)

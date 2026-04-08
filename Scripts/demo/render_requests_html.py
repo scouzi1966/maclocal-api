@@ -424,6 +424,73 @@ def render(records: list[dict[str, Any]], summary: dict[str, Any], out_path: Pat
     ct_vals = [r["usage"]["completion_tokens"] for r in records if isinstance(r.get("usage"), dict) and "completion_tokens" in r["usage"]]
     wall_vals = [r["wall_seconds"] for r in records if isinstance(r.get("wall_seconds"), (int, float))]
 
+    def _tg_per_sec_wall(r: dict[str, Any]) -> float | None:
+        """User-observed decode throughput: completion_tokens / wall_seconds.
+        Lower bound on the model's actual decode rate because wall includes
+        queue wait + prefill + decode."""
+        cached = r.get("tg_per_sec_wall")
+        if isinstance(cached, (int, float)):
+            return float(cached)
+        u = r.get("usage") or {}
+        ct = u.get("completion_tokens")
+        wall = r.get("wall_seconds")
+        if isinstance(ct, int) and ct > 0 and isinstance(wall, (int, float)) and wall > 0:
+            return ct / wall
+        return None
+
+    def _tg_per_sec_pure(r: dict[str, Any]) -> float | None:
+        """Server-reported pure decode throughput — what the GPU actually
+        produces during this request's decode phase, excluding queue and
+        prefill. Read from usage.completion_tokens_per_second, falling
+        back to completion_tokens / completion_time."""
+        cached = r.get("tg_per_sec_pure")
+        if isinstance(cached, (int, float)):
+            return float(cached)
+        u = r.get("usage") or {}
+        pure = u.get("completion_tokens_per_second")
+        if isinstance(pure, (int, float)) and pure > 0:
+            return float(pure)
+        ct = u.get("completion_tokens")
+        comp_time = u.get("completion_time")
+        if isinstance(ct, int) and ct > 0 and isinstance(comp_time, (int, float)) and comp_time > 0:
+            return ct / float(comp_time)
+        return None
+
+    tgs_vals = [v for v in (_tg_per_sec_wall(r) for r in records) if v is not None]
+    tgs_pure_vals = [v for v in (_tg_per_sec_pure(r) for r in records) if v is not None]
+
+    def _prefill_tps(r: dict[str, Any]) -> float | None:
+        """Per-request prefill rate — how fast the server tokenized +
+        prefilled this request's prompt, from the usage field."""
+        u = r.get("usage") or {}
+        rate = u.get("prompt_tokens_per_second")
+        if isinstance(rate, (int, float)) and rate > 0:
+            return float(rate)
+        pt = u.get("prompt_tokens")
+        pt_time = u.get("prompt_time")
+        if isinstance(pt, int) and pt > 0 and isinstance(pt_time, (int, float)) and pt_time > 0:
+            return pt / float(pt_time)
+        return None
+
+    def _prefill_time(r: dict[str, Any]) -> float | None:
+        u = r.get("usage") or {}
+        t = u.get("prompt_time")
+        if isinstance(t, (int, float)):
+            return float(t)
+        return None
+
+    def _cached_tokens(r: dict[str, Any]) -> int:
+        u = r.get("usage") or {}
+        details = u.get("prompt_tokens_details") or {}
+        n = details.get("cached_tokens", 0)
+        return int(n) if isinstance(n, (int, float)) else 0
+
+    pp_tps_vals = [v for v in (_prefill_tps(r) for r in records) if v is not None]
+    pp_time_vals = [v for v in (_prefill_time(r) for r in records) if v is not None]
+    cached_sum = sum(_cached_tokens(r) for r in records)
+    pp_sum = sum(pt_vals) if pt_vals else 0
+    cache_hit_ratio = (cached_sum / (pp_sum + cached_sum)) if (pp_sum + cached_sum) > 0 else 0.0
+
     def fmt_avg(v: list[float]) -> str:
         if not v:
             return "—"
@@ -458,6 +525,20 @@ def render(records: list[dict[str, Any]], summary: dict[str, Any], out_path: Pat
         max_tokens_req = r.get("max_tokens_requested", "?")
         system_prompt = r.get("system") or ""
         mt_req_display = f"{max_tokens_req}" if max_tokens_req != "?" else "?"
+        tgs = _tg_per_sec_wall(r)
+        tgs_display = f"{tgs:.1f}" if tgs is not None else "—"
+        tgs_sort = f"{tgs:.3f}" if tgs is not None else "0"
+        tgs_pure = _tg_per_sec_pure(r)
+        tgs_pure_display = f"{tgs_pure:.1f}" if tgs_pure is not None else "—"
+        tgs_pure_sort = f"{tgs_pure:.3f}" if tgs_pure is not None else "0"
+        pp_tps = _prefill_tps(r)
+        pp_tps_display = f"{pp_tps:.0f}" if pp_tps is not None else "—"
+        pp_tps_sort = f"{pp_tps:.3f}" if pp_tps is not None else "0"
+        pp_time = _prefill_time(r)
+        pp_time_display = f"{pp_time:.2f}s" if pp_time is not None else "—"
+        pp_time_sort = f"{pp_time:.3f}" if pp_time is not None else "0"
+        cached = _cached_tokens(r)
+        cached_display = str(cached) if cached > 0 else "—"
 
         search_blob = f"{corr} {chatcmpl} {prompt} {content} {reasoning} {error_msg}".lower()
         row_main_cls = "row-main"
@@ -476,19 +557,29 @@ def render(records: list[dict[str, Any]], summary: dict[str, Any], out_path: Pat
     data-sortpt="{pt if isinstance(pt, int) else 0}"
     data-sortct="{ct if isinstance(ct, int) else 0}"
     data-sortwall="{wall if isinstance(wall, (int, float)) else 0}"
+    data-sorttgs="{tgs_sort}"
+    data-sorttgspure="{tgs_pure_sort}"
+    data-sortpptps="{pp_tps_sort}"
+    data-sortpptime="{pp_time_sort}"
+    data-sortcached="{cached}"
     data-sortstart="{t_start if isinstance(t_start, (int, float)) else 0}">
   <td class="mono dim">{html.escape(corr)}</td>
   <td class="mono">u{user:03d}</td>
   <td class="mono dim">#{seq}</td>
   <td class="mono dim">{html.escape(chatcmpl)}</td>
   <td>{pt}</td>
+  <td class="dim">{cached_display}</td>
+  <td>{pp_time_display}</td>
+  <td>{pp_tps_display}</td>
   <td>{ct}</td>
   <td>{wall if wall == "?" else f"{wall:.2f}"}s</td>
+  <td>{tgs_display}</td>
+  <td>{tgs_pure_display}</td>
   <td>{status_pill(r)}</td>
   <td>{"✦ " if reasoning else ""}{html.escape(preview(content) or preview(reasoning) or "—")}</td>
 </tr>
 <tr class="row-detail" id="detail-{idx}">
-  <td colspan="9">
+  <td colspan="14">
     <div class="detail-grid">
       <div class="k">corr_id</div>        <div class="v">{html.escape(corr)}</div>
       <div class="k">chatcmpl_id</div>    <div class="v">{html.escape(chatcmpl)}</div>
@@ -496,6 +587,9 @@ def render(records: list[dict[str, Any]], summary: dict[str, Any], out_path: Pat
       <div class="k">user / seq</div>     <div class="v">user {user} · req #{seq}</div>
       <div class="k">timing</div>         <div class="v">t=[{t_start}..{t_end}] ({wall if wall == "?" else f"{wall:.3f}"}s wall)</div>
       <div class="k">tokens</div>         <div class="v">prompt={pt}, completion={ct} (max_tokens requested={mt_req_display})</div>
+      <div class="k">prefill time</div>   <div class="v">{pp_time_display} · {pp_tps_display} tok/s · {cached_display} cached from radix</div>
+      <div class="k">tg/s wall</div>      <div class="v">{tgs_display} tok/s (user-observed: completion / wall, includes queue+prefill+decode)</div>
+      <div class="k">tg/s pure</div>      <div class="v">{tgs_pure_display} tok/s (server-reported pure decode rate)</div>
       <div class="k">finish_reason</div>  <div class="v">{html.escape(finish) or "—"}</div>
       {f'<div class="k">error</div><div class="v" style="color:var(--err)">{html.escape(error_msg)}</div>' if error_msg else ""}
     </div>
@@ -537,6 +631,13 @@ def render(records: list[dict[str, Any]], summary: dict[str, Any], out_path: Pat
     <div class="card warm"><div class="label">Avg prompt tok</div><div class="value">{fmt_avg(pt_vals)}</div></div>
     <div class="card cool"><div class="label">Avg completion tok</div><div class="value">{fmt_avg(ct_vals)}</div></div>
     <div class="card"><div class="label">Median wall</div><div class="value">{fmt_median(wall_vals)}<span class="unit">s</span></div></div>
+    <div class="card cool"><div class="label">Median tg/s — wall</div><div class="value">{fmt_median(tgs_vals)}<span class="unit">tok/s</span></div></div>
+    <div class="card cool"><div class="label">Median tg/s — pure</div><div class="value">{fmt_median(tgs_pure_vals)}<span class="unit">tok/s</span></div></div>
+    <div class="card warm"><div class="label">Median prefill tok/s</div><div class="value">{fmt_median(pp_tps_vals)}<span class="unit">tok/s</span></div></div>
+    <div class="card warm"><div class="label">Median prefill time</div><div class="value">{fmt_median(pp_time_vals)}<span class="unit">s</span></div></div>
+    <div class="card"><div class="label">Total prompt tok</div><div class="value">{pp_sum}</div></div>
+    <div class="card ok"><div class="label">Total cached tok</div><div class="value">{cached_sum}</div></div>
+    <div class="card ok"><div class="label">Cache hit ratio</div><div class="value">{cache_hit_ratio*100:.1f}<span class="unit">%</span></div></div>
   </div>
 
   <div class="controls">
@@ -570,8 +671,13 @@ def render(records: list[dict[str, Any]], summary: dict[str, Any], out_path: Pat
         <th data-sort="seq">#</th>
         <th data-sort="corr">chatcmpl</th>
         <th data-sort="pt">p tok</th>
+        <th data-sort="cached">cached</th>
+        <th data-sort="pptime">p time</th>
+        <th data-sort="pptps">p tok/s</th>
         <th data-sort="ct">c tok</th>
         <th data-sort="wall">wall</th>
+        <th data-sort="tgs">tg/s<br><span class="dim" style="font-weight:400;text-transform:none;letter-spacing:0">wall</span></th>
+        <th data-sort="tgspure">tg/s<br><span class="dim" style="font-weight:400;text-transform:none;letter-spacing:0">pure</span></th>
         <th>status</th>
         <th>preview</th>
       </tr>

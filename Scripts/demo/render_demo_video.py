@@ -50,9 +50,11 @@ THEME = {
     "text_primary":  "#F9FAFB",
     "text_secondary":"#9CA3AF",
     "accent_warm":   "#F59E0B",   # connections line — amber
-    "accent_cool":   "#22D3EE",   # throughput line — cyan
+    "accent_cool":   "#22D3EE",   # decode throughput line — cyan
+    "accent_violet": "#A78BFA",   # prefill throughput line — violet
     "accent_warm_fill": "#F59E0B22",
     "accent_cool_fill": "#22D3EE22",
+    "accent_violet_fill": "#A78BFA20",
 }
 
 
@@ -160,7 +162,7 @@ def draw_static_chrome(
         legend_x0 + 0.037, lg_y, "Concurrent connections",
         fontsize=11, color=THEME["text_primary"], va="center",
     )
-    # Throughput swatch
+    # Decode throughput swatch
     fig.add_artist(
         plt.Line2D(
             [legend_x0 + 0.22, legend_x0 + 0.25],
@@ -172,7 +174,22 @@ def draw_static_chrome(
         )
     )
     fig.text(
-        legend_x0 + 0.257, lg_y, "Aggregate tokens / sec",
+        legend_x0 + 0.257, lg_y, "Decode tokens / sec",
+        fontsize=11, color=THEME["text_primary"], va="center",
+    )
+    # Prefill throughput swatch
+    fig.add_artist(
+        plt.Line2D(
+            [legend_x0 + 0.41, legend_x0 + 0.44],
+            [lg_y, lg_y],
+            color=THEME["accent_violet"],
+            linewidth=3,
+            solid_capstyle="round",
+            transform=fig.transFigure,
+        )
+    )
+    fig.text(
+        legend_x0 + 0.447, lg_y, "Prefill tokens / sec",
         fontsize=11, color=THEME["text_primary"], va="center",
     )
 
@@ -188,6 +205,7 @@ def render_animation(
     target_users_for_axis: int | None,
     initial_tps_max_for_axis: float,
     total_seconds_for_axis: float | None,
+    smoothing_window_samples: int = 20,
 ) -> None:
     # Normalize trace to arrays
     if not trace:
@@ -197,15 +215,37 @@ def render_animation(
     ts = np.array([s["t"] for s in trace], dtype=float)
     active = np.array([s["active"] for s in trace], dtype=float)
     agg_tps = np.array([s["agg_tps"] for s in trace], dtype=float)
+    prefill_tps = np.array([s.get("prefill_tps", 0) for s in trace], dtype=float)
 
-    # Smooth the throughput line with a short moving average to make it
-    # look refined on the video (token arrivals are bursty at millisecond
-    # scale but the graph shows ~250ms buckets — one smoothing pass at
-    # window=3 removes visual jitter without masking real trends).
-    smoothed = np.convolve(agg_tps, np.ones(3) / 3.0, mode="same")
-    # Keep the first and last points unsmoothed so the chart starts/ends at 0.
-    smoothed[0] = agg_tps[0]
-    smoothed[-1] = agg_tps[-1]
+    # Moving average over `smoothing_window_samples` samples. At the
+    # default 250ms sample interval, 20 samples = 5 seconds of smoothing
+    # — enough to cancel per-sample noise from bursty token arrivals
+    # without masking real trends like prefill pauses or ramp plateaus.
+    #
+    # Uses mode="valid" then pads the head with raw values so the line
+    # still starts at 0 and the visible sweep matches the data timeline.
+    def _moving_avg(x: np.ndarray, w: int) -> np.ndarray:
+        """Causal N-sample moving average — each point is the mean of
+        the PRECEDING w samples (inclusive). Head uses raw values to
+        avoid leaking future data backwards."""
+        if w <= 1 or len(x) < w:
+            return x.copy()
+        cumsum = np.concatenate(([0.0], np.cumsum(x)))
+        ma = (cumsum[w:] - cumsum[:-w]) / float(w)
+        out = np.empty_like(x)
+        out[:w - 1] = x[:w - 1]
+        out[w - 1:] = ma
+        return out
+
+    w = max(1, int(smoothing_window_samples))
+    smoothed = _moving_avg(agg_tps, w)
+    smoothed_pp = _moving_avg(prefill_tps, w)
+    # Force clean start/end at 0 so the chart opens and closes cleanly.
+    if len(smoothed):
+        smoothed[0] = agg_tps[0]
+        smoothed[-1] = agg_tps[-1]
+        smoothed_pp[0] = prefill_tps[0]
+        smoothed_pp[-1] = prefill_tps[-1]
 
     # Duration cap
     if duration_cap is not None and ts[-1] > duration_cap:
@@ -217,16 +257,18 @@ def render_animation(
     data_max_t = float(ts[-1]) if len(ts) else 1.0
     observed_max_conn = int(active.max()) if len(active) else 1
     observed_max_tps = float(smoothed.max()) if len(smoothed) else 1.0
+    observed_max_pp = float(smoothed_pp.max()) if len(smoothed_pp) else 0.0
 
     # Fixed-axis policy: all three axes are pinned from frame 1.
     #   X: total_seconds (ramp_s + hold_s) — so the lines sweep left-to-right
     #   Y1 (connections): target_users * 1.05
-    #   Y2 (tok/s): max(initial_tps_max, observed * 1.05) — expand if needed
-    # Only Y axes expand if observed data exceeds them. X is hard-capped to
-    # the total run duration for visual effect.
+    #   Y2 (tok/s): max(initial_tps_max, observed * 1.05) — accommodates
+    #              BOTH decode and prefill lines since they share this axis
+    #   Only Y axes expand if observed data exceeds them. X is hard-capped
+    #   to the total run duration for visual effect.
     max_t = total_seconds_for_axis if total_seconds_for_axis else data_max_t
     y1_max = max(observed_max_conn, int(round(target_users_for_axis * 1.05)) if target_users_for_axis else observed_max_conn)
-    y2_max = max(observed_max_tps, initial_tps_max_for_axis)
+    y2_max = max(observed_max_tps, observed_max_pp, initial_tps_max_for_axis)
 
     fig, ax_left, ax_right = setup_figure()
     draw_static_chrome(
@@ -244,13 +286,24 @@ def render_animation(
         ts, 0, 0, color=THEME["accent_warm_fill"], linewidth=0,
     )
 
-    # Throughput line (right axis) — solid, thick, cyan
+    # Decode throughput line (right axis) — solid, thick, cyan
     (line_tps,) = ax_right.plot(
         [], [], color=THEME["accent_cool"], linewidth=2.8,
         solid_capstyle="round", solid_joinstyle="round",
     )
     fill_tps = ax_right.fill_between(
         ts, 0, 0, color=THEME["accent_cool_fill"], linewidth=0,
+    )
+
+    # Prefill throughput line (right axis) — thinner, violet, lightly filled.
+    # Rendered BEFORE cyan in z-order so the cyan line reads on top when
+    # they overlap.
+    (line_pp,) = ax_right.plot(
+        [], [], color=THEME["accent_violet"], linewidth=2.0,
+        solid_capstyle="round", solid_joinstyle="round", zorder=1.5,
+    )
+    fill_pp = ax_right.fill_between(
+        ts, 0, 0, color=THEME["accent_violet_fill"], linewidth=0, zorder=1,
     )
 
     # Live numeric readouts (top-right area of the chart)
@@ -273,7 +326,17 @@ def render_animation(
     )
     readout_tps_label = fig.text(
         readout_x - 0.13, 0.686,
-        "tokens / sec", ha="right", va="center",
+        "decode tok / sec", ha="right", va="center",
+        fontsize=10, color=THEME["text_secondary"],
+    )
+    readout_pp = fig.text(
+        readout_x - 0.26, 0.715,
+        "", ha="right", va="center",
+        fontsize=22, fontweight="bold", color=THEME["accent_violet"],
+    )
+    readout_pp_label = fig.text(
+        readout_x - 0.26, 0.686,
+        "prefill tok / sec", ha="right", va="center",
         fontsize=10, color=THEME["text_secondary"],
     )
 
@@ -293,43 +356,48 @@ def render_animation(
     def init():
         line_conn.set_data([], [])
         line_tps.set_data([], [])
+        line_pp.set_data([], [])
         readout_conn.set_text("0")
         readout_tps.set_text("0")
-        return line_conn, line_tps, readout_conn, readout_tps
+        readout_pp.set_text("0")
+        return line_conn, line_tps, line_pp, readout_conn, readout_tps, readout_pp
 
     def update(frame: int):
-        nonlocal fill_conn, fill_tps
+        nonlocal fill_conn, fill_tps, fill_pp
         idx = frame_data_index(frame)
         xs = ts[: idx + 1]
         ys_conn = active[: idx + 1]
         ys_tps = smoothed[: idx + 1]
+        ys_pp = smoothed_pp[: idx + 1]
         line_conn.set_data(xs, ys_conn)
         line_tps.set_data(xs, ys_tps)
+        line_pp.set_data(xs, ys_pp)
 
         # Refresh fill polygons — remove and re-add each frame
         # (matplotlib doesn't support mutating fill_between in place).
-        try:
-            fill_conn.remove()
-        except Exception:
-            pass
-        try:
-            fill_tps.remove()
-        except Exception:
-            pass
+        for _f in (fill_conn, fill_tps, fill_pp):
+            try: _f.remove()
+            except Exception: pass
         fill_conn = ax_left.fill_between(
             xs, 0, ys_conn, color=THEME["accent_warm_fill"], linewidth=0,
         )
         fill_tps = ax_right.fill_between(
             xs, 0, ys_tps, color=THEME["accent_cool_fill"], linewidth=0,
         )
+        fill_pp = ax_right.fill_between(
+            xs, 0, ys_pp, color=THEME["accent_violet_fill"], linewidth=0, zorder=1,
+        )
 
         readout_conn.set_text(f"{int(round(ys_conn[-1]))}")
         readout_tps.set_text(f"{int(round(ys_tps[-1]))}")
-        return line_conn, line_tps, fill_conn, fill_tps, readout_conn, readout_tps
+        readout_pp.set_text(f"{int(round(ys_pp[-1]))}")
+        return (line_conn, line_tps, line_pp, fill_conn, fill_tps, fill_pp,
+                readout_conn, readout_tps, readout_pp)
 
     print(f"[render] frames: {total_frames} @ {fps} fps ({total_video_seconds:.1f}s video)")
-    print(f"[render] peak connections: {max_conn}")
-    print(f"[render] peak agg tok/s:   {max_tps:.1f}")
+    print(f"[render] peak connections:   {observed_max_conn}")
+    print(f"[render] peak decode tok/s:  {observed_max_tps:.1f}")
+    print(f"[render] peak prefill tok/s: {observed_max_pp:.1f}")
 
     anim = animation.FuncAnimation(
         fig,
@@ -430,6 +498,12 @@ def main() -> None:
         help="Pin the X-axis to this total duration (ramp_s + hold_s). "
              "Defaults to ramp_s + hold_s from summary.json, or the trace's last t if absent.",
     )
+    ap.add_argument(
+        "--smoothing-window", type=int, default=20,
+        help="Moving-average window for the agg_tps line, in samples. "
+             "Default 20 samples = 5s at the default 250ms sample interval. "
+             "Set to 1 to disable smoothing.",
+    )
     args = ap.parse_args()
 
     trace_path = Path(args.trace)
@@ -500,6 +574,7 @@ def main() -> None:
         target_users_for_axis=target_users_for_axis,
         initial_tps_max_for_axis=initial_tps_max_for_axis,
         total_seconds_for_axis=total_seconds_for_axis,
+        smoothing_window_samples=args.smoothing_window,
     )
 
 

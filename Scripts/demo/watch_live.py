@@ -152,7 +152,11 @@ def main() -> None:
                     help="Fixed X-axis upper bound in seconds (ramp_s + hold_s). "
                          "Pre-setting this lets the lines sweep left-to-right across the "
                          "entire canvas rather than the axis rescaling as data arrives.")
+    ap.add_argument("--smoothing-window", type=int, default=20,
+                    help="Moving-average window for the agg_tps line, in samples. "
+                         "Default 20 samples = 5s at 250ms cadence. Set 1 to disable.")
     args = ap.parse_args()
+    smoothing_w = max(1, args.smoothing_window)
     trace_path = Path(args.trace)
     y1_max = max(1, int(round(args.target_users * 1.05)))
     y2_max = max(1.0, args.initial_tps_max)
@@ -214,10 +218,24 @@ def main() -> None:
                 continue
             last_redraw = now
 
-            line_conn.set_data(xs, ys_conn)
-            line_tps.set_data(xs, ys_tps)
+            # Causal moving average on tok/sec: each plotted point is the
+            # mean of the last `smoothing_w` samples. Smooths per-sample
+            # noise (default 20 samples = 5s at 250ms cadence) without
+            # leaking future data backwards. Connection line stays raw —
+            # it's already a step function by construction.
+            if smoothing_w > 1 and len(ys_tps) >= 1:
+                w = smoothing_w
+                ys_tps_smooth: list[float] = []
+                for i in range(len(ys_tps)):
+                    lo = max(0, i - w + 1)
+                    window = ys_tps[lo:i + 1]
+                    ys_tps_smooth.append(sum(window) / len(window))
+            else:
+                ys_tps_smooth = ys_tps
 
-            nonlocal_refresh = True  # just to satisfy readability
+            line_conn.set_data(xs, ys_conn)
+            line_tps.set_data(xs, ys_tps_smooth)
+
             if fill_conn is not None:
                 try: fill_conn.remove()
                 except Exception: pass
@@ -226,7 +244,7 @@ def main() -> None:
                 except Exception: pass
             fill_conn = ax_left.fill_between(xs, 0, ys_conn,
                                              color=THEME["accent_warm_fill"], linewidth=0)
-            fill_tps = ax_right.fill_between(xs, 0, ys_tps,
+            fill_tps = ax_right.fill_between(xs, 0, ys_tps_smooth,
                                              color=THEME["accent_cool_fill"], linewidth=0)
 
             # Axes stay pinned to their pre-set limits — do not rescale as
@@ -237,7 +255,7 @@ def main() -> None:
             if obs_y1 > y1_max:
                 y1_max = obs_y1 * 1.05
                 ax_left.set_ylim(0, y1_max)
-            obs_y2 = max(ys_tps) if ys_tps else 0
+            obs_y2 = max(ys_tps_smooth) if ys_tps_smooth else 0
             if obs_y2 > y2_max:
                 y2_max = obs_y2 * 1.05
                 ax_right.set_ylim(0, y2_max)
@@ -246,7 +264,7 @@ def main() -> None:
                 ax_left.set_xlim(0, x_max)
 
             readout_conn.set_text(f"{int(round(ys_conn[-1]))}")
-            readout_tps.set_text(f"{int(round(ys_tps[-1]))}")
+            readout_tps.set_text(f"{int(round(ys_tps_smooth[-1]))}")
 
             try:
                 fig.canvas.draw_idle()

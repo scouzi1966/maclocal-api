@@ -53,9 +53,12 @@ RAMP_STEP_S=5
 RAMP_DOWN_STEP_USERS=-1     # -1 = match RAMP_STEP_USERS
 RAMP_DOWN_STEP_S=-1         # -1 = match RAMP_STEP_S
 HOLD_S=25
+COOLDOWN_S=30              # zero-activity tail after ramp-down; early-exit on sustained idle
+SMOOTHING_WINDOW=20        # moving-average window (samples) for the tok/sec line on the chart
 MODE="general"
 MAX_TOKENS=3000
 MAX_TOKENS_JITTER=0.1
+REQUEST_TIMEOUT=900       # per-request aiohttp client timeout; must exceed worst-case decode
 TEMPERATURE=0.7
 TOP_P=1.0
 PORT=9998
@@ -104,9 +107,12 @@ while [ $# -gt 0 ]; do
     --ramp-down-step-users) RAMP_DOWN_STEP_USERS="$2"; shift 2 ;;
     --ramp-down-step-s)     RAMP_DOWN_STEP_S="$2"; shift 2 ;;
     --hold)            HOLD_S="$2"; shift 2 ;;
+    --cooldown)        COOLDOWN_S="$2"; shift 2 ;;
+    --smoothing-window) SMOOTHING_WINDOW="$2"; shift 2 ;;
     --mode)            MODE="$2"; shift 2 ;;
     --max-tokens)      MAX_TOKENS="$2"; shift 2 ;;
     --max-tokens-jitter) MAX_TOKENS_JITTER="$2"; shift 2 ;;
+    --request-timeout) REQUEST_TIMEOUT="$2"; shift 2 ;;
     --temperature)     TEMPERATURE="$2"; shift 2 ;;
     --top-p)           TOP_P="$2"; shift 2 ;;
     --initial-tps-max) INITIAL_TPS_MAX="$2"; shift 2 ;;
@@ -193,10 +199,18 @@ start_server() {
     args+=(--enable-prefix-caching)
   fi
 
+  # Pass AFM_DEBUG through from the wrapper's environment so callers can do
+  #   AFM_DEBUG=1 ./Scripts/demo-concurrent-throughput.sh
+  # and get the BatchScheduler's per-step timing breakdown in the server
+  # log. Default off (empty).
   MACAFM_MLX_MODEL_CACHE="$MODEL_CACHE" \
+  AFM_DEBUG="${AFM_DEBUG:-}" \
     "$AFM_BIN" "${args[@]}" > "$SERVER_LOG" 2>&1 &
   SERVER_PID=$!
   log "server pid: $SERVER_PID"
+  if [ -n "${AFM_DEBUG:-}" ]; then
+    log "  AFM_DEBUG=${AFM_DEBUG} — per-step BatchScheduler timing enabled"
+  fi
 
   log "waiting for model to load..."
   local ready=false
@@ -249,8 +263,10 @@ run_load() {
     --ramp-down-step-users "$RAMP_DOWN_STEP_USERS" \
     --ramp-down-step-s "$RAMP_DOWN_STEP_S" \
     --hold-s "$HOLD_S" \
+    --cooldown-s "$COOLDOWN_S" \
     --max-tokens "$MAX_TOKENS" \
     --max-tokens-jitter "$MAX_TOKENS_JITTER" \
+    --request-timeout "$REQUEST_TIMEOUT" \
     --temperature "$TEMPERATURE" \
     --top-p "$TOP_P" \
     --smoothing-window-s "$SMOOTHING_WINDOW_S" \
@@ -295,6 +311,7 @@ render_video() {
     --summary "$SUMMARY_PATH" \
     --output "$OUTPUT" \
     --title "$TITLE" \
+    --smoothing-window "$SMOOTHING_WINDOW" \
     "${subtitle_arg[@]}"
 }
 
@@ -313,6 +330,7 @@ launch_watcher() {
 mode = "$RAMP_MODE"
 target = $CONCURRENT
 hold = float($HOLD_S)
+cooldown = float($COOLDOWN_S)
 if mode == "step":
     step_users = max(1, $RAMP_STEP_USERS)
     step_s = float($RAMP_STEP_S)
@@ -322,12 +340,12 @@ if mode == "step":
     dss = step_s    if dss < 0 else dss
     n_up = (target + step_users - 1) // step_users
     n_dn = (target + dsu - 1) // dsu
-    print(n_up * step_s + hold + n_dn * dss)
+    print(n_up * step_s + hold + n_dn * dss + cooldown)
 else:
-    print(float($RAMP_S) + hold)
+    print(float($RAMP_S) + hold + cooldown)
 PYEND
 )
-  local cmd="cd '$ROOT_DIR' && python3 Scripts/demo/watch_live.py --trace '$TRACE_PATH' --target-users $CONCURRENT --initial-tps-max $INITIAL_TPS_MAX --total-seconds $total_s"
+  local cmd="cd '$ROOT_DIR' && python3 Scripts/demo/watch_live.py --trace '$TRACE_PATH' --target-users $CONCURRENT --initial-tps-max $INITIAL_TPS_MAX --total-seconds $total_s --smoothing-window $SMOOTHING_WINDOW"
   if [[ "$(uname)" == "Darwin" ]] && command -v osascript >/dev/null 2>&1; then
     log "opening live watcher in a new Terminal window"
     osascript <<OSA
