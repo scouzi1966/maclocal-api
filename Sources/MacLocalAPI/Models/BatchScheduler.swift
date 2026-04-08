@@ -182,6 +182,12 @@ actor BatchScheduler {
     /// state lives inside the KV cache, not in LMOutput.State.
     private var batchState: LMOutput.State? = nil
 
+    // Debug instrumentation: set when a mergeCacheIntoBatch just ran and
+    // we want to time the NEXT model() call separately from normal steps.
+    private var _dbgJustMergedAt: Date? = nil
+    private var _dbgLastMergeWallS: Double = 0
+    private var _dbgLastMergeCountAdded: Int = 0
+
     /// Total tokens generated across all slots (for periodic cache clearing).
     private var totalTokensGenerated = 0
 
@@ -656,6 +662,16 @@ actor BatchScheduler {
             let modelStart = debugTiming ? Date() : Date.distantPast
             let output = model(input, cache: batchCaches, state: batchState)
             batchState = output.state
+
+            // DIAGNOSTIC: if a merge happened just now, force sync eval on the
+            // model output so we can attribute the materialization cost to the
+            // first post-merge decode step (vs normal lazy dispatch).
+            if debugTiming, _dbgJustMergedAt != nil {
+                MLX.eval(output.logits)
+                let postMergeModelWall = Date().timeIntervalSince(modelStart)
+                print("[\(batchTs())] [BatchScheduler] POST-MERGE model() call: B=\(slots.count), wall=\(String(format: "%.3f", postMergeModelWall))s  (merge_wall was \(String(format: "%.3f", _dbgLastMergeWallS))s for \(_dbgLastMergeCountAdded) new slots)")
+                _dbgJustMergedAt = nil
+            }
 
             let logits = output.logits[0..., -1, 0...]
 
@@ -1221,7 +1237,10 @@ actor BatchScheduler {
                 return BatchRotatingKVCache(batchSize: B, leftPadding: leftPads,
                                             maxCacheSize: rc.cacheSize, keep: rc.keepCount) as KVCache
             } else {
-                return BatchKVCacheSimple(batchSize: B, leftPadding: leftPads) as KVCache
+                // Slab-mode: pre-allocate physical batch dim to maxConcurrent so
+                // subsequent addSlot() calls write in-place rather than concat.
+                return BatchKVCacheSimple(batchSize: B, leftPadding: leftPads,
+                                          capacity: maxConcurrent) as KVCache
             }
         }
 
@@ -1299,10 +1318,48 @@ actor BatchScheduler {
             cacheMode = .batched
             batchState = result.state
         } else {
+        // Fast path requires EVERY layer to be slab-mode BatchKVCacheSimple.
+        // Hybrid models (e.g. Qwen3.5-35B-A3B with MambaCache layers) fall
+        // through to the per-slot merge loop, which still benefits from
+        // slab-mode addSlot for the attention layers.
+        let canBulkMerge = cacheMode == .batched
+            && batchCaches.count == prefillCaches.count
+            && zip(batchCaches, prefillCaches).allSatisfy({ a, b in
+                (a as? BatchKVCacheSimple)?.capacity ?? 0 > 0 && b is BatchKVCacheSimple
+            })
+        if canBulkMerge {
+            // Fast path: both decode and prefill caches are slab-mode BatchKVCacheSimple.
+            // Bulk-copy all B prefilled rows into the decode slab via ONE slice-assign
+            // per layer — avoids accumulating B × slice-assign lazy graph nodes, which
+            // is the main cost at large B (previously 2-3s for B=36 merge, now ~ms).
+            let debugTiming = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
+            let bulkStart = debugTiming ? Date() : Date.distantPast
+            let batchBefore = slots.count
+            for layer in 0..<batchCaches.count {
+                let dest = batchCaches[layer] as! BatchKVCacheSimple
+                let src = prefillCaches[layer] as! BatchKVCacheSimple
+                dest.addSlotsBulk(from: src)
+            }
+            // Merge cross-attention state (same logic as mergeCacheIntoBatch)
+            if let newCAS = result.state?.crossAttentionStates {
+                if let existingCAS = batchState?.crossAttentionStates {
+                    batchState = .init(crossAttentionStates: concatenated([existingCAS, newCAS], axis: 0))
+                } else {
+                    batchState = result.state
+                }
+            }
+            if debugTiming {
+                _dbgLastMergeWallS = Date().timeIntervalSince(bulkStart)
+                _dbgLastMergeCountAdded = B
+                _dbgJustMergedAt = Date()
+                print("[\(batchTs())] [BatchScheduler] BULK MERGE: adding=\(B) slots, B_before=\(batchBefore), merge_wall=\(String(format: "%.3f", _dbgLastMergeWallS))s")
+            }
+        } else {
             // Existing decode slots -- merge individual caches into current batch
             for i in 0..<B {
                 mergeCacheIntoBatch(individualCache: perRequestCaches[i], modelState: i == 0 ? result.state : nil)
             }
+        }
         }
 
         // Create SlotState for each request
@@ -1392,6 +1449,26 @@ actor BatchScheduler {
     /// - unbatched → batched: Promote to BatchKVCacheSimple when B≥2
     /// - batched → batched: Extend existing BatchKVCacheSimple
     private func mergeCacheIntoBatch(individualCache: [KVCache], modelState: LMOutput.State?) {
+        let debugTiming = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
+        let mergeStart = debugTiming ? Date() : Date.distantPast
+        let batchBeforeMerge = slots.count
+        var addedThisMerge = 1
+        if let firstLayer = individualCache.first,
+           let keysArray = (firstLayer as? BatchKVCacheSimple)?.state.first {
+            addedThisMerge = keysArray.dim(0)
+        } else if let firstLayer = individualCache.first,
+                  let keysArray = (firstLayer as? KVCacheSimple)?.state.first {
+            addedThisMerge = max(1, keysArray.dim(0))
+        }
+        defer {
+            if debugTiming {
+                _dbgLastMergeWallS = Date().timeIntervalSince(mergeStart)
+                _dbgLastMergeCountAdded = addedThisMerge
+                _dbgJustMergedAt = Date()
+                print("[\(batchTs())] [BatchScheduler] MERGE CACHE: adding=\(addedThisMerge) slots, B_before=\(batchBeforeMerge), merge_wall=\(String(format: "%.3f", _dbgLastMergeWallS))s")
+            }
+        }
+
         switch cacheMode {
         case .empty:
             // B=0 → B=1: Keep individual caches if all are simple/batchable types (zero overhead)
@@ -1422,7 +1499,7 @@ actor BatchScheduler {
                     } else if let rc = layerCache as? RotatingKVCache, rc.isBatchable {
                         return BatchRotatingKVCache.merge([layerCache]) as KVCache
                     } else {
-                        return BatchKVCacheSimple.merge([layerCache]) as KVCache
+                        return BatchKVCacheSimple.mergeSlab([layerCache], capacity: maxConcurrent) as KVCache
                     }
                 }
                 cacheMode = .batched
@@ -1441,7 +1518,7 @@ actor BatchScheduler {
                 } else if existing is RotatingKVCache || new is RotatingKVCache {
                     return BatchRotatingKVCache.merge([existing, new]) as KVCache
                 } else {
-                    return BatchKVCacheSimple.merge([existing, new]) as KVCache
+                    return BatchKVCacheSimple.mergeSlab([existing, new], capacity: maxConcurrent) as KVCache
                 }
             }
             cacheMode = .batched
@@ -1456,8 +1533,12 @@ actor BatchScheduler {
                            let newAC = newCL[subIdx] as? ArraysCache {
                             batchAC.extend(other: newAC)
                         } else if let batchBKV = batchBCL[subIdx] as? BatchKVCacheSimple {
-                            let single = BatchKVCacheSimple.merge([newCL[subIdx]])
-                            batchBKV.extend(with: single)
+                            if batchBKV.capacity > 0 {
+                                batchBKV.addSlot(from: newCL[subIdx])
+                            } else {
+                                let single = BatchKVCacheSimple.merge([newCL[subIdx]])
+                                batchBKV.extend(with: single)
+                            }
                         }
                     }
                 } else if let batchAC = batchCaches[layer] as? ArraysCache,
@@ -1467,8 +1548,13 @@ actor BatchScheduler {
                     let single = BatchRotatingKVCache.merge([individualCache[layer]])
                     batchBRC.extend(with: single)
                 } else {
-                    let singleBatch = BatchKVCacheSimple.merge([individualCache[layer]])
-                    (batchCaches[layer] as! BatchKVCacheSimple).extend(with: singleBatch)
+                    let bkv = batchCaches[layer] as! BatchKVCacheSimple
+                    if bkv.capacity > 0 {
+                        bkv.addSlot(from: individualCache[layer])
+                    } else {
+                        let singleBatch = BatchKVCacheSimple.merge([individualCache[layer]])
+                        bkv.extend(with: singleBatch)
+                    }
                 }
             }
         }

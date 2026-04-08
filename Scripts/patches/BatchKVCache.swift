@@ -30,8 +30,23 @@ public class BatchKVCacheSimple: BaseKVCache {
     /// Pre-allocation step size
     var step: Int = 256
 
-    /// Current batch size
+    /// Current (logical) batch size. In slab mode, may be < capacity.
     var batchSize: Int
+
+    /// Physical row capacity of the slab. 0 = no slab (keys.dim(0) == batchSize).
+    /// When > 0, keys/values are pre-allocated at [capacity, heads, seqLen, dim]
+    /// and only rows [0 ..< batchSize) are exposed to the model.
+    public internal(set) var capacity: Int = 0
+
+    /// Host-side mirror of `leftPadding` (slab mode only). Size == capacity.
+    /// Source of truth in slab mode. Kept in Swift memory so addSlot/filter can
+    /// modify per-row metadata WITHOUT forcing GPU sync via `asArray()`.
+    var hostLeftPadding: [Int32] = []
+
+    /// Host-side mirror of `perSeqOffset` (slab mode only). Size == capacity.
+    /// Bumped by Swift loop in `update()` every decode step — no MLX ops.
+    /// The MLXArray version is rebuilt only at addSlot/filter events.
+    var hostPerSeqOffset: [Int32] = []
 
     /// Cached flags — set at merge/extend/filter time, never eval during decode.
     /// update() preserves both (uniform add keeps equality; padding unchanged).
@@ -48,6 +63,19 @@ public class BatchKVCacheSimple: BaseKVCache {
 
     public override var allOffsetsEqual: Bool {
         if let cached = _allOffsetsEqual { return cached }
+        // Slab mode: use host arrays — no GPU sync, no lazy-graph flush.
+        if capacity > 0 {
+            if batchSize <= 1 { _allOffsetsEqual = true; return true }
+            let first = hostPerSeqOffset[0]
+            for i in 1 ..< batchSize {
+                if hostPerSeqOffset[i] != first {
+                    _allOffsetsEqual = false
+                    return false
+                }
+            }
+            _allOffsetsEqual = true
+            return true
+        }
         let result = batchSize <= 1 || (perSeqOffset .== perSeqOffset[0]).all().item(Bool.self)
         _allOffsetsEqual = result
         return result
@@ -56,6 +84,16 @@ public class BatchKVCacheSimple: BaseKVCache {
     /// True when all leftPadding entries are zero (same-length sequences).
     var zeroPadding: Bool {
         if let cached = _zeroPadding { return cached }
+        // Slab mode: scan host array directly — no GPU sync.
+        if capacity > 0 {
+            if batchSize <= 1 { _zeroPadding = true; return true }
+            for i in 0 ..< batchSize where hostLeftPadding[i] != 0 {
+                _zeroPadding = false
+                return false
+            }
+            _zeroPadding = true
+            return true
+        }
         let result = batchSize <= 1 || leftPadding.max().item(Int32.self) == 0
         _zeroPadding = result
         return result
@@ -73,6 +111,29 @@ public class BatchKVCacheSimple: BaseKVCache {
         super.init()
     }
 
+    /// Slab-mode init. Pre-allocates padding/offset arrays at size `capacity` so
+    /// the physical slab shape stays fixed across slot add/remove. Keys/values are
+    /// allocated lazily on the first `update()` call at shape [capacity, ..., step, ...].
+    public init(batchSize: Int, leftPadding: [Int], capacity: Int) {
+        precondition(capacity >= batchSize, "capacity must be >= batchSize")
+        precondition(capacity > 0, "slab capacity must be > 0")
+        self.batchSize = batchSize
+        self.capacity = capacity
+        // Pad the per-row arrays out to capacity. Inactive slots hold zeros and
+        // are sliced off on every read that matters (state, makeMask, etc.).
+        var padPads = leftPadding.map { Int32($0) }
+        var padOffs = leftPadding.map { -Int32($0) }
+        while padPads.count < capacity {
+            padPads.append(0)
+            padOffs.append(0)
+        }
+        self.hostLeftPadding = padPads
+        self.hostPerSeqOffset = padOffs
+        self.leftPadding = MLXArray(padPads)
+        self.perSeqOffset = MLXArray(padOffs)
+        super.init()
+    }
+
     public override func innerState() -> [MLXArray] {
         [keys, values].compactMap { $0 }
     }
@@ -80,9 +141,12 @@ public class BatchKVCacheSimple: BaseKVCache {
     public override func update(keys newKeys: MLXArray, values newValues: MLXArray) -> (MLXArray, MLXArray) {
         let prev = _idx
         let newTokens = newKeys.dim(2)
+        let slab = capacity > 0
 
         if self.keys == nil || (prev + newTokens) > self.keys!.dim(2) {
-            let B = newKeys.dim(0)
+            // Grow (or initially allocate) along seq dim.
+            // In slab mode, physical row count is `capacity`; otherwise it's newKeys.dim(0).
+            let B = slab ? capacity : newKeys.dim(0)
             let kvHeads = newKeys.dim(1)
             let kHeadDim = newKeys.dim(3)
             let vHeadDim = newValues.dim(3)
@@ -114,8 +178,30 @@ public class BatchKVCacheSimple: BaseKVCache {
             }
         }
 
-        perSeqOffset = perSeqOffset + Int32(newTokens)
+        if slab {
+            // Update host offset array only — no MLXArray arithmetic, no graph append.
+            // The MLXArray `perSeqOffset` is rebuilt from host on the next addSlot/filter.
+            let inc = Int32(newTokens)
+            for i in 0 ..< batchSize { hostPerSeqOffset[i] += inc }
+        } else {
+            perSeqOffset = perSeqOffset + Int32(newTokens)
+        }
         _idx += newTokens
+
+        if slab {
+            // Slab mode: only write the active [0 ..< batchSize) rows.
+            // newKeys has batch dim = batchSize (from model forward pass input slice).
+            self.keys![0 ..< batchSize, 0..., prev ..< _idx, 0...] = newKeys
+            if newValues.dim(3) > 0 {
+                self.values![0 ..< batchSize, 0..., prev ..< _idx, 0...] = newValues
+            }
+
+            let retKeys = self.keys![0 ..< batchSize, 0..., ..<_idx, 0...]
+            let retValues = self.values!.dim(3) > 0
+                ? self.values![0 ..< batchSize, 0..., ..<_idx, 0...]
+                : MLXArray.zeros([batchSize, self.values!.dim(1), _idx, 0], dtype: self.values!.dtype)
+            return (retKeys, retValues)
+        }
 
         self.keys![.ellipsis, prev ..< _idx, 0...] = newKeys
         if newValues.dim(3) > 0 {
@@ -134,16 +220,27 @@ public class BatchKVCacheSimple: BaseKVCache {
     public override var state: [MLXArray] {
         get {
             guard let k = keys, let v = values else { return [] }
-            let kSlice = k[.ellipsis, ..<_idx, 0...]
-            let vSlice = v.dim(3) > 0
-                ? v[.ellipsis, ..<_idx, 0...]
-                : MLXArray.zeros([k.dim(0), v.dim(1), _idx, 0], dtype: v.dtype)
-            return [
-                kSlice,
-                vSlice,
-                perSeqOffset,
-                leftPadding,
-            ]
+            let slab = capacity > 0
+            let kSlice: MLXArray
+            let vSlice: MLXArray
+            let offSlice: MLXArray
+            let padSlice: MLXArray
+            if slab {
+                kSlice = k[0 ..< batchSize, 0..., ..<_idx, 0...]
+                vSlice = v.dim(3) > 0
+                    ? v[0 ..< batchSize, 0..., ..<_idx, 0...]
+                    : MLXArray.zeros([batchSize, v.dim(1), _idx, 0], dtype: v.dtype)
+                offSlice = perSeqOffset[0 ..< batchSize]
+                padSlice = leftPadding[0 ..< batchSize]
+            } else {
+                kSlice = k[.ellipsis, ..<_idx, 0...]
+                vSlice = v.dim(3) > 0
+                    ? v[.ellipsis, ..<_idx, 0...]
+                    : MLXArray.zeros([k.dim(0), v.dim(1), _idx, 0], dtype: v.dtype)
+                offSlice = perSeqOffset
+                padSlice = leftPadding
+            }
+            return [kSlice, vSlice, offSlice, padSlice]
         }
         set {
             guard newValue.count == 4 else {
@@ -183,6 +280,9 @@ public class BatchKVCacheSimple: BaseKVCache {
         let totalLen = _idx + n
         guard batchSize > 0 && totalLen > 0 else { return .none }
 
+        // In slab mode, leftPadding/perSeqOffset are size `capacity`; slice to active rows.
+        let padRows = capacity > 0 ? leftPadding[0 ..< batchSize] : leftPadding
+
         if n == 1 {
             // Decode: single new token — causal constraint is automatic.
             // When all padding is zero (same-length sequences), return .none to match
@@ -190,7 +290,7 @@ public class BatchKVCacheSimple: BaseKVCache {
             if zeroPadding { return .none }
             // Different-length sequences: need padding mask [B, 1, 1, totalLen]
             let keyIndices = MLXArray(Int32(0) ..< Int32(totalLen)).reshaped([1, 1, totalLen])
-            let padMask = keyIndices .>= leftPadding.reshaped([batchSize, 1, 1])
+            let padMask = keyIndices .>= padRows.reshaped([batchSize, 1, 1])
             return .array(padMask.expandedDimensions(axis: 1))
         }
 
@@ -198,7 +298,7 @@ public class BatchKVCacheSimple: BaseKVCache {
         let keyIndices = MLXArray(Int32(0) ..< Int32(totalLen)).reshaped([1, 1, totalLen])
         // Padding mask: attend only to non-padding positions
         // leftPadding: [B] → [B, 1, 1]
-        let padMask = keyIndices .>= leftPadding.reshaped([batchSize, 1, 1])
+        let padMask = keyIndices .>= padRows.reshaped([batchSize, 1, 1])
 
         // Prefill: need causal + padding
         // Query indices: [1, n, 1] — queries cover positions [_idx, _idx+n)
@@ -220,6 +320,59 @@ public class BatchKVCacheSimple: BaseKVCache {
     public func filter(_ keepIndices: [Int]) {
         guard let k = keys, let v = values else { return }
 
+        if capacity > 0 {
+            // Slab mode: compact in-place using host arrays only (no GPU sync).
+            let kept = keepIndices.count
+
+            var newPads: [Int32] = Array(repeating: 0, count: capacity)
+            var newOffs: [Int32] = Array(repeating: 0, count: capacity)
+
+            for (target, src) in keepIndices.enumerated() {
+                newPads[target] = hostLeftPadding[src]
+                newOffs[target] = hostPerSeqOffset[src]
+
+                if target != src {
+                    // In-place row copy: slab[target] = slab[src]
+                    self.keys![target ..< target + 1, 0..., 0..<_idx, 0...] =
+                        self.keys![src ..< src + 1, 0..., 0..<_idx, 0...]
+                    if v.dim(3) > 0 {
+                        self.values![target ..< target + 1, 0..., 0..<_idx, 0...] =
+                            self.values![src ..< src + 1, 0..., 0..<_idx, 0...]
+                    }
+                }
+            }
+
+            hostLeftPadding = newPads
+            hostPerSeqOffset = newOffs
+            // Rebuild MLXArrays from host for the upcoming makeMask call.
+            leftPadding = MLXArray(newPads)
+            perSeqOffset = MLXArray(newOffs)
+            batchSize = kept
+            _allOffsetsEqual = nil
+            _zeroPadding = nil
+
+            // Optional left-trim along seq dim to reclaim padding the way the
+            // non-slab path does. Uses the active rows' min leftPadding.
+            if kept > 0 {
+                let minPad = newPads.prefix(kept).min() ?? 0
+                if minPad > 0 {
+                    let mp = Int(minPad)
+                    // In-place shift left within the slab, only active rows.
+                    let srcK = self.keys![0 ..< kept, 0..., mp ..< _idx, 0...]
+                    self.keys![0 ..< kept, 0..., 0 ..< (_idx - mp), 0...] = srcK
+                    if v.dim(3) > 0 {
+                        let srcV = self.values![0 ..< kept, 0..., mp ..< _idx, 0...]
+                        self.values![0 ..< kept, 0..., 0 ..< (_idx - mp), 0...] = srcV
+                    }
+                    _idx -= mp
+                    // Subtract minPad from active host entries and rebuild MLXArray.
+                    for i in 0 ..< kept { hostLeftPadding[i] -= minPad }
+                    leftPadding = MLXArray(hostLeftPadding)
+                }
+            }
+            return
+        }
+
         let indices = MLXArray(keepIndices.map { Int32($0) })
         keys = k[indices]
         values = v[indices]
@@ -240,6 +393,111 @@ public class BatchKVCacheSimple: BaseKVCache {
             _idx -= mp
             leftPadding = leftPadding - minPad
         }
+    }
+
+    /// Slab-mode append: write one new sequence's K/V into row `batchSize` (in-place).
+    /// The incoming `kSrc`/`vSrc` are shape [1, heads, L, dim] from a per-sequence cache.
+    ///
+    /// If L <= _idx (common case after ramp-up): write at columns [(_idx-L) ..< _idx]
+    /// and set this row's leftPadding = _idx - L. O(L × heads × dim) per layer.
+    ///
+    /// If L > _idx: right-shift the existing active rows' data by (L - _idx) positions
+    /// along the seq dim so all rows end at position L, then write the new row at
+    /// columns [0 ..< L]. The shift is O(batchSize × _idx × heads × dim) — proportional
+    /// to active cache size, NOT to physical slab capacity.
+    ///
+    /// Grows the seq dim via concat if (L > keys.dim(2)); this is the same bounded
+    /// pre-allocation step the non-slab path already uses.
+    public func addSlot(keys kSrc: MLXArray, values vSrc: MLXArray) {
+        precondition(capacity > 0, "addSlot requires slab mode")
+        precondition(batchSize < capacity, "slab full: batchSize=\(batchSize) capacity=\(capacity)")
+
+        let L = kSrc.dim(2)
+
+        // 1. Ensure slab is allocated and wide enough along seq dim.
+        if self.keys == nil {
+            let kvHeads = kSrc.dim(1)
+            let kHeadDim = kSrc.dim(3)
+            let vHeadDim = vSrc.dim(3)
+            let nSteps = (Swift.max(step, L) + step - 1) / step
+            let seqAlloc = nSteps * step
+            self.keys = MLXArray.zeros([capacity, kvHeads, seqAlloc, kHeadDim], dtype: kSrc.dtype)
+            self.values = MLXArray.zeros([capacity, kvHeads, seqAlloc, vHeadDim], dtype: vSrc.dtype)
+        } else if L > self.keys!.dim(2) || (_idx > self.keys!.dim(2) - L && L > _idx) {
+            // Need more seq space. Pre-allocate next step and concat (rare, bounded).
+            let have = self.keys!.dim(2)
+            let needed = Swift.max(L, _idx + L)  // worst case: shift-and-write
+            if needed > have {
+                let nSteps = (needed + step - 1) / step
+                let newSeq = nSteps * step
+                let extraLen = newSeq - have
+                let kShape = [capacity, self.keys!.dim(1), extraLen, self.keys!.dim(3)]
+                let vShape = [capacity, self.values!.dim(1), extraLen, self.values!.dim(3)]
+                self.keys = concatenated([self.keys!, MLXArray.zeros(kShape, dtype: self.keys!.dtype)], axis: 2)
+                if self.values!.dim(3) > 0 {
+                    self.values = concatenated([self.values!, MLXArray.zeros(vShape, dtype: self.values!.dtype)], axis: 2)
+                } else {
+                    self.values = MLXArray.zeros([capacity, self.values!.dim(1), newSeq, 0], dtype: self.values!.dtype)
+                }
+            }
+        }
+
+        let row = batchSize
+        var newLeftPad: Int32 = 0
+
+        if L <= _idx {
+            // Common case: new slot is shorter than current batch. Write at the
+            // right of the seq range so its last token aligns with _idx - 1.
+            // The prefix [0 ..< writeStart) stays at its initial zero value (the
+            // slab was zero-initialized and this row has never been written).
+            // Attention mask uses leftPadding to ignore those positions anyway.
+            let writeStart = _idx - L
+            self.keys![row ..< row + 1, 0..., writeStart ..< _idx, 0...] = kSrc
+            if self.values!.dim(3) > 0 {
+                self.values![row ..< row + 1, 0..., writeStart ..< _idx, 0...] = vSrc
+            }
+            newLeftPad = Int32(writeStart)
+        } else {
+            // Rare case: new slot is longer than current batch max.
+            // Right-shift existing active rows so they end at position L, then write.
+            let shift = L - _idx
+            if _idx > 0 && batchSize > 0 {
+                // Overlapping slice assignment — force materialization via contiguous().
+                let srcK = MLX.contiguous(self.keys![0 ..< batchSize, 0..., 0 ..< _idx, 0...])
+                self.keys![0 ..< batchSize, 0..., shift ..< shift + _idx, 0...] = srcK
+                if self.values!.dim(3) > 0 {
+                    let srcV = MLX.contiguous(self.values![0 ..< batchSize, 0..., 0 ..< _idx, 0...])
+                    self.values![0 ..< batchSize, 0..., shift ..< shift + _idx, 0...] = srcV
+                }
+                // Zero the vacated prefix
+                let kzShape = [batchSize, self.keys!.dim(1), shift, self.keys!.dim(3)]
+                self.keys![0 ..< batchSize, 0..., 0 ..< shift, 0...] =
+                    MLXArray.zeros(kzShape, dtype: self.keys!.dtype)
+                if self.values!.dim(3) > 0 {
+                    let vzShape = [batchSize, self.values!.dim(1), shift, self.values!.dim(3)]
+                    self.values![0 ..< batchSize, 0..., 0 ..< shift, 0...] =
+                        MLXArray.zeros(vzShape, dtype: self.values!.dtype)
+                }
+                // Existing rows' leftPadding all shift by +shift (they now start later)
+                for i in 0 ..< batchSize { hostLeftPadding[i] += Int32(shift) }
+            }
+            _idx = L
+            self.keys![row ..< row + 1, 0..., 0 ..< L, 0...] = kSrc
+            if self.values!.dim(3) > 0 {
+                self.values![row ..< row + 1, 0..., 0 ..< L, 0...] = vSrc
+            }
+            newLeftPad = 0
+        }
+
+        // Update this row's host metadata and rebuild MLXArrays from host.
+        hostLeftPadding[row] = newLeftPad
+        hostPerSeqOffset[row] = Int32(L)
+        leftPadding = MLXArray(hostLeftPadding)
+        perSeqOffset = MLXArray(hostPerSeqOffset)
+
+        batchSize += 1
+        _allOffsetsEqual = nil
+        _zeroPadding = nil
     }
 
     /// Merge another BatchKVCacheSimple into this one (extend batch).
@@ -308,6 +566,118 @@ public class BatchKVCacheSimple: BaseKVCache {
             ev = MLX.contiguous(v[index ..< index + 1, 0..., padding ..< _idx, 0...])
         }
         return (ek, ev, tokenCount)
+    }
+
+    /// Slab-mode variant of `merge`: create a BatchKVCacheSimple with pre-allocated
+    /// physical capacity and insert the given per-sequence caches via in-place addSlot.
+    /// Subsequent `addSlot` calls will write new rows without touching the batch dim.
+    public static func mergeSlab(_ caches: [KVCache], capacity: Int) -> BatchKVCacheSimple {
+        let B = caches.count
+        precondition(B <= capacity, "mergeSlab: B=\(B) > capacity=\(capacity)")
+        let batch = BatchKVCacheSimple(
+            batchSize: 0,
+            leftPadding: [],
+            capacity: capacity
+        )
+        for cache in caches {
+            let st = cache.state
+            guard st.count >= 2 else { continue }
+            batch.addSlot(keys: st[0], values: st[1])
+        }
+        return batch
+    }
+
+    /// Slab-mode addSlot that takes a KVCache object directly.
+    public func addSlot(from cache: KVCache) {
+        let st = cache.state
+        guard st.count >= 2 else { return }
+        addSlot(keys: st[0], values: st[1])
+    }
+
+    /// Slab-mode bulk append: copy an entire batched prefill cache into this
+    /// slab as a contiguous block of new rows, in ONE slice-assignment per layer
+    /// (K and V). Avoids accumulating N × slice-assign lazy graph nodes per
+    /// addSlot, which at N=36+ balloons Metal command-buffer overhead to seconds.
+    ///
+    /// The source cache must already be a BatchKVCacheSimple from a batched
+    /// prefill (not a per-sequence KVCacheSimple).
+    ///
+    /// Precondition: this slab's `_idx >= otherMaxLen`. If not, falls back to
+    /// per-slot addSlot (rare — only happens when decode cursor hasn't caught
+    /// up to the new prefill length, which is typical only at very early ramp).
+    public func addSlotsBulk(from other: BatchKVCacheSimple) {
+        precondition(capacity > 0, "addSlotsBulk requires slab mode")
+        precondition(batchSize + other.batchSize <= capacity,
+                     "slab would overflow: \(batchSize) + \(other.batchSize) > \(capacity)")
+        guard let oK = other.keys, let oV = other.values else { return }
+
+        let addCount = other.batchSize
+        let otherMaxLen = other._idx  // logical length of other's batch
+
+        // Fall back to per-slot path if we can't fit this bulk block into the
+        // current seq range (self._idx < otherMaxLen means slab is too short).
+        if _idx < otherMaxLen {
+            for i in 0 ..< addCount {
+                let (k, v, _) = other.extract(i)
+                addSlot(keys: k, values: v)
+            }
+            return
+        }
+
+        // Ensure slab is allocated at least along batch/head/dim dimensions.
+        // First-time allocation: slab needs to exist at full [capacity, ..., seqAlloc, ...].
+        if self.keys == nil {
+            let kvHeads = oK.dim(1)
+            let kHeadDim = oK.dim(3)
+            let vHeadDim = oV.dim(3)
+            let nSteps = (Swift.max(step, _idx) + step - 1) / step
+            let seqAlloc = nSteps * step
+            self.keys = MLXArray.zeros([capacity, kvHeads, seqAlloc, kHeadDim], dtype: oK.dtype)
+            self.values = MLXArray.zeros([capacity, kvHeads, seqAlloc, vHeadDim], dtype: oV.dtype)
+        }
+
+        let oldB = batchSize
+        let newB = oldB + addCount
+        let writeStart = _idx - otherMaxLen
+
+        // The source tensors from `other` may have shape [capacity_other, ..., seqAllocOther, ...]
+        // with only the first `addCount` rows and `otherMaxLen` columns being meaningful.
+        // Slice to the active region before the bulk copy.
+        let srcK = oK[0 ..< addCount, 0..., 0 ..< otherMaxLen, 0...]
+        let srcV = oV.dim(3) > 0
+            ? oV[0 ..< addCount, 0..., 0 ..< otherMaxLen, 0...]
+            : oV
+
+        // ONE slice-assign per layer covers all `addCount` new rows.
+        self.keys![oldB ..< newB, 0..., writeStart ..< _idx, 0...] = srcK
+        if self.values!.dim(3) > 0 {
+            self.values![oldB ..< newB, 0..., writeStart ..< _idx, 0...] = srcV
+        }
+
+        // Per-row metadata: new row i sits at physical row oldB+i with left
+        // padding = writeStart + other.hostLeftPadding[i] (its own intra-prefill
+        // pad plus the prefix zero region of the slab that precedes this block).
+        for i in 0 ..< addCount {
+            let srcPad: Int32
+            let srcOff: Int32
+            if other.capacity > 0 {
+                srcPad = other.hostLeftPadding[i]
+                srcOff = other.hostPerSeqOffset[i]
+            } else {
+                // Non-slab source — fall back to reading MLXArray entries (one-off
+                // per bulk merge, not per step, so the sync cost is acceptable here).
+                srcPad = other.leftPadding[i ..< i + 1].item(Int32.self)
+                srcOff = other.perSeqOffset[i ..< i + 1].item(Int32.self)
+            }
+            hostLeftPadding[oldB + i] = Int32(writeStart) + srcPad
+            hostPerSeqOffset[oldB + i] = srcOff
+        }
+        leftPadding = MLXArray(hostLeftPadding)
+        perSeqOffset = MLXArray(hostPerSeqOffset)
+
+        batchSize = newB
+        _allOffsetsEqual = nil
+        _zeroPadding = nil
     }
 
     /// Create a BatchKVCacheSimple by merging individual per-sequence KVCache objects.
