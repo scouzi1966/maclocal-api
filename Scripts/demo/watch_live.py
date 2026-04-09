@@ -402,8 +402,13 @@ def main() -> None:
 
             readout_gen_total.set_text(f"gen: {_fmt_k(gen_t)}")
             readout_prompt_total.set_text(f"prompt: {_fmt_k(prompt_t)}")
-            hit_pct = f" ({100*chits/(chits+cmiss):.0f}%)" if (chits + cmiss) > 0 else ""
-            readout_cache.set_text(f"cache: {chits} hit / {cmiss} miss{hit_pct}")
+            if (chits + cmiss) > 0:
+                hit_pct = 100 * chits / (chits + cmiss)
+                readout_cache.set_text(
+                    f"prefix cache: {chits} hit / {cmiss} miss ({hit_pct:.0f}% reuse)"
+                )
+            else:
+                readout_cache.set_text("prefix cache: --")
 
             # GPU power + system memory from mactop (background thread)
             with _mactop_lock:

@@ -880,7 +880,16 @@ actor BatchScheduler {
     // MARK: - Prefill
 
     /// Prefill a single request (B=1), then merge its cache into the batch.
-    private func prefillOne(_ req: PendingRequest) {
+    /// Prefill a single request (B=1 forward pass).
+    /// When `deferMerge` is true, the cache is appended to `deferredCaches`
+    /// instead of being immediately merged into the decode batch. The caller
+    /// is responsible for batch-merging all deferred caches afterward.
+    @discardableResult
+    private func prefillOne(
+        _ req: PendingRequest,
+        deferMerge: Bool = false,
+        deferredCaches: UnsafeMutablePointer<[([KVCache], LMOutput.State?)]>? = nil
+    ) -> Void {
         var cache = model.newCache(parameters: req.parameters)
         var generateInput = req.input
         var cachedTokens = 0
@@ -1005,7 +1014,12 @@ actor BatchScheduler {
             return
         }
 
-        mergeCacheIntoBatch(individualCache: cache, modelState: result.state)
+        if deferMerge && cacheMode == .batched, let dc = deferredCaches {
+            // Defer the merge — caller will batch-merge all deferred caches at once
+            dc.pointee.append((cache, result.state))
+        } else {
+            mergeCacheIntoBatch(individualCache: cache, modelState: result.state)
+        }
 
         // Only count the un-cached suffix in prompt_tokens_total so the
         // counter reflects tokens the GPU actually prefilled, not tokens
@@ -1219,7 +1233,56 @@ actor BatchScheduler {
             || (c as? RotatingKVCache)?.isBatchable == true
         }
         if !canBatch {
-            for req in requests { prefillOne(req) }
+            // Individual B=1 prefills, but BULK merge at the end to avoid
+            // N per-slot concats. Collect per-request caches, then extend
+            // the decode batch once per layer.
+            var deferredCaches: [([KVCache], LMOutput.State?)] = []
+            for req in requests {
+                withUnsafeMutablePointer(to: &deferredCaches) { ptr in
+                    prefillOne(req, deferMerge: true, deferredCaches: ptr)
+                }
+            }
+            if !deferredCaches.isEmpty && cacheMode == .batched && !batchCaches.isEmpty {
+                // Build ONE batched cache from all N deferred caches and extend decode batch
+                let debugTiming = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
+                let bulkStart = debugTiming ? Date() : Date.distantPast
+                let bBefore = slots.count - deferredCaches.count  // slots were already appended
+                let N = deferredCaches.count
+
+                for layer in 0..<batchCaches.count {
+                    let individualCaches = deferredCaches.map { $0.0[layer] }
+
+                    if let batchBKV = batchCaches[layer] as? BatchKVCacheSimple {
+                        let merged = BatchKVCacheSimple.merge(individualCaches)
+                        batchBKV.extend(with: merged)
+                    } else if let batchBRC = batchCaches[layer] as? BatchRotatingKVCache {
+                        let merged = BatchRotatingKVCache.merge(individualCaches)
+                        batchBRC.extend(with: merged)
+                    } else if let batchAC = batchCaches[layer] as? ArraysCache {
+                        // Merge all individual ArraysCaches into one, then extend
+                        for ic in individualCaches {
+                            if let iac = ic as? ArraysCache {
+                                batchAC.addSlotsBulk(from: iac)
+                            }
+                        }
+                    }
+                }
+                // Merge cross-attention state from first request (if any)
+                if let firstState = deferredCaches.first?.1,
+                   let newCAS = firstState.crossAttentionStates {
+                    if let existingCAS = batchState?.crossAttentionStates {
+                        batchState = .init(crossAttentionStates: concatenated([existingCAS, newCAS], axis: 0))
+                    } else {
+                        batchState = firstState
+                    }
+                }
+                if debugTiming {
+                    let bulkWall = Date().timeIntervalSince(bulkStart)
+                    print("[\(batchTs())] [BatchScheduler] BULK COHORT MERGE (prefillOne): adding=\(N) slots, B_before=\(bBefore), layers=\(batchCaches.count), wall=\(String(format: "%.3f", bulkWall))s")
+                }
+            } else {
+                // First slots or mode transition — individual merges already happened inside prefillOne
+            }
             return
         }
 
