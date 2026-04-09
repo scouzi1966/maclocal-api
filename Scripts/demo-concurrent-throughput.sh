@@ -16,6 +16,7 @@
 #
 # Options:
 #   --model MODEL              MLX model ID or local path (default: Qwen3.5-35B-A3B-4bit)
+#   AFM_BIN=/path/to/afm      Env var to override the binary (default: local release build, then PATH)
 #   --concurrent N             Peak virtual users AND server --concurrent slots (default: 200)
 #   --ramp S                   Seconds to ramp 0 -> N (default: 45)
 #   --ramp-jitter-pct PCT      Randomize each step's sleep by ±PCT percent
@@ -89,10 +90,14 @@ SMOOTHING_WINDOW_S=2.0
 WARMUP_USERS=0          # 0 = disabled (default for step mode)
 WARMUP_MAX_TOKENS=32    # small so warmup requests complete naturally; no zombies
 
-# AFM binary — prefer the local release build, fall back to PATH
-AFM_BIN="$ROOT_DIR/.build/arm64-apple-macosx/release/afm"
-if [ ! -x "$AFM_BIN" ]; then
-  AFM_BIN="$(command -v afm || true)"
+# AFM binary — env var overrides; then local release build; then PATH
+if [ -n "${AFM_BIN:-}" ] && [ -x "$AFM_BIN" ]; then
+  : # use env var as-is
+else
+  AFM_BIN="$ROOT_DIR/.build/arm64-apple-macosx/release/afm"
+  if [ ! -x "$AFM_BIN" ]; then
+    AFM_BIN="$(command -v afm || true)"
+  fi
 fi
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
