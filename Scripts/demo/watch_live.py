@@ -66,7 +66,28 @@ STALL_SECONDS = 8.0  # close window if no new samples for this long
 REDRAW_INTERVAL = 0.25
 
 
-def setup_figure() -> tuple:
+def _get_machine_info() -> str:
+    """Return a one-line machine description, e.g. 'Apple M3 Ultra · 512 GB'."""
+    try:
+        chip = subprocess.check_output(
+            ["sysctl", "-n", "machdep.cpu.brand_string"],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        chip = "Apple Silicon"
+    try:
+        mem_bytes = int(subprocess.check_output(
+            ["sysctl", "-n", "hw.memsize"],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip())
+        mem_gb = mem_bytes // (1024**3)
+    except Exception:
+        mem_gb = 0
+    mem_str = f" {mem_gb} GB" if mem_gb else ""
+    return f"{chip} {mem_str}".strip()
+
+
+def setup_figure(model: str = "", machine: str = "") -> tuple:
     plt.rcParams.update({
         "font.family": ["Helvetica Neue", "Helvetica", "Arial", "DejaVu Sans"],
         "axes.edgecolor":   THEME["axis"],
@@ -98,8 +119,17 @@ def setup_figure() -> tuple:
     fig.text(0.08, 0.92, "AFM · live concurrent throughput",
              fontsize=22, fontweight="bold", color=THEME["text_primary"],
              ha="left", va="center")
-    fig.text(0.08, 0.875, "tail -f Scripts/demo/out/trace.jsonl",
-             fontsize=11, color=THEME["text_secondary"], family="monospace",
+    # Subtitle: model, machine, date
+    from datetime import datetime
+    date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    subtitle_parts = []
+    if model:
+        subtitle_parts.append(model)
+    if machine:
+        subtitle_parts.append(machine)
+    subtitle_parts.append(date_str)
+    fig.text(0.08, 0.875, " · ".join(subtitle_parts),
+             fontsize=11, color=THEME["text_secondary"],
              ha="left", va="center")
 
     ax_left.set_xlabel("Time (s)", fontsize=11, labelpad=8)
@@ -154,15 +184,18 @@ def main() -> None:
                     help="Fixed X-axis upper bound in seconds (ramp_s + hold_s). "
                          "Pre-setting this lets the lines sweep left-to-right across the "
                          "entire canvas rather than the axis rescaling as data arrives.")
-    ap.add_argument("--smoothing-window", type=int, default=20,
+    ap.add_argument("--smoothing-window", type=int, default=40,
                     help="Moving-average window for the agg_tps line, in samples. "
-                         "Default 20 samples = 5s at 250ms cadence. Set 1 to disable.")
+                         "Default 40 samples = 10s at 250ms cadence. Set 1 to disable.")
+    ap.add_argument("--model", type=str, default="",
+                    help="Model name to display in the chart subtitle.")
     args = ap.parse_args()
     smoothing_w = max(1, args.smoothing_window)
     trace_path = Path(args.trace)
     y1_max = max(1, int(round(args.target_users * 1.05)))
     y2_max = max(1.0, args.initial_tps_max)
     x_max = max(1.0, args.total_seconds)
+    model_name = args.model
 
     print(f"[watch] tailing {trace_path}")
     print("[watch] waiting for driver to start writing...")
@@ -215,7 +248,8 @@ def main() -> None:
     mactop_t = threading.Thread(target=_mactop_thread, daemon=True)
     mactop_t.start()
 
-    fig, ax_left, ax_right = setup_figure()
+    machine_info = _get_machine_info()
+    fig, ax_left, ax_right = setup_figure(model=model_name, machine=machine_info)
     # Fixed axes from the start — do NOT autoscale.
     # X is pinned to the full run duration so the lines sweep left to right
     # across the entire canvas for visual effect, rather than the axis
