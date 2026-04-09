@@ -27,8 +27,15 @@ public class BatchKVCacheSimple: BaseKVCache {
     /// Global write cursor (same for all sequences)
     var _idx: Int = 0
 
-    /// Pre-allocation step size
-    var step: Int = 256
+    /// Pre-allocation step size (seq dim).
+    /// Default 256; override with env var `AFM_BATCH_KV_STEP`.
+    /// Larger values amortize the grow-and-concat cost over more decode
+    /// steps at the price of extra up-front allocation.
+    var step: Int = {
+        if let s = ProcessInfo.processInfo.environment["AFM_BATCH_KV_STEP"],
+           let n = Int(s), n > 0 { return n }
+        return 256
+    }()
 
     /// Current batch size
     var batchSize: Int

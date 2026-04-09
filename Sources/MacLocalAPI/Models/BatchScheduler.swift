@@ -591,11 +591,33 @@ actor BatchScheduler {
         var dispatchTimeAccum: Double = 0
         var timingStepCount = 0
 
+        // For top-of-loop gap detection: wall-clock of the previous iteration-top
+        // and per-phase wall times of the previous iteration so we can attribute
+        // any gap to model() / dispatch() / housekeeping.
+        var _dbgPrevLoopTopAt: Date? = nil
+        var _dbgPrevModelWall: Double = 0
+        var _dbgPrevDispatchWall: Double = 0
+        var _dbgPrevWasMerge: Bool = false
         while !_isShutdown.withLock({ $0 }) {
             let stepStart = debugTiming ? Date() : Date.distantPast
+            if debugTiming {
+                if let prev = _dbgPrevLoopTopAt {
+                    let gap = stepStart.timeIntervalSince(prev)
+                    if gap > 0.500 {
+                        let other = max(0, gap - _dbgPrevModelWall - _dbgPrevDispatchWall)
+                        let merge = _dbgPrevWasMerge ? "yes" : "no"
+                        print("[\(batchTs())] [BatchScheduler] LOOP GAP: B=\(slots.count), pending=\(_pendingQueue.withLock { $0.count }), gap=\(String(format: "%.3f", gap))s | model=\(String(format: "%.3f", _dbgPrevModelWall))s dispatch=\(String(format: "%.3f", _dbgPrevDispatchWall))s other=\(String(format: "%.3f", other))s merge=\(merge)")
+                    }
+                }
+                _dbgPrevLoopTopAt = stepStart
+                _dbgPrevWasMerge = false
+            }
 
             // Drain nonisolated queue — no Task.yield() needed for request pickup
             let newRequests = drainPendingQueue()
+            if debugTiming && !newRequests.isEmpty {
+                _dbgPrevWasMerge = true
+            }
             if !newRequests.isEmpty {
                 // Separate capacity-limited requests from overflow
                 var accepted: [PendingRequest] = []
@@ -675,7 +697,9 @@ actor BatchScheduler {
             // Kick off async evaluation — GPU starts computing current step
             asyncEval(tokenArrays)
             if debugTiming {
-                modelTimeAccum += Date().timeIntervalSince(modelStart)
+                let modelW = Date().timeIntervalSince(modelStart)
+                modelTimeAccum += modelW
+                _dbgPrevModelWall = modelW
             }
 
             // Update lastTokenArray BEFORE dispatch (indices still match tokenArrays).
@@ -765,7 +789,9 @@ actor BatchScheduler {
             }
 
             if debugTiming {
-                dispatchTimeAccum += Date().timeIntervalSince(dispatchStart)
+                let dispatchW = Date().timeIntervalSince(dispatchStart)
+                dispatchTimeAccum += dispatchW
+                _dbgPrevDispatchWall = dispatchW
                 stepTimeAccum += Date().timeIntervalSince(stepStart)
                 timingStepCount += 1
                 if timingStepCount % 200 == 0 {
@@ -778,7 +804,14 @@ actor BatchScheduler {
 
             totalTokensGenerated += activeB
             if totalTokensGenerated % 1024 < activeB {
+                let clearStart = debugTiming ? Date() : Date.distantPast
                 Memory.clearCache()
+                if debugTiming {
+                    let clearWall = Date().timeIntervalSince(clearStart)
+                    if clearWall > 0.010 {
+                        print("[\(batchTs())] [BatchScheduler] MEMORY CLEARCACHE: B=\(slots.count), wall=\(String(format: "%.3f", clearWall))s")
+                    }
+                }
             }
 
             // Periodically eval cache arrays to collapse the lazy compute graph.
