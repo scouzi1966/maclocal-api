@@ -776,9 +776,20 @@ public class BatchRotatingKVCache: BaseKVCache {
         }
 
         if n == 1 {
-            // Decode: single token
+            // Decode: single token.
+            // Match the serial RotatingKVCache.makeMask logic: when ALL sequences
+            // have equal padding (zeroPadding) and the window covers the full cache
+            // (windowSize == nil or windowSize >= maxCacheSize), no mask is needed.
+            // This matches the B=1 serial path which returns .none at KVCache.swift:799.
+            // Without this fast-return, ~20 lazy ops per layer per step are created
+            // for mask construction — 480+ wasted ops across 24 sliding layers.
+            let effectiveWindow = windowSize ?? maxCacheSize
+            if zeroPadding && effectiveWindow >= maxCacheSize {
+                return .none
+            }
+
             if _offset < maxCacheSize {
-                // Pre-wrap: zero padding → .none matches B=1 serial SDPA path
+                // Pre-wrap: padding mask only
                 if zeroPadding { return .none }
                 let currentPad = currentPadding()
                 let keyIndices = MLXArray(Int32(0) ..< Int32(totalLen)).reshaped([1, 1, totalLen])
@@ -786,7 +797,8 @@ public class BatchRotatingKVCache: BaseKVCache {
                 return .array(padMask.expandedDimensions(axis: 1))
             }
 
-            // Post-wrap: buffer is full, need rotation-aware masking
+            // Post-wrap with non-zero padding or window < maxCacheSize:
+            // need rotation-aware masking.
             let keyIndices = MLXArray(Int32(0) ..< Int32(totalLen)).reshaped([1, 1, totalLen])
             let currentPad = currentPadding()
             var decodePadMask = keyIndices .>= currentPad.reshaped([batchSize, 1, 1])
@@ -799,18 +811,14 @@ public class BatchRotatingKVCache: BaseKVCache {
             decodePadMask = rotatedIndices .>= remainingPad
 
             if let windowSize, maxCacheSize > windowSize {
-                // Buffer has wrapped AND window < maxCacheSize: need rotation-aware mask
                 let currentIdx = writeIndex
                 let maskSize = maxCacheSize
                 let windowMask = MLXArray(0 ..< Int32(maskSize)) .>= Int32(maskSize - windowSize)
                 let rolledMask = roll(windowMask, shift: currentIdx + 1)
                     .reshaped([1, 1, maskSize])
-
-                // Combine: per-sequence padding AND rotation window
                 let combined = rolledMask .&& decodePadMask
                 return .array(combined.expandedDimensions(axis: 1))
             }
-            // Post-wrap, window == maxCacheSize: just padding mask
             return .array(decodePadMask.expandedDimensions(axis: 1))
         }
 

@@ -748,6 +748,15 @@ public class Gemma4TextModelInner: Module {
         // KV sharing store: layer_idx → (keys, values, scalarOffset, perSeqOffsets?, allEqual?)
         var sharedKVStore: [Int: ((MLXArray, MLXArray), Int, MLXArray?, Bool?)] = [:]
 
+        // Flush the lazy graph every N layers during batched prefill (S>1).
+        // RotatingKVCache creates ~20 lazy ops per layer; at 40 layers the
+        // graph can overflow Metal's buffer limit. Flushing every 1 layer
+        // serializes the GPU and kills throughput. Every 8 layers balances
+        // graph size (~160 ops, safe) with pipelining (5 syncs not 40).
+        // MUST NOT fire during decode (S=1).
+        let seqLen = h.dim(1)
+        let prefillFlushInterval = 8
+        let isPrefill = h.dim(0) > 1 && seqLen > 1
         let debugBatch = ProcessInfo.processInfo.environment["AFM_DEBUG_PREFILL"] == "1" && h.dim(0) > 2
         for (i, (layer, c)) in zip(layers, cache).enumerated() {
             let isGlobal = layer.layerType == "full_attention"
@@ -793,10 +802,17 @@ public class Gemma4TextModelInner: Module {
                 sharedKVStore[i] = (kv, preOffset, preOffsetArray, preAllEqual)
             }
 
-            // Debug: periodic eval to diagnose MLX lazy graph overflow at B>=3.
-            if debugBatch {
+            // Collapse the lazy graph at layer boundaries during batched prefill.
+            // RotatingKVCache.update() creates ~20 lazy ops per layer for the
+            // circular buffer housekeeping. At B>1 × 40+ layers, unchecked
+            // accumulation overflows MLX's SmallVector. Flushing per-layer keeps
+            // the graph bounded. Cost: ~2-5ms per layer = ~100-200ms total,
+            // negligible vs the seconds saved by batching.
+            if isPrefill && (i + 1) % prefillFlushInterval == 0 {
                 MLX.eval(h)
                 if let c = c { MLX.eval(c.innerState()) }
+            }
+            if debugBatch {
                 print("[Gemma4Forward] layer \(i) B=\(h.dim(0)) OK h=\(h.shape)")
                 fflush(stdout)
             }

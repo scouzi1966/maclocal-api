@@ -1223,12 +1223,11 @@ actor BatchScheduler {
 
         // Verify cache types support batching
         let templateCache = model.newCache(parameters: requests[0].parameters)
-        // Models with RotatingKVCache layers (Gemma 4) use individual prefill + merge.
-        // MLX's lazy graph overflows SmallVector during batched prefill eval with
-        // BatchRotatingKVCache. The decode loop handles them correctly in batch.
-        // Individual prefill adds <1% overhead (63ms for 15 requests vs 17s decode).
-        let hasRotatingLayers = templateCache.contains { $0 is RotatingKVCache }
-        let canBatch = !hasRotatingLayers && templateCache.allSatisfy { c in
+        // All batchable cache types can be batched for prefill. RotatingKVCache
+        // with keep==0 (Gemma 4) batches via BatchRotatingKVCache. The lazy-graph
+        // overflow that previously forced individual prefill for these models is
+        // prevented by per-layer eval flush in the model's forward pass.
+        let canBatch = templateCache.allSatisfy { c in
             c is KVCacheSimple || c is ArraysCache || c is CacheList
             || (c as? RotatingKVCache)?.isBatchable == true
         }
