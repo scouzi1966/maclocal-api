@@ -87,7 +87,7 @@ def _get_machine_info() -> str:
     return f"{chip} {mem_str}".strip()
 
 
-def setup_figure(model: str = "", machine: str = "") -> tuple:
+def setup_figure(model: str = "", machine: str = "", run_params: str = "") -> tuple:
     plt.rcParams.update({
         "font.family": ["Helvetica Neue", "Helvetica", "Arial", "DejaVu Sans"],
         "axes.edgecolor":   THEME["axis"],
@@ -128,9 +128,13 @@ def setup_figure(model: str = "", machine: str = "") -> tuple:
     if machine:
         subtitle_parts.append(machine)
     subtitle_parts.append(date_str)
-    fig.text(0.08, 0.875, " · ".join(subtitle_parts),
+    fig.text(0.08, 0.878, " · ".join(subtitle_parts),
              fontsize=11, color=THEME["text_secondary"],
              ha="left", va="center")
+    if run_params:
+        fig.text(0.08, 0.848, run_params,
+                 fontsize=8, color=THEME["text_secondary"], family="monospace",
+                 ha="left", va="center", alpha=0.7)
 
     ax_left.set_xlabel("Time (s)", fontsize=11, labelpad=8)
     ax_left.set_ylabel("Concurrent connections", fontsize=11, color=THEME["accent_warm"], labelpad=10)
@@ -189,6 +193,8 @@ def main() -> None:
                          "Default 40 samples = 10s at 250ms cadence. Set 1 to disable.")
     ap.add_argument("--model", type=str, default="",
                     help="Model name to display in the chart subtitle.")
+    ap.add_argument("--run-params", type=str, default="",
+                    help="Test parameters string to display on the chart (e.g. the CLI invocation).")
     args = ap.parse_args()
     smoothing_w = max(1, args.smoothing_window)
     trace_path = Path(args.trace)
@@ -196,6 +202,7 @@ def main() -> None:
     y2_max = max(1.0, args.initial_tps_max)
     x_max = max(1.0, args.total_seconds)
     model_name = args.model
+    run_params = args.run_params
 
     print(f"[watch] tailing {trace_path}")
     print("[watch] waiting for driver to start writing...")
@@ -249,7 +256,7 @@ def main() -> None:
     mactop_t.start()
 
     machine_info = _get_machine_info()
-    fig, ax_left, ax_right = setup_figure(model=model_name, machine=machine_info)
+    fig, ax_left, ax_right = setup_figure(model=model_name, machine=machine_info, run_params=run_params)
     # Fixed axes from the start — do NOT autoscale.
     # X is pinned to the full run duration so the lines sweep left to right
     # across the entire canvas for visual effect, rather than the axis
