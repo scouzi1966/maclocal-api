@@ -431,3 +431,54 @@ Both consultations converge: **the correct path for AFM on M3 Ultra is unified s
 - **O(1) merge**: equally achievable by unified slot-resident without the 2-3× per-step SDPA-bypass cost.
 
 The decision is recorded. See `docs/unified-slot-resident-plan.md` for the concrete implementation plan (to be written in the next work step).
+
+---
+
+## 11. Gemma 4 MoE — Findings and Remaining Work (2026-04-09)
+
+### What was fixed
+
+1. **Enabled batched prefill** — removed `!hasRotatingLayers` guard. Gemma 4 now uses `prefillBatch` with `BatchRotatingKVCache` like all other models. Result: B=82 prefills at 1804 tok/s vs 78 sequential B=1 prefills at 100ms each.
+
+2. **Reduced per-layer eval flush** — changed from every-1 to every-8 layers during prefill only. The every-1 flush serialized the GPU (40 syncs per prefill). Every-8 allows pipelining while keeping the graph bounded.
+
+3. **makeMask fast-return** — added `.none` return for decode case when `zeroPadding && effectiveWindow >= maxCacheSize`, matching the serial path.
+
+### Impact
+
+| Metric | Before | After | Delta |
+|--------|--------|-------|-------|
+| Peak tok/s | 469 | 1565 | **3.3x** |
+| Per-seq at B=60 | 1.0-1.4 | 6.8-8.8 | **5-6x** |
+| GPU sustained | 5-12W | 50-100W | **10-20x** |
+
+### Remaining bottleneck: per-step model() wall
+
+Per-step decode at B=85 takes **562ms** (vs Qwen's ~100ms at the same B). This is **5.6x slower per step**, entirely inside `model()`.
+
+Breakdown: 30 layers × ~19ms/layer average. Qwen: 40 layers × ~2.5ms/layer.
+
+The 19ms/layer overhead is NOT in the scheduler — it's in:
+- `BatchRotatingKVCache.update()` circular buffer housekeeping
+- `BatchRotatingKVCache.makeMask()` building mask tensors on every layer every step (zeroPadding is rarely true in practice because sequences join at different times)
+- KV sharing synchronization (`sharedKVStore` dictionary lookups, `syncPerSeqOffsets`)
+- Possibly the model's attention/MoE structure itself
+
+### What the next session should investigate
+
+1. **Per-layer timing inside Gemma4Text.forward()** — add probes INSIDE the forward loop to break down: (a) cache.update wall, (b) makeMask wall, (c) SDPA wall, (d) MoE/MLP wall, (e) KV sharing wall. This will tell us which specific operation owns the 19ms/layer.
+
+2. **GPU trace** — run `afm mlx --gpu-trace 10 -m gemma-4-26B-A4B-it-mlx-4bit -s "hello" --concurrent 15 --max-tokens 50` to get per-kernel shader names and see if specific Metal kernels are unexpectedly slow.
+
+3. **Compare with mlx-lm Python** — run the same model through Python `mlx_lm.generate` at B=1 and compare per-token time. If Python gets the same ~19ms/layer, it's the model. If Python gets ~5ms/layer, there's an overhead in our Swift path.
+
+4. **The untapped kernels** — `gatherMM` / `blockMaskedMM` could potentially optimize the attention computation for rotated/windowed K/V, replacing the current `makeMask` + `SDPA` pattern with a single fused `gatherMM` call that reads only the valid window positions. Worth prototyping.
+
+5. **The `zeroPadding` optimization** — currently the fast-return only fires when ALL sequences have exactly zero leftPadding. In practice with ongoing admissions, sequences have different lengths. A more relaxed condition ("all same padding" vs "all zero padding") would allow a simpler mask that's computed once and broadcast, instead of per-sequence.
+
+### Files to read
+
+- `Scripts/patches/Gemma4Text.swift` lines 751-815 — the forward loop with flush and KV sharing
+- `Scripts/patches/BatchKVCache.swift` lines 584-646 — `updateInPlace` (decode path)
+- `Scripts/patches/BatchKVCache.swift` lines 766-830 — `makeMask` (the mask construction)
+- `Scripts/patches/Gemma4Text.swift` lines 361+ — attention init with KV sharing config
