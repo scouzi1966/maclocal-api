@@ -216,10 +216,12 @@ def main() -> None:
     _mactop_latest: dict = {}
     _mactop_peak_gpu_w: float = 0.0
     _mactop_peak_mem_gb: float = 0.0
+    _mactop_total_joules: float = 0.0  # integral(watts × dt) for Wh
+    _mactop_last_t: float = 0.0        # monotonic time of last sample
     _mactop_lock = threading.Lock()
 
     def _mactop_thread():
-        nonlocal _mactop_peak_gpu_w, _mactop_peak_mem_gb
+        nonlocal _mactop_peak_gpu_w, _mactop_peak_mem_gb, _mactop_total_joules, _mactop_last_t
         try:
             proc = subprocess.Popen(
                 ["mactop", "--headless", "--format", "json", "-i", "500", "--count", "0"],
@@ -236,6 +238,7 @@ def main() -> None:
                     mem = data.get("memory", {})
                     gpu_w = soc.get("gpu_power", 0.0)
                     mem_gb = mem.get("used", 0) / (1024**3) if "used" in mem else 0.0
+                    now = time.monotonic()
                     with _mactop_lock:
                         _mactop_latest.update({
                             "gpu_power": gpu_w,
@@ -248,6 +251,11 @@ def main() -> None:
                             _mactop_peak_gpu_w = gpu_w
                         if mem_gb > _mactop_peak_mem_gb:
                             _mactop_peak_mem_gb = mem_gb
+                        # Accumulate energy: watts × dt = joules
+                        if _mactop_last_t > 0:
+                            dt = now - _mactop_last_t
+                            _mactop_total_joules += gpu_w * dt
+                        _mactop_last_t = now
                 except (json.JSONDecodeError, KeyError):
                     pass
         except Exception:
@@ -430,15 +438,21 @@ def main() -> None:
             else:
                 readout_cache.set_text("prefix cache: --")
 
-            # GPU power + system memory from mactop (background thread)
+            # GPU energy metrics from mactop (background thread)
             with _mactop_lock:
                 gpu_w = _mactop_latest.get("gpu_power", 0)
                 mem_gb = _mactop_latest.get("mem_gb", 0)
-            if gpu_w > 0 or mem_gb > 0:
-                readout_mem.set_text(
-                    f"GPU: {gpu_w:.0f}W (peak {_mactop_peak_gpu_w:.0f}W)  "
-                    f"mem: {mem_gb:.0f} GB (peak {_mactop_peak_mem_gb:.0f} GB)"
-                )
+                total_j = _mactop_total_joules
+            if gpu_w > 0 or total_j > 0:
+                wh = total_j / 3600.0
+                tps_per_w = cur_tps / gpu_w if gpu_w > 1 else 0
+                parts = [
+                    f"GPU: {gpu_w:.0f}W (peak {_mactop_peak_gpu_w:.0f}W)",
+                    f"{wh:.2f} Wh",
+                    f"{tps_per_w:.1f} tok/s/W" if tps_per_w > 0 else "",
+                    f"mem: {mem_gb:.0f}/{_mactop_peak_mem_gb:.0f} GB",
+                ]
+                readout_mem.set_text("  ".join(p for p in parts if p))
 
             try:
                 fig.canvas.draw_idle()
