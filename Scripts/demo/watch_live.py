@@ -135,9 +135,9 @@ def setup_figure(model: str = "", machine: str = "", run_params: str = "") -> tu
         fig.text(0.08, 0.848, run_params,
                  fontsize=8, color=THEME["text_secondary"], family="monospace",
                  ha="left", va="center", alpha=0.7)
-    # GPU watts legend swatch
-    fig.text(0.50, 0.878, "GPU watts (0-200W)",
-             fontsize=9, color="#A78BFA", ha="left", va="center", alpha=0.8)
+    # GPU watts legend swatch — below the params line
+    fig.text(0.08, 0.822, "violet line = GPU watts (0-200W scale)",
+             fontsize=8, color="#A78BFA", ha="left", va="center", alpha=0.8)
 
     ax_left.set_xlabel("Time (s)", fontsize=11, labelpad=8)
     ax_left.set_ylabel("Concurrent connections", fontsize=11, color=THEME["accent_warm"], labelpad=10)
