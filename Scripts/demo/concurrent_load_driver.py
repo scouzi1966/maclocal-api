@@ -48,10 +48,12 @@ except ImportError:
 # Shared state
 # ---------------------------------------------------------------------------
 
-_METRIC_GEN_RX  = re.compile(r'^afm:generation_tokens_total\{[^}]*\}\s+(\d+)')
-_METRIC_PP_RX   = re.compile(r'^afm:prompt_tokens_total\{[^}]*\}\s+(\d+)')
-_METRIC_RUN_RX  = re.compile(r'^afm:num_requests_running\{[^}]*\}\s+([\d.]+)')
-_METRIC_WAIT_RX = re.compile(r'^afm:num_requests_waiting\{[^}]*\}\s+([\d.]+)')
+_METRIC_GEN_RX    = re.compile(r'^afm:generation_tokens_total\{[^}]*\}\s+(\d+)')
+_METRIC_PP_RX     = re.compile(r'^afm:prompt_tokens_total\{[^}]*\}\s+(\d+)')
+_METRIC_RUN_RX    = re.compile(r'^afm:num_requests_running\{[^}]*\}\s+([\d.]+)')
+_METRIC_WAIT_RX   = re.compile(r'^afm:num_requests_waiting\{[^}]*\}\s+([\d.]+)')
+_METRIC_CHIT_RX   = re.compile(r'^afm:radix_cache_hits_total\{[^}]*\}\s+(\d+)')
+_METRIC_CMISS_RX  = re.compile(r'^afm:radix_cache_misses_total\{[^}]*\}\s+(\d+)')
 
 
 async def poll_metrics(session: aiohttp.ClientSession, state: "LoadState", cfg: dict[str, Any]) -> None:
@@ -99,6 +101,7 @@ async def poll_metrics(session: aiohttp.ClientSession, state: "LoadState", cfg: 
 
         gen = pp = 0
         run = wait = 0.0
+        chit = cmiss = 0
         for line in text.splitlines():
             if line.startswith("#"):
                 continue
@@ -110,6 +113,10 @@ async def poll_metrics(session: aiohttp.ClientSession, state: "LoadState", cfg: 
             if m: run = float(m.group(1)); continue
             m = _METRIC_WAIT_RX.match(line)
             if m: wait = float(m.group(1)); continue
+            m = _METRIC_CHIT_RX.match(line)
+            if m: chit = int(m.group(1)); continue
+            m = _METRIC_CMISS_RX.match(line)
+            if m: cmiss = int(m.group(1)); continue
 
         now = time.monotonic()
         if prev_gen is not None and prev_t is not None:
@@ -121,6 +128,8 @@ async def poll_metrics(session: aiohttp.ClientSession, state: "LoadState", cfg: 
         state.server_prefill_total = pp
         state.server_inflight      = int(run)
         state.server_waiting       = int(wait)
+        state.server_cache_hits    = chit
+        state.server_cache_misses  = cmiss
         prev_gen, prev_pp, prev_t = gen, pp, now
 
         await asyncio.sleep(interval)
@@ -163,6 +172,8 @@ class LoadState:
         self.server_prefill_tps: float = 0.0
         self.server_inflight: int = 0
         self.server_waiting: int = 0
+        self.server_cache_hits: int = 0
+        self.server_cache_misses: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -591,6 +602,10 @@ async def metrics_sampler(
                         "source": source,
                         "completed": state.completed,
                         "errors": state.errors,
+                        "gen_total": state.server_gen_total,
+                        "prompt_total": state.server_prefill_total,
+                        "cache_hits": state.server_cache_hits,
+                        "cache_misses": state.server_cache_misses,
                     }
                     trace.append(sample)
                     f.write(json.dumps(sample) + "\n")

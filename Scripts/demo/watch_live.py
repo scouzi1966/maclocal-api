@@ -20,7 +20,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
+import threading
 import time
 from collections import deque
 from pathlib import Path
@@ -165,6 +167,54 @@ def main() -> None:
     print(f"[watch] tailing {trace_path}")
     print("[watch] waiting for driver to start writing...")
 
+    # Background mactop sampler for GPU power, memory, and temperature.
+    # Runs in a daemon thread; latest sample is read from the main loop.
+    # Requires `brew install mactop` — gracefully no-ops if unavailable.
+    _mactop_latest: dict = {}
+    _mactop_peak_gpu_w: float = 0.0
+    _mactop_peak_mem_gb: float = 0.0
+    _mactop_lock = threading.Lock()
+
+    def _mactop_thread():
+        nonlocal _mactop_peak_gpu_w, _mactop_peak_mem_gb
+        try:
+            proc = subprocess.Popen(
+                ["mactop", "--headless", "--format", "json", "-i", "500", "--count", "0"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            sys.stderr.write("[watch] mactop not found — GPU stats unavailable (brew install mactop)\n")
+            return
+        try:
+            for raw_line in proc.stdout:
+                try:
+                    data = json.loads(raw_line.decode())
+                    soc = data.get("soc_metrics", {})
+                    mem = data.get("memory", {})
+                    gpu_w = soc.get("gpu_power", 0.0)
+                    mem_gb = mem.get("used", 0) / (1024**3) if "used" in mem else 0.0
+                    with _mactop_lock:
+                        _mactop_latest.update({
+                            "gpu_power": gpu_w,
+                            "gpu_usage": data.get("gpu_usage", 0),
+                            "mem_gb": mem_gb,
+                            "gpu_temp": soc.get("gpu_temp", 0),
+                            "sys_power": soc.get("system_power", 0),
+                        })
+                        if gpu_w > _mactop_peak_gpu_w:
+                            _mactop_peak_gpu_w = gpu_w
+                        if mem_gb > _mactop_peak_mem_gb:
+                            _mactop_peak_mem_gb = mem_gb
+                except (json.JSONDecodeError, KeyError):
+                    pass
+        except Exception:
+            pass
+        finally:
+            proc.terminate()
+
+    mactop_t = threading.Thread(target=_mactop_thread, daemon=True)
+    mactop_t.start()
+
     fig, ax_left, ax_right = setup_figure()
     # Fixed axes from the start — do NOT autoscale.
     # X is pinned to the full run duration so the lines sweep left to right
@@ -189,7 +239,7 @@ def main() -> None:
         solid_capstyle="round", solid_joinstyle="round",
     )
 
-    # Readouts
+    # Readouts — big numbers
     readout_conn = fig.text(
         0.88, 0.825, "0", ha="right", va="center",
         fontsize=24, fontweight="bold", color=THEME["accent_warm"],
@@ -202,6 +252,36 @@ def main() -> None:
     )
     fig.text(0.73, 0.795, "tokens / sec", ha="right", va="center",
              fontsize=10, color=THEME["text_secondary"])
+
+    # Readouts — counters row (smaller, below the big numbers)
+    counter_y = 0.755
+    counter_fs = 9
+    counter_color = THEME["text_secondary"]
+    counter_val_color = "#FFFFFF"
+
+    readout_peak_tps = fig.text(
+        0.20, counter_y, "peak: 0", ha="left", va="center",
+        fontsize=counter_fs, color=counter_val_color,
+    )
+    readout_gen_total = fig.text(
+        0.36, counter_y, "gen: 0", ha="left", va="center",
+        fontsize=counter_fs, color=counter_val_color,
+    )
+    readout_prompt_total = fig.text(
+        0.52, counter_y, "prompt: 0", ha="left", va="center",
+        fontsize=counter_fs, color=counter_val_color,
+    )
+    readout_cache = fig.text(
+        0.70, counter_y, "cache: 0/0", ha="left", va="center",
+        fontsize=counter_fs, color=counter_val_color,
+    )
+    readout_mem = fig.text(
+        0.88, counter_y, "mem: --", ha="right", va="center",
+        fontsize=counter_fs, color=counter_val_color,
+    )
+
+    # Tracking variables for counters
+    peak_tps_seen = 0.0
 
     fill_conn = None
     fill_tps = None
@@ -265,6 +345,35 @@ def main() -> None:
 
             readout_conn.set_text(f"{int(round(ys_conn[-1]))}")
             readout_tps.set_text(f"{int(round(ys_tps_smooth[-1]))}")
+
+            # Update counters from the latest sample
+            cur_tps = ys_tps_smooth[-1] if ys_tps_smooth else 0
+            if cur_tps > peak_tps_seen:
+                peak_tps_seen = cur_tps
+            readout_peak_tps.set_text(f"peak: {int(round(peak_tps_seen))} tok/s")
+
+            gen_t = sample.get("gen_total", 0)
+            prompt_t = sample.get("prompt_total", 0)
+            chits = sample.get("cache_hits", 0)
+            cmiss = sample.get("cache_misses", 0)
+
+            def _fmt_k(n: int) -> str:
+                return f"{n/1000:.1f}k" if n >= 1000 else str(n)
+
+            readout_gen_total.set_text(f"gen: {_fmt_k(gen_t)}")
+            readout_prompt_total.set_text(f"prompt: {_fmt_k(prompt_t)}")
+            hit_pct = f" ({100*chits/(chits+cmiss):.0f}%)" if (chits + cmiss) > 0 else ""
+            readout_cache.set_text(f"cache: {chits} hit / {cmiss} miss{hit_pct}")
+
+            # GPU power + system memory from mactop (background thread)
+            with _mactop_lock:
+                gpu_w = _mactop_latest.get("gpu_power", 0)
+                mem_gb = _mactop_latest.get("mem_gb", 0)
+            if gpu_w > 0 or mem_gb > 0:
+                readout_mem.set_text(
+                    f"GPU: {gpu_w:.0f}W (peak {_mactop_peak_gpu_w:.0f}W)  "
+                    f"mem: {mem_gb:.0f} GB (peak {_mactop_peak_mem_gb:.0f} GB)"
+                )
 
             try:
                 fig.canvas.draw_idle()
