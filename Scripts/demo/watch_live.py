@@ -135,6 +135,9 @@ def setup_figure(model: str = "", machine: str = "", run_params: str = "") -> tu
         fig.text(0.08, 0.848, run_params,
                  fontsize=8, color=THEME["text_secondary"], family="monospace",
                  ha="left", va="center", alpha=0.7)
+    # GPU watts legend swatch
+    fig.text(0.50, 0.878, "GPU watts (0-200W)",
+             fontsize=9, color="#A78BFA", ha="left", va="center", alpha=0.8)
 
     ax_left.set_xlabel("Time (s)", fontsize=11, labelpad=8)
     ax_left.set_ylabel("Concurrent connections", fontsize=11, color=THEME["accent_warm"], labelpad=10)
@@ -270,6 +273,8 @@ def main() -> None:
     xs: list[float] = []
     ys_conn: list[float] = []
     ys_tps: list[float] = []
+    xs_gpu: list[float] = []
+    ys_gpu_w: list[float] = []
 
     (line_conn,) = ax_left.plot(
         [], [], color=THEME["accent_warm"], linewidth=2.8,
@@ -278,6 +283,13 @@ def main() -> None:
     (line_tps,) = ax_right.plot(
         [], [], color=THEME["accent_cool"], linewidth=2.8,
         solid_capstyle="round", solid_joinstyle="round",
+    )
+    # GPU watts line — plotted on left Y-axis (0-200W maps to 0-200 connections scale).
+    # No separate axis label; the footer shows the actual watt reading.
+    gpu_color = "#A78BFA"  # violet
+    (line_gpu,) = ax_left.plot(
+        [], [], color=gpu_color, linewidth=1.5, alpha=0.7,
+        linestyle="-", solid_capstyle="round",
     )
 
     # Readouts — big numbers
@@ -355,6 +367,14 @@ def main() -> None:
 
             line_conn.set_data(xs, ys_conn)
             line_tps.set_data(xs, ys_tps_smooth)
+
+            # GPU watts from mactop (sampled at 500ms in background thread)
+            with _mactop_lock:
+                cur_gpu_w = _mactop_latest.get("gpu_power", 0)
+            if cur_gpu_w > 0 and xs:
+                xs_gpu.append(xs[-1])
+                ys_gpu_w.append(cur_gpu_w)  # raw watts, mapped 1:1 onto left Y-axis (0-200)
+                line_gpu.set_data(xs_gpu, ys_gpu_w)
 
             if fill_conn is not None:
                 try: fill_conn.remove()
