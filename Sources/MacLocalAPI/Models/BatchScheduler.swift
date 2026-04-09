@@ -1124,6 +1124,14 @@ actor BatchScheduler {
         }
 
         print("[\(batchTs())] [BatchScheduler] CacheList serial generation: prompt=\(inputTokens.count) tokens")
+        // Update prompt/cache stats for /metrics (serial path was missing these)
+        let suffixTokens = inputTokens.count - cachedTokens
+        StatsAggregator.shared.addPromptTokens(suffixTokens)
+        if cachedTokens > 0 {
+            StatsAggregator.shared.cacheHit()
+        } else {
+            StatsAggregator.shared.cacheMiss()
+        }
 
         // Build EOS set
         var eosTokenIds = configuration.eosTokenIds
@@ -1146,6 +1154,7 @@ actor BatchScheduler {
             if eosTokenIds.contains(tokenId) { break }
 
             tokenCount += 1
+            StatsAggregator.shared.addGenTokens(1)
             detokenizer.append(token: tokenId)
             if let chunk = detokenizer.next() {
                 req.continuation.yield(StreamChunk(text: chunk))

@@ -294,30 +294,29 @@ def main() -> None:
     fig.text(0.73, 0.795, "tokens / sec", ha="right", va="center",
              fontsize=10, color=THEME["text_secondary"])
 
-    # Readouts — counters row (smaller, below the big numbers)
-    counter_y = 0.755
+    # Readouts — counters in a footer row below the chart
+    footer_y = 0.035
     counter_fs = 9
-    counter_color = THEME["text_secondary"]
-    counter_val_color = "#FFFFFF"
+    counter_val_color = "#CCCCCC"
 
     readout_peak_tps = fig.text(
-        0.20, counter_y, "peak: 0", ha="left", va="center",
+        0.08, footer_y, "peak: --", ha="left", va="center",
         fontsize=counter_fs, color=counter_val_color,
     )
     readout_gen_total = fig.text(
-        0.36, counter_y, "gen: 0", ha="left", va="center",
+        0.24, footer_y, "gen: --", ha="left", va="center",
         fontsize=counter_fs, color=counter_val_color,
     )
     readout_prompt_total = fig.text(
-        0.52, counter_y, "prompt: 0", ha="left", va="center",
+        0.38, footer_y, "prompt: --", ha="left", va="center",
         fontsize=counter_fs, color=counter_val_color,
     )
     readout_cache = fig.text(
-        0.70, counter_y, "cache: 0/0", ha="left", va="center",
+        0.54, footer_y, "cache: --", ha="left", va="center",
         fontsize=counter_fs, color=counter_val_color,
     )
     readout_mem = fig.text(
-        0.88, counter_y, "mem: --", ha="right", va="center",
+        0.92, footer_y, "", ha="right", va="center",
         fontsize=counter_fs, color=counter_val_color,
     )
 
