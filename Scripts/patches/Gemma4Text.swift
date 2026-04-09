@@ -477,9 +477,44 @@ class Gemma4Attention: Module {
             queries = rope(queries, offset: scalarOffset)
         }
 
-        let output = MLXFast.scaledDotProductAttention(
-            queries: queries, keys: keys, values: values,
-            scale: 1.0, mask: mask)
+        let output: MLXArray
+
+        // For decode (L=1) with no mask needed, use gatherMM-based attention
+        // to avoid SDPA's mask-construction overhead entirely. gatherMM fuses
+        // the GQA head mapping into the gather indices, doing Q@K^T and
+        // attn@V each in ONE Metal dispatch vs the mask path's ~5 ops.
+        if L == 1 && mask.mask == nil && B > 1 && nKVHeads != nHeads {
+            // Build GQA gather indices: map each (batch, q_head) to the
+            // corresponding (batch, kv_head) in the flat batch×heads space.
+            let headsPerGroup = nHeads / nKVHeads
+            // rhsIndices: [B, nHeads] where [b,h] = b * nKVHeads + h / headsPerGroup
+            let batchIdx = MLXArray(0 ..< Int32(B)).reshaped([B, 1]) * Int32(nKVHeads)
+            let headMap = MLXArray((0 ..< nHeads).map { Int32($0 / headsPerGroup) }).reshaped([1, nHeads])
+            let rhsIdx = (batchIdx + headMap).reshaped([B * nHeads])
+
+            // Q: [B, nHeads, 1, headDim] → scores = Q @ K^T
+            let kT = keys.transposed(0, 1, 3, 2)  // [B, nKVHeads, headDim, T_kv]
+            let scores = gatherMM(
+                queries.reshaped([B * nHeads, 1, headDim]),
+                kT.reshaped([B * nKVHeads, headDim, keys.dim(2)]),
+                rhsIndices: rhsIdx
+            )
+            // scores: [B*nHeads, 1, T_kv] → softmax
+            let attnWeights = softMax(scores * (1.0 / sqrt(Float(headDim))), axis: -1)
+
+            // attn @ V: [B*nHeads, 1, T_kv] @ [B*nKVHeads, T_kv, headDim]
+            let attnOut = gatherMM(
+                attnWeights,
+                values.reshaped([B * nKVHeads, values.dim(2), headDim]),
+                rhsIndices: rhsIdx
+            )
+            // [B*nHeads, 1, headDim] → [B, nHeads, 1, headDim]
+            output = attnOut.reshaped([B, nHeads, 1, headDim])
+        } else {
+            output = MLXFast.scaledDotProductAttention(
+                queries: queries, keys: keys, values: values,
+                scale: 1.0, mask: mask)
+        }
 
         return oProj(output.transposed(0, 2, 1, 3).reshaped(B, L, -1))
     }
@@ -795,7 +830,21 @@ public class Gemma4TextModelInner: Module {
             let preOffsetArray = c?.offsetArray
             let preAllEqual = (c as? BaseKVCache)?.allOffsetsEqual
 
+            // Per-layer timing: force sync to measure actual GPU wall per layer.
+            // Only fires in profile mode (AFM_PROFILE_LAYERS) to avoid serializing
+            // the normal decode pipeline.
+            let profileLayers = ProcessInfo.processInfo.environment["AFM_PROFILE_LAYERS"] == "1"
+            let layerStart = profileLayers ? Date() : Date.distantPast
+
             h = layer(h, mask: mask, cache: c, perLayerInput: plInput, sharedKV: layerSharedKV)
+
+            if profileLayers {
+                _ = h.sum().item(Float.self)  // force GPU sync for timing
+                let layerWall = Date().timeIntervalSince(layerStart) * 1000
+                let layerTypeStr = layer.layerType
+                let isShared = attn.isKvSharedLayer
+                print("[Gemma4Layer] layer=\(i) type=\(layerTypeStr) shared=\(isShared) B=\(h.dim(0)) wall=\(String(format: "%.1f", layerWall))ms")
+            }
 
             // Store KV for sharing if needed
             if attn.storeFullLengthKV, let kv = attn.lastKV {
@@ -803,11 +852,6 @@ public class Gemma4TextModelInner: Module {
             }
 
             // Collapse the lazy graph at layer boundaries during batched prefill.
-            // RotatingKVCache.update() creates ~20 lazy ops per layer for the
-            // circular buffer housekeeping. At B>1 × 40+ layers, unchecked
-            // accumulation overflows MLX's SmallVector. Flushing per-layer keeps
-            // the graph bounded. Cost: ~2-5ms per layer = ~100-200ms total,
-            // negligible vs the seconds saved by batching.
             if isPrefill && (i + 1) % prefillFlushInterval == 0 {
                 MLX.eval(h)
                 if let c = c { MLX.eval(c.innerState()) }

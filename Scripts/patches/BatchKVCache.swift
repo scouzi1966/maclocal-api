@@ -777,49 +777,40 @@ public class BatchRotatingKVCache: BaseKVCache {
 
         if n == 1 {
             // Decode: single token.
-            // Match the serial RotatingKVCache.makeMask logic: when ALL sequences
-            // have equal padding (zeroPadding) and the window covers the full cache
-            // (windowSize == nil or windowSize >= maxCacheSize), no mask is needed.
-            // This matches the B=1 serial path which returns .none at KVCache.swift:799.
-            // Without this fast-return, ~20 lazy ops per layer per step are created
-            // for mask construction — 480+ wasted ops across 24 sliding layers.
             let effectiveWindow = windowSize ?? maxCacheSize
-            if zeroPadding && effectiveWindow >= maxCacheSize {
+
+            // Post-wrap fast path: once the circular buffer has wrapped, ALL
+            // 1024 positions contain real tokens for ALL sequences. The original
+            // leftPadding is stale — those positions were overwritten when the
+            // buffer cycled past them. With RoPE, attention is permutation-
+            // invariant so the circular order is fine. The serial path returns
+            // .none for the equivalent case (KVCache.swift:799). Matching it
+            // here eliminates ~20 lazy ops per layer per step that were building
+            // unnecessary rotation/padding masks.
+            if _offset >= maxCacheSize && effectiveWindow >= maxCacheSize {
                 return .none
             }
 
-            if _offset < maxCacheSize {
-                // Pre-wrap: padding mask only
-                if zeroPadding { return .none }
-                let currentPad = currentPadding()
-                let keyIndices = MLXArray(Int32(0) ..< Int32(totalLen)).reshaped([1, 1, totalLen])
-                let padMask = keyIndices .>= currentPad.reshaped([batchSize, 1, 1])
-                return .array(padMask.expandedDimensions(axis: 1))
-            }
-
-            // Post-wrap with non-zero padding or window < maxCacheSize:
-            // need rotation-aware masking.
-            let keyIndices = MLXArray(Int32(0) ..< Int32(totalLen)).reshaped([1, 1, totalLen])
-            let currentPad = currentPadding()
-            var decodePadMask = keyIndices .>= currentPad.reshaped([batchSize, 1, 1])
-            var writeIndex = _idx
-            if writeIndex >= maxCacheSize { writeIndex = keep }
-            let remainingPad = currentPadding(afterAdding: 1).reshaped([batchSize, 1, 1])
-            let rotatedIndices =
-                (keyIndices - Int32(writeIndex + 1) + Int32(maxCacheSize))
-                % Int32(maxCacheSize)
-            decodePadMask = rotatedIndices .>= remainingPad
-
-            if let windowSize, maxCacheSize > windowSize {
-                let currentIdx = writeIndex
+            // Post-wrap with window < maxCacheSize: need rotation-aware window mask
+            // (only attends to the most recent `windowSize` tokens in the buffer).
+            // This is the one case that genuinely needs a mask post-wrap.
+            if _offset >= maxCacheSize {
+                var writeIndex = _idx
+                if writeIndex >= maxCacheSize { writeIndex = keep }
                 let maskSize = maxCacheSize
-                let windowMask = MLXArray(0 ..< Int32(maskSize)) .>= Int32(maskSize - windowSize)
-                let rolledMask = roll(windowMask, shift: currentIdx + 1)
+                let windowMask = MLXArray(0 ..< Int32(maskSize)) .>= Int32(maskSize - effectiveWindow)
+                let rolledMask = roll(windowMask, shift: writeIndex + 1)
                     .reshaped([1, 1, maskSize])
-                let combined = rolledMask .&& decodePadMask
-                return .array(combined.expandedDimensions(axis: 1))
+                return .array(rolledMask.expandedDimensions(axis: 1))
             }
-            return .array(decodePadMask.expandedDimensions(axis: 1))
+
+            // Pre-wrap: buffer still growing.
+            if zeroPadding { return .none }
+            // Pre-wrap with padding: need padding mask
+            let currentPad = currentPadding()
+            let keyIndices = MLXArray(Int32(0) ..< Int32(totalLen)).reshaped([1, 1, totalLen])
+            let padMask = keyIndices .>= currentPad.reshaped([batchSize, 1, 1])
+            return .array(padMask.expandedDimensions(axis: 1))
         }
 
         let keyIndices = MLXArray(Int32(0) ..< Int32(totalLen)).reshaped([1, 1, totalLen])
