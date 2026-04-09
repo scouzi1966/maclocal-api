@@ -1336,8 +1336,53 @@ actor BatchScheduler {
             batchCaches = prefillCaches
             cacheMode = .batched
             batchState = result.state
+        } else if cacheMode == .batched && batchCaches.count == prefillCaches.count {
+            // Bulk cohort merge: extend each layer's batch cache with the
+            // corresponding batched prefill cache in ONE concat per layer.
+            // This replaces the per-slot loop that did N separate concats per
+            // layer per slot — the main source of the merge cliff stalls.
+            let debugTiming = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
+            let bulkStart = debugTiming ? Date() : Date.distantPast
+            let bBefore = slots.count
+
+            for layer in 0..<batchCaches.count {
+                if let batchBKV = batchCaches[layer] as? BatchKVCacheSimple,
+                   let prefillBKV = prefillCaches[layer] as? BatchKVCacheSimple {
+                    batchBKV.extend(with: prefillBKV)
+                } else if let batchAC = batchCaches[layer] as? ArraysCache,
+                          let prefillAC = prefillCaches[layer] as? ArraysCache {
+                    batchAC.addSlotsBulk(from: prefillAC)
+                } else if let batchBRC = batchCaches[layer] as? BatchRotatingKVCache,
+                          let prefillBRC = prefillCaches[layer] as? BatchRotatingKVCache {
+                    batchBRC.extend(with: prefillBRC)
+                } else if let batchBCL = batchCaches[layer] as? BatchCacheList,
+                          let prefillBCL = prefillCaches[layer] as? BatchCacheList {
+                    // Extend each sub-cache within the CacheList
+                    for subIdx in 0..<Swift.min(batchBCL.count, prefillBCL.count) {
+                        if let batchACSub = batchBCL[subIdx] as? ArraysCache,
+                           let prefillACSub = prefillBCL[subIdx] as? ArraysCache {
+                            batchACSub.addSlotsBulk(from: prefillACSub)
+                        } else if let batchBKVSub = batchBCL[subIdx] as? BatchKVCacheSimple,
+                                  let prefillBKVSub = prefillBCL[subIdx] as? BatchKVCacheSimple {
+                            batchBKVSub.extend(with: prefillBKVSub)
+                        }
+                    }
+                }
+            }
+            // Merge cross-attention state
+            if let newCAS = result.state?.crossAttentionStates {
+                if let existingCAS = batchState?.crossAttentionStates {
+                    batchState = .init(crossAttentionStates: concatenated([existingCAS, newCAS], axis: 0))
+                } else {
+                    batchState = result.state
+                }
+            }
+            if debugTiming {
+                let bulkWall = Date().timeIntervalSince(bulkStart)
+                print("[\(batchTs())] [BatchScheduler] BULK COHORT MERGE: adding=\(B) slots, B_before=\(bBefore), layers=\(batchCaches.count), wall=\(String(format: "%.3f", bulkWall))s")
+            }
         } else {
-            // Existing decode slots -- merge individual caches into current batch
+            // Fallback: per-slot merge (for cache mode transitions or mismatched types)
             for i in 0..<B {
                 mergeCacheIntoBatch(individualCache: perRequestCaches[i], modelState: i == 0 ? result.state : nil)
             }

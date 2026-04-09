@@ -1164,8 +1164,17 @@ public class ChunkedKVCache: KVCacheSimple {
 
 /// Base cache for array-based state storage
 public class ArraysCache: BaseKVCache {
-    private var cache: [MLXArray?]
+    internal var cache: [MLXArray?]
     private var leftPadding: MLXArray?
+
+    /// Slab mode: physical row capacity. 0 = non-slab (legacy).
+    /// When > 0, each cache[i] tensor has dim(0) == capacity but only
+    /// rows [0 ..< activeBatchSize) are logically active.
+    public internal(set) var capacity: Int = 0
+
+    /// Slab mode: logical active row count (≤ capacity).
+    /// Non-slab mode: unused (batch dim is implicit from tensor shapes).
+    public internal(set) var activeBatchSize: Int = 0
 
     public init(size: Int, leftPadding: [Int]? = nil) {
         self.cache = Array(repeating: nil, count: size)
@@ -1173,8 +1182,28 @@ public class ArraysCache: BaseKVCache {
         super.init()
     }
 
+    /// Slab-mode init. Does NOT eagerly pre-allocate the cache tensors — they
+    /// stay nil until the first `addSlotsBulk` writes real data, at which point
+    /// each tensor is allocated at [capacity, ...restOfShape]. This preserves
+    /// the `cache[0] == nil` invariant that `makeMask(N:)` depends on for
+    /// prefill masking.
+    public init(size: Int, capacity: Int, leftPadding: [Int]? = nil) {
+        self.cache = Array(repeating: nil, count: size)
+        self.capacity = capacity
+        self.activeBatchSize = 0
+        self.leftPadding = leftPadding.map { MLXArray($0) }
+        super.init()
+    }
+
     public override func innerState() -> [MLXArray] {
-        cache.compactMap { $0 }
+        if capacity > 0 {
+            // Slab mode: return only the active prefix of each tensor.
+            return cache.compactMap { c in
+                guard let c = c, activeBatchSize > 0 else { return nil }
+                return c[0 ..< activeBatchSize]
+            }
+        }
+        return cache.compactMap { $0 }
     }
 
     public subscript(index: Int) -> MLXArray? {
@@ -1184,10 +1213,24 @@ public class ArraysCache: BaseKVCache {
 
     public override var state: [MLXArray] {
         get {
+            if capacity > 0 {
+                // Active-prefix-only view so prefix-cache save/restore sees the
+                // correct B, not the slab capacity. (Codex gotcha #1.)
+                return cache.compactMap { c in
+                    guard let c = c, activeBatchSize > 0 else { return nil }
+                    return c[0 ..< activeBatchSize]
+                }
+            }
             return cache.compactMap { $0 }
         }
         set {
             cache = newValue.map { $0 as MLXArray? }
+            // When restoring from state (prefix cache), the batch dim comes
+            // from the restored tensor, not from slab capacity. Reset slab
+            // metadata so the cache works as a fresh non-slab cache.
+            if capacity > 0 {
+                activeBatchSize = newValue.first?.dim(0) ?? 0
+            }
         }
     }
 
@@ -1197,10 +1240,51 @@ public class ArraysCache: BaseKVCache {
             c?[batchIndices]
         }
         leftPadding = nil
+        if capacity > 0 {
+            activeBatchSize = batchIndices.dim(0)
+        }
+    }
+
+    /// Bulk-add N rows from another ArraysCache into this cache.
+    /// ONE concat per tensor (all N rows at once), replacing the legacy
+    /// per-slot extend() that does one concat per individual slot.
+    /// When called from the bulk-cohort path in prefillBatch, N can be
+    /// the entire admitted cohort, reducing Metal commands from 120×N to 120.
+    public func addSlotsBulk(from other: ArraysCache) {
+        let otherState: [MLXArray]
+        if other.capacity > 0 && other.activeBatchSize > 0 {
+            otherState = other.cache.compactMap { c in
+                guard let c = c else { return nil }
+                return c[0 ..< other.activeBatchSize]
+            }
+        } else {
+            otherState = other.cache.compactMap { $0 }
+        }
+        guard !otherState.isEmpty else { return }
+
+        cache = zip(cache, otherState).map { (c, o) in
+            if let c = c {
+                return MLX.concatenated([c, o])
+            }
+            return o as MLXArray?
+        }
+        leftPadding = nil
+        // Update activeBatchSize based on actual tensor shape
+        if capacity > 0 {
+            activeBatchSize = cache.first??.dim(0) ?? 0
+        }
     }
 
     /// In-place extend this cache with the other cache
     public func extend(other: ArraysCache) {
+        // Diagnostic: measure the concat-along-batch-dim cost that happens on
+        // every merge in hybrid models. Gated on AFM_DEBUG=1. Reports wall
+        // time only when >10ms so low-B cases don't flood the log.
+        let debugTiming = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
+        let extStart = debugTiming ? Date() : Date.distantPast
+        let selfDim0 = debugTiming ? (cache.first??.dim(0) ?? 0) : 0
+        let otherDim0 = debugTiming ? (other.cache.first??.dim(0) ?? 0) : 0
+
         cache = zip(cache, other.cache).map { (c, o) in
             if let c = c, let o = o {
                 return MLX.concatenated([c, o])
@@ -1208,6 +1292,21 @@ public class ArraysCache: BaseKVCache {
             return c ?? o
         }
         leftPadding = nil
+
+        if debugTiming {
+            // Force materialization of the lazy concat so the wall we report
+            // includes the actual GPU work, not just graph construction.
+            // `.sum().item()` creates a scalar reduction that depends on
+            // every element, forcing the whole tensor to materialize.
+            if let first = cache.first, let arr = first {
+                _ = arr.sum().item(Float.self)
+            }
+            let extWall = Date().timeIntervalSince(extStart)
+            if extWall > 0.010 {
+                let ts = ISO8601DateFormatter().string(from: Date())
+                print("[\(ts)] [ArraysCache] MAMBA EXTEND: self_B=\(selfDim0) + other_B=\(otherDim0) => \(selfDim0 + otherDim0), state_arrs=\(cache.count), wall=\(String(format: "%.3f", extWall))s")
+            }
+        }
     }
 
     /// Create attention mask based on left padding
@@ -1224,6 +1323,11 @@ public class ArraysCache: BaseKVCache {
 public class MambaCache: ArraysCache {
     public init(leftPadding: [Int]? = nil) {
         super.init(size: 2, leftPadding: leftPadding)
+    }
+
+    /// Slab-mode init for Mamba state (2 state tensors, pre-allocated at capacity).
+    public init(capacity: Int, leftPadding: [Int]? = nil) {
+        super.init(size: 2, capacity: capacity, leftPadding: leftPadding)
     }
 }
 

@@ -1030,9 +1030,18 @@ public class BatchCacheList: CacheList {
             fatalError("BatchCacheList.merge requires CacheList inputs")
         }
         let subCount = first.count
+        // Diagnostic: measure the total BCL merge wall including both the
+        // AC-subcache concats and BatchKVCacheSimple merges it delegates to.
+        // Gated on AFM_DEBUG=1. Reports only when wall > 10ms.
+        let debugTiming = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
+        let mergeStart = debugTiming ? Date() : Date.distantPast
+        var arrayCacheSubCount = 0
+        var kvCacheSubCount = 0
+
         let batchedSubs: [KVCache] = (0..<subCount).map { subIdx in
             let subCaches = cacheLists.map { ($0 as! CacheList)[subIdx] }
             if subCaches.allSatisfy({ $0 is ArraysCache }) {
+                if debugTiming { arrayCacheSubCount += 1 }
                 let batched = MambaCache(leftPadding: leftPadding)
                 // Merge states: stack along batch dimension
                 if let first = subCaches.first, !first.state.isEmpty {
@@ -1042,9 +1051,24 @@ public class BatchCacheList: CacheList {
                 }
                 return batched as KVCache
             } else {
+                if debugTiming { kvCacheSubCount += 1 }
                 return BatchKVCacheSimple.merge(subCaches) as KVCache
             }
         }
+
+        if debugTiming {
+            // Force materialization so the wall includes actual GPU work.
+            if let arraySub = batchedSubs.first(where: { $0 is ArraysCache }) as? ArraysCache,
+               let first = arraySub.state.first {
+                _ = first.sum().item(Float.self)
+            }
+            let mergeWall = Date().timeIntervalSince(mergeStart)
+            if mergeWall > 0.010 {
+                let ts = ISO8601DateFormatter().string(from: Date())
+                print("[\(ts)] [BatchCacheList] BCL MERGE: input_count=\(cacheLists.count), subCount=\(subCount), ac_subs=\(arrayCacheSubCount), kv_subs=\(kvCacheSubCount), wall=\(String(format: "%.3f", mergeWall))s")
+            }
+        }
+
         return BatchCacheList(batchedCaches: batchedSubs)
     }
 
