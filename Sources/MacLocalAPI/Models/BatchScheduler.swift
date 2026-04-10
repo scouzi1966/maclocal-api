@@ -132,6 +132,7 @@ actor BatchScheduler {
             activeStops: [String],
             thinkStartTag: String?,
             thinkEndTag: String?,
+            startsInsideThink: Bool = false,
             computeLogprobs: Bool = false,
             topLogprobsCount: Int = 0,
             temperatureForLogprobs: Float = 1.0
@@ -164,6 +165,7 @@ actor BatchScheduler {
             self.maxStopLength = activeStops.map(\.count).max() ?? 0
             self.thinkStartTag = thinkStartTag
             self.thinkEndTag = thinkEndTag
+            self.insideThink = startsInsideThink
             self.computeLogprobs = computeLogprobs
             self.topLogprobsCount = topLogprobsCount
             self.temperatureForLogprobs = temperatureForLogprobs
@@ -315,6 +317,7 @@ actor BatchScheduler {
         let stopSequences: [String]
         let thinkStartTag: String?
         let thinkEndTag: String?
+        let startsInsideThink: Bool
         let continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation
     }
 
@@ -462,6 +465,7 @@ actor BatchScheduler {
         stopSequences: [String] = [],
         thinkStartTag: String? = nil,
         thinkEndTag: String? = nil,
+        startsInsideThink: Bool = false,
         requestId: String = ""
     ) -> AsyncThrowingStream<StreamChunk, Error> {
         if _isShutdown.withLock({ $0 }) {
@@ -469,6 +473,10 @@ actor BatchScheduler {
         }
 
         let (stream, continuation) = AsyncThrowingStream<StreamChunk, Error>.makeStream()
+
+        if startsInsideThink, let thinkStartTag {
+            continuation.yield(StreamChunk(text: thinkStartTag))
+        }
 
         // Note: slot already reserved by tryReserve() in the controller layer.
         _pendingQueue.withLock {
@@ -482,6 +490,7 @@ actor BatchScheduler {
                 stopSequences: stopSequences,
                 thinkStartTag: thinkStartTag,
                 thinkEndTag: thinkEndTag,
+                startsInsideThink: startsInsideThink,
                 continuation: continuation
             ))
         }
@@ -978,6 +987,7 @@ actor BatchScheduler {
             activeStops: req.stopSequences,
             thinkStartTag: req.thinkStartTag,
             thinkEndTag: req.thinkEndTag,
+            startsInsideThink: req.startsInsideThink,
             computeLogprobs: req.parameters.computeLogprobs,
             topLogprobsCount: req.parameters.topLogprobsCount,
             temperatureForLogprobs: req.parameters.temperature
@@ -1308,6 +1318,7 @@ actor BatchScheduler {
                 activeStops: req.stopSequences,
                 thinkStartTag: req.thinkStartTag,
                 thinkEndTag: req.thinkEndTag,
+                startsInsideThink: req.startsInsideThink,
                 computeLogprobs: req.parameters.computeLogprobs,
                 topLogprobsCount: req.parameters.topLogprobsCount,
                 temperatureForLogprobs: req.parameters.temperature

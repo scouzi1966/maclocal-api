@@ -10,6 +10,7 @@ struct ChatCompletionsController: RouteCollection {
     private let permissiveGuardrails: Bool
     private let veryVerbose: Bool
     private let stop: String?
+    private let defaultGuidedJsonSchema: ResponseJsonSchema?
 
     init(
         streamingEnabled: Bool = true,
@@ -19,7 +20,8 @@ struct ChatCompletionsController: RouteCollection {
         randomness: String? = nil,
         permissiveGuardrails: Bool,
         veryVerbose: Bool = false,
-        stop: String? = nil
+        stop: String? = nil,
+        defaultGuidedJsonSchema: ResponseJsonSchema? = nil
     ) {
         self.streamingEnabled = streamingEnabled
         self.instructions = instructions
@@ -29,6 +31,7 @@ struct ChatCompletionsController: RouteCollection {
         self.permissiveGuardrails = permissiveGuardrails
         self.veryVerbose = veryVerbose
         self.stop = stop
+        self.defaultGuidedJsonSchema = defaultGuidedJsonSchema
     }
     func boot(routes: RoutesBuilder) throws {
         let v1 = routes.grouped("v1")
@@ -115,7 +118,7 @@ struct ChatCompletionsController: RouteCollection {
 
             // Check for structured output (json_schema with strict: true)
             let content: String
-            if let jsonSchema = hasStrictJsonSchema(chatRequest) {
+            if let jsonSchema = effectiveGuidedJsonSchema(chatRequest) {
                 content = try await foundationService.generateGuidedResponse(
                     for: processedMessages,
                     jsonSchema: jsonSchema,
@@ -281,7 +284,7 @@ struct ChatCompletionsController: RouteCollection {
                 // Use native streaming — guided if json_schema + strict, otherwise normal
                 let promptStartTime = Date()
                 let stream: AsyncThrowingStream<String, Error>
-                if let jsonSchema = self.hasStrictJsonSchema(chatRequest) {
+                if let jsonSchema = self.effectiveGuidedJsonSchema(chatRequest) {
                     stream = foundationService.generateGuidedStreamingResponse(
                         for: processedMessages,
                         jsonSchema: jsonSchema,
@@ -444,15 +447,26 @@ struct ChatCompletionsController: RouteCollection {
         return httpResponse
     }
 
-    /// Check if the request has a strict json_schema response format.
-    private func hasStrictJsonSchema(_ chatRequest: ChatCompletionRequest) -> ResponseJsonSchema? {
-        guard let responseFormat = chatRequest.responseFormat,
-              responseFormat.type == "json_schema",
+    static func effectiveGuidedJsonSchema(
+        requestResponseFormat: ResponseFormat?,
+        defaultGuidedJsonSchema: ResponseJsonSchema?
+    ) -> ResponseJsonSchema? {
+        guard let responseFormat = requestResponseFormat else {
+            return defaultGuidedJsonSchema
+        }
+        guard responseFormat.type == "json_schema",
               let jsonSchema = responseFormat.jsonSchema,
               jsonSchema.strict == true else {
             return nil
         }
         return jsonSchema
+    }
+
+    private func effectiveGuidedJsonSchema(_ chatRequest: ChatCompletionRequest) -> ResponseJsonSchema? {
+        Self.effectiveGuidedJsonSchema(
+            requestResponseFormat: chatRequest.responseFormat,
+            defaultGuidedJsonSchema: defaultGuidedJsonSchema
+        )
     }
 
     private func encodeJSON<T: Encodable>(_ value: T) -> String {

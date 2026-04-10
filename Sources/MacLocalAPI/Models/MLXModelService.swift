@@ -234,6 +234,26 @@ final class MLXModelService: @unchecked Sendable {
     }
     /// Release a reserved slot (call if request fails before generation starts).
     func releaseSlot() { scheduler?.releaseReservation() }
+
+    private func promptStartsInsideThinkBlock(tokens: MLXArray, tokenizer: Tokenizer) -> Bool {
+        guard let thinkStartTag else { return false }
+
+        let flat = tokens.reshaped(-1)
+        let tokenCount = flat.dim(0)
+        guard tokenCount > 0 else { return false }
+
+        let suffixTokenCount = min(tokenCount, 32)
+        let suffixTokens = flat[tokenCount - suffixTokenCount ..< tokenCount].asArray(Int.self)
+        let decodedSuffix = tokenizer.decode(tokens: suffixTokens)
+
+        guard let tagRange = decodedSuffix.range(of: thinkStartTag, options: .backwards) else {
+            return false
+        }
+
+        return decodedSuffix[tagRange.upperBound...]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+    }
     init(resolver: MLXCacheResolver) {
         _ = Self.registerModelFactoriesOnce
         self.resolver = resolver
@@ -1458,22 +1478,13 @@ final class MLXModelService: @unchecked Sendable {
                 print("[\(ts())] [PrefixCache] Token hash: \(String(tokenHash, radix: 16)) (\(allTokens.count) tokens)")
             }
 
-            // If the chat template appended a think start tag, prepend it so extractors can detect it
-            let thinkStart = self.thinkStartTag
-            let tokens = input.text.tokens
-            let ndim = tokens.ndim
-            let seqLen = tokens.dim(ndim - 1)
-            var out = ""
-            var templateInjectedThink = false
-            if let thinkStart, seqLen >= 2 {
-                let flat = tokens.reshaped(-1)
-                let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
-                let decoded = context.tokenizer.decode(tokens: lastTwo)
-                if decoded.contains(thinkStart) {
-                    out = thinkStart
-                    templateInjectedThink = true
-                }
-            }
+            // If the chat template already opened a thinking block, prepend the
+            // start tag so downstream extraction starts in the correct state.
+            let templateInjectedThink = self.promptStartsInsideThinkBlock(
+                tokens: input.text.tokens,
+                tokenizer: context.tokenizer
+            )
+            var out = templateInjectedThink ? (self.thinkStartTag ?? "") : ""
 
             // Prompt caching: determine cache hit/miss
             let useCache = !self.isMultimodalInput(input)
@@ -1643,7 +1654,7 @@ final class MLXModelService: @unchecked Sendable {
                     if case .chunk(let text) = piece {
                         if firstTokenTime == nil { firstTokenTime = Date() }
                         // Track think boundaries — stop sequences only apply outside
-                        if let ts = thinkStart, text.contains(ts) { insideThink = true }
+                        if let ts = self.thinkStartTag, text.contains(ts) { insideThink = true }
                         if let te = self.thinkEndTag, text.contains(te) { insideThink = false }
                         out += text
                         // Record where visible content starts (after think end tag)
@@ -1975,6 +1986,10 @@ final class MLXModelService: @unchecked Sendable {
             let input = try await scheduler.prepareInput(userInput)
             let tTokenize = debugLogging ? Date() : Date.distantPast
             let preparedPromptTokens = input.text.tokens.reshaped(-1).asArray(Int.self).count
+            let startsInsideThink = self.promptStartsInsideThinkBlock(
+                tokens: input.text.tokens,
+                tokenizer: scheduler.tokenizer
+            )
             let schedulerStream = scheduler.submit(
                 input: input,
                 parameters: params,
@@ -1989,6 +2004,7 @@ final class MLXModelService: @unchecked Sendable {
                 stopSequences: stop ?? [],
                 thinkStartTag: self.thinkStartTag,
                 thinkEndTag: self.thinkEndTag,
+                startsInsideThink: startsInsideThink,
                 requestId: reqId
             )
             self.cleanupTempFiles(mediaTempFiles)
@@ -2046,21 +2062,14 @@ final class MLXModelService: @unchecked Sendable {
                             fflush(stdout)
                         }
 
-                        // If the chat template appended a think tag, inject it
-                        // into the stream so the reasoning extractor can detect it.
-                        let thinkStart = self.thinkStartTag
-                        var templateInjectedThink = false
-                        let tokens = input.text.tokens
-                        let ndim = tokens.ndim
-                        let seqLen = tokens.dim(ndim - 1)
-                        if let thinkStart, seqLen >= 2 {
-                            let flat = tokens.reshaped(-1)
-                            let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
-                            let decoded = context.tokenizer.decode(tokens: lastTwo)
-                            if decoded.contains(thinkStart) {
-                                continuation.yield(StreamChunk(text: thinkStart))
-                                templateInjectedThink = true
-                            }
+                        // If the chat template already opened a thinking block,
+                        // inject the opening tag so the controller extractor stays in sync.
+                        let templateInjectedThink = self.promptStartsInsideThinkBlock(
+                            tokens: input.text.tokens,
+                            tokenizer: context.tokenizer
+                        )
+                        if templateInjectedThink, let thinkStart = self.thinkStartTag {
+                            continuation.yield(StreamChunk(text: thinkStart))
                         }
 
                         // Prompt caching: determine cache hit/miss
@@ -2237,7 +2246,7 @@ final class MLXModelService: @unchecked Sendable {
 
                                     // Track think boundaries for stop sequence scoping
                                     let wasInsideThink = insideThink
-                                    if let ts = thinkStart, text.contains(ts) { insideThink = true }
+                                    if let ts = self.thinkStartTag, text.contains(ts) { insideThink = true }
                                     if let te = self.thinkEndTag, text.contains(te) { insideThink = false }
 
                                     if !activeStops.isEmpty && !insideThink {

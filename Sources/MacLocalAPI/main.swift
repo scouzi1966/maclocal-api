@@ -74,6 +74,9 @@ struct ServeCommand: ParsableCommand {
     @Flag(name: [.customShort("g"), .long], help: "Enable API gateway mode: discover and proxy to local LLM backends (Ollama, LM Studio, Jan, etc.)")
     var gateway: Bool = false
 
+    @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible). Auto-disables thinking on reasoning models for deterministic output.")
+    var guidedJson: String?
+
     @Option(name: .long, help: "Pre-warm the model on server startup for faster first response (y/n, default: y)")
     var prewarm: String = "y"
 
@@ -95,6 +98,8 @@ struct ServeCommand: ParsableCommand {
                 throw ValidationError("Invalid randomness parameter format")
             }
         }
+
+        let defaultGuidedJsonSchema = try guidedJson.map(parseGuidedJsonSchema)
 
         // Parse prewarm flag
         let prewarmEnabled = prewarm.lowercased() != "n" && prewarm.lowercased() != "no" && prewarm != "0"
@@ -128,7 +133,7 @@ struct ServeCommand: ParsableCommand {
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: port, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose || vv, trace: vv, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled, telegramConfiguration: telegramConfiguration)
+                let server = try await Server(port: port, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose || vv, trace: vv, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled, telegramConfiguration: telegramConfiguration, defaultGuidedJsonSchema: defaultGuidedJsonSchema)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -1342,6 +1347,12 @@ struct RootCommand: ParsableCommand {
         // If no subcommand specified and no single prompt, run server.
         // Build argument array and parse — direct struct init doesn't work
         // with ArgumentParser property wrappers (they need parse() to initialize).
+        let args = makeServeArgs()
+        var serveCommand = try ServeCommand.parse(args)
+        try serveCommand.run()
+    }
+
+    func makeServeArgs() -> [String] {
         var args: [String] = ["--port", "\(port)", "--hostname", hostname, "--instructions", instructions, "--prewarm", prewarm]
         if verbose { args.append("--verbose") }
         if veryVerbose { args.append("--very-verbose") }
@@ -1349,6 +1360,7 @@ struct RootCommand: ParsableCommand {
         if permissiveGuardrails { args.append("--permissive-guardrails") }
         if webui { args.append("--webui") }
         if gateway { args.append("--gateway") }
+        if let guidedJson { args += ["--guided-json", guidedJson] }
         if let telegramBotToken { args += ["--telegram-bot-token", telegramBotToken] }
         if let telegramAllow { args += ["--telegram-allow", telegramAllow] }
         args += ["--telegram-format", telegramFormat.rawValue]
@@ -1357,8 +1369,7 @@ struct RootCommand: ParsableCommand {
         if let temperature { args += ["--temperature", "\(temperature)"] }
         if let randomness { args += ["--randomness", randomness] }
         if let stop { args += ["--stop", stop] }
-        var serveCommand = try ServeCommand.parse(args)
-        try serveCommand.run()
+        return args
     }
 }
 

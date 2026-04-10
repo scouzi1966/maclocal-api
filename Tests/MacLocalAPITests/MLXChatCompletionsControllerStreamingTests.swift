@@ -86,6 +86,41 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         }
     }
 
+    func testStreamingControllerExtractsReasoningWhenPromptPreopensThinkBlock() async throws {
+        let service = FakeMLXChatService(
+            maxConcurrent: 8,
+            thinkStartTag: "<think>",
+            thinkEndTag: "</think>",
+            streamingResult: makeStreamingResult(
+                chunks: [
+                    StreamChunk(text: "<think>"),
+                    StreamChunk(text: "Plan the answer. "),
+                    StreamChunk(text: "</think>The sky looks blue because of Rayleigh scattering."),
+                    StreamChunk(text: "", promptTokens: 18, completionTokens: 12, cachedTokens: 0, promptTime: 0.03, generateTime: 0.02),
+                ],
+                thinkStartTag: "<think>",
+                thinkEndTag: "</think>"
+            )
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(stream: true)
+        let headers = requestHeaders(for: body)
+
+        try await app.testable(method: .running(port: 0)).test(.POST, "/v1/chat/completions", headers: headers, body: body) { res async in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertContains(res.body.string, "\"reasoning_content\":\"Plan the answer. \"")
+            XCTAssertContains(res.body.string, "\"content\":\"The sky looks blue because of Rayleigh scattering.\"")
+            XCTAssertFalse(res.body.string.contains("\\u003cthink\\u003e"))
+            XCTAssertContains(res.body.string, "data: [DONE]")
+        }
+    }
+
     func testStreamingControllerSerializesBatchToolCallDeltasBeforeCompletedCall() async throws {
         let service = FakeMLXChatService(
             toolCallParser: "afm_adaptive_xml",
@@ -573,11 +608,27 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         return headers
     }
 
-    private func makeStreamingResult(chunks: [StreamChunk]) -> ChatStreamingResult {
-        Self.makeDelayedStreamingResult(modelID: "test-model", chunks: chunks, delayNanoseconds: nil)
+    private func makeStreamingResult(
+        chunks: [StreamChunk],
+        thinkStartTag: String? = nil,
+        thinkEndTag: String? = nil
+    ) -> ChatStreamingResult {
+        Self.makeDelayedStreamingResult(
+            modelID: "test-model",
+            chunks: chunks,
+            delayNanoseconds: nil,
+            thinkStartTag: thinkStartTag,
+            thinkEndTag: thinkEndTag
+        )
     }
 
-    private static func makeDelayedStreamingResult(modelID: String, chunks: [StreamChunk], delayNanoseconds: UInt64?) -> ChatStreamingResult {
+    private static func makeDelayedStreamingResult(
+        modelID: String,
+        chunks: [StreamChunk],
+        delayNanoseconds: UInt64?,
+        thinkStartTag: String? = nil,
+        thinkEndTag: String? = nil
+    ) -> ChatStreamingResult {
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             Task {
                 for chunk in chunks {
@@ -595,8 +646,8 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
             promptTokens: 8,
             toolCallStartTag: "<tool_call>",
             toolCallEndTag: "</tool_call>",
-            thinkStartTag: nil,
-            thinkEndTag: nil
+            thinkStartTag: thinkStartTag,
+            thinkEndTag: thinkEndTag
         )
     }
 
@@ -803,7 +854,8 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
         tools: [RequestTool]?,
         stop: [String]?,
         responseFormat: ResponseFormat?,
-        chatTemplateKwargs: [String: AnyCodable]?
+        chatTemplateKwargs: [String: AnyCodable]?,
+        requestId: String?
     ) async throws -> ChatStreamingResult {
         recordStreamingTools(tools)
         return streamingHandler?(messages) ?? streamingResult
