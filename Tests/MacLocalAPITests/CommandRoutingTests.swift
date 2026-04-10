@@ -16,7 +16,11 @@ struct CommandRoutingTests {
     @Test("RootCommand forwards guided-json to ServeCommand args")
     func rootCommandForwardsGuidedJson() throws {
         let schema = #"{"type":"object","properties":{"planet":{"type":"string"}}}"#
-        let command = try RootCommand.parseAsRoot(["--guided-json", schema, "--port", "9998"])
+        let parsed = try RootCommand.parseAsRoot(["--guided-json", schema, "--port", "9998"])
+        guard let command = parsed as? RootCommand else {
+            Issue.record("Expected RootCommand from parseAsRoot")
+            return
+        }
         let args = command.makeServeArgs()
 
         #expect(args.contains("--guided-json"))
