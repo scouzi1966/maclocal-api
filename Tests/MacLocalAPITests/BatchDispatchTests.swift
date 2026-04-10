@@ -18,6 +18,7 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
     let thinkEndTag: String? = nil
     let fixToolArgs: Bool = false
     let enableGrammarConstraints: Bool = false
+    let defaultGuidedJsonSchema: ResponseFormat? = nil
 
     // Tracking
     private let _lock = NSLock()
@@ -42,6 +43,7 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
     }
 
     func normalizeModel(_ raw: String) -> String { raw }
+    func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? { requestFormat }
     func resolvedToolCallParser(logBypass: Bool) -> String? { toolCallParser }
 
     func tryReserveSlot() -> Bool {
@@ -55,6 +57,10 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
         _lock.lock()
         releaseSlotCallCount += 1
         _lock.unlock()
+    }
+
+    func waitForSlot(timeout: TimeInterval) async -> Bool {
+        tryReserveSlot()
     }
 
     func ensureBatchMode(concurrency: Int) async throws {

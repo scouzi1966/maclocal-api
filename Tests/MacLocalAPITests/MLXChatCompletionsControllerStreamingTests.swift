@@ -731,6 +731,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
     let thinkEndTag: String?
     let fixToolArgs: Bool
     let enableGrammarConstraints: Bool = false
+    let defaultGuidedJsonSchema: ResponseFormat? = nil
     private let generateResult: ChatGenerationResult
     private let streamingResult: ChatStreamingResult
     private let streamingHandler: (([Message]) -> ChatStreamingResult)?
@@ -802,8 +803,10 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
     }
 
     func normalizeModel(_ raw: String) -> String { raw }
+    func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? { requestFormat }
     func resolvedToolCallParser(logBypass: Bool) -> String? { toolCallParser }
     func tryReserveSlot() -> Bool { true }
+    func waitForSlot(timeout: TimeInterval) async -> Bool { true }
     func releaseSlot() {}
     func ensureBatchMode(concurrency: Int) async throws {}
     func releaseBatchReference() {}

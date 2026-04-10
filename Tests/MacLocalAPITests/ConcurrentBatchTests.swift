@@ -357,4 +357,42 @@ struct ConcurrentBatchTests {
         #expect(result.chunks[0].text == "<think>plan\n\nUser:")
         #expect(insideThink == true)
     }
+
+    @Test("BatchScheduler stop helper honors requests that already start inside think block")
+    func stopHelperHonorsInitialInsideThinkState() {
+        var stopBuffer = ""
+        var insideThink = true
+
+        let first = BatchScheduler.stopChunksToEmit(
+            from: "plan\n\nUser:",
+            stopBuffer: &stopBuffer,
+            activeStops: ["\n\nUser:"],
+            maxStopLength: "\n\nUser:".count,
+            insideThink: &insideThink,
+            thinkStartTag: "<think>",
+            thinkEndTag: "</think>"
+        )
+
+        #expect(first.stopped == false)
+        #expect(first.chunks.count == 1)
+        #expect(first.chunks[0].text == "plan\n\nUser:")
+        #expect(stopBuffer.isEmpty)
+        #expect(insideThink == true)
+
+        let second = BatchScheduler.stopChunksToEmit(
+            from: "</think>Hello\n\nUser:",
+            stopBuffer: &stopBuffer,
+            activeStops: ["\n\nUser:"],
+            maxStopLength: "\n\nUser:".count,
+            insideThink: &insideThink,
+            thinkStartTag: "<think>",
+            thinkEndTag: "</think>"
+        )
+
+        #expect(second.stopped)
+        #expect(second.chunks.count == 1)
+        #expect(second.chunks[0].text == "Hello")
+        #expect(second.chunks[0].stoppedBySequence == true)
+        #expect(insideThink == false)
+    }
 }
