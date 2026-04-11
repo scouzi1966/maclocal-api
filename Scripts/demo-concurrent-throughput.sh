@@ -67,6 +67,7 @@ MODE="general"
 MAX_TOKENS=3000
 MAX_TOKENS_JITTER=0.1
 REQUEST_TIMEOUT=900       # per-request aiohttp client timeout; must exceed worst-case decode
+AFM_EXTRA_ARGS=""         # --afm-args "..." passed verbatim to the afm binary
 TEMPERATURE=0.7
 TOP_P=1.0
 PORT=9998
@@ -144,6 +145,7 @@ while [ $# -gt 0 ]; do
     --skip-load)       SKIP_LOAD=true; shift ;;
     --skip-html)       SKIP_HTML=true; shift ;;
     --skip-verify)     SKIP_VERIFY=true; shift ;;
+    --afm-args)          AFM_EXTRA_ARGS="$2"; shift 2 ;;
     --keep-server)     KEEP_SERVER=true; shift ;;
     --watch)           WATCH_LIVE=true; shift ;;
     -h|--help)
@@ -211,6 +213,10 @@ start_server() {
   local args=(mlx -m "$MODEL" --concurrent "$CONCURRENT" --port "$PORT")
   if [ "$ENABLE_PREFIX_CACHE" = true ]; then
     args+=(--enable-prefix-caching)
+  fi
+  if [ -n "$AFM_EXTRA_ARGS" ]; then
+    # shellcheck disable=SC2206
+    args+=($AFM_EXTRA_ARGS)
   fi
 
   # Pass AFM_DEBUG through from the wrapper's environment so callers can do
@@ -361,7 +367,7 @@ else:
     print(float($RAMP_S) + hold + cooldown)
 PYEND
 )
-  local run_params="--concurrent $CONCURRENT --ramp-step-users $RAMP_STEP_USERS --ramp-step-s $RAMP_STEP_S --hold $HOLD_S --cooldown $COOLDOWN_S --max-tokens $MAX_TOKENS --smoothing-window $SMOOTHING_WINDOW"
+  local run_params="--concurrent $CONCURRENT --ramp-step-users $RAMP_STEP_USERS --ramp-step-s $RAMP_STEP_S --hold $HOLD_S --cooldown $COOLDOWN_S --max-tokens $MAX_TOKENS --smoothing-window $SMOOTHING_WINDOW${AFM_EXTRA_ARGS:+ $AFM_EXTRA_ARGS}"
   local cmd="cd '$ROOT_DIR' && python3 Scripts/demo/watch_live.py --trace '$TRACE_PATH' --target-users $CONCURRENT --initial-tps-max $INITIAL_TPS_MAX --total-seconds $total_s --smoothing-window $SMOOTHING_WINDOW --model $MODEL --run-params '$run_params'"
   if [[ "$(uname)" == "Darwin" ]] && command -v osascript >/dev/null 2>&1; then
     log "opening live watcher in a new Terminal window"
