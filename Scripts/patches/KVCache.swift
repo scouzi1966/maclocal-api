@@ -123,6 +123,7 @@ public protocol QuantizedKVCacheProtocol: KVCache {
 
 /// Base cache implementation providing default behaviors
 open class BaseKVCache: KVCache {
+    public init() {}
     public var offset: Int = 0
     public var maxSize: Int? { nil }
     public var offsetArray: MLXArray? { nil }

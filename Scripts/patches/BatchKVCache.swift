@@ -408,8 +408,11 @@ public class BatchRotatingKVCache: BaseKVCache {
     /// Sink tokens preserved at start of buffer (must be 0 for batching)
     public let keep: Int
 
-    /// Current batch size
+    /// Current (logical) batch size. In slab mode, may be < capacity.
     public var batchSize: Int
+
+    /// Slab capacity. 0 = non-slab. When > 0, keys/values have dim(0) = capacity.
+    public var capacity: Int = 0
 
     /// Cached flags — set at merge/extend/filter, never eval during decode.
     private var _allOffsetsEqual: Bool?
@@ -420,20 +423,32 @@ public class BatchRotatingKVCache: BaseKVCache {
         set { _offset = newValue }
     }
     /// Per-sequence RoPE offsets — tracks each sequence's real token count.
-    public override var offsetArray: MLXArray? { perSeqOffset }
+    /// In slab mode this must expose only the active rows so batched RoPE
+    /// still receives a [B] offset array instead of the slab capacity.
+    public override var offsetArray: MLXArray? { activePerSeqOffset }
     public override var maxSize: Int? { maxCacheSize }
     public override var isTrimmable: Bool { _offset < maxCacheSize }
 
+    /// Active-prefix slices for slab mode.
+    private var activeLeftPadding: MLXArray {
+        capacity > 0 && batchSize < leftPadding.dim(0) ? leftPadding[0 ..< batchSize] : leftPadding
+    }
+    private var activePerSeqOffset: MLXArray {
+        capacity > 0 && batchSize < perSeqOffset.dim(0) ? perSeqOffset[0 ..< batchSize] : perSeqOffset
+    }
+
     public override var allOffsetsEqual: Bool {
         if let cached = _allOffsetsEqual { return cached }
-        let result = batchSize <= 1 || (perSeqOffset .== perSeqOffset[0]).all().item(Bool.self)
+        let off = activePerSeqOffset
+        let result = batchSize <= 1 || (off .== off[0]).all().item(Bool.self)
         _allOffsetsEqual = result
         return result
     }
 
     var zeroPadding: Bool {
         if let cached = _zeroPadding { return cached }
-        let result = batchSize <= 1 || leftPadding.max().item(Int32.self) == 0
+        let pad = activeLeftPadding
+        let result = batchSize <= 1 || pad.max().item(Int32.self) == 0
         _zeroPadding = result
         return result
     }
@@ -474,8 +489,10 @@ public class BatchRotatingKVCache: BaseKVCache {
     /// rotating gap until they individually fill the window. At that point the
     /// pad count is derived from `perSeqOffset`, not from the original prefix pad.
     private func currentPadding(afterAdding tokens: Int = 0) -> MLXArray {
-        guard _offset >= maxCacheSize else { return leftPadding }
-        let totalOffsets = perSeqOffset + Int32(tokens)
+        let pad = activeLeftPadding
+        guard _offset >= maxCacheSize else { return pad }
+        let off = activePerSeqOffset
+        let totalOffsets = off + Int32(tokens)
         let stored = minimum(totalOffsets, Int32(maxCacheSize))
         return maximum(MLXArray(Int32(maxCacheSize)) - stored, MLXArray(Int32(0)))
     }
@@ -602,7 +619,14 @@ public class BatchRotatingKVCache: BaseKVCache {
         let vHeadDim = newValues.dim(3)
 
         // Grow buffer until maxCacheSize
-        if self.keys == nil || (_idx >= (self.keys?.dim(2) ?? 0) && (self.keys?.dim(2) ?? 0) < maxCacheSize) {
+        if capacity > 0 {
+            // Slab: keys/values should already exist from addSlotsBulk.
+            // If somehow nil (shouldn't happen), allocate at full size.
+            if self.keys == nil {
+                self.keys = MLXArray.zeros([capacity, nKVHeads, maxCacheSize, kHeadDim], dtype: newKeys.dtype)
+                self.values = MLXArray.zeros([capacity, nKVHeads, maxCacheSize, vHeadDim], dtype: newValues.dtype)
+            }
+        } else if self.keys == nil || (_idx >= (self.keys?.dim(2) ?? 0) && (self.keys?.dim(2) ?? 0) < maxCacheSize) {
             let newSize = Swift.min(Self.preAllocStep, maxCacheSize - _idx)
             let kZeros = MLXArray.zeros([B, nKVHeads, newSize, kHeadDim], dtype: newKeys.dtype)
             let vZeros = MLXArray.zeros([B, nKVHeads, newSize, vHeadDim], dtype: newValues.dtype)
@@ -628,14 +652,27 @@ public class BatchRotatingKVCache: BaseKVCache {
             _idx = keep
         }
 
-        // Write at current position for all B sequences
-        self.keys![.ellipsis, _idx ..< (_idx + 1), 0...] = newKeys
-        self.values![.ellipsis, _idx ..< (_idx + 1), 0...] = newValues
+        // Write at current position
+        if capacity > 0 {
+            // Slab: write only active rows, return only active rows
+            self.keys![0 ..< batchSize, 0..., _idx ..< (_idx + 1), 0...] = newKeys
+            self.values![0 ..< batchSize, 0..., _idx ..< (_idx + 1), 0...] = newValues
+        } else {
+            self.keys![.ellipsis, _idx ..< (_idx + 1), 0...] = newKeys
+            self.values![.ellipsis, _idx ..< (_idx + 1), 0...] = newValues
+        }
         _offset = Swift.max(previousOffset + 1, _idx + 1)
         _idx += 1
         perSeqOffset = perSeqOffset + Int32(1)
 
         // Return appropriate slice
+        if capacity > 0 {
+            let seqEnd = _offset < maxCacheSize ? _offset : maxCacheSize
+            return (
+                self.keys![0 ..< batchSize, 0..., ..<seqEnd, 0...],
+                self.values![0 ..< batchSize, 0..., ..<seqEnd, 0...]
+            )
+        }
         if _offset < maxCacheSize {
             return (
                 self.keys![.ellipsis, ..<_offset, 0...],
@@ -727,6 +764,12 @@ public class BatchRotatingKVCache: BaseKVCache {
     public override var state: [MLXArray] {
         get {
             guard let k = keys, let v = values else { return [] }
+            if capacity > 0 {
+                let seqEnd = Swift.min(_offset, k.dim(2))
+                let kSlice = k[0 ..< batchSize, 0..., ..<seqEnd, 0...]
+                let vSlice = v[0 ..< batchSize, 0..., ..<seqEnd, 0...]
+                return [kSlice, vSlice, activePerSeqOffset, currentPadding()]
+            }
             let kSlice = _offset < k.dim(2) ? k[.ellipsis, ..<_offset, 0...] : k
             let vSlice = _offset < v.dim(2) ? v[.ellipsis, ..<_offset, 0...] : v
             return [kSlice, vSlice, perSeqOffset, currentPadding()]
@@ -842,12 +885,51 @@ public class BatchRotatingKVCache: BaseKVCache {
     public func filter(_ keepIndices: [Int]) {
         guard let k = keys, let v = values else { return }
 
+        let keepCount = keepIndices.count
+
+        if capacity > 0 {
+            // Slab mode: compact active rows into [0, keepCount) in-place,
+            // preserving the [capacity, heads, maxCacheSize, dim] allocation.
+            if keepCount == 0 {
+                batchSize = 0
+                _allOffsetsEqual = nil; _zeroPadding = nil
+                return
+            }
+            // Gather kept rows, write back to front of slab
+            let idx = MLXArray(keepIndices.map { Int32($0) })
+            let keptK = k[idx]   // [keepCount, heads, seqLen, dim]
+            let keptV = v[idx]
+            keys![0 ..< keepCount, 0..., 0..., 0...] = keptK
+            values![0 ..< keepCount, 0..., 0..., 0...] = keptV
+
+            // Compact metadata (slab metadata is always capacity-sized)
+            var padHost = leftPadding.asArray(Int32.self)
+            var offHost = perSeqOffset.asArray(Int32.self)
+            let keptPad = keepIndices.map { padHost[$0] }
+            let keptOff = keepIndices.map { offHost[$0] }
+            for i in 0 ..< keepCount {
+                padHost[i] = keptPad[i]
+                offHost[i] = keptOff[i]
+            }
+            // Zero out freed slots for safety
+            for i in keepCount ..< padHost.count {
+                padHost[i] = 0
+                offHost[i] = 0
+            }
+            leftPadding = MLXArray(padHost)
+            perSeqOffset = MLXArray(offHost)
+            batchSize = keepCount
+            _allOffsetsEqual = nil; _zeroPadding = nil
+            return
+        }
+
+        // Non-slab mode: original path
         let indices = MLXArray(keepIndices.map { Int32($0) })
         keys = k[indices]
         values = v[indices]
         perSeqOffset = perSeqOffset[indices]
         leftPadding = leftPadding[indices]
-        batchSize = keepIndices.count
+        batchSize = keepCount
         _allOffsetsEqual = nil
 
         // Shift left to reduce padding waste (only before buffer wraps)
@@ -867,21 +949,121 @@ public class BatchRotatingKVCache: BaseKVCache {
         }
     }
 
+    /// Slab-mode: write N new sequences into rows [batchSize ..< batchSize+N].
+    /// ONE slice-assign per tensor. No concat. No copy of existing rows.
+    ///
+    /// The incoming `other` is a NON-slab cache from prefillBatch with the
+    /// new sequences' prefilled K/V at [0, L) in temporal order. We write
+    /// them into the slab at the same positions. The mask (via leftPadding)
+    /// tells attention which columns are valid for each row.
+    public func addSlotsBulk(from other: BatchRotatingKVCache) {
+        precondition(capacity > 0, "addSlotsBulk requires slab mode")
+        guard let otherK = other.keys, let otherV = other.values else { return }
+        let N = other.batchSize
+        guard N > 0 else { return }
+        precondition(batchSize + N <= capacity)
+
+        let oldB = batchSize
+        let L = other._idx  // number of prefill tokens in the other cache
+
+        // Ensure slab is allocated
+        if self.keys == nil {
+            let h = otherK.dim(1), d = otherK.dim(3), vd = otherV.dim(3)
+            self.keys = MLXArray.zeros([capacity, h, maxCacheSize, d], dtype: otherK.dtype)
+            self.values = MLXArray.zeros([capacity, h, maxCacheSize, vd], dtype: otherV.dtype)
+        }
+
+        // Write the new rows' prefill data at columns [0, L)
+        let srcK = otherK[0 ..< N, 0..., 0 ..< L, 0...]
+        let srcV = otherV[0 ..< N, 0..., 0 ..< L, 0...]
+        self.keys![oldB ..< oldB + N, 0..., 0 ..< L, 0...] = srcK
+        self.values![oldB ..< oldB + N, 0..., 0 ..< L, 0...] = srcV
+
+        // Update per-row metadata
+        // New rows have data at [0, L). If the slab's _idx > L, the new rows
+        // need leftPadding = _idx - L so the mask ignores columns [L, _idx).
+        let newPad = Int32(Swift.max(0, _idx - L))
+        var padHost = leftPadding.asArray(Int32.self)
+        var offHost = perSeqOffset.asArray(Int32.self)
+        // Ensure metadata arrays are capacity-sized (may be empty on first call)
+        if padHost.count < capacity {
+            padHost.append(contentsOf: [Int32](repeating: 0, count: capacity - padHost.count))
+        }
+        if offHost.count < capacity {
+            offHost.append(contentsOf: [Int32](repeating: 0, count: capacity - offHost.count))
+        }
+        let otherOffHost = other.perSeqOffset.asArray(Int32.self)
+        for i in 0 ..< N {
+            padHost[oldB + i] = newPad + (other.leftPadding.dim(0) > i ? other.leftPadding[i].item(Int32.self) : 0)
+            offHost[oldB + i] = otherOffHost[i]
+        }
+        leftPadding = MLXArray(padHost)
+        perSeqOffset = MLXArray(offHost)
+
+        batchSize = oldB + N
+
+        // Update write cursor: data was written at columns [0, L), so the next
+        // decode token should go at max(current _idx, L). For the first addSlotsBulk
+        // call on an empty slab (_idx=0), this sets _idx=L. For subsequent calls
+        // where existing sequences have advanced past L, _idx stays where it is
+        // (the new sequences' gap at [L, _idx) is covered by leftPadding).
+        _idx = Swift.max(_idx, L)
+        _offset = Swift.max(_offset, L)
+        _allOffsetsEqual = nil
+        _zeroPadding = nil
+    }
+
     /// Merge another BatchRotatingKVCache into this one (extend batch).
+    /// O(1) fast path: right-justify + ONE concat instead of O(B) materialize-all.
     public func extend(with other: BatchRotatingKVCache) {
         precondition(maxCacheSize == other.maxCacheSize && keep == other.keep,
                      "Cannot extend BatchRotatingKVCache with different maxCacheSize/keep")
 
-        let otherSequences = other.materializeAllSequences()
-        guard !otherSequences.isEmpty else { return }
+        guard let otherK = other.keys, let otherV = other.values else { return }
+        guard other.batchSize > 0 else { return }
 
-        let selfSequences = materializeAllSequences()
-        let combined = selfSequences + otherSequences
-        let targetLen =
-            (_offset >= maxCacheSize || other._offset >= maxCacheSize)
-            ? maxCacheSize
-            : (combined.map(\.storedCount).max() ?? 0)
-        rebuildDenseLayout(from: combined, targetLen: targetLen)
+        guard let selfK = self.keys, let selfV = self.values else {
+            self.keys = otherK[.ellipsis, ..<other._idx, 0...]
+            self.values = otherV[.ellipsis, ..<other._idx, 0...]
+            self.leftPadding = other.leftPadding
+            self.perSeqOffset = other.perSeqOffset
+            self._idx = other._idx
+            self._offset = other._offset
+            self.batchSize = other.batchSize
+            self._allOffsetsEqual = nil
+            self._zeroPadding = nil
+            return
+        }
+
+        let selfSeqLen = _offset >= maxCacheSize ? maxCacheSize : _idx
+        let otherSeqLen = other._offset >= other.maxCacheSize ? other.maxCacheSize : other._idx
+        let sk = selfK[.ellipsis, ..<selfSeqLen, 0...]
+        let sv = selfV[.ellipsis, ..<selfSeqLen, 0...]
+        let ok = otherK[.ellipsis, ..<otherSeqLen, 0...]
+        let ov = otherV[.ellipsis, ..<otherSeqLen, 0...]
+        let maxLen = Swift.max(selfSeqLen, otherSeqLen)
+
+        func rightJustify(_ k: MLXArray, _ v: MLXArray, _ pad: MLXArray, seqLen: Int)
+            -> (MLXArray, MLXArray, MLXArray)
+        {
+            let left = maxLen - seqLen
+            guard left > 0 else { return (k, v, pad) }
+            let kPad = MLXArray.zeros([k.dim(0), k.dim(1), left, k.dim(3)], dtype: k.dtype)
+            let vPad = MLXArray.zeros([v.dim(0), v.dim(1), left, v.dim(3)], dtype: v.dtype)
+            return (concatenated([kPad, k], axis: 2), concatenated([vPad, v], axis: 2), pad + Int32(left))
+        }
+
+        let (rk1, rv1, rp1) = rightJustify(sk, sv, leftPadding, seqLen: selfSeqLen)
+        let (rk2, rv2, rp2) = rightJustify(ok, ov, other.leftPadding, seqLen: otherSeqLen)
+        keys = concatenated([rk1, rk2], axis: 0)
+        values = concatenated([rv1, rv2], axis: 0)
+        leftPadding = concatenated([rp1, rp2], axis: 0)
+        perSeqOffset = concatenated([perSeqOffset, other.perSeqOffset], axis: 0)
+        _idx = maxLen
+        _offset = Swift.max(_offset, other._offset)
+        batchSize += other.batchSize
+        _allOffsetsEqual = nil
+        _zeroPadding = nil
     }
 
     /// Extract a single sequence's cache for prefix save.

@@ -832,11 +832,38 @@ async def run(cfg: dict[str, Any], output_path: Path) -> dict[str, Any]:
         state.start_time = time.monotonic()
         state.wall_clock_start = time.time()
 
+        async def watchdog(session: aiohttp.ClientSession, state: "LoadState", cfg: dict[str, Any]) -> None:
+            """Periodically probe the server. If unresponsive for 15s, stop the test."""
+            base = cfg["endpoint"].rsplit("/v1/", 1)[0]
+            url = f"{base}/v1/models"
+            fail_since: float | None = None
+            watchdog_timeout = 15.0
+            while not state.stop.is_set():
+                await asyncio.sleep(2.0)
+                try:
+                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=3.0)) as r:
+                        if r.status == 200:
+                            fail_since = None
+                            continue
+                except Exception:
+                    pass
+                now = time.monotonic()
+                if fail_since is None:
+                    fail_since = now
+                    sys.stderr.write(f"[watchdog] server unresponsive at t={now - state.start_time:.1f}s\n")
+                elif now - fail_since >= watchdog_timeout:
+                    sys.stderr.write(
+                        f"[watchdog] server dead for {now - fail_since:.0f}s — stopping test\n"
+                    )
+                    state.stop.set()
+                    return
+
         users: list[asyncio.Task] = []
         ramp_task = asyncio.create_task(ramp_controller(state, session, cfg, users))
         sampler_task = asyncio.create_task(metrics_sampler(state, cfg, output_path))
         writer_task = asyncio.create_task(request_log_writer(state, requests_path))
         metrics_task = asyncio.create_task(poll_metrics(session, state, cfg))
+        watchdog_task = asyncio.create_task(watchdog(session, state, cfg))
 
         await ramp_task
         # In step mode, ramp_task itself has already awaited all users
@@ -892,10 +919,15 @@ async def run(cfg: dict[str, Any], output_path: Path) -> dict[str, Any]:
             await sampler_task
         except asyncio.CancelledError:
             pass
-        # Stop the metrics poller.
+        # Stop the metrics poller and watchdog.
         metrics_task.cancel()
         try:
             await metrics_task
+        except asyncio.CancelledError:
+            pass
+        watchdog_task.cancel()
+        try:
+            await watchdog_task
         except asyncio.CancelledError:
             pass
         # Wait for request writer to drain its queue before closing.

@@ -928,7 +928,15 @@ public class Gemma4Model: Module, LLMModel, KVCacheDimensionProvider {
 
     public func newCache(parameters: GenerateParameters?) -> [any KVCache] {
         let textConfig = configuration.textConfig
+        let firstShared = textConfig.firstKvSharedLayerIdx
         return (0 ..< textConfig.numHiddenLayers).map { i in
+            // KV-shared layers (E4B: layers 24-41) never call cache.update() —
+            // they reuse KV from a reference layer. Return a lightweight no-op
+            // cache so merge/extend/filter skip these layers entirely instead
+            // of processing empty concat/gather ops.
+            if i >= firstShared && firstShared < textConfig.numHiddenLayers {
+                return BaseKVCache() as any KVCache
+            }
             let layerType = textConfig.layerTypes[i]
             if layerType == "full_attention" {
                 return KVCacheSimple() as any KVCache

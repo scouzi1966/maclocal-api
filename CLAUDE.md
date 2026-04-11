@@ -225,3 +225,16 @@ This is invisible to the model — the arrays hold the same values before and af
 - `NaiveStreamingDetokenizer`: decodes accumulated tokens, returns suffix diff per token
 - `TokenIterator.next()`: synchronous GPU computation per token
 - `GenerateParameters`: sampling config passed to the model
+
+## MLX Framework Reference
+
+- **Quick Start & API**: https://ml-explore.github.io/mlx/build/html/usage/quick_start.html
+- **MLX Swift**: `.build/checkouts/mlx-swift/` — the Swift bindings for MLX, pinned to exact version in `Package.resolved`
+- **Key MLX Swift APIs used by AFM**:
+  - `MLXFast.scaledDotProductAttention` — fused attention kernel (decode fast-path for T_q=1)
+  - `gatherMM(_:_:lhsIndices:rhsIndices:)` — fused gather + matmul, used for GQA attention bypass on RotatingKVCache layers (Gemma 4)
+  - `blockMaskedMM` — block-sparse matmul (available, not yet used)
+  - `segmented_mm` — variable-length segmented matmul (available at C level via `mlx_segmented_mm`, NOT wrapped in Swift)
+  - `MLXFast.metalKernel(...)` — custom Metal shader compiler for user-defined kernels
+- **MLX is lazy**: operations build a compute graph, materialized only on `eval()` or `.item()`. This means concat/slice-assign ops are free to BUILD but the cost lands on the next operation that reads the result. The BatchScheduler's every-512-step eval flush and the per-layer prefill flush for Gemma 4 are both designed to keep the lazy graph bounded.
+- **Metal command-queue serialization**: each MLX op becomes a Metal command buffer submission. At 100+ ops per decode step, the per-op submit/fence overhead dominates. Reducing op count (e.g., replacing 20 mask-construction ops with 1 fused `gatherMM`) is often more impactful than reducing per-op data size.

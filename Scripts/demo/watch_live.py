@@ -103,8 +103,11 @@ def setup_figure(model: str = "", machine: str = "", run_params: str = "") -> tu
     fig.canvas.manager.set_window_title("AFM · live concurrent throughput")
     fig.patch.set_facecolor(THEME["bg"])
 
-    ax_left = fig.add_axes([0.08, 0.13, 0.84, 0.67])
+    ax_left = fig.add_axes([0.08, 0.13, 0.80, 0.67])
     ax_right = ax_left.twinx()
+    ax_gpu = ax_left.twinx()
+    # Offset the GPU watts axis to the right of the tok/s axis
+    ax_gpu.spines["right"].set_position(("axes", 1.08))
 
     for ax in (ax_left, ax_right):
         for spine in ("top", "right"):
@@ -112,13 +115,22 @@ def setup_figure(model: str = "", machine: str = "", run_params: str = "") -> tu
         for spine in ("left", "bottom"):
             ax.spines[spine].set_color(THEME["axis"])
             ax.spines[spine].set_linewidth(1.0)
+    # GPU axis: only show right spine
+    for spine in ("top", "left", "bottom"):
+        ax_gpu.spines[spine].set_visible(False)
+    ax_gpu.spines["right"].set_visible(True)
+    ax_gpu.spines["right"].set_color("#A78BFA")
+    ax_gpu.spines["right"].set_linewidth(1.0)
 
     ax_left.grid(True, which="major", color=THEME["grid"], linestyle="-", linewidth=0.6, alpha=0.8)
     ax_left.set_axisbelow(True)
 
-    fig.text(0.08, 0.92, "AFM · live concurrent throughput",
+    fig.text(0.08, 0.93, "AFM · live concurrent throughput",
              fontsize=22, fontweight="bold", color=THEME["text_primary"],
              ha="left", va="center")
+    fig.text(0.08, 0.905, "github.com/scouzi1966/maclocal-api",
+             fontsize=8, color="#FFFFFF", family="monospace",
+             ha="left", va="center", alpha=0.9)
     # Subtitle: model, machine, date
     from datetime import datetime
     date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -136,7 +148,7 @@ def setup_figure(model: str = "", machine: str = "", run_params: str = "") -> tu
                  fontsize=8, color=THEME["text_secondary"], family="monospace",
                  ha="left", va="center", alpha=0.7)
     # GPU watts legend swatch — below the params line
-    fig.text(0.08, 0.822, "violet line = GPU watts (0-200W scale)",
+    fig.text(0.08, 0.822, "violet line = GPU watts (right axis)",
              fontsize=8, color="#A78BFA", ha="left", va="center", alpha=0.8)
 
     ax_left.set_xlabel("Time (s)", fontsize=11, labelpad=8)
@@ -144,8 +156,11 @@ def setup_figure(model: str = "", machine: str = "", run_params: str = "") -> tu
     ax_left.tick_params(axis="y", colors=THEME["accent_warm"])
     ax_right.set_ylabel("Aggregate tokens / sec", fontsize=11, color=THEME["accent_cool"], labelpad=12)
     ax_right.tick_params(axis="y", colors=THEME["accent_cool"])
+    ax_gpu.set_ylabel("GPU watts", fontsize=11, color="#A78BFA", labelpad=12)
+    ax_gpu.tick_params(axis="y", colors="#A78BFA")
+    ax_gpu.set_ylim(0, 200)
 
-    return fig, ax_left, ax_right
+    return fig, ax_left, ax_right, ax_gpu
 
 
 def tail_jsonl(path: Path, stop_after_stall: float = STALL_SECONDS):
@@ -267,7 +282,7 @@ def main() -> None:
     mactop_t.start()
 
     machine_info = _get_machine_info()
-    fig, ax_left, ax_right = setup_figure(model=model_name, machine=machine_info, run_params=run_params)
+    fig, ax_left, ax_right, ax_gpu = setup_figure(model=model_name, machine=machine_info, run_params=run_params)
     # Fixed axes from the start — do NOT autoscale.
     # X is pinned to the full run duration so the lines sweep left to right
     # across the entire canvas for visual effect, rather than the axis
@@ -292,10 +307,9 @@ def main() -> None:
         [], [], color=THEME["accent_cool"], linewidth=2.8,
         solid_capstyle="round", solid_joinstyle="round",
     )
-    # GPU watts line — plotted on left Y-axis (0-200W maps to 0-200 connections scale).
-    # No separate axis label; the footer shows the actual watt reading.
+    # GPU watts line — plotted on its own right Y-axis (0-200W).
     gpu_color = "#A78BFA"  # violet
-    (line_gpu,) = ax_left.plot(
+    (line_gpu,) = ax_gpu.plot(
         [], [], color=gpu_color, linewidth=1.5, alpha=0.7,
         linestyle="-", solid_capstyle="round",
     )
@@ -320,28 +334,32 @@ def main() -> None:
     counter_val_color = "#CCCCCC"
 
     readout_peak_tps = fig.text(
-        0.08, footer_y, "peak: --", ha="left", va="center",
+        0.02, footer_y, "peak: --", ha="left", va="center",
         fontsize=counter_fs, color=counter_val_color,
     )
     readout_gen_total = fig.text(
-        0.24, footer_y, "gen: --", ha="left", va="center",
+        0.14, footer_y, "gen: --", ha="left", va="center",
         fontsize=counter_fs, color=counter_val_color,
     )
     readout_prompt_total = fig.text(
-        0.38, footer_y, "prompt: --", ha="left", va="center",
+        0.26, footer_y, "prompt: --", ha="left", va="center",
         fontsize=counter_fs, color=counter_val_color,
     )
     readout_cache = fig.text(
-        0.54, footer_y, "cache: --", ha="left", va="center",
+        0.40, footer_y, "cache: --", ha="left", va="center",
         fontsize=counter_fs, color=counter_val_color,
     )
     readout_mem = fig.text(
-        0.92, footer_y, "", ha="right", va="center",
+        0.68, footer_y, "", ha="left", va="center",
         fontsize=counter_fs, color=counter_val_color,
     )
 
-    # Tracking variables for counters
+    # Tracking variables for counters — retain peak/max values after run ends
     peak_tps_seen = 0.0
+    max_gen_total = 0
+    max_prompt_total = 0
+    max_cache_hits = 0
+    max_cache_misses = 0
 
     fill_conn = None
     fill_tps = None
@@ -424,6 +442,15 @@ def main() -> None:
             prompt_t = sample.get("prompt_total", 0)
             chits = sample.get("cache_hits", 0)
             cmiss = sample.get("cache_misses", 0)
+            # Retain high-water marks so numbers persist after run ends
+            if gen_t > max_gen_total: max_gen_total = gen_t
+            if prompt_t > max_prompt_total: max_prompt_total = prompt_t
+            if chits > max_cache_hits: max_cache_hits = chits
+            if cmiss > max_cache_misses: max_cache_misses = cmiss
+            gen_t = max(gen_t, max_gen_total)
+            prompt_t = max(prompt_t, max_prompt_total)
+            chits = max(chits, max_cache_hits)
+            cmiss = max(cmiss, max_cache_misses)
 
             def _fmt_k(n: int) -> str:
                 return f"{n/1000:.1f}k" if n >= 1000 else str(n)

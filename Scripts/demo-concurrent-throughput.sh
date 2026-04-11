@@ -362,7 +362,7 @@ else:
 PYEND
 )
   local run_params="--concurrent $CONCURRENT --ramp-step-users $RAMP_STEP_USERS --ramp-step-s $RAMP_STEP_S --hold $HOLD_S --cooldown $COOLDOWN_S --max-tokens $MAX_TOKENS --smoothing-window $SMOOTHING_WINDOW"
-  local cmd="cd '$ROOT_DIR' && python3 Scripts/demo/watch_live.py --trace '$TRACE_PATH' --target-users $CONCURRENT --initial-tps-max $INITIAL_TPS_MAX --total-seconds $total_s --smoothing-window $SMOOTHING_WINDOW --model '$MODEL' --run-params '$run_params'"
+  local cmd="cd '$ROOT_DIR' && python3 Scripts/demo/watch_live.py --trace '$TRACE_PATH' --target-users $CONCURRENT --initial-tps-max $INITIAL_TPS_MAX --total-seconds $total_s --smoothing-window $SMOOTHING_WINDOW --model $MODEL --run-params '$run_params'"
   if [[ "$(uname)" == "Darwin" ]] && command -v osascript >/dev/null 2>&1; then
     log "opening live watcher in a new Terminal window"
     osascript <<OSA
