@@ -42,6 +42,7 @@ actor BatchScheduler {
     static let defaultMaxConcurrent = 8
 
     let maxConcurrent: Int
+    let prefillStepSize: Int
     private let model: any LanguageModel
     /// Tokenizer — nonisolated so concurrent requests can access without actor hop.
     nonisolated let tokenizer: Tokenizer
@@ -413,6 +414,7 @@ actor BatchScheduler {
         processor: any UserInputProcessor,
         configuration: ModelConfiguration,
         maxConcurrent: Int = BatchScheduler.defaultMaxConcurrent,
+        prefillStepSize: Int = 1024,
         enablePrefixCaching: Bool = false,
         cacheProfilePath: String? = nil
     ) {
@@ -421,6 +423,7 @@ actor BatchScheduler {
         self.processor = processor
         self.configuration = configuration
         self.maxConcurrent = maxConcurrent
+        self.prefillStepSize = prefillStepSize
         self.cacheProfilePath = cacheProfilePath
 
         let debug = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
@@ -973,9 +976,19 @@ actor BatchScheduler {
         let logitSampler = req.parameters.sampler()
         logitProcessor?.prompt(generateInput.text.tokens)
 
-        // Run model on full prompt (B=1)
-        let prefillInput = generateInput.text[text: .newAxis]  // [1, seqLen]
-        let result = model(prefillInput, cache: cache, state: nil)
+        // Chunked prefill (matches mlx_lm's _prefill pattern): process
+        // prefillChunkSize tokens at a time with eval+clear between chunks.
+        // Without this, 128k prompts build a lazy graph → memory balloon.
+        let prefillChunkSize = prefillStepSize
+        var prefillTokens = generateInput.text.tokens  // [seqLen]
+        while prefillTokens.dim(0) > prefillChunkSize {
+            let chunk = prefillTokens[..<prefillChunkSize]
+            let _ = model(LMInput.Text(tokens: chunk.reshaped([1, -1])), cache: cache, state: nil)
+            eval(cache.flatMap { $0.innerState() })
+            Memory.clearCache()
+            prefillTokens = prefillTokens[prefillChunkSize...]
+        }
+        let result = model(LMInput.Text(tokens: prefillTokens.reshaped([1, -1])), cache: cache, state: nil)
 
         // Extract last-position logits and sample first token.
         // Use [0, -1, 0...] to collapse batch dim → [vocabSize] (scalar sample output).
@@ -1334,13 +1347,23 @@ actor BatchScheduler {
             }
         }
 
-        // Phase 4: Single model forward pass
+        // Phase 4: Chunked prefill (matches mlx_lm's _prefill pattern).
+        // Process prefillChunkSize columns at a time with eval+clear between
+        // chunks to bound memory. Without this, 128k prompts balloon to 440 GB.
+        let prefillChunkSize = prefillStepSize
         if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" {
-            print("[prefillBatch] B=\(B) maxLen=\(maxLen) tokens=\(batchTokens.shape) caches=\(prefillCaches.count) types=\(prefillCaches.prefix(3).map { type(of: $0) })")
+            print("[prefillBatch] B=\(B) maxLen=\(maxLen) tokens=\(batchTokens.shape) caches=\(prefillCaches.count) types=\(prefillCaches.prefix(3).map { type(of: $0) }) chunkSize=\(prefillChunkSize)")
             fflush(stdout)
         }
-        let input = LMInput.Text(tokens: batchTokens)
-        let result = model(input, cache: prefillCaches, state: nil)
+        var pos = 0
+        while maxLen - pos > prefillChunkSize {
+            let chunk = batchTokens[0..., pos ..< pos + prefillChunkSize]
+            let _ = model(LMInput.Text(tokens: chunk), cache: prefillCaches, state: nil)
+            eval(prefillCaches.flatMap { $0.innerState() })
+            Memory.clearCache()
+            pos += prefillChunkSize
+        }
+        let result = model(LMInput.Text(tokens: batchTokens[0..., pos...]), cache: prefillCaches, state: nil)
 
         // Phase 5: Per-request logit processing and sampling
         // With left-padding, position -1 is the last real token for all sequences

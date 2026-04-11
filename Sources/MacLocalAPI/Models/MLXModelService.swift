@@ -1233,6 +1233,7 @@ final class MLXModelService: @unchecked Sendable {
                 processor: context.processor,
                 configuration: context.configuration,
                 maxConcurrent: limit,
+                prefillStepSize: self.prefillStepSize,
                 enablePrefixCaching: prefixCaching,
                 cacheProfilePath: self.cacheProfilePath
             )
@@ -1291,6 +1292,7 @@ final class MLXModelService: @unchecked Sendable {
                 processor: context.processor,
                 configuration: context.configuration,
                 maxConcurrent: limit,
+                prefillStepSize: self.prefillStepSize,
                 enablePrefixCaching: true,
                 cacheProfilePath: self.cacheProfilePath
             )
