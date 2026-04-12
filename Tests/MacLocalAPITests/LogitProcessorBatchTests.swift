@@ -11,6 +11,10 @@ import MLX
 struct LogitProcessorBatchTests {
 // dimensions: execution=batch, sampling_params=top_k/min_p/presence_penalty/repetition_penalty
 
+    init() throws {
+        try MLXMetalLibrary.ensureAvailable(verbose: false)
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // MARK: - TopKProcessor
     // ═══════════════════════════════════════════════════════════════════

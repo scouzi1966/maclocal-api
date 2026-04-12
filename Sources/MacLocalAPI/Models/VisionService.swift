@@ -1,25 +1,43 @@
 import Foundation
 import Vision
-import CoreImage
+import CoreGraphics
+import ImageIO
 import PDFKit
 import Quartz
-import AppKit
 
 enum VisionError: Error, LocalizedError {
+    case platformUnavailable
+    case missingInput
     case fileNotFound
     case unsupportedFormat
+    case invalidDataURL
+    case requestTooLarge(actualBytes: Int, maxBytes: Int)
+    case pageLimitExceeded(actualPages: Int, maxPages: Int)
+    case imageDimensionsExceeded(width: Int, height: Int, maxDimension: Int)
     case imageLoadingFailed
     case textRecognitionFailed(String)
     case noTextFound
     case noTablesFound
     case documentSegmentationFailed(String)
-    
+
     var errorDescription: String? {
         switch self {
+        case .platformUnavailable:
+            return "Apple Vision OCR requires macOS 26.0 or later"
+        case .missingInput:
+            return "No OCR input was provided"
         case .fileNotFound:
             return "The specified file was not found"
         case .unsupportedFormat:
             return "Unsupported file format. Supported formats: PNG, JPG, JPEG, HEIC, PDF"
+        case .invalidDataURL:
+            return "Invalid data URL or base64 payload"
+        case .requestTooLarge(let actualBytes, let maxBytes):
+            return "Input size \(actualBytes) bytes exceeds the limit of \(maxBytes) bytes"
+        case .pageLimitExceeded(let actualPages, let maxPages):
+            return "Document has \(actualPages) pages which exceeds the limit of \(maxPages)"
+        case .imageDimensionsExceeded(let width, let height, let maxDimension):
+            return "Image dimensions \(width)x\(height) exceed the limit of \(maxDimension) pixels"
         case .imageLoadingFailed:
             return "Failed to load the image from the specified file"
         case .textRecognitionFailed(let message):
@@ -34,280 +52,431 @@ enum VisionError: Error, LocalizedError {
     }
 }
 
-@available(macOS 26.0, *)
-class VisionService {
-    
-    private let supportedExtensions = ["png", "jpg", "jpeg", "heic", "pdf"]
-    
-    func extractText(from filePath: String) async throws -> String {
-        let (url, fileExtension) = try validateFile(at: filePath)
-        let requestHandler = try createRequestHandler(from: url, fileExtension: fileExtension)
-        
-        // Create vision request
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        
-        // Perform text recognition
-        do {
-            try requestHandler.perform([request])
-        } catch {
-            throw VisionError.textRecognitionFailed(error.localizedDescription)
+enum VisionRecognitionLevel: String, Sendable {
+    case accurate
+    case fast
+
+    var requestLevel: VNRequestTextRecognitionLevel {
+        switch self {
+        case .accurate:
+            return .accurate
+        case .fast:
+            return .fast
         }
-        
-        // Extract recognized text
-        guard let observations = request.results else {
-            throw VisionError.noTextFound
-        }
-        
-        let recognizedStrings = observations.compactMap { observation in
-            observation.topCandidates(1).first?.string
-        }
-        
-        guard !recognizedStrings.isEmpty else {
-            throw VisionError.noTextFound
-        }
-        
-        return recognizedStrings.joined(separator: "\n")
     }
-    
+}
+
+struct VisionRequestOptions: Sendable {
+    static let defaultMaxFileBytes = 25 * 1024 * 1024
+    static let defaultMaxPages = 50
+    static let defaultMaxImageDimension = 4096
+
+    let recognitionLevel: VisionRecognitionLevel
+    let usesLanguageCorrection: Bool
+    let recognitionLanguages: [String]
+    let maxPages: Int
+    let maxFileBytes: Int
+    let maxImageDimension: Int
+
+    init(
+        recognitionLevel: VisionRecognitionLevel = .accurate,
+        usesLanguageCorrection: Bool = true,
+        recognitionLanguages: [String] = [],
+        maxPages: Int = VisionRequestOptions.defaultMaxPages,
+        maxFileBytes: Int = VisionRequestOptions.defaultMaxFileBytes,
+        maxImageDimension: Int = VisionRequestOptions.defaultMaxImageDimension
+    ) {
+        self.recognitionLevel = recognitionLevel
+        self.usesLanguageCorrection = usesLanguageCorrection
+        self.recognitionLanguages = recognitionLanguages
+        self.maxPages = maxPages
+        self.maxFileBytes = maxFileBytes
+        self.maxImageDimension = maxImageDimension
+    }
+}
+
+@available(macOS 26.0, *)
+final class VisionService {
+    private static let supportedExtensions: Set<String> = ["png", "jpg", "jpeg", "heic", "pdf"]
+    private static let pdfRenderScale: CGFloat = 2.0
+
+    func extractText(from filePath: String) async throws -> String {
+        try await extractText(from: filePath, options: VisionRequestOptions())
+    }
+
+    func extractText(from filePath: String, options: VisionRequestOptions) async throws -> String {
+        let result = try await extractTextWithDetails(from: filePath, options: options)
+        return result.fullText
+    }
+
     func extractTextWithDetails(from filePath: String) async throws -> VisionResult {
-        let (url, fileExtension) = try validateFile(at: filePath)
-        let requestHandler = try createRequestHandler(from: url, fileExtension: fileExtension)
-        
-        // Create vision request
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        
-        // Perform text recognition
-        do {
-            try requestHandler.perform([request])
-        } catch {
-            throw VisionError.textRecognitionFailed(error.localizedDescription)
-        }
-        
-        // Extract recognized text with details
-        guard let observations = request.results else {
-            throw VisionError.noTextFound
-        }
-        
-        let textBlocks = observations.compactMap { observation -> TextBlock? in
-            guard let candidate = observation.topCandidates(1).first else { return nil }
-            
-            return TextBlock(
-                text: candidate.string,
-                confidence: candidate.confidence,
-                boundingBox: observation.boundingBox
-            )
-        }
-        
+        try await extractTextWithDetails(from: filePath, options: VisionRequestOptions())
+    }
+
+    func extractTextWithDetails(from filePath: String, options: VisionRequestOptions) async throws -> VisionResult {
+        let document = try analyzeDocument(at: filePath, options: options)
+        let textBlocks = document.pages.flatMap(\.textBlocks)
         guard !textBlocks.isEmpty else {
             throw VisionError.noTextFound
         }
-        
-        let fullText = textBlocks.map { $0.text }.joined(separator: "\n")
-        
         return VisionResult(
-            fullText: fullText,
+            fullText: document.fullText,
             textBlocks: textBlocks,
-            filePath: filePath
+            filePath: filePath,
+            pages: document.pages,
+            documentHints: document.documentHints
         )
     }
-    
+
     func extractTables(from filePath: String) async throws -> [TableResult] {
-        let (url, fileExtension) = try validateFile(at: filePath)
-        let requestHandler = try createRequestHandler(from: url, fileExtension: fileExtension)
-        
-        // First, try document segmentation to identify potential table regions
-        let segmentationRequest = VNDetectDocumentSegmentationRequest()
-        
-        do {
-            try requestHandler.perform([segmentationRequest])
-        } catch {
-            throw VisionError.documentSegmentationFailed(error.localizedDescription)
-        }
-        
-        // Get text recognition for the entire document
-        let textRequest = VNRecognizeTextRequest()
-        textRequest.recognitionLevel = .accurate
-        textRequest.usesLanguageCorrection = true
-        
-        do {
-            try requestHandler.perform([textRequest])
-        } catch {
-            throw VisionError.textRecognitionFailed(error.localizedDescription)
-        }
-        
-        guard let textObservations = textRequest.results else {
-            throw VisionError.noTextFound
-        }
-        
-        // Convert observations to text blocks with positions
-        let textBlocks = textObservations.compactMap { observation -> PositionedTextBlock? in
-            guard let candidate = observation.topCandidates(1).first else { return nil }
-            
-            return PositionedTextBlock(
-                text: candidate.string,
-                confidence: candidate.confidence,
-                boundingBox: observation.boundingBox
-            )
-        }
-        
-        // Analyze spatial relationships to detect tables
-        let tableAnalyzer = TableAnalyzer()
-        let detectedTables = tableAnalyzer.detectTables(from: textBlocks)
-        
-        guard !detectedTables.isEmpty else {
+        try await extractTables(from: filePath, options: VisionRequestOptions())
+    }
+
+    func extractTables(from filePath: String, options: VisionRequestOptions) async throws -> [TableResult] {
+        let document = try analyzeDocument(at: filePath, options: options)
+        let tables = document.pages.flatMap(\.tables)
+        guard !tables.isEmpty else {
             throw VisionError.noTablesFound
         }
-        
-        return detectedTables
+        return tables
     }
-    
+
     func debugRawDetection(from filePath: String) async throws -> String {
-        let (url, fileExtension) = try validateFile(at: filePath)
-        let requestHandler = try createRequestHandler(from: url, fileExtension: fileExtension)
-        
-        // Get text recognition for the entire document
-        let textRequest = VNRecognizeTextRequest()
-        textRequest.recognitionLevel = .accurate
-        textRequest.usesLanguageCorrection = true
-        
-        do {
-            try requestHandler.perform([textRequest])
-        } catch {
-            throw VisionError.textRecognitionFailed(error.localizedDescription)
+        try await debugRawDetection(from: filePath, options: VisionRequestOptions())
+    }
+
+    func debugRawDetection(from filePath: String, options: VisionRequestOptions) async throws -> String {
+        let (url, fileExtension) = try validateFile(at: filePath, maxBytes: options.maxFileBytes)
+        let pageSources = try createPageSources(from: url, fileExtension: fileExtension, options: options)
+        var sections: [String] = []
+
+        for page in pageSources {
+            let textRequest = makeTextRequest(options: options)
+            do {
+                try page.requestHandler.perform([textRequest])
+            } catch {
+                throw VisionError.textRecognitionFailed(error.localizedDescription)
+            }
+
+            guard let observations = textRequest.results else { continue }
+            var debugOutput = "=== PAGE \(page.pageNumber) RAW VISION DETECTION ===\n"
+            debugOutput += "Total text blocks detected: \(observations.count)\n\n"
+            let sortedObservations = observations.sorted { first, second in
+                if abs(first.boundingBox.origin.y - second.boundingBox.origin.y) < 0.01 {
+                    return first.boundingBox.origin.x < second.boundingBox.origin.x
+                }
+                return first.boundingBox.origin.y > second.boundingBox.origin.y
+            }
+
+            for (index, observation) in sortedObservations.enumerated() {
+                guard let candidate = observation.topCandidates(1).first else { continue }
+                let box = observation.boundingBox
+                debugOutput += "Block \(index + 1):\n"
+                debugOutput += "  Text: \"\(candidate.string)\"\n"
+                debugOutput += "  Confidence: \(String(format: "%.3f", candidate.confidence))\n"
+                debugOutput += "  Position: x=\(String(format: "%.3f", box.origin.x)), y=\(String(format: "%.3f", box.origin.y))\n"
+                debugOutput += "  Size: width=\(String(format: "%.3f", box.width)), height=\(String(format: "%.3f", box.height))\n\n"
+            }
+            sections.append(debugOutput)
         }
-        
-        guard let textObservations = textRequest.results else {
+
+        let output = sections.joined(separator: "\n")
+        guard !output.isEmpty else { throw VisionError.noTextFound }
+        return output
+    }
+
+    private func analyzeDocument(at filePath: String, options: VisionRequestOptions) throws -> VisionDocumentResult {
+        let (url, fileExtension) = try validateFile(at: filePath, maxBytes: options.maxFileBytes)
+        let pageSources = try createPageSources(from: url, fileExtension: fileExtension, options: options)
+        var pageResults: [VisionPageResult] = []
+        let analyzer = TableAnalyzer()
+
+        for page in pageSources {
+            let textRequest = makeTextRequest(options: options)
+            do {
+                try page.requestHandler.perform([textRequest])
+            } catch {
+                throw VisionError.textRecognitionFailed(error.localizedDescription)
+            }
+
+            let observations = textRequest.results ?? []
+            let textBlocks = observations.compactMap { observation -> TextBlock? in
+                guard let candidate = observation.topCandidates(1).first else { return nil }
+                return TextBlock(
+                    text: candidate.string,
+                    confidence: candidate.confidence,
+                    boundingBox: observation.boundingBox,
+                    pageNumber: page.pageNumber
+                )
+            }
+
+            let positionedBlocks = observations.compactMap { observation -> PositionedTextBlock? in
+                guard let candidate = observation.topCandidates(1).first else { return nil }
+                return PositionedTextBlock(
+                    text: candidate.string,
+                    confidence: candidate.confidence,
+                    boundingBox: observation.boundingBox,
+                    pageNumber: page.pageNumber
+                )
+            }
+
+            let tables = analyzer.detectTables(from: positionedBlocks, pageNumber: page.pageNumber)
+            let fullText = textBlocks.map(\.text).joined(separator: "\n")
+            pageResults.append(
+                VisionPageResult(
+                    pageNumber: page.pageNumber,
+                    fullText: fullText,
+                    textBlocks: textBlocks,
+                    tables: tables,
+                    width: page.size.width,
+                    height: page.size.height
+                )
+            )
+        }
+
+        let allTextBlocks = pageResults.flatMap(\.textBlocks)
+        guard !allTextBlocks.isEmpty else {
             throw VisionError.noTextFound
         }
-        
-        // Create debug output with all detected text blocks and their positions
-        var debugOutput = "=== RAW VISION FRAMEWORK DETECTION ===\n"
-        debugOutput += "Total text blocks detected: \(textObservations.count)\n\n"
-        
-        // Sort by Y position (top to bottom) for better readability
-        let sortedObservations = textObservations.sorted { first, second in
-            if abs(first.boundingBox.origin.y - second.boundingBox.origin.y) < 0.01 {
-                return first.boundingBox.origin.x < second.boundingBox.origin.x
-            }
-            return first.boundingBox.origin.y > second.boundingBox.origin.y
-        }
-        
-        for (index, observation) in sortedObservations.enumerated() {
-            guard let candidate = observation.topCandidates(1).first else { continue }
-            
-            let text = candidate.string
-            let confidence = candidate.confidence
-            let boundingBox = observation.boundingBox
-            
-            debugOutput += "Block \(index + 1):\n"
-            debugOutput += "  Text: \"\(text)\"\n"
-            debugOutput += "  Confidence: \(String(format: "%.3f", confidence))\n"
-            debugOutput += "  Position: x=\(String(format: "%.3f", boundingBox.origin.x)), y=\(String(format: "%.3f", boundingBox.origin.y))\n"
-            debugOutput += "  Size: width=\(String(format: "%.3f", boundingBox.width)), height=\(String(format: "%.3f", boundingBox.height))\n"
-            debugOutput += "\n"
-        }
-        
-        return debugOutput
+
+        let fullText = pageResults
+            .map { "Page \($0.pageNumber)\n\($0.fullText)" }
+            .joined(separator: "\n\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return VisionDocumentResult(
+            filePath: filePath,
+            fullText: fullText,
+            pages: pageResults,
+            documentHints: deriveDocumentHints(from: pageResults)
+        )
     }
-    
-    private func createPDFRequestHandler(from url: URL) throws -> VNImageRequestHandler {
-        guard let pdfDocument = PDFDocument(url: url) else {
-            throw VisionError.imageLoadingFailed
-        }
-        
-        guard pdfDocument.pageCount > 0 else {
-            throw VisionError.imageLoadingFailed
-        }
-        
-        // Use the first page of the PDF
-        guard let pdfPage = pdfDocument.page(at: 0) else {
-            throw VisionError.imageLoadingFailed
-        }
-        
-        // Convert PDF page to image using macOS APIs
-        let pageRect = pdfPage.bounds(for: .mediaBox)
-        let scale: CGFloat = 2.0 // Use 2x scale for better quality
-        let scaledSize = CGSize(width: pageRect.width * scale, height: pageRect.height * scale)
-        
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(data: nil,
-                                    width: Int(scaledSize.width),
-                                    height: Int(scaledSize.height),
-                                    bitsPerComponent: 8,
-                                    bytesPerRow: 0,
-                                    space: colorSpace,
-                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
-            throw VisionError.imageLoadingFailed
-        }
-        
-        // Set white background
-        context.setFillColor(CGColor.white)
-        context.fill(CGRect(origin: .zero, size: scaledSize))
-        
-        // Scale and render PDF page
-        context.scaleBy(x: scale, y: scale)
-        context.translateBy(x: 0, y: pageRect.height)
-        context.scaleBy(x: 1.0, y: -1.0)
-        pdfPage.draw(with: .mediaBox, to: context)
-        
-        guard let cgImage = context.makeImage() else {
-            throw VisionError.imageLoadingFailed
-        }
-        
-        return VNImageRequestHandler(cgImage: cgImage)
-    }
-    
-    private func validateFile(at filePath: String) throws -> (URL, String) {
+
+    private func validateFile(at filePath: String, maxBytes: Int) throws -> (URL, String) {
         let url = URL(fileURLWithPath: filePath)
         guard FileManager.default.fileExists(atPath: filePath) else {
             throw VisionError.fileNotFound
         }
-        
+
+        let values = try url.resourceValues(forKeys: [.fileSizeKey])
+        let fileSize = values.fileSize ?? 0
+        if fileSize > maxBytes {
+            throw VisionError.requestTooLarge(actualBytes: fileSize, maxBytes: maxBytes)
+        }
+
         let fileExtension = url.pathExtension.lowercased()
-        guard supportedExtensions.contains(fileExtension) else {
+        guard Self.supportedExtensions.contains(fileExtension) else {
             throw VisionError.unsupportedFormat
         }
-        
+
         return (url, fileExtension)
     }
-    
-    private func createRequestHandler(from url: URL, fileExtension: String) throws -> VNImageRequestHandler {
+
+    private func createPageSources(from url: URL, fileExtension: String, options: VisionRequestOptions) throws -> [VisionPageSource] {
         if fileExtension == "pdf" {
-            // Handle PDF files
-            return try createPDFRequestHandler(from: url)
-        } else {
-            // Handle image files
-            let imageData: Data
-            do {
-                imageData = try Data(contentsOf: url)
-            } catch {
+            return try createPDFPageSources(from: url, options: options)
+        }
+        return [try createImagePageSource(from: url, pageNumber: 1, options: options)]
+    }
+
+    private func createImagePageSource(from url: URL, pageNumber: Int, options: VisionRequestOptions) throws -> VisionPageSource {
+        let imageData: Data
+        do {
+            imageData = try Data(contentsOf: url)
+        } catch {
+            throw VisionError.imageLoadingFailed
+        }
+        return try createImagePageSource(from: imageData, pageNumber: pageNumber, options: options)
+    }
+
+    private func createImagePageSource(from data: Data, pageNumber: Int, options: VisionRequestOptions) throws -> VisionPageSource {
+        let metadata = try validateImageDimensions(data: data, maxDimension: options.maxImageDimension)
+        return VisionPageSource(
+            pageNumber: pageNumber,
+            requestHandler: VNImageRequestHandler(data: data),
+            size: metadata
+        )
+    }
+
+    private func createPDFPageSources(from url: URL, options: VisionRequestOptions) throws -> [VisionPageSource] {
+        guard let pdfDocument = PDFDocument(url: url), pdfDocument.pageCount > 0 else {
+            throw VisionError.imageLoadingFailed
+        }
+        if pdfDocument.pageCount > options.maxPages {
+            throw VisionError.pageLimitExceeded(actualPages: pdfDocument.pageCount, maxPages: options.maxPages)
+        }
+
+        var pageSources: [VisionPageSource] = []
+        for index in 0..<pdfDocument.pageCount {
+            guard let page = pdfDocument.page(at: index) else { continue }
+            let pageRect = page.bounds(for: .mediaBox)
+            let scaledSize = CGSize(
+                width: pageRect.width * Self.pdfRenderScale,
+                height: pageRect.height * Self.pdfRenderScale
+            )
+            guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+                  let context = CGContext(
+                    data: nil,
+                    width: Int(scaledSize.width),
+                    height: Int(scaledSize.height),
+                    bitsPerComponent: 8,
+                    bytesPerRow: 0,
+                    space: colorSpace,
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                  ) else {
                 throw VisionError.imageLoadingFailed
             }
-            return VNImageRequestHandler(data: imageData)
+
+            context.setFillColor(CGColor.white)
+            context.fill(CGRect(origin: .zero, size: scaledSize))
+            context.scaleBy(x: Self.pdfRenderScale, y: Self.pdfRenderScale)
+            context.translateBy(x: 0, y: pageRect.height)
+            context.scaleBy(x: 1.0, y: -1.0)
+            page.draw(with: .mediaBox, to: context)
+
+            guard let cgImage = context.makeImage() else {
+                throw VisionError.imageLoadingFailed
+            }
+
+            if Int(max(cgImage.width, cgImage.height)) > options.maxImageDimension {
+                throw VisionError.imageDimensionsExceeded(
+                    width: cgImage.width,
+                    height: cgImage.height,
+                    maxDimension: options.maxImageDimension
+                )
+            }
+
+            pageSources.append(
+                VisionPageSource(
+                    pageNumber: index + 1,
+                    requestHandler: VNImageRequestHandler(cgImage: cgImage),
+                    size: CGSize(width: cgImage.width, height: cgImage.height)
+                )
+            )
         }
+
+        return pageSources
     }
+
+    private func validateImageDimensions(data: Data, maxDimension: Int) throws -> CGSize {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int else {
+            throw VisionError.imageLoadingFailed
+        }
+
+        if max(width, height) > maxDimension {
+            throw VisionError.imageDimensionsExceeded(width: width, height: height, maxDimension: maxDimension)
+        }
+        return CGSize(width: width, height: height)
+    }
+
+    private func makeTextRequest(options: VisionRequestOptions) -> VNRecognizeTextRequest {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = options.recognitionLevel.requestLevel
+        request.usesLanguageCorrection = options.usesLanguageCorrection
+        if !options.recognitionLanguages.isEmpty {
+            request.recognitionLanguages = options.recognitionLanguages
+        }
+        return request
+    }
+
+    private func deriveDocumentHints(from pages: [VisionPageResult]) -> [String] {
+        let fullText = pages.map(\.fullText).joined(separator: "\n").lowercased()
+        var hints: [String] = []
+        if pages.count > 1 {
+            hints.append("multi_page")
+        }
+        if pages.contains(where: { !$0.tables.isEmpty }) {
+            hints.append("table_like")
+        }
+        if fullText.contains("invoice") || fullText.contains("bill to") || fullText.contains("payment due") {
+            hints.append("invoice")
+        }
+        if fullText.contains("receipt") || fullText.contains("subtotal") || fullText.contains("tax") {
+            hints.append("receipt")
+        }
+        if fullText.contains("application") || fullText.contains("signature") || fullText.contains("date:") {
+            hints.append("form")
+        }
+        if hints.isEmpty {
+            hints.append("document")
+        }
+        return hints
+    }
+}
+
+private struct VisionPageSource {
+    let pageNumber: Int
+    let requestHandler: VNImageRequestHandler
+    let size: CGSize
+}
+
+struct VisionDocumentResult {
+    let filePath: String
+    let fullText: String
+    let pages: [VisionPageResult]
+    let documentHints: [String]
+}
+
+struct VisionPageResult {
+    let pageNumber: Int
+    let fullText: String
+    let textBlocks: [TextBlock]
+    let tables: [TableResult]
+    let width: Double
+    let height: Double
 }
 
 struct TextBlock {
     let text: String
     let confidence: Float
     let boundingBox: CGRect
+    let pageNumber: Int
+
+    init(text: String, confidence: Float, boundingBox: CGRect, pageNumber: Int = 1) {
+        self.text = text
+        self.confidence = confidence
+        self.boundingBox = boundingBox
+        self.pageNumber = pageNumber
+    }
 }
 
 struct VisionResult {
     let fullText: String
     let textBlocks: [TextBlock]
     let filePath: String
+    let pages: [VisionPageResult]
+    let documentHints: [String]
+
+    init(
+        fullText: String,
+        textBlocks: [TextBlock],
+        filePath: String,
+        pages: [VisionPageResult] = [],
+        documentHints: [String] = []
+    ) {
+        self.fullText = fullText
+        self.textBlocks = textBlocks
+        self.filePath = filePath
+        self.pages = pages
+        self.documentHints = documentHints
+    }
 }
 
 struct PositionedTextBlock {
     let text: String
     let confidence: Float
     let boundingBox: CGRect
+    let pageNumber: Int
+
+    init(text: String, confidence: Float, boundingBox: CGRect, pageNumber: Int = 1) {
+        self.text = text
+        self.confidence = confidence
+        self.boundingBox = boundingBox
+        self.pageNumber = pageNumber
+    }
 }
 
 struct TableResult {
@@ -315,265 +484,258 @@ struct TableResult {
     let columnCount: Int
     let averageConfidence: Float
     let boundingBox: CGRect
-    
+    let pageNumber: Int
+    let headers: [String]
+    let rowObjects: [[String: String]]
+    let mergedCellHints: [String]
+
+    init(
+        rows: [[String]],
+        columnCount: Int,
+        averageConfidence: Float,
+        boundingBox: CGRect,
+        pageNumber: Int = 1,
+        headers: [String] = [],
+        rowObjects: [[String: String]] = [],
+        mergedCellHints: [String] = []
+    ) {
+        self.rows = rows
+        self.columnCount = columnCount
+        self.averageConfidence = averageConfidence
+        self.boundingBox = boundingBox
+        self.pageNumber = pageNumber
+        self.headers = headers
+        self.rowObjects = rowObjects
+        self.mergedCellHints = mergedCellHints
+    }
+
     var csvData: String {
         let cleanedRows = rows.compactMap { row -> String? in
-            // Remove trailing empty cells
             var cleanRow = row
             while cleanRow.last?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
                 cleanRow.removeLast()
             }
-            
-            // Skip rows that are completely empty or only contain empty strings
+
             let hasContent = cleanRow.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             guard hasContent else { return nil }
-            
-            // Format each cell for CSV
-            let csvRow = cleanRow.map { cell in
+
+            return cleanRow.map { cell in
                 let trimmedCell = cell.trimmingCharacters(in: .whitespacesAndNewlines)
-                // Escape quotes and wrap in quotes if contains comma or quote
                 if trimmedCell.contains(",") || trimmedCell.contains("\"") || trimmedCell.contains("\n") {
                     return "\"" + trimmedCell.replacingOccurrences(of: "\"", with: "\"\"") + "\""
                 }
                 return trimmedCell
             }.joined(separator: ",")
-            
-            return csvRow
         }
-        
+
         return cleanedRows.joined(separator: "\n")
     }
 }
 
-class TableAnalyzer {
-    func detectTables(from textBlocks: [PositionedTextBlock]) -> [TableResult] {
-        // Sort text blocks by Y position (top to bottom), then X position (left to right)
+final class TableAnalyzer {
+    func detectTables(from textBlocks: [PositionedTextBlock], pageNumber: Int) -> [TableResult] {
         let sortedBlocks = textBlocks.sorted { first, second in
             if abs(first.boundingBox.origin.y - second.boundingBox.origin.y) < 0.01 {
                 return first.boundingBox.origin.x < second.boundingBox.origin.x
             }
-            return first.boundingBox.origin.y > second.boundingBox.origin.y // Note: Y coordinates are flipped in Vision
+            return first.boundingBox.origin.y > second.boundingBox.origin.y
         }
-        
-        // Group text blocks into potential rows based on Y alignment
+
         let rowGroups = groupIntoRows(sortedBlocks)
-        
-        // Detect table structures from row groups
-        return detectTablesFromRows(rowGroups)
+        return detectTablesFromRows(rowGroups, pageNumber: pageNumber)
     }
-    
+
     private func groupIntoRows(_ blocks: [PositionedTextBlock]) -> [[PositionedTextBlock]] {
         var rowGroups: [[PositionedTextBlock]] = []
-        let yTolerance: Float = 0.02 // 2% tolerance for Y alignment
-        
+        let yTolerance: Float = 0.02
+
         for block in blocks {
             let blockY = Float(block.boundingBox.origin.y)
-            
-            // Try to find an existing row with similar Y coordinate
             if let existingRowIndex = rowGroups.firstIndex(where: { rowGroup in
                 let rowY = Float(rowGroup.first?.boundingBox.origin.y ?? 0)
                 return abs(blockY - rowY) <= yTolerance
             }) {
                 rowGroups[existingRowIndex].append(block)
             } else {
-                // Create a new row
                 rowGroups.append([block])
             }
         }
-        
-        // Sort blocks within each row by X position
-        for i in 0..<rowGroups.count {
-            rowGroups[i].sort { $0.boundingBox.origin.x < $1.boundingBox.origin.x }
+
+        for index in rowGroups.indices {
+            rowGroups[index].sort { $0.boundingBox.origin.x < $1.boundingBox.origin.x }
         }
-        
+
         return rowGroups
     }
-    
-    private func detectTablesFromRows(_ rowGroups: [[PositionedTextBlock]]) -> [TableResult] {
+
+    private func detectTablesFromRows(_ rowGroups: [[PositionedTextBlock]], pageNumber: Int) -> [TableResult] {
         var tables: [TableResult] = []
-        
-        // Look for sequences of rows that could form tables
         var currentTableRows: [[PositionedTextBlock]] = []
         var maxColumnsSeen = 0
-        
+
         for rowGroup in rowGroups {
             let currentColumnCount = rowGroup.count
-            
-            // A table row should have at least 1 column (allowing for sparse rows)
             if currentColumnCount >= 1 {
                 if currentTableRows.isEmpty {
-                    // Start a new table
                     currentTableRows = [rowGroup]
                     maxColumnsSeen = currentColumnCount
                 } else {
-                    // Check if this row could belong to the current table
-                    let shouldContinueTable = isRowPartOfTable(rowGroup, comparedTo: currentTableRows, maxColumns: maxColumnsSeen)
-                    
-                    if shouldContinueTable {
+                    let shouldContinue = isRowPartOfTable(
+                        rowGroup,
+                        comparedTo: currentTableRows,
+                        maxColumns: maxColumnsSeen
+                    )
+                    if shouldContinue {
                         currentTableRows.append(rowGroup)
                         maxColumnsSeen = max(maxColumnsSeen, currentColumnCount)
                     } else {
-                        // Finalize the current table if it has enough rows
-                        if currentTableRows.count >= 2 && maxColumnsSeen >= 2 {
-                            if let table = createTable(from: currentTableRows) {
-                                tables.append(table)
-                            }
+                        if currentTableRows.count >= 2 && maxColumnsSeen >= 2,
+                           let table = createTable(from: currentTableRows, pageNumber: pageNumber) {
+                            tables.append(table)
                         }
-                        
-                        // Start a new potential table
                         currentTableRows = [rowGroup]
                         maxColumnsSeen = currentColumnCount
                     }
                 }
             } else {
-                // Empty row or single column - finalize current table
-                if currentTableRows.count >= 2 && maxColumnsSeen >= 2 {
-                    if let table = createTable(from: currentTableRows) {
-                        tables.append(table)
-                    }
+                if currentTableRows.count >= 2 && maxColumnsSeen >= 2,
+                   let table = createTable(from: currentTableRows, pageNumber: pageNumber) {
+                    tables.append(table)
                 }
                 currentTableRows = []
                 maxColumnsSeen = 0
             }
         }
-        
-        // Don't forget the last table
-        if currentTableRows.count >= 2 && maxColumnsSeen >= 2 {
-            if let table = createTable(from: currentTableRows) {
-                tables.append(table)
-            }
+
+        if currentTableRows.count >= 2 && maxColumnsSeen >= 2,
+           let table = createTable(from: currentTableRows, pageNumber: pageNumber) {
+            tables.append(table)
         }
-        
+
         return tables
     }
-    
-    private func isRowPartOfTable(_ newRow: [PositionedTextBlock], comparedTo existingRows: [[PositionedTextBlock]], maxColumns: Int) -> Bool {
+
+    private func isRowPartOfTable(
+        _ newRow: [PositionedTextBlock],
+        comparedTo existingRows: [[PositionedTextBlock]],
+        maxColumns: Int
+    ) -> Bool {
         guard !existingRows.isEmpty else { return true }
-        
-        // Check if the new row's text blocks align spatially with existing rows
-        let existingXPositions = existingRows.flatMap { row in 
+
+        let existingXPositions = existingRows.flatMap { row in
             row.map { Float($0.boundingBox.origin.x) }
         }.sorted()
-        
         let newRowXPositions = newRow.map { Float($0.boundingBox.origin.x) }.sorted()
-        
-        // If most of the new row's positions align with existing positions, it's likely part of the same table
+
         let alignmentCount = newRowXPositions.filter { newX in
             existingXPositions.contains { existingX in
-                abs(newX - existingX) <= 0.05 // 5% tolerance for alignment
+                abs(newX - existingX) <= 0.05
             }
         }.count
-        
-        // Consider it part of the table if at least 50% of positions align, or if column count is reasonable
-        let alignmentRatio = Float(alignmentCount) / Float(newRowXPositions.count)
-        let columnCountReasonable = newRow.count <= maxColumns * 2 // Allow up to 2x the max columns seen
-        
+
+        let alignmentRatio = Float(alignmentCount) / Float(max(newRowXPositions.count, 1))
+        let columnCountReasonable = newRow.count <= maxColumns * 2
         return alignmentRatio >= 0.3 || columnCountReasonable
     }
-    
-    private func createTable(from rowGroups: [[PositionedTextBlock]]) -> TableResult? {
+
+    private func createTable(from rowGroups: [[PositionedTextBlock]], pageNumber: Int) -> TableResult? {
         guard rowGroups.count >= 2 else { return nil }
-        
-        // Use the first row (usually the header) to establish column structure
         let headerRow = rowGroups.first!
         guard headerRow.count >= 2 else { return nil }
-        
-        // Calculate column positions based on all text blocks, but prioritize the header row structure
+
         let columnPositions = calculateColumnPositions(from: rowGroups, prioritizeRow: headerRow)
         let maxColumns = columnPositions.count
-        
-        // Convert to string matrix, aligning columns based on calculated positions
         var tableData: [[String]] = []
         var allConfidences: [Float] = []
-        
+
         for rowGroup in rowGroups {
-            var row: [String] = Array(repeating: "", count: maxColumns)
-            
+            var row = Array(repeating: "", count: maxColumns)
             for block in rowGroup {
-                // Find the best column for this block based on its X position
-                let blockX = Float(block.boundingBox.origin.x)
-                let columnIndex = findBestColumn(for: blockX, in: columnPositions)
-                
+                let columnIndex = findBestColumn(for: Float(block.boundingBox.origin.x), in: columnPositions)
                 if columnIndex < maxColumns {
                     row[columnIndex] = block.text.trimmingCharacters(in: .whitespacesAndNewlines)
                     allConfidences.append(block.confidence)
                 }
             }
-            
             tableData.append(row)
         }
-        
-        // Calculate bounding box encompassing all table cells
+
         let allBlocks = rowGroups.flatMap { $0 }
         let minX = allBlocks.map { $0.boundingBox.origin.x }.min() ?? 0
         let maxX = allBlocks.map { $0.boundingBox.maxX }.max() ?? 0
         let minY = allBlocks.map { $0.boundingBox.origin.y }.min() ?? 0
         let maxY = allBlocks.map { $0.boundingBox.maxY }.max() ?? 0
-        
         let tableBoundingBox = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-        
         let averageConfidence = allConfidences.isEmpty ? 0.0 : allConfidences.reduce(0, +) / Float(allConfidences.count)
-        
+
+        let headers = normalizedHeaders(from: tableData.first ?? [])
+        let rowObjects = tableData.dropFirst().map { row in
+            var object: [String: String] = [:]
+            for index in 0..<min(headers.count, row.count) {
+                object[headers[index]] = row[index]
+            }
+            return object
+        }
+        let mergedCellHints = deriveMergedCellHints(from: tableData)
+
         return TableResult(
             rows: tableData,
             columnCount: maxColumns,
             averageConfidence: averageConfidence,
-            boundingBox: tableBoundingBox
+            boundingBox: tableBoundingBox,
+            pageNumber: pageNumber,
+            headers: headers,
+            rowObjects: rowObjects,
+            mergedCellHints: mergedCellHints
         )
     }
-    
-    private func calculateColumnPositions(from rowGroups: [[PositionedTextBlock]], prioritizeRow: [PositionedTextBlock]) -> [Float] {
-        // Start with positions from the priority row (header)
-        var columnPositions = prioritizeRow.map { Float($0.boundingBox.origin.x) }.sorted()
-        
-        // Collect all other X positions from remaining rows
-        var allXPositions: [Float] = []
+
+    private func calculateColumnPositions(
+        from rowGroups: [[PositionedTextBlock]],
+        prioritizeRow: [PositionedTextBlock]
+    ) -> [Float] {
+        var positions = prioritizeRow.map { Float($0.boundingBox.origin.x) }
+
         for rowGroup in rowGroups {
             for block in rowGroup {
-                allXPositions.append(Float(block.boundingBox.origin.x))
+                let x = Float(block.boundingBox.origin.x)
+                if !positions.contains(where: { abs($0 - x) <= 0.05 }) {
+                    positions.append(x)
+                }
             }
         }
-        allXPositions.sort()
-        
-        // Use a dynamic tolerance based on the average distance between header columns
-        let dynamicTolerance = calculateDynamicTolerance(for: columnPositions)
-        
-        // Add additional column positions if they don't conflict with existing ones
-        for position in allXPositions {
-            let tooClose = columnPositions.contains { abs(position - $0) <= dynamicTolerance }
-            if !tooClose {
-                columnPositions.append(position)
-            }
-        }
-        
-        return columnPositions.sorted()
+        return positions.sorted()
     }
-    
-    private func calculateDynamicTolerance(for positions: [Float]) -> Float {
-        guard positions.count > 1 else { return 0.01 }
-        
-        var distances: [Float] = []
-        for i in 1..<positions.count {
-            distances.append(positions[i] - positions[i-1])
-        }
-        
-        let avgDistance = distances.reduce(0, +) / Float(distances.count)
-        // Use 25% of average distance as tolerance, with min/max bounds
-        return max(0.005, min(0.03, avgDistance * 0.25))
-    }
-    
-    private func findBestColumn(for xPosition: Float, in columnPositions: [Float]) -> Int {
-        var bestColumn = 0
-        var minDistance = Float.greatestFiniteMagnitude
-        
-        for (index, columnX) in columnPositions.enumerated() {
-            let distance = abs(xPosition - columnX)
-            if distance < minDistance {
-                minDistance = distance
-                bestColumn = index
+
+    private func findBestColumn(for blockX: Float, in columnPositions: [Float]) -> Int {
+        guard !columnPositions.isEmpty else { return 0 }
+        var bestIndex = 0
+        var bestDistance = abs(blockX - columnPositions[0])
+        for (index, position) in columnPositions.enumerated().dropFirst() {
+            let distance = abs(blockX - position)
+            if distance < bestDistance {
+                bestDistance = distance
+                bestIndex = index
             }
         }
-        
-        return bestColumn
+        return bestIndex
+    }
+
+    private func normalizedHeaders(from row: [String]) -> [String] {
+        row.enumerated().map { index, value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? "column_\(index + 1)" : trimmed
+        }
+    }
+
+    private func deriveMergedCellHints(from rows: [[String]]) -> [String] {
+        var hints: [String] = []
+        for (rowIndex, row) in rows.enumerated() where row.count >= 3 {
+            let emptyRuns = row.enumerated().filter { $0.element.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            if !emptyRuns.isEmpty {
+                hints.append("row_\(rowIndex + 1)_contains_sparse_cells")
+            }
+        }
+        return hints
     }
 }

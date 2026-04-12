@@ -308,9 +308,18 @@ struct Usage: Content {
             self.promptTokensPerSecond = nil
         }
 
-        // Lightweight peak memory from MLX allocator counter — no GPU profiling overhead
+        self.peakMemoryGib = Self.safePeakMemoryGib()
+    }
+
+    private static func safePeakMemoryGib() -> Double? {
+        do {
+            try MLXMetalLibrary.ensureAvailable(verbose: false)
+        } catch {
+            return nil
+        }
+
         let gib = 1024.0 * 1024.0 * 1024.0
-        self.peakMemoryGib = (Double(Memory.snapshot().peakMemory) / gib * 10).rounded() / 10
+        return (Double(Memory.snapshot().peakMemory) / gib * 10).rounded() / 10
     }
 }
 

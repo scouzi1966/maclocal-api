@@ -91,6 +91,16 @@ protocol MLXChatServing {
 }
 
 extension MLXChatServing {
+    var defaultGuidedJsonSchema: ResponseFormat? { nil }
+
+    func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? {
+        requestFormat ?? defaultGuidedJsonSchema
+    }
+
+    func waitForSlot(timeout: TimeInterval) async -> Bool {
+        tryReserveSlot()
+    }
+
     /// Convenience overload without requestId for batch/internal callers.
     func generateStreaming(
         model: String, messages: [Message], temperature: Double?, maxTokens: Int?,

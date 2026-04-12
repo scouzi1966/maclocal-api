@@ -32,6 +32,21 @@ PACKAGE_PINS=(
   '.upToNextMinor(from: "1.1.6")|from: "1.3.0"'
 )
 
+PACKAGE_EXCLUDE_PATTERNS=(
+  'MLXLLM|Models/DeepseekV3.swift.original'
+  'MLXLLM|Models/SSM.swift.original'
+  'MLXLLM|LLMModelFactory.swift.original'
+  'MLXVLM|Models/Qwen3VL.swift.original'
+  'MLXVLM|VLMModelFactory.swift.original'
+  'MLXLMCommon|Evaluate.swift.original'
+  'MLXLMCommon|Tool/ToolCallFormat.swift.original'
+  'MLXLMCommon|SwitchLayers.swift.original'
+  'MLXLMCommon|Chat.swift.original'
+  'MLXLMCommon|KVCache.swift.original'
+  'MLXLMCommon|Load.swift.original'
+  'MLXLMCommon|Tokenizer.swift.original'
+)
+
 is_new_file() {
   local filename="$1"
   for nf in "${NEW_FILES[@]}"; do
@@ -58,6 +73,33 @@ add_mlxfast_dep() {
   log_info "Added MLXFast dependency to MLXLMCommon"
 }
 
+ensure_target_exclude() {
+  local pkg_file="$1"
+  local target_name="$2"
+  local exclude_entry="$3"
+
+  [ -f "$pkg_file" ] || return 1
+
+  if grep -qF "\"$exclude_entry\"" "$pkg_file"; then
+    return 0
+  fi
+
+  TARGET_NAME="$target_name" EXCLUDE_ENTRY="$exclude_entry" perl -0pi -e '
+    my $target_name = $ENV{TARGET_NAME};
+    my $exclude_entry = $ENV{EXCLUDE_ENTRY};
+    s{
+      (\.target\(\s*
+       \s*name:\s*"$target_name",.*?
+       \s*exclude:\s*\[
+       .*?
+       "README\.md")
+    }{$1,\n                "$exclude_entry"}sx
+      or die "Failed to add exclude $exclude_entry to $target_name\n";
+  ' "$pkg_file"
+
+  log_info "Added Package.swift exclude for $target_name: $exclude_entry"
+}
+
 apply_package_pins() {
   local pkg_file="$1"
   [ -f "$pkg_file" ] || { log_error "Package.swift not found: $pkg_file"; return 1; }
@@ -80,6 +122,12 @@ apply_package_pins() {
       log_warn "Pattern not found in Package.swift: $search"
     fi
   done
+
+  for entry in "${PACKAGE_EXCLUDE_PATTERNS[@]}"; do
+    local target_name="${entry%%|*}"
+    local exclude_entry="${entry##*|}"
+    ensure_target_exclude "$pkg_file" "$target_name" "$exclude_entry"
+  done
 }
 
 check_package_pins() {
@@ -97,6 +145,17 @@ check_package_pins() {
       log_info "Pinned: $replace"
     else
       log_warn "Not pinned: $replace"
+      all_ok=false
+    fi
+  done
+
+  for entry in "${PACKAGE_EXCLUDE_PATTERNS[@]}"; do
+    local target_name="${entry%%|*}"
+    local exclude_entry="${entry##*|}"
+    if grep -qF "\"$exclude_entry\"" "$pkg_file"; then
+      log_info "Exclude present for $target_name: $exclude_entry"
+    else
+      log_warn "Missing exclude for $target_name: $exclude_entry"
       all_ok=false
     fi
   done

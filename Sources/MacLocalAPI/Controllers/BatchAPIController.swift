@@ -303,7 +303,7 @@ struct BatchAPIController: RouteCollection {
                 maxTokens: effectiveMaxTokens
             )
 
-            let choiceLogprobs = MLXChatCompletionsController.buildChoiceLogprobs(collected.logprobs)
+            let choiceLogprobs = StreamCollector.buildChoiceLogprobs(collected.logprobs)
 
             // Build response with full post-processing
             let response: ChatCompletionResponse

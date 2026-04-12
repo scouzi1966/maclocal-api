@@ -74,12 +74,13 @@ struct NullableToolSchemaTests {
         let jinjaValue = try Value(any: compatible)
         #expect(!jinjaValue.isNull)
 
-        // Verify "default" key was stripped
+        // Verify "default" key was stripped and nullable anyOf collapsed to a concrete type.
         if let dict = compatible as? [String: Any],
            let props = dict["properties"] as? [String: Any],
            let units = props["units"] as? [String: Any] {
             #expect(units["default"] == nil, "null-valued 'default' key should be stripped")
-            #expect(units["anyOf"] != nil, "non-null 'anyOf' key should be preserved")
+            #expect(units["anyOf"] == nil, "nullable anyOf should be flattened for template compatibility")
+            #expect(units["type"] as? String == "string", "flattened nullable schema should preserve the concrete type")
         } else {
             Issue.record("Expected nested dict structure")
         }

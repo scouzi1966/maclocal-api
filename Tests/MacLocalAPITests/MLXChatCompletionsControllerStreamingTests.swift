@@ -809,6 +809,45 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
         return streamingHandler?(messages) ?? streamingResult
     }
 
+    func generateStreaming(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        requestId: String?
+    ) async throws -> ChatStreamingResult {
+        try await generateStreaming(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs
+        )
+    }
+
     private func recordGenerateTools(_ tools: [RequestTool]?) {
         stateLock.lock()
         recordedGenerateToolNames.append(tools?.map(\.function.name) ?? [])
