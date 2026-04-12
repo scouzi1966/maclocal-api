@@ -810,6 +810,9 @@ public class BatchRotatingKVCache: BaseKVCache {
         n: Int, windowSize: Int?, returnArray: Bool
     ) -> MLXFast.ScaledDotProductAttentionMaskMode {
         // makeMask is called BEFORE update().
+        // Pre-wrap: key length = _idx + n (cache is growing linearly).
+        // Post-wrap: key length = maxCacheSize (buffer is full, _idx is circular).
+        // makeMask is called BEFORE update().
         // Pre-wrap: key length = _idx + n (cache is growing).
         // Post-wrap: key length = maxCacheSize (buffer is full, _idx is circular).
         let totalLen = _offset >= maxCacheSize ? maxCacheSize : _idx + n
@@ -863,8 +866,10 @@ public class BatchRotatingKVCache: BaseKVCache {
         // Prefill: causal + padding (+ optional window)
         let queryStart = Int32(_idx)
         let queryIndices = (MLXArray(Int32(0) ..< Int32(n)) + queryStart).reshaped([1, n, 1])
-        let cappedOffset = Swift.min(maxCacheSize - 1, _offset)
-        let cappedKeyIndices = MLXArray(Int32(0) ..< Int32(cappedOffset + n)).reshaped([1, 1, cappedOffset + n])
+        // Use totalLen for key indices so mask shape matches the cache's returned
+        // key tensor. The previous cappedOffset = min(maxCacheSize-1, _offset) was
+        // off-by-one when _offset == maxCacheSize during chunked prefill.
+        let cappedKeyIndices = MLXArray(Int32(0) ..< Int32(totalLen)).reshaped([1, 1, totalLen])
 
         var mask = (queryIndices .>= cappedKeyIndices)
         if let windowSize {
@@ -872,9 +877,7 @@ public class BatchRotatingKVCache: BaseKVCache {
         }
 
         // Apply per-sequence padding
-        if totalLen == cappedOffset + n {
-            mask = mask .&& padMask
-        }
+        mask = mask .&& padMask
 
         return .array(mask.expandedDimensions(axis: 1))
     }

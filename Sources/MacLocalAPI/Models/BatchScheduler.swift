@@ -979,7 +979,9 @@ actor BatchScheduler {
         // Chunked prefill (matches mlx_lm's _prefill pattern): process
         // prefillChunkSize tokens at a time with eval+clear between chunks.
         // Without this, 128k prompts build a lazy graph → memory balloon.
-        let prefillChunkSize = prefillStepSize
+        // Cap at maxCacheSize for RotatingKVCache models (sliding window).
+        let hasRotatingCache = cache.contains { $0 is RotatingKVCache }
+        let prefillChunkSize = hasRotatingCache ? Int.max : prefillStepSize
         var prefillTokens = generateInput.text.tokens  // [seqLen]
         while prefillTokens.dim(0) > prefillChunkSize {
             let chunk = prefillTokens[..<prefillChunkSize]
@@ -1350,7 +1352,16 @@ actor BatchScheduler {
         // Phase 4: Chunked prefill (matches mlx_lm's _prefill pattern).
         // Process prefillChunkSize columns at a time with eval+clear between
         // chunks to bound memory. Without this, 128k prompts balloon to 440 GB.
-        let prefillChunkSize = prefillStepSize
+        //
+        // For models with RotatingKVCache (sliding window), the chunk size must
+        // not exceed maxCacheSize — the cache can't grow beyond its window.
+        // mlx_lm handles this the same way: chunks fill the cache, older tokens
+        // are naturally discarded by the sliding window on subsequent forward passes.
+        // Models with RotatingKVCache (sliding window) can't chunk prefill —
+        // updateConcat grows linearly and the mask expects totalLen = _idx + n
+        // which must match the returned cache size. Skip chunking for these.
+        let hasRotatingCache = prefillCaches.contains { $0 is BatchRotatingKVCache }
+        let prefillChunkSize = hasRotatingCache ? maxLen : prefillStepSize
         if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" {
             print("[prefillBatch] B=\(B) maxLen=\(maxLen) tokens=\(batchTokens.shape) caches=\(prefillCaches.count) types=\(prefillCaches.prefix(3).map { type(of: $0) }) chunkSize=\(prefillChunkSize)")
             fflush(stdout)
