@@ -817,17 +817,15 @@ actor BatchScheduler {
                 }
             }
 
-            // Periodically eval cache arrays to collapse the lazy compute graph.
-            // Without this, slice-assignment in cache.update() accumulates ~120 new
-            // Metal buffers per step (60 layers × 2 K/V). At the OS limit of 499K
-            // buffers, the server crashes after ~4000 steps. Eval every 512 steps
-            // materializes the arrays and releases graph intermediates.
-            if stepCount % 512 == 0 {
-                let flushStart = debugTiming ? Date() : Date.distantPast
-                eval(batchCaches.flatMap { $0.innerState() })
-                if debugTiming {
-                    let flushWall = Date().timeIntervalSince(flushStart)
-                    print("[\(batchTs())] [BatchScheduler] EVAL FLUSH (512-step): B=\(slots.count), wall=\(String(format: "%.3f", flushWall))s")
+            // Round-robin cache eval: materialize one layer per step to keep the
+            // lazy graph bounded without multi-second stalls. Each layer accumulates
+            // at most layerCount steps of slice-assign ops between evals — well within
+            // Metal's 499K buffer limit. Uses asyncEval to avoid blocking CPU.
+            if !batchCaches.isEmpty {
+                let layerToEval = stepCount % batchCaches.count
+                let layerState = batchCaches[layerToEval].innerState()
+                if !layerState.isEmpty {
+                    asyncEval(layerState)
                 }
             }
 
