@@ -682,50 +682,36 @@ public class BatchRotatingKVCache: BaseKVCache {
         return (self.keys!, self.values!)
     }
 
-    /// Multi-token prefill: identical allocate-and-write pattern as BatchKVCacheSimple.update().
+    /// Multi-token prefill with trim (matches Python mlx_lm RotatingKVCache._update_concat).
+    /// When the cache exceeds maxCacheSize, trims the oldest non-keep tokens so the buffer
+    /// stays bounded at maxCacheSize + S - 1. This enables chunked prefill for sliding-window
+    /// models without mask shape crashes.
     private func updateConcat(keys newKeys: MLXArray, values newValues: MLXArray) -> (MLXArray, MLXArray) {
         if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" && batchSize > 1 {
             print("[BatchRotatingKV] updateConcat B=\(batchSize) newKeys=\(newKeys.shape) _idx=\(_idx) _offset=\(_offset) maxCache=\(maxCacheSize) existing=\(keys?.shape.description ?? "nil")")
         }
-        let prev = _idx
         let newTokens = newKeys.dim(2)
 
-        if self.keys == nil || (prev + newTokens) > self.keys!.dim(2) {
-            let B = newKeys.dim(0)
-            let kvHeads = newKeys.dim(1)
-            let kHeadDim = newKeys.dim(3)
-            let vHeadDim = newValues.dim(3)
-            let nSteps = (Self.preAllocStep + newTokens - 1) / Self.preAllocStep
-            let kShape = [B, kvHeads, nSteps * Self.preAllocStep, kHeadDim]
-            let vShape = [B, kvHeads, nSteps * Self.preAllocStep, vHeadDim]
-            let newK = MLXArray.zeros(kShape, dtype: newKeys.dtype)
-            let newV = MLXArray.zeros(vShape, dtype: newValues.dtype)
+        if self.keys == nil {
+            // First chunk: just store
+            self.keys = newKeys
+            self.values = newValues
+        } else {
+            // Reorder to temporal order, then trim + append (matches Python)
+            let orderedK = batchTemporalOrder(self.keys!)
+            let orderedV = batchTemporalOrder(self.values!)
+            _idx = orderedK.dim(2)
 
-            if let existingKeys = self.keys, let existingValues = self.values {
-                var ek = existingKeys
-                if prev % Self.preAllocStep != 0 {
-                    ek = ek[.ellipsis, ..<prev, 0...]
-                }
-                self.keys = concatenated([ek, newK], axis: 2)
-                var ev = existingValues
-                if prev % Self.preAllocStep != 0 {
-                    ev = ev[.ellipsis, ..<prev, 0...]
-                }
-                self.values = concatenated([ev, newV], axis: 2)
-            } else {
-                self.keys = newK
-                self.values = newV
-            }
+            let trimSize = _idx - maxCacheSize + 1
+            self.keys = batchTrim(trimSize: Swift.max(0, trimSize), orderedK, append: newKeys)
+            self.values = batchTrim(trimSize: Swift.max(0, trimSize), orderedV, append: newValues)
         }
 
         _offset += newTokens
-        _idx = prev + newTokens
+        _idx = self.keys!.dim(2)
         perSeqOffset = perSeqOffset + Int32(newTokens)
 
-        self.keys![.ellipsis, prev ..< _idx, 0...] = newKeys
-        self.values![.ellipsis, prev ..< _idx, 0...] = newValues
-
-        return (self.keys![.ellipsis, ..<_idx, 0...], self.values![.ellipsis, ..<_idx, 0...])
+        return (self.keys!, self.values!)
     }
 
     /// Reconstruct temporal order from circular buffer (operates on axis 2).
@@ -813,9 +799,16 @@ public class BatchRotatingKVCache: BaseKVCache {
         // Pre-wrap: key length = _idx + n (cache is growing linearly).
         // Post-wrap: key length = maxCacheSize (buffer is full, _idx is circular).
         // makeMask is called BEFORE update().
-        // Pre-wrap: key length = _idx + n (cache is growing).
-        // Post-wrap: key length = maxCacheSize (buffer is full, _idx is circular).
-        let totalLen = _offset >= maxCacheSize ? maxCacheSize : _idx + n
+        // Decode (n==1): post-wrap totalLen = maxCacheSize (circular buffer).
+        // Prefill (n>1): updateConcat trims to maxCacheSize + n - 1 when
+        // the buffer exceeds maxCacheSize. Pre-trim it's _idx + n, post-trim
+        // it's min(_idx + n, maxCacheSize + n - 1).
+        let totalLen: Int
+        if n == 1 && _offset >= maxCacheSize {
+            totalLen = maxCacheSize
+        } else {
+            totalLen = Swift.min(_idx + n, maxCacheSize + n - 1)
+        }
         guard batchSize > 0 && totalLen > 0 else { return .none }
         if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" && batchSize > 1 {
             print("[BatchRotatingKV] makeMask B=\(batchSize) n=\(n) _idx=\(_idx) _offset=\(_offset) totalLen=\(totalLen) window=\(windowSize?.description ?? "nil")")
