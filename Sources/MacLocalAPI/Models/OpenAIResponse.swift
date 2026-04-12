@@ -274,6 +274,31 @@ struct Usage: Content {
         case peakMemoryGib = "peak_memory_gib"
     }
 
+    /// Additional keys for benchmark compatibility (mlx_vlm, llm_context_benchmarks).
+    private enum AliasKeys: String, CodingKey {
+        case promptTps = "prompt_tps"
+        case generationTps = "generation_tps"
+        case peakMemory = "peak_memory"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(promptTokens, forKey: .promptTokens)
+        try container.encode(completionTokens, forKey: .completionTokens)
+        try container.encode(totalTokens, forKey: .totalTokens)
+        try container.encodeIfPresent(promptTokensDetails, forKey: .promptTokensDetails)
+        try container.encodeIfPresent(completionTime, forKey: .completionTime)
+        try container.encodeIfPresent(promptTime, forKey: .promptTime)
+        try container.encodeIfPresent(totalTime, forKey: .totalTime)
+        try container.encodeIfPresent(completionTokensPerSecond, forKey: .completionTokensPerSecond)
+        try container.encodeIfPresent(promptTokensPerSecond, forKey: .promptTokensPerSecond)
+        try container.encodeIfPresent(peakMemoryGib, forKey: .peakMemoryGib)
+        var aliases = encoder.container(keyedBy: AliasKeys.self)
+        try aliases.encodeIfPresent(promptTokensPerSecond, forKey: .promptTps)
+        try aliases.encodeIfPresent(completionTokensPerSecond, forKey: .generationTps)
+        try aliases.encodeIfPresent(peakMemoryGib, forKey: .peakMemory)
+    }
+
     init(promptTokens: Int, completionTokens: Int, totalTokens: Int, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil) {
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
@@ -494,6 +519,27 @@ struct StreamUsage: Content {
         case totalTime = "total_time"
         case promptTokensPerSecond = "prompt_tokens_per_second"
         case completionTokensPerSecond = "completion_tokens_per_second"
+    }
+
+    private enum AliasKeys: String, CodingKey {
+        case promptTps = "prompt_tps"
+        case generationTps = "generation_tps"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(promptTokens, forKey: .promptTokens)
+        try container.encode(completionTokens, forKey: .completionTokens)
+        try container.encode(totalTokens, forKey: .totalTokens)
+        try container.encodeIfPresent(promptTokensDetails, forKey: .promptTokensDetails)
+        try container.encodeIfPresent(completionTime, forKey: .completionTime)
+        try container.encodeIfPresent(promptTime, forKey: .promptTime)
+        try container.encodeIfPresent(totalTime, forKey: .totalTime)
+        try container.encodeIfPresent(promptTokensPerSecond, forKey: .promptTokensPerSecond)
+        try container.encodeIfPresent(completionTokensPerSecond, forKey: .completionTokensPerSecond)
+        var aliases = encoder.container(keyedBy: AliasKeys.self)
+        try aliases.encodeIfPresent(promptTokensPerSecond, forKey: .promptTps)
+        try aliases.encodeIfPresent(completionTokensPerSecond, forKey: .generationTps)
     }
 
     init(promptTokens: Int, completionTokens: Int, completionTime: Double, promptTime: Double = 0.0, cachedTokens: Int? = nil) {
