@@ -10,6 +10,8 @@ enum VisionError: Error, LocalizedError {
     case missingInput
     case fileNotFound
     case unsupportedFormat
+    case remoteURLNotSupported
+    case unsupportedURLScheme(String)
     case invalidDataURL
     case requestTooLarge(actualBytes: Int, maxBytes: Int)
     case pageLimitExceeded(actualPages: Int, maxPages: Int)
@@ -30,6 +32,10 @@ enum VisionError: Error, LocalizedError {
             return "The specified file was not found"
         case .unsupportedFormat:
             return "Unsupported file format. Supported formats: PNG, JPG, JPEG, HEIC, PDF"
+        case .remoteURLNotSupported:
+            return "Remote HTTP(S) image URLs are not supported for Apple Vision OCR"
+        case .unsupportedURLScheme(let scheme):
+            return "Unsupported image URL scheme: \(scheme)"
         case .invalidDataURL:
             return "Invalid data URL or base64 payload"
         case .requestTooLarge(let actualBytes, let maxBytes):

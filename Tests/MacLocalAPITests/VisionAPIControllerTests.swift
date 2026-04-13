@@ -97,6 +97,27 @@ final class VisionAPIControllerTests: XCTestCase {
         }
     }
 
+    func testResolveImageURLRejectsRemoteHTTPURLs() throws {
+        XCTAssertThrowsError(
+            try VisionAPIController.resolveImageURL(ImageURL(url: "https://example.com/invoice.png", detail: nil))
+        ) { error in
+            guard case .remoteURLNotSupported = error as? VisionError else {
+                return XCTFail("Expected remoteURLNotSupported, got \(error)")
+            }
+        }
+    }
+
+    func testResolveImageURLRejectsUnknownSchemes() throws {
+        XCTAssertThrowsError(
+            try VisionAPIController.resolveImageURL(ImageURL(url: "ftp://example.com/invoice.png", detail: nil))
+        ) { error in
+            guard case .unsupportedURLScheme(let scheme) = error as? VisionError else {
+                return XCTFail("Expected unsupportedURLScheme, got \(error)")
+            }
+            XCTAssertEqual(scheme, "ftp")
+        }
+    }
+
     func testVisionOCRAutoToolDetection() {
         let tool = RequestTool(
             type: "function",

@@ -432,11 +432,9 @@ struct VisionAPIController: RouteCollection {
             case "file":
                 return VisionResolvedInput(path: url.path, sourceType: "file_url", cleanupURLs: [])
             case "http", "https":
-                let data = try Data(contentsOf: url)
-                let fileURL = try writeTempFile(data: data, filename: url.lastPathComponent.isEmpty ? "remote" : url.lastPathComponent, mediaType: nil)
-                return VisionResolvedInput(path: fileURL.path, sourceType: "remote_url", cleanupURLs: [fileURL])
+                throw VisionError.remoteURLNotSupported
             default:
-                break
+                throw VisionError.unsupportedURLScheme(scheme)
             }
         }
 
@@ -595,7 +593,7 @@ struct VisionAPIController: RouteCollection {
 
     private static func httpStatus(for error: VisionError) -> HTTPStatus {
         switch error {
-        case .missingInput, .unsupportedFormat, .invalidDataURL:
+        case .missingInput, .unsupportedFormat, .remoteURLNotSupported, .unsupportedURLScheme, .invalidDataURL:
             return .badRequest
         case .fileNotFound:
             return .notFound

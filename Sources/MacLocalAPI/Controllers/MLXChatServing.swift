@@ -98,7 +98,26 @@ extension MLXChatServing {
     }
 
     func waitForSlot(timeout: TimeInterval) async -> Bool {
-        tryReserveSlot()
+        if timeout <= 0 {
+            return tryReserveSlot()
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if tryReserveSlot() {
+                return true
+            }
+
+            let remaining = deadline.timeIntervalSinceNow
+            if remaining <= 0 {
+                break
+            }
+
+            let sleepDuration = min(remaining, 0.05)
+            try? await Task.sleep(nanoseconds: UInt64(sleepDuration * 1_000_000_000))
+        }
+
+        return tryReserveSlot()
     }
 
     /// Convenience overload without requestId for batch/internal callers.
