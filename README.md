@@ -144,7 +144,7 @@ afm mlx -m mlx-community/Qwen3-Coder-Next-4bit -t 1.0 --top-p 0.95 --max-tokens 
 - **🌐 API Gateway** - Auto-discovers and proxies Ollama, LM Studio, Jan, and other local backends into a single API
 - **⚡ LoRA adapter support** - Supports fine-tuning with LoRA adapters using Apple's tuning Toolkit
 - **📱 Apple Foundation Models** - Uses Apple's on-device 3B parameter language model
-- **👁️ Vision OCR** - Extract text from images and PDFs using Apple Vision (`afm vision`)
+- **👁️ Vision OCR** - Extract text from images and PDFs using Apple Vision via CLI and HTTP (`afm vision`, `/v1/vision/ocr`)
 - **🖥️ Built-in WebUI** - Chat interface with model selection (`afm -w`)
 - **🔒 Privacy-First** - All processing happens locally on your device
 - **⚡ Fast & Lightweight** - No network calls, no API keys required
@@ -276,6 +276,24 @@ Returns available Foundation Models.
 curl http://localhost:9999/v1/models
 ```
 
+### Vision OCR
+**POST** `/v1/vision/ocr`
+
+Runs Apple Vision OCR against local files, uploads, base64 payloads, `data:` URLs, and OpenAI-style image inputs.
+
+```bash
+curl -X POST http://localhost:9999/v1/vision/ocr \
+  -H "Content-Type: application/json" \
+  -d '{
+    "file": "/tmp/invoice.pdf",
+    "recognition_level": "accurate",
+    "languages": ["en-US"],
+    "max_pages": 10
+  }'
+```
+
+The endpoint returns structured JSON with per-document text, per-page text, text blocks, detected tables, document hints, and a top-level `combined_text` field. See [docs/vision-ocr-api.md](docs/vision-ocr-api.md) for request formats, options, and response details.
+
 ### Health Check
 **GET** `/health`
 
@@ -307,6 +325,36 @@ response = client.chat.completions.create(
 
 print(response.choices[0].message.content)
 ```
+
+### Vision OCR from OpenAI-Compatible Clients
+
+The OCR endpoint also accepts OpenAI-style multimodal payloads. This is useful when your client already sends `messages[].content[]` parts with `image_url`.
+
+```bash
+curl -X POST http://localhost:9999/v1/vision/ocr \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [{
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "Extract the invoice text"},
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:application/pdf;base64,..."
+          }
+        }
+      ]
+    }],
+    "recognition_level": "accurate",
+    "languages": ["en-US"]
+  }'
+```
+
+Foundation chat requests can also auto-run Apple Vision OCR before prompting the model when:
+- the request includes image content
+- the request includes the built-in `apple_vision_ocr` tool
+- `tool_choice` is `auto`, `required`, omitted, or explicitly selects that tool
 
 ### JavaScript/Node.js
 

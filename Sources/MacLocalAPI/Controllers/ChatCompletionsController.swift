@@ -49,6 +49,7 @@ struct ChatCompletionsController: RouteCollection {
         var fallbackModel = "foundation"
         var fallbackMessages: [Message] = []
         var fallbackMaxTokens = 2000
+        var visionCleanupURLs: [URL] = []
         do {
             let chatRequest = try req.content.decode(ChatCompletionRequest.self)
             fallbackModel = chatRequest.model ?? "foundation"
@@ -96,11 +97,36 @@ struct ChatCompletionsController: RouteCollection {
             }
 
             let foundationService: FoundationModelService
-            let processedMessages: [Message] = chatRequest.messages
+            let processedMessages: [Message]
             if #available(macOS 26.0, *) {
                 foundationService = try await FoundationModelService.createWithSharedAdapter(instructions: instructions, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
+                let shouldApplyVisionOCR = chatRequest.messages.contains { message in
+                    guard let content = message.content, case .parts(let parts) = content else { return false }
+                    return parts.contains(where: { $0.type == "image_url" })
+                }
+                if shouldApplyVisionOCR {
+                    let visionOptions = VisionRequestOptions()
+                    let visionProcessed = try await VisionAPIController.extractOCRTextFromMessages(chatRequest.messages, options: visionOptions)
+                    visionCleanupURLs = visionProcessed.cleanupURLs
+                    var messagesWithOCR = visionProcessed.messages
+                    if VisionAPIController.shouldAutoRunVisionTool(chatRequest) {
+                        let toolPrelude = Message(
+                            role: "system",
+                            content: "Built-in tool apple_vision_ocr has already been executed for the attached images. Use the injected OCR text when answering."
+                        )
+                        messagesWithOCR.insert(toolPrelude, at: 0)
+                    }
+                    processedMessages = messagesWithOCR
+                } else {
+                    processedMessages = chatRequest.messages
+                }
             } else {
                 throw FoundationModelError.notAvailable
+            }
+            defer {
+                for url in visionCleanupURLs {
+                    try? FileManager.default.removeItem(at: url)
+                }
             }
 
             // Check if streaming is requested and enabled

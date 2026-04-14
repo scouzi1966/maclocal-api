@@ -1100,7 +1100,7 @@ struct MacLocalAPI: ParsableCommand {
             description: Extract text and tables from images/PDFs using Apple Vision OCR
             usage: afm vision -f <file> [--table]
             full_details: afm vision --help-json
-        api_endpoints: [/v1/chat/completions, /v1/models, /health]
+        api_endpoints: [/v1/chat/completions, /v1/models, /v1/vision/ocr, /health]
         env_vars:
           MACAFM_MLX_MODEL_CACHE: Override model cache directory
           MACAFM_MLX_METALLIB: Override metallib path
@@ -1178,7 +1178,7 @@ struct RootCommand: ParsableCommand {
             description: Extract text and tables from images/PDFs using Apple Vision OCR
             usage: afm vision -f <file> [--table]
             full_details: afm vision --help-json
-        api_endpoints: [/v1/chat/completions, /v1/models, /health]
+        api_endpoints: [/v1/chat/completions, /v1/models, /v1/vision/ocr, /health]
         env_vars:
           MACAFM_MLX_MODEL_CACHE: Override model cache directory
           MACAFM_MLX_METALLIB: Override metallib path

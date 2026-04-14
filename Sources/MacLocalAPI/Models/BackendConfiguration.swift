@@ -94,7 +94,7 @@ struct ModelCapabilities: Sendable {
     static let `default` = ModelCapabilities()
 
     /// Foundation model capabilities
-    static let foundation = ModelCapabilities(vision: false, contextLength: 4096)
+    static let foundation = ModelCapabilities(vision: true, tools: true, contextLength: 4096)
 }
 
 /// Response from Ollama's POST /api/show endpoint

@@ -240,6 +240,8 @@ class Server {
             return response
         }
 
+        try app.register(collection: VisionAPIController())
+
         if let mlxModelID = mlxModelID, let mlxModelService = mlxModelService {
             let mlxController = MLXChatCompletionsController(
                 streamingEnabled: streamingEnabled,
@@ -340,7 +342,7 @@ class Server {
             let isFoundation = modelParam == nil || modelParam == "foundation"
 
             var nCtx = 4096
-            var hasVision = false
+            var hasVision = isFoundation
             var modelPath = "foundation"
 
             if !isFoundation, let modelName = modelParam {

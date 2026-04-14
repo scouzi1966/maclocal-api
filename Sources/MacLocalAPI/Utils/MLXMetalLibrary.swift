@@ -37,6 +37,28 @@ enum MLXMetalLibrary {
             .appendingPathComponent("default.metallib")
         if fileManager.fileExists(atPath: bundled.path) { return bundled }
 
+        // 3a. Walk up a few parent directories from the test runner/executable.
+        //     SwiftPM test layouts often place the test binary deeper than the app bundle.
+        var searchDir = executableDir
+        for _ in 0..<5 {
+            let candidate = searchDir
+                .appendingPathComponent("MacLocalAPI_MacLocalAPI.bundle")
+                .appendingPathComponent("default.metallib")
+            if fileManager.fileExists(atPath: candidate.path) { return candidate }
+            searchDir.deleteLastPathComponent()
+        }
+
+        // 3aa. Current working directory and common SwiftPM build layouts.
+        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let cwdCandidates = [
+            cwd.appendingPathComponent("MacLocalAPI_MacLocalAPI.bundle/default.metallib"),
+            cwd.appendingPathComponent(".build/debug/MacLocalAPI_MacLocalAPI.bundle/default.metallib"),
+            cwd.appendingPathComponent(".build/arm64-apple-macosx/debug/MacLocalAPI_MacLocalAPI.bundle/default.metallib"),
+        ]
+        for candidate in cwdCandidates where fileManager.fileExists(atPath: candidate.path) {
+            return candidate
+        }
+
         // 3b. Homebrew layout: binary in bin/, bundle in ../libexec/
         let homebrew = executableDir
             .deletingLastPathComponent()

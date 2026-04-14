@@ -1,6 +1,7 @@
 import XCTest
 import Vapor
 import XCTVapor
+import VaporTesting
 import Foundation
 import Testing
 
@@ -45,42 +46,42 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
     func resolvedToolCallParser(logBypass: Bool) -> String? { toolCallParser }
 
     func tryReserveSlot() -> Bool {
-        _lock.lock()
-        reserveSlotCallCount += 1
-        _lock.unlock()
-        return !shouldFailReserveSlot
+        _lock.withLock {
+            reserveSlotCallCount += 1
+            return !shouldFailReserveSlot
+        }
     }
 
     func releaseSlot() {
-        _lock.lock()
-        releaseSlotCallCount += 1
-        _lock.unlock()
+        _lock.withLock {
+            releaseSlotCallCount += 1
+        }
     }
 
     func ensureBatchMode(concurrency: Int) async throws {
-        _lock.lock()
-        ensureBatchModeCallCount += 1
-        let shouldFail = shouldFailEnsureBatchMode
-        _lock.unlock()
+        let shouldFail = _lock.withLock {
+            ensureBatchModeCallCount += 1
+            return shouldFailEnsureBatchMode
+        }
         if shouldFail {
             throw MLXServiceError.noModelLoaded
         }
     }
 
     func releaseBatchReference() {
-        _lock.lock()
-        releaseBatchReferenceCallCount += 1
-        _lock.unlock()
+        _lock.withLock {
+            releaseBatchReferenceCallCount += 1
+        }
     }
 
     private(set) var cancelBatchSlotsCallCount = 0
     private(set) var lastCancelledSlotIds: Set<UUID> = []
 
     func cancelBatchSlots(ids: Set<UUID>) async {
-        _lock.lock()
-        cancelBatchSlotsCallCount += 1
-        lastCancelledSlotIds = ids
-        _lock.unlock()
+        _lock.withLock {
+            cancelBatchSlotsCallCount += 1
+            lastCancelledSlotIds = ids
+        }
     }
 
     func startAPIProfile() {}
@@ -110,10 +111,49 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
         tools: [RequestTool]?, stop: [String]?, responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
     ) async throws -> ChatStreamingResult {
-        _lock.lock()
-        generateStreamingCallCount += 1
-        _lock.unlock()
+        _lock.withLock {
+            generateStreamingCallCount += 1
+        }
         return streamingResultFactory?(messages) ?? defaultStreamingResult
+    }
+
+    func generateStreaming(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        requestId: String?
+    ) async throws -> ChatStreamingResult {
+        try await generateStreaming(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs
+        )
     }
 
     static func makeStreamingResult(chunks: [StreamChunk]) -> ChatStreamingResult {
@@ -1603,6 +1643,7 @@ struct BatchPostProcessingParityTests {
     func batchAPIThinkExtraction() async throws {
         let app = try await Application.make(.testing)
         defer { Task { try await app.asyncShutdown() } }
+        let tester = try app.testing(method: .running(port: 0))
 
         let svc = FakeBatchService(maxConcurrent: 8)
         svc.streamingResultFactory = { _ in
@@ -1629,13 +1670,13 @@ struct BatchPostProcessingParityTests {
         uploadHeaders.add(name: .contentType, value: "multipart/form-data; boundary=\(boundary)")
         let multipartBody = "--\(boundary)\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nbatch\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.jsonl\"\r\nContent-Type: application/octet-stream\r\n\r\n\(jsonl)\r\n--\(boundary)--\r\n"
 
-        try await app.test(.POST, "/v1/files", headers: uploadHeaders, body: .init(string: multipartBody)) { res async in
+        try await tester.test(.POST, "/v1/files", headers: uploadHeaders, body: .init(string: multipartBody)) { res async in
             #expect(res.status == .ok)
             let file = try? res.content.decode(FileObject.self)
             guard let fileId = file?.id else { return }
 
             // Create batch
-            try? await app.test(.POST, "/v1/batches", beforeRequest: { req in
+            _ = try? await tester.test(.POST, "/v1/batches", beforeRequest: { req in
                 try req.content.encode(["input_file_id": fileId, "endpoint": "/v1/chat/completions", "completion_window": "24h"])
             }) { batchRes async in
                 #expect(batchRes.status == .ok)
@@ -1645,11 +1686,11 @@ struct BatchPostProcessingParityTests {
                 // Poll until completed (max 5 tries)
                 for _ in 0..<5 {
                     try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
-                    try? await app.test(.GET, "/v1/batches/\(batchId)") { pollRes async in
+                    _ = try? await tester.test(.GET, "/v1/batches/\(batchId)") { pollRes async in
                         let polled = try? pollRes.content.decode(BatchObject.self)
                         if polled?.status == "completed", let outputId = polled?.outputFileId {
                             // Check output file for reasoning_content
-                            try? await app.test(.GET, "/v1/files/\(outputId)/content") { contentRes async in
+                            _ = try? await tester.test(.GET, "/v1/files/\(outputId)/content") { contentRes async in
                                 let body = contentRes.body.string
                                 // The output should contain reasoning_content
                                 #expect(body.contains("reasoning_content") || body.contains("visible content"))
@@ -1667,6 +1708,7 @@ struct BatchPostProcessingParityTests {
     func batchAPILogprobs() async throws {
         let app = try await Application.make(.testing)
         defer { Task { try await app.asyncShutdown() } }
+        let tester = try app.testing(method: .running(port: 0))
 
         let svc = FakeBatchService(maxConcurrent: 8)
         svc.streamingResultFactory = { _ in
@@ -1696,11 +1738,11 @@ struct BatchPostProcessingParityTests {
         uploadHeaders.add(name: .contentType, value: "multipart/form-data; boundary=\(boundary)")
         let multipartBody = "--\(boundary)\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nbatch\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.jsonl\"\r\nContent-Type: application/octet-stream\r\n\r\n\(jsonl)\r\n--\(boundary)--\r\n"
 
-        try await app.test(.POST, "/v1/files", headers: uploadHeaders, body: .init(string: multipartBody)) { res async in
+        try await tester.test(.POST, "/v1/files", headers: uploadHeaders, body: .init(string: multipartBody)) { res async in
             let file = try? res.content.decode(FileObject.self)
             guard let fileId = file?.id else { return }
 
-            try? await app.test(.POST, "/v1/batches", beforeRequest: { req in
+            _ = try? await tester.test(.POST, "/v1/batches", beforeRequest: { req in
                 try req.content.encode(["input_file_id": fileId, "endpoint": "/v1/chat/completions", "completion_window": "24h"])
             }) { batchRes async in
                 let batch = try? batchRes.content.decode(BatchObject.self)
@@ -1708,10 +1750,10 @@ struct BatchPostProcessingParityTests {
 
                 for _ in 0..<5 {
                     try? await Task.sleep(nanoseconds: 100_000_000)
-                    try? await app.test(.GET, "/v1/batches/\(batchId)") { pollRes async in
+                    _ = try? await tester.test(.GET, "/v1/batches/\(batchId)") { pollRes async in
                         let polled = try? pollRes.content.decode(BatchObject.self)
                         if polled?.status == "completed", let outputId = polled?.outputFileId {
-                            try? await app.test(.GET, "/v1/files/\(outputId)/content") { contentRes async in
+                            _ = try? await tester.test(.GET, "/v1/files/\(outputId)/content") { contentRes async in
                                 let body = contentRes.body.string
                                 #expect(body.contains("logprobs") || body.contains("Hi"))
                             }
@@ -1728,6 +1770,7 @@ struct BatchPostProcessingParityTests {
     func batchAPIToolCalls() async throws {
         let app = try await Application.make(.testing)
         defer { Task { try await app.asyncShutdown() } }
+        let tester = try app.testing(method: .running(port: 0))
 
         let tc = ResponseToolCall(
             index: 0, id: "call_abc", type: "function",
@@ -1757,11 +1800,11 @@ struct BatchPostProcessingParityTests {
         uploadHeaders.add(name: .contentType, value: "multipart/form-data; boundary=\(boundary)")
         let multipartBody = "--\(boundary)\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nbatch\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.jsonl\"\r\nContent-Type: application/octet-stream\r\n\r\n\(jsonl)\r\n--\(boundary)--\r\n"
 
-        try await app.test(.POST, "/v1/files", headers: uploadHeaders, body: .init(string: multipartBody)) { res async in
+        try await tester.test(.POST, "/v1/files", headers: uploadHeaders, body: .init(string: multipartBody)) { res async in
             let file = try? res.content.decode(FileObject.self)
             guard let fileId = file?.id else { return }
 
-            try? await app.test(.POST, "/v1/batches", beforeRequest: { req in
+            _ = try? await tester.test(.POST, "/v1/batches", beforeRequest: { req in
                 try req.content.encode(["input_file_id": fileId, "endpoint": "/v1/chat/completions", "completion_window": "24h"])
             }) { batchRes async in
                 let batch = try? batchRes.content.decode(BatchObject.self)
@@ -1769,10 +1812,10 @@ struct BatchPostProcessingParityTests {
 
                 for _ in 0..<5 {
                     try? await Task.sleep(nanoseconds: 100_000_000)
-                    try? await app.test(.GET, "/v1/batches/\(batchId)") { pollRes async in
+                    _ = try? await tester.test(.GET, "/v1/batches/\(batchId)") { pollRes async in
                         let polled = try? pollRes.content.decode(BatchObject.self)
                         if polled?.status == "completed", let outputId = polled?.outputFileId {
-                            try? await app.test(.GET, "/v1/files/\(outputId)/content") { contentRes async in
+                            _ = try? await tester.test(.GET, "/v1/files/\(outputId)/content") { contentRes async in
                                 let body = contentRes.body.string
                                 #expect(body.contains("tool_calls"))
                                 #expect(body.contains("get_weather"))
@@ -1790,6 +1833,7 @@ struct BatchPostProcessingParityTests {
     func grammarDowngradeHeader() async throws {
         let app = try await Application.make(.testing)
         defer { Task { try await app.asyncShutdown() } }
+        let tester = try app.testing(method: .running(port: 0))
 
         let svc = FakeBatchService(maxConcurrent: 8)
         svc.supportsStrictToolGrammar = true
@@ -1801,7 +1845,7 @@ struct BatchPostProcessingParityTests {
         {"requests":[{"custom_id":"strict-1","body":{"model":"test-model","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"test","strict":true,"parameters":{"type":"object","properties":{"x":{"type":"string"}}}}}]}}]}
         """
 
-        try await app.test(.POST, "/v1/batch/completions", beforeRequest: { req in
+        try await tester.test(.POST, "/v1/batch/completions", beforeRequest: { req in
             req.headers.contentType = .json
             req.body = .init(string: body)
         }) { res async in
@@ -1815,6 +1859,7 @@ struct BatchPostProcessingParityTests {
     func grammarDowngradeHeaderSkippedForUnsupportedToolGrammar() async throws {
         let app = try await Application.make(.testing)
         defer { Task { try await app.asyncShutdown() } }
+        let tester = try app.testing(method: .running(port: 0))
 
         let svc = FakeBatchService(maxConcurrent: 8)
         svc.supportsStrictToolGrammar = false
@@ -1825,7 +1870,7 @@ struct BatchPostProcessingParityTests {
         {"requests":[{"custom_id":"strict-1","body":{"model":"test-model","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"test","strict":true,"parameters":{"type":"object","properties":{"x":{"type":"string"}}}}}]}}]}
         """
 
-        try await app.test(.POST, "/v1/batch/completions", beforeRequest: { req in
+        try await tester.test(.POST, "/v1/batch/completions", beforeRequest: { req in
             req.headers.contentType = .json
             req.body = .init(string: body)
         }) { res async in
@@ -1838,6 +1883,7 @@ struct BatchPostProcessingParityTests {
     func structuredOutputSanitizedInNonStreamingBatch() async throws {
         let app = try await Application.make(.testing)
         defer { Task { try await app.asyncShutdown() } }
+        let tester = try app.testing(method: .running(port: 0))
 
         let svc = FakeBatchService(maxConcurrent: 8)
         svc.streamingResultFactory = { _ in
@@ -1855,7 +1901,7 @@ struct BatchPostProcessingParityTests {
         {"requests":[{"custom_id":"json-1","body":{"model":"test-model","stream":false,"messages":[{"role":"user","content":"hi"}],"tools":[],"response_format":{"type":"json_object"}}}]}
         """
 
-        try await app.test(.POST, "/v1/batch/completions", beforeRequest: { req in
+        try await tester.test(.POST, "/v1/batch/completions", beforeRequest: { req in
             req.headers.contentType = .json
             req.body = .init(string: body)
         }) { res async in
@@ -1938,6 +1984,7 @@ struct BatchJSONLPerLineValidationTests {
     func rejectsWrongMethod() async throws {
         let app = try await Application.make(.testing)
         defer { Task { try await app.asyncShutdown() } }
+        let tester = try app.testing(method: .running(port: 0))
         let svc = FakeBatchService(maxConcurrent: 8)
         let store = BatchStore()
         let controller = BatchAPIController(service: svc, store: store, modelID: "test-model")
@@ -1948,7 +1995,7 @@ struct BatchJSONLPerLineValidationTests {
         {"custom_id":"bad","method":"GET","url":"/v1/chat/completions","body":{"model":"test","messages":[{"role":"user","content":"hi"}]}}
         """
         var fileId = ""
-        try await app.test(.POST, "/v1/files", beforeRequest: { req in
+        try await tester.test(.POST, "/v1/files", beforeRequest: { req in
             let boundary = "test-boundary"
             req.headers.contentType = .init(type: "multipart", subType: "form-data", parameters: ["boundary": boundary])
             var body = "--\(boundary)\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nbatch\r\n"
@@ -1964,7 +2011,7 @@ struct BatchJSONLPerLineValidationTests {
         }
 
         // Create batch — should fail with 400 on method validation
-        try await app.test(.POST, "/v1/batches", beforeRequest: { req in
+        try await tester.test(.POST, "/v1/batches", beforeRequest: { req in
             req.headers.contentType = .json
             req.body = .init(string: "{\"input_file_id\":\"\(fileId)\",\"endpoint\":\"/v1/chat/completions\",\"completion_window\":\"24h\"}")
         }) { res async in
@@ -1978,6 +2025,7 @@ struct BatchJSONLPerLineValidationTests {
     func rejectsWrongUrl() async throws {
         let app = try await Application.make(.testing)
         defer { Task { try await app.asyncShutdown() } }
+        let tester = try app.testing(method: .running(port: 0))
         let svc = FakeBatchService(maxConcurrent: 8)
         let store = BatchStore()
         let controller = BatchAPIController(service: svc, store: store, modelID: "test-model")
@@ -1987,7 +2035,7 @@ struct BatchJSONLPerLineValidationTests {
         {"custom_id":"bad","method":"POST","url":"/v1/embeddings","body":{"model":"test","messages":[{"role":"user","content":"hi"}]}}
         """
         var fileId = ""
-        try await app.test(.POST, "/v1/files", beforeRequest: { req in
+        try await tester.test(.POST, "/v1/files", beforeRequest: { req in
             let boundary = "test-boundary"
             req.headers.contentType = .init(type: "multipart", subType: "form-data", parameters: ["boundary": boundary])
             var body = "--\(boundary)\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nbatch\r\n"
@@ -2002,7 +2050,7 @@ struct BatchJSONLPerLineValidationTests {
             }
         }
 
-        try await app.test(.POST, "/v1/batches", beforeRequest: { req in
+        try await tester.test(.POST, "/v1/batches", beforeRequest: { req in
             req.headers.contentType = .json
             req.body = .init(string: "{\"input_file_id\":\"\(fileId)\",\"endpoint\":\"/v1/chat/completions\",\"completion_window\":\"24h\"}")
         }) { res async in
@@ -2016,6 +2064,7 @@ struct BatchJSONLPerLineValidationTests {
     func acceptsValidMethodAndUrl() async throws {
         let app = try await Application.make(.testing)
         defer { Task { try await app.asyncShutdown() } }
+        let tester = try app.testing(method: .running(port: 0))
         let svc = FakeBatchService(maxConcurrent: 8)
         let store = BatchStore()
         let controller = BatchAPIController(service: svc, store: store, modelID: "test-model")
@@ -2025,7 +2074,7 @@ struct BatchJSONLPerLineValidationTests {
         {"custom_id":"ok","method":"POST","url":"/v1/chat/completions","body":{"model":"test","messages":[{"role":"user","content":"hi"}]}}
         """
         var fileId = ""
-        try await app.test(.POST, "/v1/files", beforeRequest: { req in
+        try await tester.test(.POST, "/v1/files", beforeRequest: { req in
             let boundary = "test-boundary"
             req.headers.contentType = .init(type: "multipart", subType: "form-data", parameters: ["boundary": boundary])
             var body = "--\(boundary)\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nbatch\r\n"
@@ -2041,7 +2090,7 @@ struct BatchJSONLPerLineValidationTests {
         }
 
         // Should succeed (200, not 400)
-        try await app.test(.POST, "/v1/batches", beforeRequest: { req in
+        try await tester.test(.POST, "/v1/batches", beforeRequest: { req in
             req.headers.contentType = .json
             req.body = .init(string: "{\"input_file_id\":\"\(fileId)\",\"endpoint\":\"/v1/chat/completions\",\"completion_window\":\"24h\"}")
         }) { res async in
@@ -2057,6 +2106,7 @@ struct BatchCancelEndpointTests {
     func cancelNonInProgressReturns400() async throws {
         let app = try await Application.make(.testing)
         defer { Task { try await app.asyncShutdown() } }
+        let tester = try app.testing(method: .running(port: 0))
         let svc = FakeBatchService(maxConcurrent: 8)
         let store = BatchStore()
         let controller = BatchAPIController(service: svc, store: store, modelID: "test-model")
@@ -2065,7 +2115,7 @@ struct BatchCancelEndpointTests {
         let batchId = await store.createBatch(inputFileId: "f1", endpoint: "/v1/chat/completions", totalRequests: 1)
         // Leave in "validating" state (not in_progress)
 
-        try await app.test(.POST, "/v1/batches/\(batchId)/cancel") { res async in
+        try await tester.test(.POST, "/v1/batches/\(batchId)/cancel") { res async in
             #expect(res.status == .badRequest)
         }
     }
@@ -2074,6 +2124,7 @@ struct BatchCancelEndpointTests {
     func cancelTransitionsToCancelled() async throws {
         let app = try await Application.make(.testing)
         defer { Task { try await app.asyncShutdown() } }
+        let tester = try app.testing(method: .running(port: 0))
         let svc = FakeBatchService(maxConcurrent: 8)
         let store = BatchStore()
         let controller = BatchAPIController(service: svc, store: store, modelID: "test-model")
@@ -2082,7 +2133,7 @@ struct BatchCancelEndpointTests {
         let batchId = await store.createBatch(inputFileId: "f1", endpoint: "/v1/chat/completions", totalRequests: 2)
         await store.markBatchInProgress(batchId)
 
-        try await app.test(.POST, "/v1/batches/\(batchId)/cancel") { res async in
+        try await tester.test(.POST, "/v1/batches/\(batchId)/cancel") { res async in
             #expect(res.status == .ok)
             if let data = res.body.string.data(using: .utf8),
                let obj = try? JSONDecoder().decode(BatchObject.self, from: data) {
@@ -2095,12 +2146,13 @@ struct BatchCancelEndpointTests {
     func cancelNonexistentReturns404() async throws {
         let app = try await Application.make(.testing)
         defer { Task { try await app.asyncShutdown() } }
+        let tester = try app.testing(method: .running(port: 0))
         let svc = FakeBatchService(maxConcurrent: 8)
         let store = BatchStore()
         let controller = BatchAPIController(service: svc, store: store, modelID: "test-model")
         try app.register(collection: controller)
 
-        try await app.test(.POST, "/v1/batches/batch_nonexistent/cancel") { res async in
+        try await tester.test(.POST, "/v1/batches/batch_nonexistent/cancel") { res async in
             #expect(res.status == .notFound)
         }
     }

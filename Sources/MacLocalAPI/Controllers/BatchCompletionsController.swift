@@ -4,7 +4,7 @@ import os
 
 struct BatchCompletionsController: RouteCollection {
     /// Maximum requests allowed in a single SSE multiplex batch.
-    private static let maxBatchSize = 200
+    private static let maxBatchSize = 64
 
     private let service: any MLXChatServing
     private let modelID: String
