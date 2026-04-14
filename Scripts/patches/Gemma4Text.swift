@@ -173,7 +173,7 @@ class Gemma4RMSNormNoScale: Module {
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
         let variance = (x * x).mean(axis: -1, keepDims: true)
-        return x * rsqrt(variance + eps)
+        return x * rsqrt(variance + MLXArray(eps, dtype: x.dtype))
     }
 }
 
@@ -207,7 +207,8 @@ class Gemma4ScaledLinear: Module {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        return (x.matmul(weight.T)) * scalar
+        let result = x.matmul(weight.T)
+        return result * MLXArray(scalar, dtype: result.dtype)
     }
 }
 
@@ -257,7 +258,7 @@ class Gemma4Router: Module {
 
     func callAsFunction(_ x: MLXArray) -> (MLXArray, MLXArray) {
         var h = norm(x)
-        h = h * rootSize
+        h = h * MLXArray(rootSize, dtype: h.dtype)
         h = h * scale
 
         let expertScores = proj(h)
@@ -411,7 +412,8 @@ class Gemma4Attention: Module {
         _ x: MLXArray,
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
         cache: KVCache?,
-        sharedKV: (MLXArray, MLXArray)? = nil
+        sharedKV: (MLXArray, MLXArray)? = nil,
+        gatherIndices: MLXArray? = nil
     ) -> MLXArray {
         let shape = x.shape  // [B, L, _]
         let B = shape[0]
@@ -484,13 +486,16 @@ class Gemma4Attention: Module {
         // the GQA head mapping into the gather indices, doing Q@K^T and
         // attn@V each in ONE Metal dispatch vs the mask path's ~5 ops.
         if L == 1 && mask.mask == nil && B > 1 && nKVHeads != nHeads {
-            // Build GQA gather indices: map each (batch, q_head) to the
-            // corresponding (batch, kv_head) in the flat batch×heads space.
-            let headsPerGroup = nHeads / nKVHeads
-            // rhsIndices: [B, nHeads] where [b,h] = b * nKVHeads + h / headsPerGroup
-            let batchIdx = MLXArray(0 ..< Int32(B)).reshaped([B, 1]) * Int32(nKVHeads)
-            let headMap = MLXArray((0 ..< nHeads).map { Int32($0 / headsPerGroup) }).reshaped([1, nHeads])
-            let rhsIdx = (batchIdx + headMap).reshaped([B * nHeads])
+            // GQA gather indices — use precomputed from forward() when available.
+            let rhsIdx: MLXArray
+            if let cached = gatherIndices {
+                rhsIdx = cached
+            } else {
+                let headsPerGroup = nHeads / nKVHeads
+                let batchIdx = MLXArray(0 ..< Int32(B)).reshaped([B, 1]) * Int32(nKVHeads)
+                let headMap = MLXArray((0 ..< nHeads).map { Int32($0 / headsPerGroup) }).reshaped([1, nHeads])
+                rhsIdx = (batchIdx + headMap).reshaped([B * nHeads])
+            }
 
             // Q: [B, nHeads, 1, headDim] → scores = Q @ K^T
             let kT = keys.transposed(0, 1, 3, 2)  // [B, nKVHeads, headDim, T_kv]
@@ -500,7 +505,7 @@ class Gemma4Attention: Module {
                 rhsIndices: rhsIdx
             )
             // scores: [B*nHeads, 1, T_kv] → softmax
-            let attnWeights = softMax(scores * (1.0 / sqrt(Float(headDim))), axis: -1)
+            let attnWeights = softMax(scores * MLXArray(1.0 / sqrt(Float(headDim)), dtype: scores.dtype), axis: -1)
 
             // attn @ V: [B*nHeads, 1, T_kv] @ [B*nKVHeads, T_kv, headDim]
             let attnOut = gatherMM(
@@ -606,12 +611,13 @@ class Gemma4DecoderLayer: Module {
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
         cache: KVCache?,
         perLayerInput: MLXArray? = nil,
-        sharedKV: (MLXArray, MLXArray)? = nil
+        sharedKV: (MLXArray, MLXArray)? = nil,
+        gatherIndices: MLXArray? = nil
     ) -> MLXArray {
         // Self-attention
         var residual = x
         var h = inputLayernorm(x)
-        h = selfAttn(h, mask: mask, cache: cache, sharedKV: sharedKV)
+        h = selfAttn(h, mask: mask, cache: cache, sharedKV: sharedKV, gatherIndices: gatherIndices)
         h = postAttentionLayernorm(h)
         h = residual + h
 
@@ -719,7 +725,8 @@ public class Gemma4TextModelInner: Module {
 
     /// Standard entry point: token IDs → embeddings → forward pass.
     func callAsFunction(_ inputs: MLXArray, cache: [KVCache]? = nil) -> MLXArray {
-        let h = embedTokens(inputs) * embedScale
+        var h = embedTokens(inputs)
+        h = h * MLXArray(embedScale, dtype: h.dtype)
         let perLayerInputs = computePerLayerInputs(inputIds: inputs, embeddings: h)
         return forward(h: h, perLayerInputs: perLayerInputs, cache: cache)
     }
@@ -745,13 +752,15 @@ public class Gemma4TextModelInner: Module {
         guard plDim > 0, let embedPL = embedTokensPerLayer, let projPL = perLayerModelProjection,
               let normPL = perLayerProjectionNorm else { return nil }
 
-        let tokenPL = embedPL(inputIds) * Float(plDim).squareRoot()
+        let tokenPLRaw = embedPL(inputIds)
+        let tokenPL = tokenPLRaw * MLXArray(Float(plDim).squareRoot(), dtype: tokenPLRaw.dtype)
         let tokenPLReshaped = tokenPL.reshaped(inputIds.shape + [numLayers, plDim])
 
         let modelPL = projPL(embeddings).reshaped(embeddings.shape.dropLast() + [numLayers, plDim])
         let modelPLNormed = normPL(modelPL)
 
-        return (modelPLNormed + tokenPLReshaped) * perLayerInputScale
+        let combined = modelPLNormed + tokenPLReshaped
+        return combined * MLXArray(perLayerInputScale, dtype: combined.dtype)
     }
 
     /// Core forward pass shared by both entry points.
@@ -792,6 +801,24 @@ public class Gemma4TextModelInner: Module {
         let seqLen = h.dim(1)
         let prefillFlushInterval = 8
         let isPrefill = h.dim(0) > 1 && seqLen > 1
+        // Precompute gatherMM indices for decode (L=1, B>1) — shared across all
+        // layers of the same type. Saves ~15 ops × 25 layers = 375 ops per step.
+        var cachedGatherIndices: [String: MLXArray] = [:]
+        let B = h.dim(0)
+        if seqLen == 1 && B > 1 {
+            for layer in layers {
+                let key = "\(layer.selfAttn.nHeads)-\(layer.selfAttn.nKVHeads)"
+                if cachedGatherIndices[key] == nil && layer.selfAttn.nKVHeads != layer.selfAttn.nHeads {
+                    let nH = layer.selfAttn.nHeads
+                    let nKV = layer.selfAttn.nKVHeads
+                    let hpg = nH / nKV
+                    let batchIdx = MLXArray(0 ..< Int32(B)).reshaped([B, 1]) * Int32(nKV)
+                    let headMap = MLXArray((0 ..< nH).map { Int32($0 / hpg) }).reshaped([1, nH])
+                    cachedGatherIndices[key] = (batchIdx + headMap).reshaped([B * nH])
+                }
+            }
+        }
+
         let debugBatch = ProcessInfo.processInfo.environment["AFM_DEBUG_PREFILL"] == "1" && h.dim(0) > 2
         for (i, (layer, c)) in zip(layers, cache).enumerated() {
             let isGlobal = layer.layerType == "full_attention"
@@ -836,7 +863,9 @@ public class Gemma4TextModelInner: Module {
             let profileLayers = ProcessInfo.processInfo.environment["AFM_PROFILE_LAYERS"] == "1"
             let layerStart = profileLayers ? Date() : Date.distantPast
 
-            h = layer(h, mask: mask, cache: c, perLayerInput: plInput, sharedKV: layerSharedKV)
+            let gatherKey = "\(layer.selfAttn.nHeads)-\(layer.selfAttn.nKVHeads)"
+            h = layer(h, mask: mask, cache: c, perLayerInput: plInput, sharedKV: layerSharedKV,
+                      gatherIndices: cachedGatherIndices[gatherKey])
 
             if profileLayers {
                 _ = h.sum().item(Float.self)  // force GPU sync for timing

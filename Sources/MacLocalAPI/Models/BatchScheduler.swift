@@ -56,6 +56,14 @@ actor BatchScheduler {
     /// Shared prefix cache for all slots (safe: all access is serialized inside this actor).
     private let radixCache: RadixTreeCache?
 
+    /// Optional periodic cache eval interval. 0 or nil = disabled (default, matches Python mlx_lm).
+    /// Set via AFM_CACHE_EVAL_INTERVAL env var for models with lazy graph blowup.
+    private let _cacheEvalInterval: Int? = {
+        guard let s = ProcessInfo.processInfo.environment["AFM_CACHE_EVAL_INTERVAL"],
+              let n = Int(s), n > 0 else { return nil }
+        return n
+    }()
+
     // MARK: - Slot State
 
     /// Per-request state for batched generation.
@@ -817,16 +825,13 @@ actor BatchScheduler {
                 }
             }
 
-            // Round-robin cache eval: materialize one layer per step to keep the
-            // lazy graph bounded without multi-second stalls. Each layer accumulates
-            // at most layerCount steps of slice-assign ops between evals — well within
-            // Metal's 499K buffer limit. Uses asyncEval to avoid blocking CPU.
-            if !batchCaches.isEmpty {
+            // Cache eval: disabled by default (Python mlx_lm does none).
+            // The model's forward pass forces evaluation through data dependencies.
+            // Enable via AFM_CACHE_EVAL_INTERVAL=N for models with graph blowup.
+            if let interval = _cacheEvalInterval, stepCount % interval == 0, !batchCaches.isEmpty {
                 let layerToEval = stepCount % batchCaches.count
                 let layerState = batchCaches[layerToEval].innerState()
-                if !layerState.isEmpty {
-                    asyncEval(layerState)
-                }
+                if !layerState.isEmpty { asyncEval(layerState) }
             }
 
             // Yield rarely — just for cooperative scheduling / graceful shutdown.

@@ -45,11 +45,26 @@ public class BatchKVCacheSimple: BaseKVCache {
     var _allOffsetsEqual: Bool?
     var _zeroPadding: Bool?
 
+    /// Deferred per-sequence offset delta. During decode, we accumulate +1 per step
+    /// here instead of creating a new MLXArray. Flushed into perSeqOffset only when
+    /// external code needs the actual array (filter, extend, state, makeMask with padding).
+    /// Saves ~26 MLX graph nodes per decode step (1 per layer).
+    private var _pendingOffsetDelta: Int32 = 0
+
+    private func flushOffsetDelta() {
+        if _pendingOffsetDelta != 0 {
+            perSeqOffset = perSeqOffset + _pendingOffsetDelta
+            _pendingOffsetDelta = 0
+        }
+    }
+
     public override var offset: Int {
         get { _idx }
         set { _idx = newValue }
     }
-    public override var offsetArray: MLXArray? { perSeqOffset }
+    public override var offsetArray: MLXArray? {
+        _pendingOffsetDelta == 0 ? perSeqOffset : perSeqOffset + _pendingOffsetDelta
+    }
     public override var maxSize: Int? { nil }
     public override var isTrimmable: Bool { true }
 
@@ -70,7 +85,8 @@ public class BatchKVCacheSimple: BaseKVCache {
 
     public override func syncPerSeqOffsets(_ offsets: MLXArray, allEqual: Bool? = nil) {
         perSeqOffset = offsets
-        _allOffsetsEqual = allEqual  // propagate from source — no eval needed
+        _pendingOffsetDelta = 0
+        _allOffsetsEqual = allEqual
     }
 
     public init(batchSize: Int, leftPadding: [Int]) {
@@ -121,7 +137,7 @@ public class BatchKVCacheSimple: BaseKVCache {
             }
         }
 
-        perSeqOffset = perSeqOffset + Int32(newTokens)
+        _pendingOffsetDelta += Int32(newTokens)
         _idx += newTokens
 
         self.keys![.ellipsis, prev ..< _idx, 0...] = newKeys
@@ -140,6 +156,7 @@ public class BatchKVCacheSimple: BaseKVCache {
 
     public override var state: [MLXArray] {
         get {
+            flushOffsetDelta()
             guard let k = keys, let v = values else { return [] }
             let kSlice = k[.ellipsis, ..<_idx, 0...]
             let vSlice = v.dim(3) > 0
@@ -225,6 +242,7 @@ public class BatchKVCacheSimple: BaseKVCache {
 
     /// Remove sequences — keep only specified batch indices.
     public func filter(_ keepIndices: [Int]) {
+        flushOffsetDelta()
         guard let k = keys, let v = values else { return }
 
         let indices = MLXArray(keepIndices.map { Int32($0) })
@@ -251,6 +269,8 @@ public class BatchKVCacheSimple: BaseKVCache {
 
     /// Merge another BatchKVCacheSimple into this one (extend batch).
     public func extend(with other: BatchKVCacheSimple) {
+        flushOffsetDelta()
+        other.flushOffsetDelta()
         guard let otherKFull = other.keys, let otherVFull = other.values else { return }
         guard let selfKFull = self.keys, let selfVFull = self.values else {
             self.keys = otherKFull[.ellipsis, ..<other._idx, 0...]
@@ -418,14 +438,25 @@ public class BatchRotatingKVCache: BaseKVCache {
     private var _allOffsetsEqual: Bool?
     private var _zeroPadding: Bool?
 
+    /// Deferred per-sequence offset delta — same pattern as BatchKVCacheSimple.
+    private var _pendingOffsetDelta: Int32 = 0
+
+    private func flushOffsetDelta() {
+        if _pendingOffsetDelta != 0 {
+            perSeqOffset = perSeqOffset + _pendingOffsetDelta
+            _pendingOffsetDelta = 0
+        }
+    }
+
     public override var offset: Int {
         get { _offset }
         set { _offset = newValue }
     }
     /// Per-sequence RoPE offsets — tracks each sequence's real token count.
-    /// In slab mode this must expose only the active rows so batched RoPE
-    /// still receives a [B] offset array instead of the slab capacity.
-    public override var offsetArray: MLXArray? { activePerSeqOffset }
+    public override var offsetArray: MLXArray? {
+        let base = activePerSeqOffset
+        return _pendingOffsetDelta == 0 ? base : base + _pendingOffsetDelta
+    }
     public override var maxSize: Int? { maxCacheSize }
     public override var isTrimmable: Bool { _offset < maxCacheSize }
 
@@ -455,6 +486,7 @@ public class BatchRotatingKVCache: BaseKVCache {
 
     public override func syncPerSeqOffsets(_ offsets: MLXArray, allEqual: Bool? = nil) {
         perSeqOffset = offsets
+        _pendingOffsetDelta = 0
         _allOffsetsEqual = allEqual
     }
 
@@ -663,7 +695,7 @@ public class BatchRotatingKVCache: BaseKVCache {
         }
         _offset = Swift.max(previousOffset + 1, _idx + 1)
         _idx += 1
-        perSeqOffset = perSeqOffset + Int32(1)
+        _pendingOffsetDelta += 1
 
         // Return appropriate slice
         if capacity > 0 {
@@ -709,7 +741,7 @@ public class BatchRotatingKVCache: BaseKVCache {
 
         _offset += newTokens
         _idx = self.keys!.dim(2)
-        perSeqOffset = perSeqOffset + Int32(newTokens)
+        _pendingOffsetDelta += Int32(newTokens)
 
         return (self.keys!, self.values!)
     }
@@ -749,6 +781,7 @@ public class BatchRotatingKVCache: BaseKVCache {
 
     public override var state: [MLXArray] {
         get {
+            flushOffsetDelta()
             guard let k = keys, let v = values else { return [] }
             if capacity > 0 {
                 let seqEnd = Swift.min(_offset, k.dim(2))
@@ -879,6 +912,7 @@ public class BatchRotatingKVCache: BaseKVCache {
 
     /// Remove sequences — keep only specified batch indices.
     public func filter(_ keepIndices: [Int]) {
+        flushOffsetDelta()
         guard let k = keys, let v = values else { return }
 
         let keepCount = keepIndices.count
@@ -1012,6 +1046,8 @@ public class BatchRotatingKVCache: BaseKVCache {
     /// Merge another BatchRotatingKVCache into this one (extend batch).
     /// O(1) fast path: right-justify + ONE concat instead of O(B) materialize-all.
     public func extend(with other: BatchRotatingKVCache) {
+        flushOffsetDelta()
+        other.flushOffsetDelta()
         precondition(maxCacheSize == other.maxCacheSize && keep == other.keep,
                      "Cannot extend BatchRotatingKVCache with different maxCacheSize/keep")
 
