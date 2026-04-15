@@ -100,37 +100,55 @@ struct ChatCompletionsController: RouteCollection {
             let processedMessages: [Message]
             if #available(macOS 26.0, *) {
                 foundationService = try await FoundationModelService.createWithSharedAdapter(instructions: instructions, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
-                let shouldApplyVisionOCR = chatRequest.messages.contains { message in
+                // Detect media content that should bypass the Foundation Model
+                let hasImages = chatRequest.messages.contains { message in
                     guard let content = message.content, case .parts(let parts) = content else { return false }
                     return parts.contains(where: { $0.type == "image_url" })
                 }
-                if shouldApplyVisionOCR {
-                    // Run OCR and return results directly — Foundation Models has a
-                    // 4096 token context limit that OCR text easily exceeds.  Bypass
-                    // the LLM entirely, matching `afm vision -f` behaviour.
-                    let visionOptions = VisionRequestOptions()
-                    let visionProcessed = try await VisionAPIController.extractOCRTextFromMessages(chatRequest.messages, options: visionOptions)
-                    visionCleanupURLs = visionProcessed.cleanupURLs
+                let hasAudio = chatRequest.messages.contains { message in
+                    guard let content = message.content, case .parts(let parts) = content else { return false }
+                    return parts.contains(where: { $0.type == "input_audio" })
+                }
+
+                if hasImages || hasAudio {
+                    // Run on-device extraction and return results directly —
+                    // Foundation Models has a 4096 token context limit that
+                    // extracted text easily exceeds.  Bypass the LLM entirely.
+                    var extractedTexts: [String] = []
+                    var allCleanupURLs: [URL] = []
+
+                    if hasImages {
+                        let visionProcessed = try await VisionAPIController.extractOCRTextFromMessages(chatRequest.messages, options: VisionRequestOptions())
+                        extractedTexts.append(contentsOf: visionProcessed.ocrTexts)
+                        allCleanupURLs.append(contentsOf: visionProcessed.cleanupURLs)
+                    }
+                    if hasAudio {
+                        let speechProcessed = try await SpeechAPIController.extractTranscriptionFromMessages(chatRequest.messages, options: SpeechRequestOptions())
+                        extractedTexts.append(contentsOf: speechProcessed.transcriptionTexts)
+                        allCleanupURLs.append(contentsOf: speechProcessed.cleanupURLs)
+                    }
+
+                    visionCleanupURLs = allCleanupURLs
                     defer {
-                        for url in visionCleanupURLs {
+                        for url in allCleanupURLs {
                             try? FileManager.default.removeItem(at: url)
                         }
                     }
 
-                    let ocrContent = visionProcessed.ocrTexts.joined(separator: "\n\n")
+                    let extractedContent = extractedTexts.joined(separator: "\n\n")
 
                     if chatRequest.stream == true && streamingEnabled {
-                        return try await createVisionStreamingResponse(
+                        return try await createBypassStreamingResponse(
                             req: req,
                             chatRequest: chatRequest,
-                            ocrContent: ocrContent
+                            content: extractedContent
                         )
                     } else {
                         let promptTokens = estimateTokens(for: chatRequest.messages)
-                        let completionTokens = estimateTokens(for: ocrContent)
+                        let completionTokens = estimateTokens(for: extractedContent)
                         let response = ChatCompletionResponse(
                             model: chatRequest.model ?? "foundation",
-                            content: ocrContent,
+                            content: extractedContent,
                             finishReason: "stop",
                             promptTokens: promptTokens,
                             completionTokens: completionTokens
@@ -490,9 +508,9 @@ struct ChatCompletionsController: RouteCollection {
         return httpResponse
     }
 
-    /// Stream OCR results directly to the client, bypassing the Foundation Model.
-    /// Mirrors what `afm vision -f` does: run Vision OCR and return extracted text.
-    private func createVisionStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, ocrContent: String) async throws -> Response {
+    /// Stream extracted content directly to the client, bypassing the Foundation Model.
+    /// Used for Vision OCR and Speech transcription results.
+    private func createBypassStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, content: String) async throws -> Response {
         let httpResponse = Response(status: .ok)
         httpResponse.headers.add(name: .contentType, value: "text/event-stream")
         httpResponse.headers.add(name: .cacheControl, value: "no-cache")
@@ -504,17 +522,17 @@ struct ChatCompletionsController: RouteCollection {
         let streamId = UUID().uuidString
         let model = chatRequest.model ?? "foundation"
         let promptTokens = estimateTokens(for: chatRequest.messages)
-        let completionTokens = estimateTokens(for: ocrContent)
+        let completionTokens = estimateTokens(for: content)
 
         httpResponse.body = .init(asyncStream: { writer in
             let encoder = JSONEncoder()
 
             do {
-                // Send content in a single chunk (OCR is already complete)
+                // Send content in a single chunk (extraction is already complete)
                 let contentChunk = ChatCompletionStreamResponse(
                     id: streamId,
                     model: model,
-                    content: ocrContent,
+                    content: content,
                     isFirst: true
                 )
                 let contentData = try encoder.encode(contentChunk)
