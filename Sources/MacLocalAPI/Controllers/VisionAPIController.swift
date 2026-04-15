@@ -444,10 +444,10 @@ struct VisionAPIController: RouteCollection {
     }
 
     /// Validate that a file path points to an existing regular file with a
-    /// supported image/document extension.  Rejects directory traversal,
-    /// symlinks to unexpected locations, device nodes, etc.
+    /// supported image/document extension.  Resolves symlinks and rejects
+    /// directories, non-image files, and path traversal.
     private static func sanitizeFilePath(_ path: String) throws -> String {
-        let resolved = URL(fileURLWithPath: path).standardizedFileURL.path
+        let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
         let fm = FileManager.default
 
         // Must exist
@@ -461,7 +461,7 @@ struct VisionAPIController: RouteCollection {
         }
         // Extension must be a supported image/document type
         let ext = URL(fileURLWithPath: resolved).pathExtension.lowercased()
-        let allowed: Set<String> = ["png", "jpg", "jpeg", "heic", "pdf"]
+        let allowed: Set<String> = ["png", "jpg", "jpeg", "heic", "pdf", "tif", "tiff", "gif", "bmp", "webp"]
         guard allowed.contains(ext) else {
             throw VisionError.unsupportedFormat
         }
@@ -518,13 +518,14 @@ struct VisionAPIController: RouteCollection {
         return "png"
     }
 
-    static func extractOCRTextFromMessages(_ messages: [Message], options: VisionRequestOptions) async throws -> (messages: [Message], cleanupURLs: [URL]) {
+    static func extractOCRTextFromMessages(_ messages: [Message], options: VisionRequestOptions) async throws -> (messages: [Message], ocrTexts: [String], cleanupURLs: [URL]) {
         guard #available(macOS 26.0, *) else {
-            return (messages, [])
+            return (messages, [], [])
         }
 
         let service = VisionService()
         var updatedMessages: [Message] = []
+        var ocrTexts: [String] = []
         var cleanupURLs: [URL] = []
 
         for message in messages {
@@ -541,13 +542,15 @@ struct VisionAPIController: RouteCollection {
                 cleanupURLs.append(contentsOf: resolved.cleanupURLs)
                 let ocrText = try await service.extractText(from: resolved.path, options: options)
                 imageIndex += 1
-                textChunks.append("[Apple Vision OCR image \(imageIndex)]\n\(ocrText)")
+                let labeled = "[Apple Vision OCR image \(imageIndex)]\n\(ocrText)"
+                textChunks.append(labeled)
+                ocrTexts.append(labeled)
             }
 
             updatedMessages.append(Message(role: message.role, content: textChunks.joined(separator: "\n\n")))
         }
 
-        return (updatedMessages, cleanupURLs)
+        return (updatedMessages, ocrTexts, cleanupURLs)
     }
 
     static func shouldAutoRunVisionTool(_ request: ChatCompletionRequest) -> Bool {

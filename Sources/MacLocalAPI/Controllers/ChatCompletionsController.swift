@@ -117,14 +117,7 @@ struct ChatCompletionsController: RouteCollection {
                         }
                     }
 
-                    // Extract only the OCR portions — the processed messages
-                    // mix original user text with "[Apple Vision OCR image N]\n..."
-                    // blocks.  Return just the OCR blocks, like `afm vision -f`.
-                    let ocrContent = visionProcessed.messages
-                        .filter { $0.role == "user" }
-                        .flatMap { $0.textContent.components(separatedBy: "\n\n") }
-                        .filter { $0.hasPrefix("[Apple Vision OCR image") }
-                        .joined(separator: "\n\n")
+                    let ocrContent = visionProcessed.ocrTexts.joined(separator: "\n\n")
 
                     if chatRequest.stream == true && streamingEnabled {
                         return try await createVisionStreamingResponse(
