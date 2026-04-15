@@ -430,7 +430,8 @@ struct VisionAPIController: RouteCollection {
         if let url = URL(string: raw), let scheme = url.scheme?.lowercased() {
             switch scheme {
             case "file":
-                return VisionResolvedInput(path: url.path, sourceType: "file_url", cleanupURLs: [])
+                let sanitized = try sanitizeFilePath(url.path)
+                return VisionResolvedInput(path: sanitized, sourceType: "file_url", cleanupURLs: [])
             case "http", "https":
                 throw VisionError.remoteURLNotSupported
             default:
@@ -438,7 +439,33 @@ struct VisionAPIController: RouteCollection {
             }
         }
 
-        return VisionResolvedInput(path: resolvePath(raw), sourceType: "file", cleanupURLs: [])
+        let sanitized = try sanitizeFilePath(resolvePath(raw))
+        return VisionResolvedInput(path: sanitized, sourceType: "file", cleanupURLs: [])
+    }
+
+    /// Validate that a file path points to an existing regular file with a
+    /// supported image/document extension.  Rejects directory traversal,
+    /// symlinks to unexpected locations, device nodes, etc.
+    private static func sanitizeFilePath(_ path: String) throws -> String {
+        let resolved = URL(fileURLWithPath: path).standardizedFileURL.path
+        let fm = FileManager.default
+
+        // Must exist
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: resolved, isDirectory: &isDir) else {
+            throw VisionError.fileNotFound
+        }
+        // Must be a regular file, not a directory
+        guard !isDir.boolValue else {
+            throw VisionError.unsupportedFormat
+        }
+        // Extension must be a supported image/document type
+        let ext = URL(fileURLWithPath: resolved).pathExtension.lowercased()
+        let allowed: Set<String> = ["png", "jpg", "jpeg", "heic", "pdf"]
+        guard allowed.contains(ext) else {
+            throw VisionError.unsupportedFormat
+        }
+        return resolved
     }
 
     static func writeTempDataPayload(_ payload: String, filename: String, mediaType: String?) throws -> URL {

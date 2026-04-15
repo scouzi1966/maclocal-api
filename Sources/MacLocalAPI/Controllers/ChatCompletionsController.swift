@@ -105,18 +105,45 @@ struct ChatCompletionsController: RouteCollection {
                     return parts.contains(where: { $0.type == "image_url" })
                 }
                 if shouldApplyVisionOCR {
+                    // Run OCR and return results directly — Foundation Models has a
+                    // 4096 token context limit that OCR text easily exceeds.  Bypass
+                    // the LLM entirely, matching `afm vision -f` behaviour.
                     let visionOptions = VisionRequestOptions()
                     let visionProcessed = try await VisionAPIController.extractOCRTextFromMessages(chatRequest.messages, options: visionOptions)
                     visionCleanupURLs = visionProcessed.cleanupURLs
-                    var messagesWithOCR = visionProcessed.messages
-                    if VisionAPIController.shouldAutoRunVisionTool(chatRequest) {
-                        let toolPrelude = Message(
-                            role: "system",
-                            content: "Built-in tool apple_vision_ocr has already been executed for the attached images. Use the injected OCR text when answering."
-                        )
-                        messagesWithOCR.insert(toolPrelude, at: 0)
+                    defer {
+                        for url in visionCleanupURLs {
+                            try? FileManager.default.removeItem(at: url)
+                        }
                     }
-                    processedMessages = messagesWithOCR
+
+                    // Extract only the OCR portions — the processed messages
+                    // mix original user text with "[Apple Vision OCR image N]\n..."
+                    // blocks.  Return just the OCR blocks, like `afm vision -f`.
+                    let ocrContent = visionProcessed.messages
+                        .filter { $0.role == "user" }
+                        .flatMap { $0.textContent.components(separatedBy: "\n\n") }
+                        .filter { $0.hasPrefix("[Apple Vision OCR image") }
+                        .joined(separator: "\n\n")
+
+                    if chatRequest.stream == true && streamingEnabled {
+                        return try await createVisionStreamingResponse(
+                            req: req,
+                            chatRequest: chatRequest,
+                            ocrContent: ocrContent
+                        )
+                    } else {
+                        let promptTokens = estimateTokens(for: chatRequest.messages)
+                        let completionTokens = estimateTokens(for: ocrContent)
+                        let response = ChatCompletionResponse(
+                            model: chatRequest.model ?? "foundation",
+                            content: ocrContent,
+                            finishReason: "stop",
+                            promptTokens: promptTokens,
+                            completionTokens: completionTokens
+                        )
+                        return try await createSuccessResponse(req: req, response: response)
+                    }
                 } else {
                     processedMessages = chatRequest.messages
                 }
@@ -462,6 +489,81 @@ struct ChatCompletionsController: RouteCollection {
                 }
 
                 // Send [DONE] marker to properly terminate the stream
+                try? await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
+                try? await writer.write(.end)
+            }
+        })
+
+        return httpResponse
+    }
+
+    /// Stream OCR results directly to the client, bypassing the Foundation Model.
+    /// Mirrors what `afm vision -f` does: run Vision OCR and return extracted text.
+    private func createVisionStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, ocrContent: String) async throws -> Response {
+        let httpResponse = Response(status: .ok)
+        httpResponse.headers.add(name: .contentType, value: "text/event-stream")
+        httpResponse.headers.add(name: .cacheControl, value: "no-cache")
+        httpResponse.headers.add(name: .connection, value: "keep-alive")
+        httpResponse.headers.add(name: "Access-Control-Allow-Origin", value: "*")
+        httpResponse.headers.add(name: "Access-Control-Allow-Headers", value: "Content-Type")
+        httpResponse.headers.add(name: "X-Accel-Buffering", value: "no")
+
+        let streamId = UUID().uuidString
+        let model = chatRequest.model ?? "foundation"
+        let promptTokens = estimateTokens(for: chatRequest.messages)
+        let completionTokens = estimateTokens(for: ocrContent)
+
+        httpResponse.body = .init(asyncStream: { writer in
+            let encoder = JSONEncoder()
+
+            do {
+                // Send content in a single chunk (OCR is already complete)
+                let contentChunk = ChatCompletionStreamResponse(
+                    id: streamId,
+                    model: model,
+                    content: ocrContent,
+                    isFirst: true
+                )
+                let contentData = try encoder.encode(contentChunk)
+                if let jsonString = String(data: contentData, encoding: .utf8) {
+                    try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                }
+
+                // Send final chunk with finish_reason
+                let finalChunk = ChatCompletionStreamResponse(
+                    id: streamId,
+                    model: model,
+                    content: "",
+                    isFinished: true,
+                    finishReason: "stop"
+                )
+                let finalData = try encoder.encode(finalChunk)
+                if let jsonString = String(data: finalData, encoding: .utf8) {
+                    try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                }
+
+                // Send usage chunk
+                let usage = StreamUsage(
+                    promptTokens: promptTokens,
+                    completionTokens: completionTokens,
+                    completionTime: 0,
+                    promptTime: 0
+                )
+                let usageChunk = ChatCompletionStreamResponse(
+                    id: streamId,
+                    model: model,
+                    usage: usage,
+                    timings: nil
+                )
+                let usageData = try encoder.encode(usageChunk)
+                if let jsonString = String(data: usageData, encoding: .utf8) {
+                    try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                }
+
+                try await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
+                try await writer.write(.end)
+            } catch {
+                req.logger.error("Vision streaming error: \(error)")
                 try? await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
                 try? await writer.write(.end)
             }
