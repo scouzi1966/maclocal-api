@@ -90,40 +90,54 @@ final class SpeechService {
             guard granted else { throw SpeechError.authorizationDenied }
         }
 
-        // Create recognizer
+        // Create recognizer and verify on-device support
         guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: options.locale)) else {
             throw SpeechError.onDeviceNotAvailable
         }
-        recognizer.supportsOnDeviceRecognition = true
+        guard recognizer.supportsOnDeviceRecognition else {
+            throw SpeechError.onDeviceNotAvailable
+        }
 
         // Create request
         let request = SFSpeechURLRecognitionRequest(url: fileURL)
         request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = false
 
-        // Use SFSpeechRecognitionTaskDelegate approach via a dedicated queue
-        let text: String = try await withCheckedThrowingContinuation { continuation in
-            var resumed = false
-            let queue = OperationQueue()
-            queue.qualityOfService = .userInitiated
+        // Run recognition with a timeout to prevent hung requests
+        let recognitionTimeout: UInt64 = 120_000_000_000 // 120 seconds
+        let text: String = try await withThrowingTaskGroup(of: String.self) { group in
+            group.addTask {
+                try await withCheckedThrowingContinuation { continuation in
+                    var resumed = false
+                    let queue = OperationQueue()
+                    queue.qualityOfService = .userInitiated
 
-            recognizer.queue = queue
-            recognizer.recognitionTask(with: request) { result, error in
-                guard !resumed else { return }
-                if let error {
-                    resumed = true
-                    continuation.resume(throwing: SpeechError.recognitionFailed(error.localizedDescription))
-                    return
-                }
-                guard let result, result.isFinal else { return }
-                resumed = true
-                let formatted = result.bestTranscription.formattedString
-                if formatted.isEmpty {
-                    continuation.resume(throwing: SpeechError.noSpeechFound)
-                } else {
-                    continuation.resume(returning: formatted)
+                    recognizer.queue = queue
+                    recognizer.recognitionTask(with: request) { result, error in
+                        guard !resumed else { return }
+                        if let error {
+                            resumed = true
+                            continuation.resume(throwing: SpeechError.recognitionFailed(error.localizedDescription))
+                            return
+                        }
+                        guard let result, result.isFinal else { return }
+                        resumed = true
+                        let formatted = result.bestTranscription.formattedString
+                        if formatted.isEmpty {
+                            continuation.resume(throwing: SpeechError.noSpeechFound)
+                        } else {
+                            continuation.resume(returning: formatted)
+                        }
+                    }
                 }
             }
+            group.addTask {
+                try await Task.sleep(nanoseconds: recognitionTimeout)
+                throw SpeechError.recognitionFailed("Recognition timed out after 120 seconds")
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
         }
 
         return text

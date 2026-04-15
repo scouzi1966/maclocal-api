@@ -8,17 +8,6 @@ struct SpeechTranscriptionResponse: Content {
 }
 
 struct SpeechAPIController: RouteCollection {
-    private static let supportedMediaTypes: [String: String] = [
-        "audio/wav": "wav",
-        "audio/x-wav": "wav",
-        "audio/mpeg": "mp3",
-        "audio/mp3": "mp3",
-        "audio/mp4": "m4a",
-        "audio/x-m4a": "m4a",
-        "audio/x-caf": "caf",
-        "audio/aiff": "aiff",
-        "audio/x-aiff": "aiff"
-    ]
 
     func boot(routes: RoutesBuilder) throws {
         let v1 = routes.grouped("v1")
@@ -61,9 +50,9 @@ struct SpeechAPIController: RouteCollection {
 
         let filePath: String
         if let file = body.file, !file.isEmpty {
-            filePath = URL(fileURLWithPath: NSString(string: file).expandingTildeInPath).standardized.path
+            filePath = try Self.sanitizeAudioPath(file)
         } else if let data = body.data, !data.isEmpty {
-            let ext = body.format ?? "wav"
+            let ext = try Self.validatedExtension(body.format ?? "wav")
             let tempURL = try Self.writeTempAudio(base64: data, ext: ext)
             cleanupURLs.append(tempURL)
             filePath = tempURL.path
@@ -96,6 +85,7 @@ struct SpeechAPIController: RouteCollection {
         var updatedMessages: [Message] = []
         var transcriptionTexts: [String] = []
         var cleanupURLs: [URL] = []
+        var audioIndex = 0
 
         for message in messages {
             guard let content = message.content, case .parts(let parts) = content else {
@@ -104,10 +94,9 @@ struct SpeechAPIController: RouteCollection {
             }
 
             var textChunks = parts.compactMap(\.text)
-            var audioIndex = 0
             for part in parts where part.type == "input_audio" {
                 guard let inputAudio = part.input_audio else { continue }
-                let ext = inputAudio.format.isEmpty ? "wav" : inputAudio.format
+                let ext = try validatedExtension(inputAudio.format.isEmpty ? "wav" : inputAudio.format)
                 let tempURL = try writeTempAudio(base64: inputAudio.data, ext: ext)
                 cleanupURLs.append(tempURL)
                 let transcription = try await service.transcribe(from: tempURL.path, options: options)
@@ -121,6 +110,38 @@ struct SpeechAPIController: RouteCollection {
         }
 
         return (updatedMessages, transcriptionTexts, cleanupURLs)
+    }
+
+    // MARK: - Helpers
+
+    /// Validate and resolve a file path for the API endpoint.
+    /// Resolves symlinks, rejects directories, and enforces audio extension allowlist.
+    private static func sanitizeAudioPath(_ raw: String) throws -> String {
+        let expanded = NSString(string: raw).expandingTildeInPath
+        let resolved = URL(fileURLWithPath: expanded).resolvingSymlinksInPath().path
+        let fm = FileManager.default
+
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: resolved, isDirectory: &isDir) else {
+            throw SpeechError.fileNotFound
+        }
+        guard !isDir.boolValue else {
+            throw SpeechError.unsupportedFormat
+        }
+        let ext = URL(fileURLWithPath: resolved).pathExtension.lowercased()
+        guard SpeechRequestOptions.supportedExtensions.contains(ext) else {
+            throw SpeechError.unsupportedFormat
+        }
+        return resolved
+    }
+
+    /// Validate that ext is a supported audio extension before using it in a filename.
+    private static func validatedExtension(_ ext: String) throws -> String {
+        let clean = ext.lowercased()
+        guard SpeechRequestOptions.supportedExtensions.contains(clean) else {
+            throw SpeechError.unsupportedFormat
+        }
+        return clean
     }
 
     private static func writeTempAudio(base64: String, ext: String) throws -> URL {
