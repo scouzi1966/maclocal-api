@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Speech
 
 enum SpeechError: Error, LocalizedError {
@@ -35,6 +36,7 @@ enum SpeechError: Error, LocalizedError {
 
 struct SpeechRequestOptions: Sendable {
     static let defaultMaxFileBytes = 50 * 1024 * 1024  // 50 MB
+    static let recognitionTimeoutNs: UInt64 = 120_000_000_000  // 120 seconds
     static let supportedExtensions: Set<String> = ["wav", "mp3", "m4a", "caf", "aiff", "aif"]
 
     let locale: String
@@ -103,25 +105,34 @@ final class SpeechService {
         request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = false
 
-        // Run recognition with a timeout to prevent hung requests
-        let recognitionTimeout: UInt64 = 120_000_000_000 // 120 seconds
+        // Run recognition with a timeout to prevent hung requests.
+        // OSAllocatedUnfairLock guards the one-shot continuation resume.
+        let resumed = OSAllocatedUnfairLock(initialState: false)
+
         let text: String = try await withThrowingTaskGroup(of: String.self) { group in
             group.addTask {
                 try await withCheckedThrowingContinuation { continuation in
-                    var resumed = false
                     let queue = OperationQueue()
                     queue.qualityOfService = .userInitiated
 
                     recognizer.queue = queue
-                    recognizer.recognitionTask(with: request) { result, error in
-                        guard !resumed else { return }
+                    let task = recognizer.recognitionTask(with: request) { result, error in
+                        let alreadyResumed = resumed.withLock { done in
+                            if done { return true }
+                            done = true
+                            return false
+                        }
+                        guard !alreadyResumed else { return }
+
                         if let error {
-                            resumed = true
                             continuation.resume(throwing: SpeechError.recognitionFailed(error.localizedDescription))
                             return
                         }
-                        guard let result, result.isFinal else { return }
-                        resumed = true
+                        guard let result, result.isFinal else {
+                            // Not final yet — un-mark so next callback can proceed
+                            resumed.withLock { $0 = false }
+                            return
+                        }
                         let formatted = result.bestTranscription.formattedString
                         if formatted.isEmpty {
                             continuation.resume(throwing: SpeechError.noSpeechFound)
@@ -129,11 +140,21 @@ final class SpeechService {
                             continuation.resume(returning: formatted)
                         }
                     }
+
+                    // Cancel the recognition task if the parent task is cancelled
+                    // (e.g., timeout fires first), ensuring the callback fires
+                    // promptly with an error.
+                    Task {
+                        while !Task.isCancelled {
+                            try? await Task.sleep(nanoseconds: 500_000_000)
+                        }
+                        task.cancel()
+                    }
                 }
             }
             group.addTask {
-                try await Task.sleep(nanoseconds: recognitionTimeout)
-                throw SpeechError.recognitionFailed("Recognition timed out after 120 seconds")
+                try await Task.sleep(nanoseconds: SpeechRequestOptions.recognitionTimeoutNs)
+                throw SpeechError.recognitionFailed("Recognition timed out")
             }
             let result = try await group.next()!
             group.cancelAll()
