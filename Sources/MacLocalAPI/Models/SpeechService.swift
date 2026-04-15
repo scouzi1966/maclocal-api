@@ -108,48 +108,46 @@ final class SpeechService {
         // Run recognition with a timeout to prevent hung requests.
         // OSAllocatedUnfairLock guards the one-shot continuation resume.
         let resumed = OSAllocatedUnfairLock(initialState: false)
+        // Holds the SFSpeechRecognitionTask so onCancel can reach it.
+        let taskRef = OSAllocatedUnfairLock<SFSpeechRecognitionTask?>(initialState: nil)
 
         let text: String = try await withThrowingTaskGroup(of: String.self) { group in
             group.addTask {
-                try await withCheckedThrowingContinuation { continuation in
-                    let queue = OperationQueue()
-                    queue.qualityOfService = .userInitiated
+                try await withTaskCancellationHandler {
+                    try await withCheckedThrowingContinuation { continuation in
+                        let queue = OperationQueue()
+                        queue.qualityOfService = .userInitiated
 
-                    recognizer.queue = queue
-                    let task = recognizer.recognitionTask(with: request) { result, error in
-                        let alreadyResumed = resumed.withLock { done in
-                            if done { return true }
-                            done = true
-                            return false
+                        recognizer.queue = queue
+                        let task = recognizer.recognitionTask(with: request) { result, error in
+                            if let error {
+                                let shouldResume = resumed.withLock { done in
+                                    if done { return false }
+                                    done = true
+                                    return true
+                                }
+                                guard shouldResume else { return }
+                                continuation.resume(throwing: SpeechError.recognitionFailed(error.localizedDescription))
+                                return
+                            }
+                            guard let result, result.isFinal else { return }
+                            let shouldResume = resumed.withLock { done in
+                                if done { return false }
+                                done = true
+                                return true
+                            }
+                            guard shouldResume else { return }
+                            let formatted = result.bestTranscription.formattedString
+                            if formatted.isEmpty {
+                                continuation.resume(throwing: SpeechError.noSpeechFound)
+                            } else {
+                                continuation.resume(returning: formatted)
+                            }
                         }
-                        guard !alreadyResumed else { return }
-
-                        if let error {
-                            continuation.resume(throwing: SpeechError.recognitionFailed(error.localizedDescription))
-                            return
-                        }
-                        guard let result, result.isFinal else {
-                            // Not final yet — un-mark so next callback can proceed
-                            resumed.withLock { $0 = false }
-                            return
-                        }
-                        let formatted = result.bestTranscription.formattedString
-                        if formatted.isEmpty {
-                            continuation.resume(throwing: SpeechError.noSpeechFound)
-                        } else {
-                            continuation.resume(returning: formatted)
-                        }
+                        taskRef.withLock { $0 = task }
                     }
-
-                    // Cancel the recognition task if the parent task is cancelled
-                    // (e.g., timeout fires first), ensuring the callback fires
-                    // promptly with an error.
-                    Task {
-                        while !Task.isCancelled {
-                            try? await Task.sleep(nanoseconds: 500_000_000)
-                        }
-                        task.cancel()
-                    }
+                } onCancel: {
+                    taskRef.withLock { $0?.cancel() }
                 }
             }
             group.addTask {
