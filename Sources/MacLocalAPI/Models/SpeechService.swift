@@ -145,6 +145,7 @@ final class SpeechService {
                             }
                         }
                         taskRef.withLock { $0 = task }
+                        if Task.isCancelled { task.cancel() }
                     }
                 } onCancel: {
                     taskRef.withLock { $0?.cancel() }
