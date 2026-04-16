@@ -31,7 +31,11 @@ enum VisionError: Error, LocalizedError {
         case .fileNotFound:
             return "The specified file was not found"
         case .unsupportedFormat:
-            return "Unsupported file format. Supported formats: PNG, JPG, JPEG, HEIC, PDF"
+            let formats = VisionRequestOptions.supportedExtensions
+                .map { $0.uppercased() }
+                .sorted()
+                .joined(separator: ", ")
+            return "Unsupported file format. Supported formats: \(formats)"
         case .remoteURLNotSupported:
             return "Remote HTTP(S) image URLs are not supported for Apple Vision OCR"
         case .unsupportedURLScheme(let scheme):
@@ -77,6 +81,15 @@ struct VisionRequestOptions: Sendable {
     static let defaultMaxPages = 50
     static let defaultMaxImageDimension = 4096
 
+    /// Single source of truth for file extensions accepted by the Vision OCR
+    /// pipeline.  CGImageSource handles the image formats natively; PDF is
+    /// rendered via PDFKit.  All Vision entry points (controller sanitization
+    /// and service-level validation) must gate on this set.
+    static let supportedExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "heic", "pdf",
+        "tif", "tiff", "gif", "bmp", "webp"
+    ]
+
     let recognitionLevel: VisionRecognitionLevel
     let usesLanguageCorrection: Bool
     let recognitionLanguages: [String]
@@ -103,7 +116,6 @@ struct VisionRequestOptions: Sendable {
 
 @available(macOS 26.0, *)
 final class VisionService {
-    private static let supportedExtensions: Set<String> = ["png", "jpg", "jpeg", "heic", "pdf"]
     private static let pdfRenderScale: CGFloat = 2.0
 
     func extractText(from filePath: String) async throws -> String {
@@ -271,7 +283,7 @@ final class VisionService {
         }
 
         let fileExtension = url.pathExtension.lowercased()
-        guard Self.supportedExtensions.contains(fileExtension) else {
+        guard VisionRequestOptions.supportedExtensions.contains(fileExtension) else {
             throw VisionError.unsupportedFormat
         }
 

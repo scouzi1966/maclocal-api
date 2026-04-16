@@ -461,8 +461,7 @@ struct VisionAPIController: RouteCollection {
         }
         // Extension must be a supported image/document type
         let ext = URL(fileURLWithPath: resolved).pathExtension.lowercased()
-        let allowed: Set<String> = ["png", "jpg", "jpeg", "heic", "pdf", "tif", "tiff", "gif", "bmp", "webp"]
-        guard allowed.contains(ext) else {
+        guard VisionRequestOptions.supportedExtensions.contains(ext) else {
             throw VisionError.unsupportedFormat
         }
         return resolved
@@ -518,39 +517,42 @@ struct VisionAPIController: RouteCollection {
         return "png"
     }
 
-    static func extractOCRTextFromMessages(_ messages: [Message], options: VisionRequestOptions) async throws -> (messages: [Message], ocrTexts: [String], cleanupURLs: [URL]) {
+    /// Run Apple Vision OCR on every `image_url` part in the request messages
+    /// and return the extracted text in order, along with any temp files that
+    /// need to be cleaned up by the caller.
+    ///
+    /// This helper intentionally does NOT return rebuilt messages: the OCR-only
+    /// path in `ChatCompletionsController` bypasses the Foundation Model and
+    /// streams the extracted text directly, so message reconstruction would be
+    /// dead code.  If a future caller needs the OCR text spliced back into the
+    /// conversation for downstream LLM input, add a separate helper (e.g.
+    /// `injectOCRTextIntoMessages`) that layers on top of this one.
+    static func extractOCRTextFromMessages(_ messages: [Message], options: VisionRequestOptions) async throws -> (ocrTexts: [String], cleanupURLs: [URL]) {
         guard #available(macOS 26.0, *) else {
-            return (messages, [], [])
+            return ([], [])
         }
 
         let service = VisionService()
-        var updatedMessages: [Message] = []
         var ocrTexts: [String] = []
         var cleanupURLs: [URL] = []
+        var imageIndex = 0
 
         for message in messages {
             guard let content = message.content, case .parts(let parts) = content else {
-                updatedMessages.append(message)
                 continue
             }
 
-            var textChunks = parts.compactMap(\.text)
-            var imageIndex = 0
             for part in parts where part.type == "image_url" {
                 guard let imageURL = part.image_url else { continue }
                 let resolved = try resolveImageURL(imageURL)
                 cleanupURLs.append(contentsOf: resolved.cleanupURLs)
                 let ocrText = try await service.extractText(from: resolved.path, options: options)
                 imageIndex += 1
-                let labeled = "[Apple Vision OCR image \(imageIndex)]\n\(ocrText)"
-                textChunks.append(labeled)
-                ocrTexts.append(labeled)
+                ocrTexts.append("[Apple Vision OCR image \(imageIndex)]\n\(ocrText)")
             }
-
-            updatedMessages.append(Message(role: message.role, content: textChunks.joined(separator: "\n\n")))
         }
 
-        return (updatedMessages, ocrTexts, cleanupURLs)
+        return (ocrTexts, cleanupURLs)
     }
 
     static func shouldAutoRunVisionTool(_ request: ChatCompletionRequest) -> Bool {

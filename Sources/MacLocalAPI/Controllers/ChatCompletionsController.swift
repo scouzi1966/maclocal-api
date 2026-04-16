@@ -126,14 +126,15 @@ struct ChatCompletionsController: RouteCollection {
                             ocrContent: ocrContent
                         )
                     } else {
-                        let promptTokens = estimateTokens(for: chatRequest.messages)
-                        let completionTokens = estimateTokens(for: ocrContent)
+                        // No LLM was invoked — OCR text comes directly from
+                        // Apple Vision.  Mirror `afm vision -f`, which does
+                        // not report token usage, by leaving prompt/completion
+                        // tokens at zero rather than producing a misleading
+                        // estimate over image-bearing message parts.
                         let response = ChatCompletionResponse(
                             model: chatRequest.model ?? "foundation",
                             content: ocrContent,
-                            finishReason: "stop",
-                            promptTokens: promptTokens,
-                            completionTokens: completionTokens
+                            finishReason: "stop"
                         )
                         return try await createSuccessResponse(req: req, response: response)
                     }
@@ -503,8 +504,6 @@ struct ChatCompletionsController: RouteCollection {
 
         let streamId = UUID().uuidString
         let model = chatRequest.model ?? "foundation"
-        let promptTokens = estimateTokens(for: chatRequest.messages)
-        let completionTokens = estimateTokens(for: ocrContent)
 
         httpResponse.body = .init(asyncStream: { writer in
             let encoder = JSONEncoder()
@@ -522,7 +521,10 @@ struct ChatCompletionsController: RouteCollection {
                     try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                 }
 
-                // Send final chunk with finish_reason
+                // Send final chunk with finish_reason.  No usage chunk is
+                // emitted: the Foundation Model was bypassed, so there are no
+                // LLM tokens to report — matching `afm vision -f`, which
+                // prints OCR text without any usage metrics.
                 let finalChunk = ChatCompletionStreamResponse(
                     id: streamId,
                     model: model,
@@ -532,24 +534,6 @@ struct ChatCompletionsController: RouteCollection {
                 )
                 let finalData = try encoder.encode(finalChunk)
                 if let jsonString = String(data: finalData, encoding: .utf8) {
-                    try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
-                }
-
-                // Send usage chunk
-                let usage = StreamUsage(
-                    promptTokens: promptTokens,
-                    completionTokens: completionTokens,
-                    completionTime: 0,
-                    promptTime: 0
-                )
-                let usageChunk = ChatCompletionStreamResponse(
-                    id: streamId,
-                    model: model,
-                    usage: usage,
-                    timings: nil
-                )
-                let usageData = try encoder.encode(usageChunk)
-                if let jsonString = String(data: usageData, encoding: .utf8) {
                     try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                 }
 
