@@ -163,14 +163,27 @@ enum MessageContent: Codable {
 }
 
 struct ContentPart: Codable {
-    let type: String        // "text" or "image_url"
+    let type: String        // "text", "image_url", or "input_audio"
     let text: String?       // For type="text"
     let image_url: ImageURL? // For type="image_url"
+    let input_audio: InputAudio? // For type="input_audio"
+
+    init(type: String, text: String? = nil, image_url: ImageURL? = nil, input_audio: InputAudio? = nil) {
+        self.type = type
+        self.text = text
+        self.image_url = image_url
+        self.input_audio = input_audio
+    }
 }
 
 struct ImageURL: Codable {
     let url: String  // "data:image/png;base64,..." or URL
     let detail: String?  // "auto", "low", "high" (optional)
+}
+
+struct InputAudio: Codable {
+    let data: String   // base64-encoded audio
+    let format: String // "wav", "mp3", etc.
 }
 
 struct Message: Content {
