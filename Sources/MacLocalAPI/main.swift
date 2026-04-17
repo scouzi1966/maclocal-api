@@ -1235,7 +1235,7 @@ struct RootCommand: ParsableCommand {
         GitHub: https://github.com/scouzi1966/maclocal-api
         """,
         version: MacLocalAPI.buildVersion,
-        subcommands: [MlxCommand.self, VisionCommand.self]
+        subcommands: [MlxCommand.self, VisionCommand.self, SpeechCommand.self]
     )
 
     @Option(name: [.customShort("s"), .long], help: "Run a single prompt without starting the server")
@@ -1371,6 +1371,28 @@ if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
         try cmd.run()
     } catch {
         MlxCommand.exit(withError: error)
+    }
+} else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "speech" {
+    let args = Array(CommandLine.arguments.dropFirst(2))
+    do {
+        let cmd = try SpeechCommand.parse(args)
+        let group = DispatchGroup()
+        var caughtError: Error?
+        group.enter()
+        Task {
+            do {
+                try await cmd.run()
+            } catch {
+                caughtError = error
+            }
+            group.leave()
+        }
+        group.wait()
+        if let error = caughtError {
+            throw error
+        }
+    } catch {
+        SpeechCommand.exit(withError: error)
     }
 } else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "vision" {
     let args = Array(CommandLine.arguments.dropFirst(2))

@@ -241,6 +241,7 @@ class Server {
         }
 
         try app.register(collection: VisionAPIController())
+        try app.register(collection: SpeechAPIController())
 
         if let mlxModelID = mlxModelID, let mlxModelService = mlxModelService {
             let mlxController = MLXChatCompletionsController(
@@ -329,7 +330,7 @@ class Server {
                     total_slots: 1,
                     model_path: mlxModelID,
                     role: "mlx",
-                    modalities: Modalities(vision: true, audio: false),
+                    modalities: Modalities(vision: true, audio: true),
                     chat_template: "",
                     bos_token: "",
                     eos_token: "",
@@ -372,7 +373,7 @@ class Server {
                 total_slots: 1,
                 model_path: modelPath,
                 role: self.gatewayEnabled ? "router" : "model",
-                modalities: Modalities(vision: hasVision, audio: false),
+                modalities: Modalities(vision: hasVision, audio: true),
                 chat_template: "",
                 bos_token: "",
                 eos_token: "",
