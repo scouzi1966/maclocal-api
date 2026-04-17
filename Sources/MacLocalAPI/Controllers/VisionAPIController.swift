@@ -430,7 +430,8 @@ struct VisionAPIController: RouteCollection {
         if let url = URL(string: raw), let scheme = url.scheme?.lowercased() {
             switch scheme {
             case "file":
-                return VisionResolvedInput(path: url.path, sourceType: "file_url", cleanupURLs: [])
+                let sanitized = try sanitizeFilePath(url.path)
+                return VisionResolvedInput(path: sanitized, sourceType: "file_url", cleanupURLs: [])
             case "http", "https":
                 throw VisionError.remoteURLNotSupported
             default:
@@ -438,7 +439,32 @@ struct VisionAPIController: RouteCollection {
             }
         }
 
-        return VisionResolvedInput(path: resolvePath(raw), sourceType: "file", cleanupURLs: [])
+        let sanitized = try sanitizeFilePath(resolvePath(raw))
+        return VisionResolvedInput(path: sanitized, sourceType: "file", cleanupURLs: [])
+    }
+
+    /// Validate that a file path points to an existing regular file with a
+    /// supported image/document extension.  Resolves symlinks and rejects
+    /// directories, non-image files, and path traversal.
+    private static func sanitizeFilePath(_ path: String) throws -> String {
+        let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        let fm = FileManager.default
+
+        // Must exist
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: resolved, isDirectory: &isDir) else {
+            throw VisionError.fileNotFound
+        }
+        // Must be a regular file, not a directory
+        guard !isDir.boolValue else {
+            throw VisionError.unsupportedFormat
+        }
+        // Extension must be a supported image/document type
+        let ext = URL(fileURLWithPath: resolved).pathExtension.lowercased()
+        guard VisionRequestOptions.supportedExtensions.contains(ext) else {
+            throw VisionError.unsupportedFormat
+        }
+        return resolved
     }
 
     static func writeTempDataPayload(_ payload: String, filename: String, mediaType: String?) throws -> URL {
@@ -491,36 +517,42 @@ struct VisionAPIController: RouteCollection {
         return "png"
     }
 
-    static func extractOCRTextFromMessages(_ messages: [Message], options: VisionRequestOptions) async throws -> (messages: [Message], cleanupURLs: [URL]) {
+    /// Run Apple Vision OCR on every `image_url` part in the request messages
+    /// and return the extracted text in order, along with any temp files that
+    /// need to be cleaned up by the caller.
+    ///
+    /// This helper intentionally does NOT return rebuilt messages: the OCR-only
+    /// path in `ChatCompletionsController` bypasses the Foundation Model and
+    /// streams the extracted text directly, so message reconstruction would be
+    /// dead code.  If a future caller needs the OCR text spliced back into the
+    /// conversation for downstream LLM input, add a separate helper (e.g.
+    /// `injectOCRTextIntoMessages`) that layers on top of this one.
+    static func extractOCRTextFromMessages(_ messages: [Message], options: VisionRequestOptions) async throws -> (ocrTexts: [String], cleanupURLs: [URL]) {
         guard #available(macOS 26.0, *) else {
-            return (messages, [])
+            return ([], [])
         }
 
         let service = VisionService()
-        var updatedMessages: [Message] = []
+        var ocrTexts: [String] = []
         var cleanupURLs: [URL] = []
+        var imageIndex = 0
 
         for message in messages {
             guard let content = message.content, case .parts(let parts) = content else {
-                updatedMessages.append(message)
                 continue
             }
 
-            var textChunks = parts.compactMap(\.text)
-            var imageIndex = 0
             for part in parts where part.type == "image_url" {
                 guard let imageURL = part.image_url else { continue }
                 let resolved = try resolveImageURL(imageURL)
                 cleanupURLs.append(contentsOf: resolved.cleanupURLs)
                 let ocrText = try await service.extractText(from: resolved.path, options: options)
                 imageIndex += 1
-                textChunks.append("[Apple Vision OCR image \(imageIndex)]\n\(ocrText)")
+                ocrTexts.append("[Apple Vision OCR image \(imageIndex)]\n\(ocrText)")
             }
-
-            updatedMessages.append(Message(role: message.role, content: textChunks.joined(separator: "\n\n")))
         }
 
-        return (updatedMessages, cleanupURLs)
+        return (ocrTexts, cleanupURLs)
     }
 
     static func shouldAutoRunVisionTool(_ request: ChatCompletionRequest) -> Bool {
