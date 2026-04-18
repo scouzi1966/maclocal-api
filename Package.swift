@@ -72,6 +72,11 @@ let package = Package(
                 .product(name: "Hub", package: "swift-transformers"),
                 .product(name: "HuggingFace", package: "swift-huggingface")
             ],
+            exclude: [
+                // Embedded into the binary's __TEXT,__info_plist section via linker flags below.
+                // Excluded from SPM resource processing so it isn't also copied into the bundle.
+                "Info.plist"
+            ],
             resources: [
                 .copy("Resources/default.metallib")
             ],
@@ -83,6 +88,17 @@ let package = Package(
                 .unsafeFlags(["-file-prefix-map", "\(packageDir)/="], .when(configuration: .release))
             ],
             linkerSettings: [
+                // Embed Info.plist with NSSpeechRecognitionUsageDescription into the binary's
+                // __TEXT,__info_plist section. macOS 26 SIGABRTs any process that requests
+                // privacy-sensitive APIs (Speech Recognition, microphone, camera, etc.) without
+                // a matching *UsageDescription key in its Info.plist. Required for PR #107's
+                // Apple Speech feature; harmless for non-Speech code paths.
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", "\(packageDir)/Sources/MacLocalAPI/Info.plist"
+                ]),
                 // Create a more portable executable
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path"], .when(configuration: .release)),
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "/usr/lib/swift"], .when(configuration: .release)),

@@ -204,6 +204,28 @@ else
   exit 1
 fi
 
+# Verify Info.plist is embedded in the binary's __TEXT,__info_plist section.
+# Without this, macOS 26 SIGABRTs any process that requests privacy-sensitive APIs
+# (Speech Recognition, microphone, camera, etc.) — the Speech transcription feature
+# and any future privacy-API integration will crash on first use.
+# The linker flags in Package.swift (-Xlinker -sectcreate -Xlinker __TEXT
+# -Xlinker __info_plist -Xlinker Sources/MacLocalAPI/Info.plist) must be preserved.
+INFO_PLIST_SECTION=$(otool -l "$FINAL_BIN" 2>/dev/null | grep -A2 '__info_plist' | head -3)
+if echo "$INFO_PLIST_SECTION" | grep -q '__info_plist'; then
+  if strings "$FINAL_BIN" | grep -q 'NSSpeechRecognitionUsageDescription'; then
+    log_info "Info.plist embedded OK (NSSpeechRecognitionUsageDescription present)"
+  else
+    log_error "Info.plist section present but NSSpeechRecognitionUsageDescription key is missing"
+    log_error "Check Sources/MacLocalAPI/Info.plist — required for Apple Speech Recognition"
+    exit 1
+  fi
+else
+  log_error "Missing __TEXT,__info_plist section in binary"
+  log_error "Check Package.swift linker flags and Sources/MacLocalAPI/Info.plist exists"
+  log_error "macOS 26 SIGABRTs any process that calls privacy-sensitive APIs without Info.plist"
+  exit 1
+fi
+
 # Make metallib discoverable for `swift test` after a clean release build.
 # MLX framework searches CWD for "default.metallib" as its last resort.
 # A symlink at the project root ensures `swift test` (which runs from project root) finds it.

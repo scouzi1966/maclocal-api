@@ -88,6 +88,7 @@ The script already handles:
    - Version injection: writes the git commit SHA into `BuildInfo.swift` (then restores it after build)
    - Strip symbols for release builds
    - Metallib bundle verification
+   - **Info.plist embedding verification** — fails the build if the `__TEXT,__info_plist` section is missing or doesn't contain `NSSpeechRecognitionUsageDescription`. Required by `Sources/MacLocalAPI/Info.plist` + Package.swift linker flags (`-Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker …`). Without this, macOS 26 SIGABRTs any Speech Recognition / microphone / camera call.
 
 ### Step 3: Report Results
 
