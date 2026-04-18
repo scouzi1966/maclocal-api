@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: macafm-next
-Version: 0.9.10.dev20260408
+Version: 0.9.11.dev20260418
 Summary: Nightly build of AFM — local LLM inference on Apple Silicon via OpenAI-compatible API
 Author: Sylvain Cousineau
 License-Expression: MIT

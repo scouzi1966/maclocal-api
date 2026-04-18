@@ -100,6 +100,30 @@ else
 fi
 ```
 
+#### Check E: Info.plist embedded with privacy usage descriptions
+
+macOS 26 SIGABRTs any process that requests privacy-sensitive APIs (Speech Recognition, microphone, camera, etc.) without a matching `*UsageDescription` key in the binary's embedded Info.plist. PR #107's Apple Speech feature triggers this on every `afm speech` / `POST /v1/audio/transcriptions` / chat `input_audio` call.
+
+```bash
+# Verify __TEXT,__info_plist section exists
+if otool -l "$BIN_ABS" | grep -q '__info_plist'; then
+  echo "PASS: __info_plist section present"
+else
+  echo "FAIL: Missing __TEXT,__info_plist section"
+  echo "Check Package.swift linker flags and Sources/MacLocalAPI/Info.plist"
+fi
+
+# Verify NSSpeechRecognitionUsageDescription key is in the embedded plist
+if strings "$BIN_ABS" | grep -q 'NSSpeechRecognitionUsageDescription'; then
+  echo "PASS: NSSpeechRecognitionUsageDescription embedded"
+else
+  echo "FAIL: NSSpeechRecognitionUsageDescription missing"
+  echo "afm speech / /v1/audio/transcriptions will SIGABRT on macOS 26"
+fi
+```
+
+**Note on testing Speech from an unattended context:** If this skill is running inside Claude Code / an editor terminal / any parent process that does NOT have NSSpeechRecognitionUsageDescription, macOS 26 attributes the TCC subject to the parent and the child crashes even with a correct embedded plist. This is a test-environment artifact, not a binary bug. To verify Speech end-to-end, run `afm speech -f <file.wav>` from a fresh Terminal.app window (stock /System/Applications/Utilities/Terminal.app).
+
 #### Present pre-flight results
 
 | Check | What it catches | Result |
@@ -108,8 +132,9 @@ fi
 | B: Metallib | Missing Metal shaders → crash on inference | PASS/FAIL |
 | C: Relocated binary | Bundle.module fatalError → crash on pip install | PASS/FAIL |
 | D: No Bundle.module | Source code regression guard | PASS/FAIL |
+| E: Info.plist embedded | macOS 26 SIGABRT on Speech Recognition without UsageDescription | PASS/FAIL |
 
-**If B, C, or D fail, STOP. Do not proceed.**
+**If B, C, D, or E fail, STOP. Do not proceed.**
 
 ### Step 3: Select Model
 

@@ -324,6 +324,35 @@ echo "PASS: Relocated binary runs without crash"
 
 **If either check fails, STOP IMMEDIATELY. Do NOT package, publish, or release.** Every pip and Homebrew user will get a crash on first run.
 
+**Step 5h: Info.plist embedding check (MANDATORY — blocks Speech Recognition SIGABRT):**
+
+macOS 26 SIGABRTs any process that requests privacy-sensitive APIs (Speech Recognition, microphone, camera, etc.) without the matching `*UsageDescription` key in its embedded Info.plist. Required for `afm speech`, `POST /v1/audio/transcriptions`, and chat `input_audio` content parts. Any future privacy-API integration needs its `*UsageDescription` key added here too.
+
+```bash
+# 1. Verify __TEXT,__info_plist section is present in the binary
+if ! otool -l "$BIN" | grep -q '__info_plist'; then
+  echo "FATAL: Missing __TEXT,__info_plist section in binary"
+  echo "Check Package.swift linker flags (-Xlinker -sectcreate ...) and Sources/MacLocalAPI/Info.plist"
+  exit 1
+fi
+
+# 2. Verify NSSpeechRecognitionUsageDescription key is embedded
+if ! strings "$BIN" | grep -q 'NSSpeechRecognitionUsageDescription'; then
+  echo "FATAL: NSSpeechRecognitionUsageDescription missing from embedded plist"
+  echo "afm speech / /v1/audio/transcriptions will SIGABRT on macOS 26"
+  exit 1
+fi
+
+# 3. Verify Info.plist source file is well-formed
+plutil -lint Sources/MacLocalAPI/Info.plist || { echo "FATAL: Info.plist is malformed"; exit 1; }
+
+echo "PASS: Info.plist embedded with NSSpeechRecognitionUsageDescription"
+```
+
+**If this fails, STOP.** Shipping a stable release with broken Speech Recognition is worse than shipping a nightly — stable users have higher expectations.
+
+**Note on CFBundleIdentifier in Info.plist:** The `CFBundleIdentifier` (`com.scouzi1966.afm`) establishes the TCC identity. Changing it later forces every user to re-grant Speech Recognition / microphone / camera permission. Treat it as a stable contract across releases.
+
 ### Step 6: Package Stable Tarball
 
 ```bash

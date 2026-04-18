@@ -70,10 +70,21 @@ test -f "$METALLIB" && echo "Metallib: OK ($(ls -lh "$METALLIB" | awk '{print $5
 
 # WebUI (MANDATORY)
 test -f Resources/webui/index.html.gz && echo "WebUI: OK" || echo "FATAL: WebUI MISSING — run /build-afm first"
+
+# Info.plist embedded with NSSpeechRecognitionUsageDescription (MANDATORY for macOS 26)
+# Wheel users get a crash on `afm speech` / POST /v1/audio/transcriptions / chat input_audio
+# if the binary doesn't have this key embedded. See Sources/MacLocalAPI/Info.plist +
+# Package.swift -Xlinker -sectcreate flags.
+if otool -l "$BIN" | grep -q '__info_plist' && strings "$BIN" | grep -q 'NSSpeechRecognitionUsageDescription'; then
+  echo "Info.plist: OK (NSSpeechRecognitionUsageDescription embedded)"
+else
+  echo "FATAL: Info.plist missing or NSSpeechRecognitionUsageDescription not embedded — run /build-afm to rebuild"
+fi
 ```
 
 If binary is missing, **STOP** and tell user to run `/build-afm` first.
 If WebUI is missing, **STOP** — the `-w` flag won't work without it. Run `/build-afm` to rebuild with webui.
+If Info.plist check fails, **STOP** — shipping a wheel without the embedded Info.plist means every pip user that calls Speech Recognition gets a SIGABRT on macOS 26. Run `/build-afm` (which now enforces this).
 
 ### Step 4: Stage Assets and Build Wheel
 

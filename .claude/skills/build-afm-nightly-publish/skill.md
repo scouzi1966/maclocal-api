@@ -308,7 +308,44 @@ fi
 
 **Why this matters:** Even a single `Bundle.module` call anywhere in the code path triggers the auto-generated `fatalError`. This is a regression guard — any future code that adds `Bundle.module` will be caught here before it ships.
 
-#### Check 11: Report all vendor/submodule pin levels
+#### Check 11: Info.plist embedded with privacy usage descriptions
+
+macOS 26 SIGABRTs any process that requests privacy-sensitive APIs (Speech Recognition, microphone, camera, contacts, etc.) without a matching `*UsageDescription` key in its Info.plist. Currently required for PR #107's Apple Speech feature (`afm speech`, `POST /v1/audio/transcriptions`, chat `input_audio` content parts). Any future privacy-API integration needs its key added here too.
+
+```bash
+BIN=.build/arm64-apple-macosx/release/afm
+
+# Verify __TEXT,__info_plist section exists (embedded via Package.swift linker flags)
+if otool -l "$BIN" | grep -q '__info_plist'; then
+  PLIST_SIZE=$(otool -l "$BIN" | grep -A4 __info_plist | grep 'size' | awk '{print $2}')
+  echo "PASS: __info_plist section present ($PLIST_SIZE bytes)"
+else
+  echo "FAIL: Missing __TEXT,__info_plist section"
+  echo "Check Package.swift linker flags (-Xlinker -sectcreate ...) and Sources/MacLocalAPI/Info.plist"
+fi
+
+# Verify NSSpeechRecognitionUsageDescription key is present
+if strings "$BIN" | grep -q 'NSSpeechRecognitionUsageDescription'; then
+  echo "PASS: NSSpeechRecognitionUsageDescription key embedded"
+else
+  echo "FAIL: NSSpeechRecognitionUsageDescription missing from embedded plist"
+  echo "afm speech / /v1/audio/transcriptions will SIGABRT on macOS 26"
+fi
+
+# Verify plist structure is parseable (not corrupted during build)
+plutil -lint Sources/MacLocalAPI/Info.plist
+```
+
+**Why this matters:** Without the embedded plist, running `afm speech -f foo.wav` (or any endpoint that calls SFSpeechRecognizer) crashes before returning any output. The build script `Scripts/build-from-scratch.sh` already enforces this — but also check here so the publish flow fails loudly if someone bypasses the build script or if Package.swift's linker flags get reverted in a merge.
+
+**Root cause if it fails:**
+1. `Sources/MacLocalAPI/Info.plist` was deleted or renamed
+2. Package.swift's `linkerSettings` lost the `-Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker …` flags
+3. Someone added a new privacy-API usage (microphone, camera) without adding the corresponding `*UsageDescription` key to Info.plist
+
+Full plist must also include `CFBundleIdentifier`, `CFBundleName`, `CFBundleExecutable` — these establish TCC identity. Changing `CFBundleIdentifier` later would force existing users to re-grant Speech Recognition permission.
+
+#### Check 12: Report all vendor/submodule pin levels
 
 Present the exact version of every submodule and SPM dependency so the user can verify the build reproduces the expected dependency tree. Also fetch the latest release tag from each upstream repo to show if we're behind.
 
@@ -348,6 +385,7 @@ This is informational — no pass/fail. But if a resolved version is unexpected 
 | 8 | Binary stripped, reasonable size | unstripped → bloated download | PASS/FAIL |
 | 9 | Relocated binary works (pip sim) | Bundle.module fatalError → crash on pip install | PASS/FAIL |
 | 10 | No Bundle.module in source | regression guard → future crash on relocated binary | PASS/FAIL |
+| 11 | Info.plist embedded + NSSpeechRecognitionUsageDescription | macOS 26 SIGABRTs Speech Recognition without UsageDescription key | PASS/FAIL |
 
 Then present two separate tables for vendor pins:
 
