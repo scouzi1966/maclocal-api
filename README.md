@@ -56,11 +56,14 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 
 > [!IMPORTANT]
 > The nightly build is the future stable release. It includes everything in v0.9.10 plus:
-> - **Apple Vision OCR HTTP API** — `POST /v1/vision/ocr` for files, data URLs, base64, and OpenAI-style image messages. Multi-page PDF support with structured per-page, per-block, and table output. Foundation chat auto-runs OCR on image content when the built-in `apple_vision_ocr` tool is present. ([#104](https://github.com/scouzi1966/maclocal-api/pull/104))
-> - **Apple Speech transcription** — on-device audio transcription via the Speech framework. New `afm speech -f <file>` CLI, `POST /v1/audio/transcriptions` API, and chat `input_audio` content parts. Supports WAV, MP3, M4A, CAF, AIFF. ([#107](https://github.com/scouzi1966/maclocal-api/pull/107))
+> - **Apple Vision OCR HTTP API** — `POST /v1/vision/ocr` for files, data URLs, base64, and OpenAI-style image messages. Multi-page PDF support with structured per-page, per-block, and table output. Foundation chat auto-runs OCR on image content when the built-in `apple_vision_ocr` tool is present. Contributed by [@jesserobbins](https://github.com/jesserobbins) ([#104](https://github.com/scouzi1966/maclocal-api/pull/104)).
+> - **Apple Speech transcription** — on-device audio transcription via the Speech framework. New `afm speech -f <file>` CLI, `POST /v1/audio/transcriptions` API, and chat `input_audio` content parts. Supports WAV, MP3, M4A, CAF, AIFF. Contributed by [@jesserobbins](https://github.com/jesserobbins) ([#107](https://github.com/scouzi1966/maclocal-api/pull/107)).
 > - **macOS 26 privacy fix** — binary now embeds `NSSpeechRecognitionUsageDescription` via linker, so Speech Recognition actually works instead of SIGABRT'ing the process. First invocation from Terminal prompts for permission as expected. ([#108](https://github.com/scouzi1966/maclocal-api/pull/108))
 > - **Versioned Homebrew formulae** — pinned nightly formulae (`afm-next@YYYYMMDD.rb`) generated alongside the rolling `afm-next.rb` so users can install a specific nightly build. ([#102](https://github.com/scouzi1966/maclocal-api/pull/102))
 > - **Fix for `--guided-json` 1D logits crash** — TopPSampler no longer crashes when concurrent batching meets `top_p<1`. ([#100](https://github.com/scouzi1966/maclocal-api/pull/100) / [#101](https://github.com/scouzi1966/maclocal-api/pull/101))
+
+> [!TIP]
+> 🙏 **Huge thanks to [@jesserobbins](https://github.com/jesserobbins)** — first-time contributor, landed two substantial features in this cycle (Vision OCR + Speech transcription). Both PRs brought afm's Apple-native capabilities from the CLI into first-class HTTP APIs. Contributions of this size and quality from a new contributor are rare and appreciated.
 
 ## Quick Start
 
