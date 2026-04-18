@@ -251,7 +251,7 @@ if [ -x "$SCRIPT_DIR/generate-tap-versioned.sh" ]; then
 fi
 cd "$TAP_DIR"
 
-git add afm-next.rb "afm-next@${DATE}.rb" 2>/dev/null || true
+git add afm-next.rb "afm-next@${VERSION}.rb" 2>/dev/null || true
 # If prune removed older files, stage the deletions too
 git add -u .
 git commit -m "afm-next ${VERSION} (${SHORT_SHA}) + pinned afm-next@${DATE}"
