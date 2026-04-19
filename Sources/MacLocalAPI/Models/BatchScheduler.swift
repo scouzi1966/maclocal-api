@@ -56,14 +56,6 @@ actor BatchScheduler {
     /// Shared prefix cache for all slots (safe: all access is serialized inside this actor).
     private let radixCache: RadixTreeCache?
 
-    /// Optional periodic cache eval interval. 0 or nil = disabled (default, matches Python mlx_lm).
-    /// Set via AFM_CACHE_EVAL_INTERVAL env var for models with lazy graph blowup.
-    private let _cacheEvalInterval: Int? = {
-        guard let s = ProcessInfo.processInfo.environment["AFM_CACHE_EVAL_INTERVAL"],
-              let n = Int(s), n > 0 else { return nil }
-        return n
-    }()
-
     // MARK: - Slot State
 
     /// Per-request state for batched generation.
@@ -193,6 +185,15 @@ actor BatchScheduler {
 
     /// Total tokens generated across all slots (for periodic cache clearing).
     private var totalTokensGenerated = 0
+
+    /// Fast-path batched sample state (AFM_BATCH_SAMPLE=1, all-greedy, no processors).
+    /// Shape [B] MLXArray holding most recently sampled tokens for all slots.
+    /// Reused as next step's input (reshaped [B,1]) and filtered on slot finish.
+    /// nil when the fast path is inactive or needs rebuild from per-slot state.
+    private var batchedSampled: MLXArray? = nil
+    /// True when the previous decode step used the batched-sample fast path.
+    /// Used to decide whether per-slot `lastTokenArray` is stale (needs resync).
+    private var batchedSampledPrev: Bool = false
 
     private func hasRecurrentLayers(_ cache: [KVCache]) -> Bool {
         cache.contains { $0 is ArraysCache || $0 is CacheList }
@@ -575,6 +576,35 @@ actor BatchScheduler {
         }
     }
 
+    /// True when the batched-sample fast path should be used this step.
+    /// All active slots must use ArgMaxSampler, have no logit processor, and
+    /// not request per-token logprobs. Activates at B>=2 only (B=1 uses the
+    /// existing single-slot pipeline).
+    private func isBatchSampleFastEligible() -> Bool {
+        guard ProcessInfo.processInfo.environment["AFM_BATCH_SAMPLE"] == "1" else { return false }
+        guard slots.count >= 2 else { return false }
+        for slot in slots {
+            if slot.processor != nil { return false }
+            if !(slot.sampler is ArgMaxSampler) { return false }
+            if slot.computeLogprobs { return false }
+        }
+        return true
+    }
+
+    /// Sync per-slot `lastTokenArray` from batchedSampled, then drop the batched state.
+    /// Called when leaving the fast path so subsequent fallback steps have valid
+    /// per-slot inputs. One `.asArray` sync materializes the pending tokens.
+    private func syncBatchedToPerSlot() {
+        guard let sampled = batchedSampled else { return }
+        // argMax output is uint32; reading as UInt32 avoids an asType kernel.
+        let vals = sampled.asArray(UInt32.self)
+        for (i, v) in vals.enumerated() where i < slots.count {
+            slots[i].lastTokenArray = MLXArray([Int32(v)])
+            slots[i].lastTokenId = Int(v)
+        }
+        batchedSampled = nil
+    }
+
     /// Main generation loop: prefill pending → batched decode → dispatch.
     /// ALL GPU operations happen here — never from concurrent Tasks.
     ///
@@ -592,6 +622,9 @@ actor BatchScheduler {
         // Previous step's sampled tokens + slot IDs + logits, for deferred dispatch.
         // nil on the first iteration (newly prefilled slots have no pending work).
         var dispatchTokens: [MLXArray]? = nil
+        // Fast-path counterpart: a single [B] MLXArray carrying all slot tokens.
+        // When set, `dispatchTokens` is nil; dispatch materializes once via asArray.
+        var batchedDispatch: MLXArray? = nil
         var dispatchSlotIDs: [UUID]? = nil
         var dispatchLogits: [MLXArray?]? = nil
 
@@ -678,8 +711,17 @@ actor BatchScheduler {
 
             // --- Batched decode: build graph from lastTokenArray (CPU, ~2.7ms) ---
             let activeB = slots.count
+            let useFast = isBatchSampleFastEligible()
+            // If we were fast last step but no longer eligible, sync back to per-slot
+            // so the fallback input build sees current token ids.
+            if !useFast && batchedSampledPrev {
+                syncBatchedToPerSlot()
+            }
             let tokens: MLXArray
-            if activeB == 1 {
+            if useFast, let bs = batchedSampled, bs.dim(0) == activeB {
+                // One op: reshape the cached batched [B] → [B, 1].
+                tokens = bs.reshaped([activeB, 1])
+            } else if activeB == 1 {
                 tokens = slots[0].lastTokenArray.reshaped([1, 1])
             } else {
                 tokens = stacked(slots.map { $0.lastTokenArray.reshaped([1]) }).reshaped([activeB, 1])
@@ -696,43 +738,72 @@ actor BatchScheduler {
             // Also store processed logits per-slot for logprob computation during dispatch
             var tokenArrays = [MLXArray]()
             var slotLogitsForLogprobs = [MLXArray?]()
-            for i in 0..<activeB {
-                let slot = slots[i]
-                let slotLogits = activeB == 1 ? logits : logits[i]
-                let processed = slot.processor?.process(logits: slotLogits) ?? slotLogits
-                let sampled = slot.sampler.sample(logits: processed)
-                tokenArrays.append(sampled)
-                slotLogitsForLogprobs.append(slot.computeLogprobs ? processed : nil)
+            var currentSampledBatch: MLXArray? = nil
+            if useFast {
+                // One argMax on [B, vocab] → [B]. Replaces B slice + B process + B sample ops.
+                currentSampledBatch = argMax(logits, axis: -1)
+            } else {
+                for i in 0..<activeB {
+                    let slot = slots[i]
+                    let slotLogits = activeB == 1 ? logits : logits[i]
+                    let processed = slot.processor?.process(logits: slotLogits) ?? slotLogits
+                    let sampled = slot.sampler.sample(logits: processed)
+                    tokenArrays.append(sampled)
+                    slotLogitsForLogprobs.append(slot.computeLogprobs ? processed : nil)
+                }
             }
 
             // Kick off async evaluation — GPU starts computing current step
-            asyncEval(tokenArrays)
+            if let s = currentSampledBatch {
+                asyncEval(s)
+            } else {
+                asyncEval(tokenArrays)
+            }
             if debugTiming {
                 let modelW = Date().timeIntervalSince(modelStart)
                 modelTimeAccum += modelW
                 _dbgPrevModelWall = modelW
             }
 
-            // Update lastTokenArray BEFORE dispatch (indices still match tokenArrays).
-            // These lazy MLXArrays are being asyncEval'd — by next iteration they'll
-            // be evaluated and ready for model input.
-            for i in 0..<activeB {
-                slots[i].lastTokenArray = tokenArrays[i]
+            // Update lastTokenArray BEFORE dispatch (slow path only — fast path keeps
+            // state in batchedSampled as a single [B] array, syncing to slots only on
+            // fallback/exit).
+            if !useFast {
+                for i in 0..<activeB {
+                    slots[i].lastTokenArray = tokenArrays[i]
+                }
             }
 
             // Save previous dispatch info, then stash current step (while indices match).
             // Must happen before dispatch can remove slots and shift indices.
             let toDispatchTokens = dispatchTokens
+            let toDispatchBatched = batchedDispatch
             let toDispatchSlotIDs = dispatchSlotIDs
             let toDispatchLogits = dispatchLogits
-            dispatchTokens = tokenArrays
-            dispatchSlotIDs = slots.map { $0.id }  // order matches tokenArrays
-            dispatchLogits = slotLogitsForLogprobs
+            if useFast {
+                dispatchTokens = nil
+                batchedDispatch = currentSampledBatch
+                dispatchLogits = nil
+            } else {
+                dispatchTokens = tokenArrays
+                batchedDispatch = nil
+                dispatchLogits = slotLogitsForLogprobs
+            }
+            dispatchSlotIDs = slots.map { $0.id }  // order matches dispatch tokens
+            // Persist for next step's input build.
+            batchedSampled = currentSampledBatch
+            batchedSampledPrev = useFast
 
             // --- While GPU runs: dispatch PREVIOUS step's tokens ---
             // .item() is instant because these were asyncEval'd last iteration.
             let dispatchStart = debugTiming ? Date() : Date.distantPast
-            if let prevTokens = toDispatchTokens, let prevIDs = toDispatchSlotIDs {
+            // Fast-path dispatch: materialize the entire [B] batch in one asArray call
+            // and iterate tokens pure-Swift. No per-slot MLXArray is ever created.
+            // argMax returns uint32 — asking for Int32 would trigger an extra asType
+            // kernel (~10ms at B=32, V=256k). Read as UInt32 and cast in Swift.
+            let prevBatchedTokens: [UInt32]? = toDispatchBatched?.asArray(UInt32.self)
+
+            if let prevIDs = toDispatchSlotIDs, (toDispatchTokens != nil || prevBatchedTokens != nil) {
                 var completedIndices: [Int] = []
                 for j in 0..<prevIDs.count {
                     guard let i = slots.firstIndex(where: { $0.id == prevIDs[j] }) else { continue }
@@ -744,10 +815,15 @@ actor BatchScheduler {
                         continue
                     }
 
-                    let tokenArray = prevTokens[j]
-
-                    let token = tokenArray.item(Int.self)
-                    slot.processor?.didSample(token: tokenArray)
+                    let token: Int
+                    if let bt = prevBatchedTokens {
+                        token = Int(bt[j])  // UInt32 → Int, no MLX op
+                        // Fast path never populates processor/logprobs — skip both.
+                    } else {
+                        let tokenArray = toDispatchTokens![j]
+                        token = tokenArray.item(Int.self)
+                        slot.processor?.didSample(token: tokenArray)
+                    }
 
                     // Promote pending logprobs (one token behind — describes THIS token being dispatched)
                     let logprobsForThisToken: [ResolvedLogprob]?
@@ -825,13 +901,18 @@ actor BatchScheduler {
                 }
             }
 
-            // Cache eval: disabled by default (Python mlx_lm does none).
-            // The model's forward pass forces evaluation through data dependencies.
-            // Enable via AFM_CACHE_EVAL_INTERVAL=N for models with graph blowup.
-            if let interval = _cacheEvalInterval, stepCount % interval == 0, !batchCaches.isEmpty {
-                let layerToEval = stepCount % batchCaches.count
-                let layerState = batchCaches[layerToEval].innerState()
-                if !layerState.isEmpty { asyncEval(layerState) }
+            // Periodically eval cache arrays to collapse the lazy compute graph.
+            // Without this, slice-assignment in cache.update() accumulates ~120 new
+            // Metal buffers per step (60 layers × 2 K/V). At the OS limit of 499K
+            // buffers, the server crashes after ~4000 steps. Eval every 512 steps
+            // materializes the arrays and releases graph intermediates.
+            if stepCount % 512 == 0 {
+                let flushStart = debugTiming ? Date() : Date.distantPast
+                eval(batchCaches.flatMap { $0.innerState() })
+                if debugTiming {
+                    let flushWall = Date().timeIntervalSince(flushStart)
+                    print("[\(batchTs())] [BatchScheduler] EVAL FLUSH (512-step): B=\(slots.count), wall=\(String(format: "%.3f", flushWall))s")
+                }
             }
 
             // Yield rarely — just for cooperative scheduling / graceful shutdown.
@@ -843,12 +924,19 @@ actor BatchScheduler {
         }
 
         // Flush: dispatch any remaining tokens from the last step
-        if let prevTokens = dispatchTokens, let prevIDs = dispatchSlotIDs {
+        let flushBatched: [UInt32]? = batchedDispatch?.asArray(UInt32.self)
+        if let prevIDs = dispatchSlotIDs, (dispatchTokens != nil || flushBatched != nil) {
             for j in 0..<prevIDs.count {
                 guard let i = slots.firstIndex(where: { $0.id == prevIDs[j] }) else { continue }
                 let slot = slots[i]
-                let token = prevTokens[j].item(Int.self)
-                slot.processor?.didSample(token: prevTokens[j])
+                let token: Int
+                if let fb = flushBatched {
+                    token = Int(fb[j])
+                } else {
+                    let prevTokens = dispatchTokens!
+                    token = prevTokens[j].item(Int.self)
+                    slot.processor?.didSample(token: prevTokens[j])
+                }
 
                 // Promote pending logprobs for this token
                 let logprobsForToken: [ResolvedLogprob]?
@@ -1132,6 +1220,9 @@ actor BatchScheduler {
         )
         print("[\(batchTs())] [ChunkStats] stage=preliminary | stream=true | cached_tokens=\(cachedTokens) | prompt_tokens=pending | completion_tokens=pending | prompt_time=pending | generate_time=pending")
 
+        // Sync fast-path batched state back to per-slot before adding a new slot;
+        // next decode step will rebuild batchedSampled from stacked(per-slot).
+        syncBatchedToPerSlot()
         slots.append(slot)
         DebugLogger.log("[BatchScheduler] Prefilled slot req=\(slot.requestId) (B=\(slots.count), \(cachedTokens > 0 ? "cache hit \(cachedTokens) tokens" : "full prefill"), \(String(format: "%.0f", prefillTime * 1000))ms)")
     }
@@ -1562,6 +1653,7 @@ actor BatchScheduler {
                 DebugLogger.log("[BatchScheduler] Constrained slot \(slot.id.uuidString.prefix(8)) mode=\(constraintRuntime.mode)")
             }
 
+            syncBatchedToPerSlot()
             slots.append(slot)
         }
 
@@ -1766,6 +1858,14 @@ actor BatchScheduler {
                 if let bkv = c as? BatchKVCacheSimple {
                     probeMaxSeqLen = max(probeMaxSeqLen, bkv.offset)
                 }
+            }
+        }
+        // Filter the fast-path batched sample state alongside the caches.
+        if let bs = batchedSampled {
+            if keepIndices.isEmpty {
+                batchedSampled = nil
+            } else {
+                batchedSampled = bs[MLXArray(keepIndices.map { Int32($0) })]
             }
         }
         if keepIndices.isEmpty {
