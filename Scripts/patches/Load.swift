@@ -105,10 +105,12 @@ public func loadWeights(
             }
         }, apply: { module, groupSize, bits, mode in
             // Workaround for mlx-swift bug: QuantizedLinear.init calls
-            // MLX.quantized() without passing mode, producing non-nil biases
-            // even for MXFP4 (which requires biases=nil). Use the direct init
-            // with explicit biases:nil for MXFP4 quantization.
-            if mode == .mxfp4, let linear = module as? Linear {
+            // MLX.quantized() without passing mode, so the default `.affine`
+            // quantizer rejects group sizes MXFP4/NVFP4 actually need (16 for
+            // NVFP4, non-standard for MXFP4) and also produces non-nil biases
+            // for fp4 modes (which require biases=nil). Use the direct init
+            // with explicit biases:nil for these fp4 modes.
+            if (mode == .mxfp4 || mode == .nvfp4), let linear = module as? Linear {
                 let (qw, scales, _) = MLX.quantized(
                     linear.weight, groupSize: groupSize, bits: bits, mode: mode)
                 return QuantizedLinear(

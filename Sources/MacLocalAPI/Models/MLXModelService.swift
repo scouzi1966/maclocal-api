@@ -1,5 +1,6 @@
 import Foundation
 import CoreImage
+import Metal
 import os
 import MLX
 import Cmlx
@@ -1131,6 +1132,15 @@ final class MLXModelService: @unchecked Sendable {
         // (num_attention_heads, head_dim), the LLM model will use wrong defaults
         // and crash (e.g. gemma-3 VLM). Skip LLM and go straight to VLM.
         let vlmOnly = isVLMOnlyConfig(directory: directory)
+        // Instrumentation: MLX memory + Metal working set before/after loadContainer.
+        // The OOM we're diagnosing ("[METAL] Insufficient Memory" at ~13.5 GB) happens
+        // inside loadContainer; surround it with snapshots so we can see what was
+        // available at the moment of failure.
+        let preLoadSnap = Memory.snapshot()
+        let preWorkingSet = Int(MTLCreateSystemDefaultDevice()?.currentAllocatedSize ?? 0)
+        let preLoadWall = Date()
+        print("[\(ts())] [MLX-LOAD] pre-load: active=\(preLoadSnap.activeMemory / 1_048_576)MB cache=\(preLoadSnap.cacheMemory / 1_048_576)MB peak=\(preLoadSnap.peakMemory / 1_048_576)MB workingSet=\(preWorkingSet / 1_048_576)MB")
+        fflush(stdout)
         do {
             let loaded: ModelContainer
             if forceVLM || vlmOnly {
@@ -1145,6 +1155,30 @@ final class MLXModelService: @unchecked Sendable {
                     // LLM factory failed — try VLM factory as fallback
                     loaded = try await VLMModelFactory.shared.loadContainer(configuration: config)
                 }
+            }
+            let postLoadSnap = Memory.snapshot()
+            let postWorkingSet = Int(MTLCreateSystemDefaultDevice()?.currentAllocatedSize ?? 0)
+            let loadWall = Date().timeIntervalSince(preLoadWall)
+            print("[\(ts())] [MLX-LOAD] post-load: active=\(postLoadSnap.activeMemory / 1_048_576)MB cache=\(postLoadSnap.cacheMemory / 1_048_576)MB peak=\(postLoadSnap.peakMemory / 1_048_576)MB workingSet=\(postWorkingSet / 1_048_576)MB elapsed=\(String(format: "%.2f", loadWall))s"); fflush(stdout)
+            // Force Metal to drain weight-loading work before the first inference.
+            // Without this, early POST can hit stale/broken Metal state → SIGABRT.
+            Stream.gpu.synchronize()
+            print("[\(ts())] [MLX-LOAD] gpu-synchronized"); fflush(stdout)
+            // Probe Metal by running a tiny forward pass on the loaded model.
+            // This forces kernel compilation + any first-use allocations to finish
+            // now, while we're single-threaded, rather than racing with the first
+            // user request.
+            do {
+                let probe = try await loaded.perform { ctx -> Bool in
+                    let cache = ctx.model.newCache(parameters: GenerateParameters())
+                    let tokens = MLXArray([0], [1, 1])
+                    let out = ctx.model(LMInput.Text(tokens: tokens), cache: cache, state: nil)
+                    MLX.eval(out.logits)
+                    return true
+                }
+                print("[\(ts())] [MLX-LOAD] warmup-probe-ok (\(probe))"); fflush(stdout)
+            } catch {
+                print("[\(ts())] [MLX-LOAD] warmup-probe-error: \(error)"); fflush(stdout)
             }
             withStateLock {
                 currentContainer = loaded
@@ -1240,6 +1274,33 @@ final class MLXModelService: @unchecked Sendable {
         }
         self.scheduler = sched
         print("[\(ts())] Concurrent mode: up to \(limit) parallel generations\(prefixCaching ? " (prefix caching enabled)" : "")")
+
+        // Warm the BatchScheduler with one tiny request before accepting external
+        // traffic. The model-only probe in ensureLoaded primes kernel compilation
+        // for the raw forward path, but the BatchScheduler code path (prefillOne,
+        // BatchKVCache allocation, sampler wiring) has its own first-use setup
+        // that can race with the user's first POST and OOM the Metal buffer.
+        // Drive one end-to-end submission here so ALL first-use work happens
+        // before the server starts serving.
+        print("[\(ts())] [MLX-LOAD] scheduler-warmup-start"); fflush(stdout)
+        do {
+            guard sched.tryReserve() else {
+                print("[\(ts())] [MLX-LOAD] scheduler-warmup-skip: could not reserve slot"); fflush(stdout)
+                return
+            }
+            let warmupTokens = MLXArray([Int32(0)], [1])
+            let warmupInput = LMInput(text: .init(tokens: warmupTokens))
+            let stream = sched.submit(
+                input: warmupInput,
+                parameters: GenerateParameters(maxTokens: 1, temperature: 0),
+                promptTokens: 1,
+                requestId: "warmup"
+            )
+            for try await _ in stream { /* drain */ }
+            print("[\(ts())] [MLX-LOAD] scheduler-warmup-done"); fflush(stdout)
+        } catch {
+            print("[\(ts())] [MLX-LOAD] scheduler-warmup-error: \(error)"); fflush(stdout)
+        }
     }
 
     /// Auto-promote from serial to batch mode for batch requests.

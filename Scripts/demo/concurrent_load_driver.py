@@ -15,7 +15,8 @@ Metrics are sampled every SAMPLE_MS milliseconds and written as JSONL:
 Where:
     t         — seconds since start
     active    — virtual users attempting work right now (ramp target)
-    agg_tps   — aggregate completion-token rate, 1-second sliding window
+    agg_tps   — aggregate completion-token rate, window-averaged over
+                --smoothing-window-s (default 2s), reliable for peak/sustained
     completed — cumulative completed requests
     inflight  — requests currently streaming (may lag below `active`
                 when the server queues; gap = queued)
@@ -65,10 +66,14 @@ async def poll_metrics(session: aiohttp.ClientSession, state: "LoadState", cfg: 
     """
     base = cfg["endpoint"].rsplit("/v1/", 1)[0]
     url = f"{base}/metrics"
-    prev_gen: int | None = None
-    prev_pp: int | None = None
-    prev_t: float | None = None
     interval = max(0.1, cfg["sample_ms"] / 1000.0)
+    # Window-averaged tps. Single-sample deltas are spiky because each batched
+    # decode step emits B tokens at once; a step straddling a polling boundary
+    # produces a double-counted peak one sample and an under-count the next.
+    # Window over --smoothing-window-s matches the proxy path behavior and
+    # makes agg_tps reliable regardless of which source feeds it.
+    tps_window_s = max(1.0, float(cfg.get("smoothing_window_s", 2.0)))
+    samples: deque[tuple[float, int, int]] = deque()
 
     # Initial probe
     try:
@@ -119,18 +124,22 @@ async def poll_metrics(session: aiohttp.ClientSession, state: "LoadState", cfg: 
             if m: cmiss = int(m.group(1)); continue
 
         now = time.monotonic()
-        if prev_gen is not None and prev_t is not None:
-            dt = now - prev_t
+        samples.append((now, gen, pp))
+        cutoff = now - tps_window_s
+        while len(samples) > 2 and samples[0][0] < cutoff:
+            samples.popleft()
+        if len(samples) >= 2:
+            t0, g0, p0 = samples[0]
+            dt = now - t0
             if dt > 0:
-                state.server_gen_tps     = (gen - prev_gen) / dt
-                state.server_prefill_tps = (pp - prev_pp) / dt if prev_pp is not None else 0.0
+                state.server_gen_tps     = (gen - g0) / dt
+                state.server_prefill_tps = (pp - p0) / dt
         state.server_gen_total     = gen
         state.server_prefill_total = pp
         state.server_inflight      = int(run)
         state.server_waiting       = int(wait)
         state.server_cache_hits    = chit
         state.server_cache_misses  = cmiss
-        prev_gen, prev_pp, prev_t = gen, pp, now
 
         await asyncio.sleep(interval)
 

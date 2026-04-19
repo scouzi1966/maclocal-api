@@ -183,6 +183,11 @@ SERVER_LOG="/tmp/afm-demo-server-$(date +%Y%m%d_%H%M%S)-$$.log"
 SERVER_PID=""
 
 cleanup() {
+  # Kill any still-running children of this script (load driver, watcher, etc.)
+  # before touching the server so they don't fire another request at a server
+  # that's mid-shutdown. `pkill -P $$` sends SIGTERM to every direct child.
+  pkill -P $$ 2>/dev/null || true
+
   if [ -n "$SERVER_PID" ] && [ "$KEEP_SERVER" = false ]; then
     if kill -0 "$SERVER_PID" 2>/dev/null; then
       log "stopping server (pid $SERVER_PID)"
@@ -198,6 +203,10 @@ cleanup() {
     log "server left running at http://127.0.0.1:${PORT} (pid $SERVER_PID)"
     log "stop it with: kill $SERVER_PID"
   fi
+
+  # Catch any orphaned load drivers from prior interrupted runs. Matches the
+  # specific python invocation so we don't nuke unrelated processes.
+  pkill -9 -f "Scripts/demo/concurrent_load_driver.py" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
