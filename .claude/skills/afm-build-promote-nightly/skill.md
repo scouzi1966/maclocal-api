@@ -346,7 +346,32 @@ fi
 # 3. Verify Info.plist source file is well-formed
 plutil -lint Sources/MacLocalAPI/Info.plist || { echo "FATAL: Info.plist is malformed"; exit 1; }
 
+# 4. Verify Apple frameworks that require the embedded plist are actually linked.
+#    PR #104 (Vision OCR) and PR #107 (Speech transcription) depend on these — if they
+#    drop out of Package.swift the plist is pointless because the APIs can't be called.
+REQUIRED_FRAMEWORKS=(Speech Vision PDFKit ImageIO)
+FW_MISSING=()
+for FW in "${REQUIRED_FRAMEWORKS[@]}"; do
+  if ! otool -L "$BIN" | grep -q "/${FW}.framework/"; then
+    FW_MISSING+=("$FW")
+  fi
+done
+if [ ${#FW_MISSING[@]} -gt 0 ]; then
+  echo "FATAL: Binary missing required framework links: ${FW_MISSING[*]}"
+  echo "Check Package.swift .linkedFramework(...) entries — PR #104/#107 features will not work."
+  exit 1
+fi
+
+# 5. Verify CFBundleIdentifier (TCC identity) is embedded. Changing this bundle id
+#    forces every user to re-grant Speech/mic/camera permission — treat as a contract.
+if ! strings "$BIN" | grep -q 'com.scouzi1966.afm'; then
+  echo "FATAL: Embedded plist missing CFBundleIdentifier=com.scouzi1966.afm (TCC identity broken)"
+  exit 1
+fi
+
 echo "PASS: Info.plist embedded with NSSpeechRecognitionUsageDescription"
+echo "PASS: Required frameworks linked: ${REQUIRED_FRAMEWORKS[*]}"
+echo "PASS: CFBundleIdentifier present in embedded plist"
 ```
 
 **If this fails, STOP.** Shipping a stable release with broken Speech Recognition is worse than shipping a nightly — stable users have higher expectations.
