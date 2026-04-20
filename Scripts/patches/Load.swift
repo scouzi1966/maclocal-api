@@ -128,5 +128,29 @@ public func loadWeights(
     // packed shapes that differ from the model's logical init shapes.
     try model.update(parameters: parameters, verify: [.noUnusedKeys])
 
-    eval(model)
+    // Materialize weights in chunks instead of one `MLX.eval(model)` call.
+    // MoE models (Qwen3.5-35B-A3B with ~1700 arrays, Gemma 4 E4B similar)
+    // hit a Metal command-buffer resource limit when all weight arrays are
+    // submitted in one encoding. The failure surfaces asynchronously as
+    //   [METAL] Command buffer execution failed: Insufficient Memory
+    // (kIOGPUCommandBufferCallbackErrorOutOfMemory) and leaves Metal in
+    // a degraded state so the first real inference SIGABRTs a few seconds
+    // later. Chunking to 512 arrays per eval keeps each command buffer
+    // within Metal's per-encoding resource ceiling.
+    let allArrays = model.parameters().flattened().map { $0.1 }
+    let chunkSize = 512
+    var idx = 0
+    while idx < allArrays.count {
+        let end = min(idx + chunkSize, allArrays.count)
+        MLX.eval(Array(allArrays[idx..<end]))
+        Stream.gpu.synchronize()
+        MLX.GPU.clearCache()
+        idx = end
+    }
+    // Final drain: force any lingering async Metal work from the quantize
+    // apply-closures (which create lazy ops on initial-random weights that
+    // get orphaned by model.update) to surface here instead of firing
+    // asynchronously from the caller after loadWeights returns.
+    Stream.gpu.synchronize()
+    MLX.GPU.clearCache()
 }
