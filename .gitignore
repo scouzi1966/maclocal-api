@@ -97,3 +97,6 @@ vendor/llama.cpp/tools/server/public/
 .codex/*secret*
 .codex/*auth*.json
 /default.metallib
+
+# Worktrees
+.worktrees/
