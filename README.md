@@ -52,6 +52,42 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 > ASSUMES you did a brew install scouzi1966/afm/afm previously
 > ```
 
+### Install a previous version
+
+Older stable releases are kept as pinned formulae in the Homebrew tap and as version-pinned wheels on PyPI. Useful for reproducing an issue against a specific build or rolling back without waiting for a new release.
+
+**Homebrew (pinned stable formulae):** `afm@<version>` — available for `0.9.0`, `0.9.1`, `0.9.3`–`0.9.10`.
+
+```bash
+brew install scouzi1966/afm/afm@0.9.10      # install v0.9.10
+brew uninstall afm                          # if current afm is already installed
+brew link afm@0.9.10                        # expose `afm` on PATH
+afm --version                               # → v0.9.10
+```
+
+**Homebrew (pinned nightly formulae):** `afm-next@<full-version>` — e.g. `afm-next@0.9.11-next.9c3225e.20260418`. Lists of available pinned nightlies are at [github.com/scouzi1966/homebrew-afm](https://github.com/scouzi1966/homebrew-afm).
+
+```bash
+brew install scouzi1966/afm/afm-next@0.9.11-next.9c3225e.20260418
+```
+
+**pip (version-pinned wheels):** any published release.
+
+```bash
+pip install macafm==0.9.10                  # previous stable
+pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ \
+  macafm-next==0.9.11.dev20260418           # pinned nightly
+```
+
+**Homebrew (staging tap)** — candidate builds under validation, not for day-to-day use:
+
+```bash
+brew tap scouzi1966/afm-staging
+brew install scouzi1966/afm-staging/afm
+```
+
+To restore the current stable afterwards: `brew uninstall afm; brew install scouzi1966/afm/afm`.
+
 ## What's new in afm-next
 
 > [!IMPORTANT]
