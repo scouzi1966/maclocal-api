@@ -49,7 +49,6 @@ struct ChatCompletionsController: RouteCollection {
         var fallbackModel = "foundation"
         var fallbackMessages: [Message] = []
         var fallbackMaxTokens = 2000
-        var visionCleanupURLs: [URL] = []
         do {
             let chatRequest = try req.content.decode(ChatCompletionRequest.self)
             fallbackModel = chatRequest.model ?? "foundation"
@@ -162,12 +161,6 @@ struct ChatCompletionsController: RouteCollection {
             } else {
                 throw FoundationModelError.notAvailable
             }
-            defer {
-                for url in visionCleanupURLs {
-                    try? FileManager.default.removeItem(at: url)
-                }
-            }
-
             // Check if streaming is requested and enabled
             if chatRequest.stream == true && streamingEnabled {
                 return try await createStreamingResponse(req: req, chatRequest: chatRequest, processedMessages: processedMessages, foundationService: foundationService)
