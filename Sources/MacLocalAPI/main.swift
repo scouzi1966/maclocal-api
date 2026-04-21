@@ -939,6 +939,8 @@ func printHelpJson(command: String) {
         config = MlxCommand.configuration
     case "afm vision":
         config = VisionCommand.configuration
+    case "afm speech":
+        config = SpeechCommand.configuration
     default:
         config = RootCommand.configuration
     }
@@ -1235,7 +1237,7 @@ struct RootCommand: ParsableCommand {
         GitHub: https://github.com/scouzi1966/maclocal-api
         """,
         version: MacLocalAPI.buildVersion,
-        subcommands: [MlxCommand.self, VisionCommand.self]
+        subcommands: [MlxCommand.self, VisionCommand.self, SpeechCommand.self]
     )
 
     @Option(name: [.customShort("s"), .long], help: "Run a single prompt without starting the server")
@@ -1371,6 +1373,38 @@ if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
         try cmd.run()
     } catch {
         MlxCommand.exit(withError: error)
+    }
+} else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "speech" {
+    var args = Array(CommandLine.arguments.dropFirst(2))
+    // Legacy: if the first arg isn't a known subcommand or flag, assume it's a
+    // file path and prepend "transcribe" (e.g. "afm speech file.wav" routes to
+    // transcribe; flag-prefixed args like "-f" fall through to ArgumentParser).
+    let subcommands: Set<String> = ["synthesize", "transcribe", "help"]
+    if let first = args.first, !subcommands.contains(first), !first.hasPrefix("-") {
+        args.insert("transcribe", at: 0)
+    }
+    do {
+        var cmd = try SpeechCommand.parseAsRoot(args)
+        // Use CFRunLoop so AVSpeechSynthesizer callbacks can fire on the main thread
+        var caughtError: Error?
+        Task {
+            do {
+                if var asyncCmd = cmd as? AsyncParsableCommand {
+                    try await asyncCmd.run()
+                } else {
+                    try cmd.run()
+                }
+            } catch {
+                caughtError = error
+            }
+            CFRunLoopStop(CFRunLoopGetMain())
+        }
+        CFRunLoopRun()
+        if let error = caughtError {
+            throw error
+        }
+    } catch {
+        SpeechCommand.exit(withError: error)
     }
 } else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "vision" {
     let args = Array(CommandLine.arguments.dropFirst(2))
