@@ -79,15 +79,6 @@ pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ \
   macafm-next==0.9.11.dev20260418           # pinned nightly
 ```
 
-**Homebrew (staging tap)** — candidate builds under validation, not for day-to-day use:
-
-```bash
-brew tap scouzi1966/afm-staging
-brew install scouzi1966/afm-staging/afm
-```
-
-To restore the current stable afterwards: `brew uninstall afm; brew install scouzi1966/afm/afm`.
-
 ## What's new in afm-next
 
 > [!IMPORTANT]
