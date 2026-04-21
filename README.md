@@ -36,6 +36,15 @@ Extensive testing of Qwen3.5-35B-A3B with afm. Uses an experimental technique wi
 
 Run open-source MLX models **or** Apple's on-device Foundation Model through an OpenAI-compatible API. Built entirely in Swift for maximum Metal GPU performance. No Python runtime, no cloud, no API keys.
 
+## What's new in afm-next
+
+> [!IMPORTANT]
+> The nightly build is the future stable release. It includes everything in v0.9.11 plus:
+> - No new features yet — nightly is currently in sync with the stable release
+
+> [!TIP]
+> 🙏 **Huge thanks to [@jesserobbins](https://github.com/jesserobbins)** — first-time contributor, landed two substantial features in this cycle (Vision OCR + Speech transcription). Both PRs brought afm's Apple-native capabilities from the CLI into first-class HTTP APIs. Contributions of this size and quality from a new contributor are rare and appreciated.
+
 ## Install
 
 |  | Stable (v0.9.11) | Nightly (afm-next) |
@@ -78,15 +87,6 @@ pip install macafm==0.9.10                  # previous stable
 pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ \
   macafm-next==0.9.11.dev20260418           # pinned nightly
 ```
-
-## What's new in afm-next
-
-> [!IMPORTANT]
-> The nightly build is the future stable release. It includes everything in v0.9.11 plus:
-> - No new features yet — nightly is currently in sync with the stable release
-
-> [!TIP]
-> 🙏 **Huge thanks to [@jesserobbins](https://github.com/jesserobbins)** — first-time contributor, landed two substantial features in this cycle (Vision OCR + Speech transcription). Both PRs brought afm's Apple-native capabilities from the CLI into first-class HTTP APIs. Contributions of this size and quality from a new contributor are rare and appreciated.
 
 ## Quick Start
 
