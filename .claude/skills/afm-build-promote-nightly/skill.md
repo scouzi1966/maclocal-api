@@ -126,12 +126,21 @@ PREV_INIT_VERSION=$(grep '^__version__' macafm/__init__.py | sed 's/.*"\(.*\)".*
 # Previous README version
 PREV_README_STABLE=$(grep -o 'Stable (v[^)]*)' README.md | head -1)
 
-# Tap commit before our changes
+# Tap commit before our changes (production)
 PREV_TAP_COMMIT=$(cd "$TAP_DIR" && git rev-parse HEAD)
+
+# Staging tap commit before our changes (used in Step 8b)
+STAGING_DIR="${STAGING_TAP_DIR:-$(cd "$(git rev-parse --show-toplevel)/.." && pwd)/homebrew-afm-staging}"
+if [ -d "$STAGING_DIR/.git" ]; then
+  PREV_STAGING_COMMIT=$(cd "$STAGING_DIR" && git rev-parse HEAD)
+else
+  PREV_STAGING_COMMIT="(repo not yet cloned — will be created in Step 8b)"
+fi
 
 echo "=== Rollback snapshot ==="
 echo "Tap version: $PREV_STABLE_VERSION"
 echo "Tap commit: $PREV_TAP_COMMIT"
+echo "Staging commit: $PREV_STAGING_COMMIT"
 echo "BuildInfo: $PREV_BUILDINFO_VERSION"
 echo "pyproject: $PREV_PYPROJECT_VERSION"
 echo "__init__: $PREV_INIT_VERSION"
@@ -482,6 +491,117 @@ EOF
 Note: `--target "$BUILD_SHA"` ensures the release points to the exact commit used for the build.
 
 **IMPORTANT: Do NOT delete, edit, or modify any existing nightly releases.** Nightly releases and their `nightly-*` tags must remain intact on GitHub. This skill creates a NEW stable release — it does not replace any existing release.
+
+### Step 8b: Publish to Staging Tap and Validate on a Clean Machine (MANDATORY)
+
+**DO NOT update the production tap (`scouzi1966/afm`) until the staging validation completes.** The production tap is what every `brew install scouzi1966/afm/afm` user downloads. Shipping a broken build to it forces a revert — and any user who ran `brew update` in the broken window already has the bad bottle. Validate on the staging tap first so the real install path is tested against the real published artifact.
+
+The staging tap repo is `scouzi1966/homebrew-afm-staging`. If it does not exist, create it (public, visible only via explicit tap):
+
+```bash
+if ! gh repo view scouzi1966/homebrew-afm-staging >/dev/null 2>&1; then
+  gh repo create scouzi1966/homebrew-afm-staging --public \
+    --description "Staging Homebrew tap for afm — candidate builds under test, not for production"
+fi
+
+STAGING_DIR="${STAGING_TAP_DIR:-$(cd "$(git rev-parse --show-toplevel)/.." && pwd)/homebrew-afm-staging}"
+if [ ! -d "$STAGING_DIR/.git" ]; then
+  gh repo clone scouzi1966/homebrew-afm-staging "$STAGING_DIR"
+fi
+```
+
+Write the candidate formula into the staging tap. Use the same URL / version / sha256 as the GitHub release created in Step 8 so the download path matches what the production tap will later serve.
+
+```bash
+DOWNLOAD_URL="https://github.com/scouzi1966/maclocal-api/releases/download/v${VERSION}/afm-v${VERSION}-arm64.tar.gz"
+
+cd "$STAGING_DIR"
+git pull --ff-only 2>/dev/null || true
+
+cat > afm.rb <<RUBY
+class Afm < Formula
+  desc "Apple Foundation Models + MLX local models — OpenAI-compatible API, WebUI, all Swift (STAGING)"
+  homepage "https://github.com/scouzi1966/maclocal-api"
+  url "${DOWNLOAD_URL}"
+  version "${VERSION}"
+  sha256 "${SHA256}"
+
+  depends_on arch: :arm64
+  depends_on :macos
+
+  def install
+    bin.install "afm"
+
+    bundle_dir = "MacLocalAPI_MacLocalAPI.bundle"
+    if Dir.exist?(bundle_dir)
+      (libexec/bundle_dir).mkpath
+      (libexec/bundle_dir).install Dir["#{bundle_dir}/*"]
+    end
+
+    if Dir.exist?("Resources/webui")
+      (share/"afm/webui").mkpath
+      (share/"afm/webui").install Dir["Resources/webui/*"]
+    end
+  end
+
+  def caveats
+    <<~EOS
+      ⚠️  STAGING BUILD — not for production use.
+      This is v${VERSION} served from a staging tap for validation before
+      promotion to the main scouzi1966/afm tap. Switch to the main tap
+      for stable use:
+        brew untap scouzi1966/afm-staging
+        brew install scouzi1966/afm/afm
+    EOS
+  end
+
+  test do
+    assert_match "v${VERSION}", shell_output("#{bin}/afm --version")
+  end
+end
+RUBY
+
+git add afm.rb
+git commit -m "Stage candidate v${VERSION}"
+git push 2>&1 | tail -3
+```
+
+Now provide the user with a **machine-portable install-and-verify recipe** for a clean host. It MUST be a host that is not the one where the build was produced — the binary has been code-signed ad-hoc and has no special access on the build machine; only a fresh install via the staging tap exercises the same download and TCC path real end users will see.
+
+Use **AskUserQuestion**:
+
+**Question:** "Staged v${VERSION} is live at scouzi1966/afm-staging. Please install on a clean machine (ideally not the build host) and run the regression test matrix. Confirm results below."
+
+Install instructions to give the user (absolute `brew install` form, not the cached tap form):
+
+```bash
+# On the clean machine — no prior afm install of any kind
+brew untap scouzi1966/afm 2>/dev/null  # optional: avoid any tap collision during test
+brew tap scouzi1966/afm-staging
+brew install scouzi1966/afm-staging/afm
+afm --version                           # must show vVERSION
+```
+
+Regression matrix the user should run — at minimum:
+
+1. `afm --version` reports `v${VERSION}`.
+2. Plain text-only Foundation chat (tests the core code path; missing from earlier runs catches this class of regression):
+   ```bash
+   afm -p 9999 &
+   sleep 3
+   curl -s -X POST http://127.0.0.1:9999/v1/chat/completions \
+     -H 'Content-Type: application/json' \
+     -d '{"model":"foundation","stream":false,"messages":[{"role":"user","content":"Say hi"}]}'
+   kill %1
+   ```
+3. Any per-release PR-specific smoke tests (e.g. Vision OCR, Speech, MLX generation) relevant to what this promotion ships.
+
+**Options:**
+1. "Staging validation PASSED — promote to production tap" — proceed to Step 9.
+2. "Staging validation FAILED" — STOP. The production tap must not be touched. Investigate, re-build, re-publish the GitHub release (or cut a new version), re-stage, re-test. Return here only after a clean pass.
+3. "Skip staging validation (not recommended)" — continue to Step 9 at your own risk. Only choose this for emergency hotfixes where the staging machine is unavailable and you accept the rollback cost.
+
+**If the user selects option 2, do NOT proceed to Step 9.** The production tap remains on the previous stable. Offer the rollback procedure (below) if the GitHub release needs to be withdrawn.
 
 ### Step 9: Update Homebrew Stable Tap (`afm.rb`)
 
