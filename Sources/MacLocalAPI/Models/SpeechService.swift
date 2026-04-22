@@ -6,7 +6,6 @@ enum SpeechError: Error, LocalizedError {
     case platformUnavailable
     case fileNotFound
     case unsupportedFormat
-    case requestTooLarge(actualBytes: Int, maxBytes: Int)
     case recognitionFailed(String)
     case noSpeechFound
     case onDeviceNotAvailable
@@ -20,8 +19,6 @@ enum SpeechError: Error, LocalizedError {
             return "The specified audio file was not found"
         case .unsupportedFormat:
             return "Unsupported audio format. Supported formats: WAV, MP3, M4A, CAF, AIFF"
-        case .requestTooLarge(let actualBytes, let maxBytes):
-            return "Audio file size \(actualBytes) bytes exceeds the limit of \(maxBytes) bytes"
         case .recognitionFailed(let message):
             return "Speech recognition failed: \(message)"
         case .noSpeechFound:
@@ -35,19 +32,70 @@ enum SpeechError: Error, LocalizedError {
 }
 
 struct SpeechRequestOptions: Sendable {
-    static let defaultMaxFileBytes = 50 * 1024 * 1024  // 50 MB
     static let recognitionTimeoutNs: UInt64 = 120_000_000_000  // 120 seconds
+    static let defaultMaxFileBytes = 50 * 1024 * 1024  // 50MB matches Vapor body limit
     static let supportedExtensions: Set<String> = ["wav", "mp3", "m4a", "caf", "aiff", "aif"]
 
     let locale: String
-    let maxFileBytes: Int
 
-    init(
-        locale: String = "en-US",
-        maxFileBytes: Int = SpeechRequestOptions.defaultMaxFileBytes
-    ) {
+    init(locale: String = "en-US") {
         self.locale = locale
-        self.maxFileBytes = maxFileBytes
+    }
+}
+
+struct TranscriptionWord: Sendable, Codable {
+    let word: String
+    let start: Double
+    let end: Double
+}
+
+struct TranscriptionSegment: Sendable, Codable {
+    let id: Int
+    let start: Double
+    let end: Double
+    let text: String
+    let confidence: Float
+}
+
+struct TranscriptionResult: Sendable, Codable {
+    let text: String
+    let language: String
+    let duration: Double
+    let words: [TranscriptionWord]
+    let segments: [TranscriptionSegment]
+
+    func formatAsSRT() -> String {
+        segments.enumerated().map { index, seg in
+            let startTS = Self.srtTimestamp(seg.start)
+            let endTS = Self.srtTimestamp(seg.end)
+            return "\(index + 1)\n\(startTS) --> \(endTS)\n\(seg.text)"
+        }.joined(separator: "\n\n")
+    }
+
+    func formatAsVTT() -> String {
+        var lines = ["WEBVTT", ""]
+        lines += segments.map { seg in
+            let startTS = Self.vttTimestamp(seg.start)
+            let endTS = Self.vttTimestamp(seg.end)
+            return "\(startTS) --> \(endTS)\n\(seg.text)"
+        }
+        return lines.joined(separator: "\n\n")
+    }
+
+    static func srtTimestamp(_ seconds: Double) -> String {
+        let h = Int(seconds) / 3600
+        let m = (Int(seconds) % 3600) / 60
+        let s = Int(seconds) % 60
+        let ms = Int((seconds.truncatingRemainder(dividingBy: 1)) * 1000)
+        return String(format: "%02d:%02d:%02d,%03d", h, m, s, ms)
+    }
+
+    static func vttTimestamp(_ seconds: Double) -> String {
+        let h = Int(seconds) / 3600
+        let m = (Int(seconds) % 3600) / 60
+        let s = Int(seconds) % 60
+        let ms = Int((seconds.truncatingRemainder(dividingBy: 1)) * 1000)
+        return String(format: "%02d:%02d:%02d.%03d", h, m, s, ms)
     }
 }
 
@@ -59,6 +107,15 @@ final class SpeechService {
     }
 
     func transcribe(from filePath: String, options: SpeechRequestOptions) async throws -> String {
+        let result = try await transcribeWithDetails(from: filePath, options: options)
+        return result.text
+    }
+
+    func transcribeWithDetails(from filePath: String) async throws -> TranscriptionResult {
+        try await transcribeWithDetails(from: filePath, options: SpeechRequestOptions())
+    }
+
+    func transcribeWithDetails(from filePath: String, options: SpeechRequestOptions) async throws -> TranscriptionResult {
         let fileURL = URL(fileURLWithPath: filePath)
 
         // Validate file exists
@@ -70,12 +127,6 @@ final class SpeechService {
         let ext = fileURL.pathExtension.lowercased()
         guard SpeechRequestOptions.supportedExtensions.contains(ext) else {
             throw SpeechError.unsupportedFormat
-        }
-
-        // Validate size
-        let attrs = try FileManager.default.attributesOfItem(atPath: filePath)
-        if let size = attrs[.size] as? Int, size > options.maxFileBytes {
-            throw SpeechError.requestTooLarge(actualBytes: size, maxBytes: options.maxFileBytes)
         }
 
         // Check authorization
@@ -111,7 +162,7 @@ final class SpeechService {
         // Holds the SFSpeechRecognitionTask so onCancel can reach it.
         let taskRef = OSAllocatedUnfairLock<SFSpeechRecognitionTask?>(initialState: nil)
 
-        let text: String = try await withThrowingTaskGroup(of: String.self) { group in
+        let transcriptionResult: TranscriptionResult = try await withThrowingTaskGroup(of: TranscriptionResult.self) { group in
             group.addTask {
                 try await withTaskCancellationHandler {
                     try await withCheckedThrowingContinuation { continuation in
@@ -137,12 +188,44 @@ final class SpeechService {
                                 return true
                             }
                             guard shouldResume else { return }
-                            let formatted = result.bestTranscription.formattedString
+                            let transcription = result.bestTranscription
+                            let formatted = transcription.formattedString
                             if formatted.isEmpty {
                                 continuation.resume(throwing: SpeechError.noSpeechFound)
-                            } else {
-                                continuation.resume(returning: formatted)
+                                return
                             }
+
+                            // Extract word-level timing from segments
+                            let words = transcription.segments.map { seg in
+                                TranscriptionWord(
+                                    word: seg.substring,
+                                    start: seg.timestamp,
+                                    end: seg.timestamp + seg.duration
+                                )
+                            }
+
+                            // Build a single segment from the full transcription
+                            let totalDuration = transcription.segments.last.map { $0.timestamp + $0.duration } ?? 0
+                            let avgConfidence = transcription.segments.isEmpty ? Float(0)
+                                : transcription.segments.map(\.confidence).reduce(0, +) / Float(transcription.segments.count)
+                            let segments = [TranscriptionSegment(
+                                id: 0,
+                                start: 0,
+                                end: totalDuration,
+                                text: formatted,
+                                confidence: avgConfidence
+                            )]
+
+                            // Extract language from locale
+                            let lang = options.locale.split(separator: "-").first.map(String.init) ?? options.locale
+
+                            continuation.resume(returning: TranscriptionResult(
+                                text: formatted,
+                                language: lang,
+                                duration: totalDuration,
+                                words: words,
+                                segments: segments
+                            ))
                         }
                         taskRef.withLock { $0 = task }
                         if Task.isCancelled { task.cancel() }
@@ -160,6 +243,6 @@ final class SpeechService {
             return result
         }
 
-        return text
+        return transcriptionResult
     }
 }

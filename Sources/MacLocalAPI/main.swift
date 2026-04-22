@@ -939,6 +939,8 @@ func printHelpJson(command: String) {
         config = MlxCommand.configuration
     case "afm vision":
         config = VisionCommand.configuration
+    case "afm speech":
+        config = SpeechCommand.configuration
     default:
         config = RootCommand.configuration
     }
@@ -1373,21 +1375,30 @@ if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
         MlxCommand.exit(withError: error)
     }
 } else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "speech" {
-    let args = Array(CommandLine.arguments.dropFirst(2))
+    var args = Array(CommandLine.arguments.dropFirst(2))
+    // Legacy: if the first arg isn't a known subcommand, assume it's a file path
+    // or flag for transcribe (e.g. "afm speech file.wav" or "afm speech -f file.wav").
+    let subcommands: Set<String> = ["synthesize", "transcribe", "voices", "help"]
+    if let first = args.first, !subcommands.contains(first), !first.hasPrefix("-") {
+        args.insert("transcribe", at: 0)
+    }
     do {
-        let cmd = try SpeechCommand.parse(args)
-        let group = DispatchGroup()
+        var cmd = try SpeechCommand.parseAsRoot(args)
+        // Use CFRunLoop so AVSpeechSynthesizer callbacks can fire on the main thread
         var caughtError: Error?
-        group.enter()
         Task {
             do {
-                try await cmd.run()
+                if var asyncCmd = cmd as? AsyncParsableCommand {
+                    try await asyncCmd.run()
+                } else {
+                    try cmd.run()
+                }
             } catch {
                 caughtError = error
             }
-            group.leave()
+            CFRunLoopStop(CFRunLoopGetMain())
         }
-        group.wait()
+        CFRunLoopRun()
         if let error = caughtError {
             throw error
         }
