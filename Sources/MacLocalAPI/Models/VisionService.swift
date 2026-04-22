@@ -13,7 +13,6 @@ enum VisionError: Error, LocalizedError {
     case remoteURLNotSupported
     case unsupportedURLScheme(String)
     case invalidDataURL
-    case requestTooLarge(actualBytes: Int, maxBytes: Int)
     case pageLimitExceeded(actualPages: Int, maxPages: Int)
     case imageDimensionsExceeded(width: Int, height: Int, maxDimension: Int)
     case imageLoadingFailed
@@ -21,6 +20,8 @@ enum VisionError: Error, LocalizedError {
     case noTextFound
     case noTablesFound
     case documentSegmentationFailed(String)
+    case fileTooLarge(bytes: Int, maxBytes: Int)
+    case modeRequiresMacOS26(String)
 
     var errorDescription: String? {
         switch self {
@@ -42,8 +43,6 @@ enum VisionError: Error, LocalizedError {
             return "Unsupported image URL scheme: \(scheme)"
         case .invalidDataURL:
             return "Invalid data URL or base64 payload"
-        case .requestTooLarge(let actualBytes, let maxBytes):
-            return "Input size \(actualBytes) bytes exceeds the limit of \(maxBytes) bytes"
         case .pageLimitExceeded(let actualPages, let maxPages):
             return "Document has \(actualPages) pages which exceeds the limit of \(maxPages)"
         case .imageDimensionsExceeded(let width, let height, let maxDimension):
@@ -58,6 +57,10 @@ enum VisionError: Error, LocalizedError {
             return "No tables were found in the document"
         case .documentSegmentationFailed(let message):
             return "Document segmentation failed: \(message)"
+        case .fileTooLarge(let bytes, let maxBytes):
+            return "File size \(bytes / 1024 / 1024) MB exceeds the limit of \(maxBytes / 1024 / 1024) MB"
+        case .modeRequiresMacOS26(let mode):
+            return "Vision mode '\(mode)' requires macOS 26.0 or later"
         }
     }
 }
@@ -77,9 +80,9 @@ enum VisionRecognitionLevel: String, Sendable {
 }
 
 struct VisionRequestOptions: Sendable {
-    static let defaultMaxFileBytes = 25 * 1024 * 1024
     static let defaultMaxPages = 50
     static let defaultMaxImageDimension = 4096
+    static let defaultMaxFileBytes: Int = 25 * 1024 * 1024  // 25 MB
 
     /// Single source of truth for file extensions accepted by the Vision OCR
     /// pipeline.  CGImageSource handles the image formats natively; PDF is
@@ -94,7 +97,6 @@ struct VisionRequestOptions: Sendable {
     let usesLanguageCorrection: Bool
     let recognitionLanguages: [String]
     let maxPages: Int
-    let maxFileBytes: Int
     let maxImageDimension: Int
 
     init(
@@ -102,35 +104,70 @@ struct VisionRequestOptions: Sendable {
         usesLanguageCorrection: Bool = true,
         recognitionLanguages: [String] = [],
         maxPages: Int = VisionRequestOptions.defaultMaxPages,
-        maxFileBytes: Int = VisionRequestOptions.defaultMaxFileBytes,
         maxImageDimension: Int = VisionRequestOptions.defaultMaxImageDimension
     ) {
         self.recognitionLevel = recognitionLevel
         self.usesLanguageCorrection = usesLanguageCorrection
         self.recognitionLanguages = recognitionLanguages
         self.maxPages = maxPages
-        self.maxFileBytes = maxFileBytes
         self.maxImageDimension = maxImageDimension
     }
 }
 
-@available(macOS 26.0, *)
+// MARK: - New vision mode result types
+
+struct BarcodeResult: Sendable {
+    let type: String
+    let payload: String
+    let boundingBox: CGRect
+    let confidence: Float
+}
+
+struct ClassificationLabel: Sendable {
+    let label: String
+    let confidence: Float
+}
+
+struct ClassifyResult: Sendable {
+    let labels: [ClassificationLabel]
+    let salientRegions: [CGRect]
+}
+
+struct SaliencyRegion: Sendable {
+    let type: String
+    let boundingBox: CGRect
+}
+
+struct SaliencyResult: Sendable {
+    let regions: [SaliencyRegion]
+    let heatMapPNG: Data?
+}
+
+// MARK: - VisionService (no class-level macOS restriction)
+
 final class VisionService {
+    static let imageOnlyExtensions: Set<String> = ["png", "jpg", "jpeg", "heic"]
     private static let pdfRenderScale: CGFloat = 2.0
 
+    // MARK: - Text extraction (macOS 26+)
+
+    @available(macOS 26.0, *)
     func extractText(from filePath: String) async throws -> String {
         try await extractText(from: filePath, options: VisionRequestOptions())
     }
 
+    @available(macOS 26.0, *)
     func extractText(from filePath: String, options: VisionRequestOptions) async throws -> String {
         let result = try await extractTextWithDetails(from: filePath, options: options)
         return result.fullText
     }
 
+    @available(macOS 26.0, *)
     func extractTextWithDetails(from filePath: String) async throws -> VisionResult {
         try await extractTextWithDetails(from: filePath, options: VisionRequestOptions())
     }
 
+    @available(macOS 26.0, *)
     func extractTextWithDetails(from filePath: String, options: VisionRequestOptions) async throws -> VisionResult {
         let document = try analyzeDocument(at: filePath, options: options)
         let textBlocks = document.pages.flatMap(\.textBlocks)
@@ -146,10 +183,12 @@ final class VisionService {
         )
     }
 
+    @available(macOS 26.0, *)
     func extractTables(from filePath: String) async throws -> [TableResult] {
         try await extractTables(from: filePath, options: VisionRequestOptions())
     }
 
+    @available(macOS 26.0, *)
     func extractTables(from filePath: String, options: VisionRequestOptions) async throws -> [TableResult] {
         let document = try analyzeDocument(at: filePath, options: options)
         let tables = document.pages.flatMap(\.tables)
@@ -159,12 +198,14 @@ final class VisionService {
         return tables
     }
 
+    @available(macOS 26.0, *)
     func debugRawDetection(from filePath: String) async throws -> String {
         try await debugRawDetection(from: filePath, options: VisionRequestOptions())
     }
 
+    @available(macOS 26.0, *)
     func debugRawDetection(from filePath: String, options: VisionRequestOptions) async throws -> String {
-        let (url, fileExtension) = try validateFile(at: filePath, maxBytes: options.maxFileBytes)
+        let (url, fileExtension) = try validateFile(at: filePath)
         let pageSources = try createPageSources(from: url, fileExtension: fileExtension, options: options)
         var sections: [String] = []
 
@@ -203,8 +244,174 @@ final class VisionService {
         return output
     }
 
+    // MARK: - Barcode detection (macOS 13+)
+
+    func detectBarcodes(from filePath: String, options: VisionRequestOptions = VisionRequestOptions()) throws -> [BarcodeResult] {
+        let (url, _) = try validateFile(at: filePath, allowedExtensions: Self.imageOnlyExtensions)
+        guard let imageData = try? Data(contentsOf: url) else {
+            throw VisionError.imageLoadingFailed
+        }
+
+        let handler = VNImageRequestHandler(data: imageData)
+        let request = VNDetectBarcodesRequest()
+
+        try handler.perform([request])
+
+        guard let observations = request.results else { return [] }
+        return observations.map { obs in
+            BarcodeResult(
+                type: obs.symbology.rawValue.replacingOccurrences(of: "VNBarcodeSymbology", with: ""),
+                payload: obs.payloadStringValue ?? "",
+                boundingBox: obs.boundingBox,
+                confidence: obs.confidence
+            )
+        }
+    }
+
+    // MARK: - Image classification (macOS 13+)
+
+    func classifyImage(from filePath: String, maxLabels: Int = 5) throws -> ClassifyResult {
+        let clampedMaxLabels = max(maxLabels, 0)
+        let (url, _) = try validateFile(at: filePath, allowedExtensions: Self.imageOnlyExtensions)
+        guard let imageData = try? Data(contentsOf: url) else {
+            throw VisionError.imageLoadingFailed
+        }
+
+        let handler = VNImageRequestHandler(data: imageData)
+        let classifyRequest = VNClassifyImageRequest()
+        let saliencyRequest = VNGenerateAttentionBasedSaliencyImageRequest()
+
+        try handler.perform([classifyRequest, saliencyRequest])
+
+        let labels: [ClassificationLabel]
+        if let observations = classifyRequest.results {
+            labels = observations
+                .sorted { $0.confidence > $1.confidence }
+                .prefix(clampedMaxLabels)
+                .map { ClassificationLabel(label: $0.identifier, confidence: $0.confidence) }
+        } else {
+            labels = []
+        }
+
+        let salientRegions: [CGRect]
+        if let saliencyObs = saliencyRequest.results?.first,
+           let salientObjects = saliencyObs.salientObjects {
+            salientRegions = salientObjects.map(\.boundingBox)
+        } else {
+            salientRegions = []
+        }
+
+        return ClassifyResult(labels: labels, salientRegions: salientRegions)
+    }
+
+    // MARK: - Saliency detection (macOS 13+)
+
+    func detectSaliency(from filePath: String, type: String = "attention", includeHeatMap: Bool = false) throws -> SaliencyResult {
+        let (url, _) = try validateFile(at: filePath, allowedExtensions: Self.imageOnlyExtensions)
+        guard let imageData = try? Data(contentsOf: url) else {
+            throw VisionError.imageLoadingFailed
+        }
+
+        let handler = VNImageRequestHandler(data: imageData)
+        let request: VNImageBasedRequest
+        if type == "objectness" {
+            request = VNGenerateObjectnessBasedSaliencyImageRequest()
+        } else {
+            request = VNGenerateAttentionBasedSaliencyImageRequest()
+        }
+
+        try handler.perform([request])
+
+        var regions: [SaliencyRegion] = []
+        var heatMapPNG: Data? = nil
+
+        if let saliencyObs = (request.results as? [VNSaliencyImageObservation])?.first {
+            if let salientObjects = saliencyObs.salientObjects {
+                regions = salientObjects.map { obj in
+                    SaliencyRegion(type: type, boundingBox: obj.boundingBox)
+                }
+            }
+
+            if includeHeatMap {
+                let pixelBuffer = saliencyObs.pixelBuffer
+                heatMapPNG = renderHeatMapPNG(from: pixelBuffer)
+            }
+        }
+
+        return SaliencyResult(regions: regions, heatMapPNG: heatMapPNG)
+    }
+
+    // MARK: - Auto-crop via document segmentation (macOS 13+)
+
+    func autoCrop(imageData: Data) throws -> Data {
+        let handler = VNImageRequestHandler(data: imageData)
+        let request = VNDetectDocumentSegmentationRequest()
+
+        try handler.perform([request])
+
+        guard let observation = request.results?.first else {
+            // No document region found — return original
+            return imageData
+        }
+
+        // Crop the image to the detected document region
+        guard let source = CGImageSourceCreateWithData(imageData as CFData, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            return imageData
+        }
+
+        let box = observation.boundingBox
+        let imageWidth = CGFloat(cgImage.width)
+        let imageHeight = CGFloat(cgImage.height)
+        let cropRect = CGRect(
+            x: box.origin.x * imageWidth,
+            y: (1.0 - box.origin.y - box.height) * imageHeight,
+            width: box.width * imageWidth,
+            height: box.height * imageHeight
+        )
+
+        guard let croppedImage = cgImage.cropping(to: cropRect) else {
+            return imageData
+        }
+
+        let mutableData = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(mutableData, "public.png" as CFString, 1, nil) else {
+            return imageData
+        }
+        CGImageDestinationAddImage(destination, croppedImage, nil)
+        guard CGImageDestinationFinalize(destination) else {
+            return imageData
+        }
+        return mutableData as Data
+    }
+
+    // MARK: - Internal helpers
+
+    func validateFile(at filePath: String, maxBytes: Int = VisionRequestOptions.defaultMaxFileBytes, allowedExtensions: Set<String>? = nil) throws -> (URL, String) {
+        let url = URL(fileURLWithPath: filePath)
+        guard FileManager.default.fileExists(atPath: filePath) else {
+            throw VisionError.fileNotFound
+        }
+
+        let fileExtension = url.pathExtension.lowercased()
+        let extensions = allowedExtensions ?? VisionRequestOptions.supportedExtensions
+        guard extensions.contains(fileExtension) else {
+            throw VisionError.unsupportedFormat
+        }
+
+        let attrs = try FileManager.default.attributesOfItem(atPath: filePath)
+        if let fileSize = attrs[.size] as? Int, fileSize > maxBytes {
+            throw VisionError.fileTooLarge(bytes: fileSize, maxBytes: maxBytes)
+        }
+
+        return (url, fileExtension)
+    }
+
+    // MARK: - Private helpers
+
+    @available(macOS 26.0, *)
     private func analyzeDocument(at filePath: String, options: VisionRequestOptions) throws -> VisionDocumentResult {
-        let (url, fileExtension) = try validateFile(at: filePath, maxBytes: options.maxFileBytes)
+        let (url, fileExtension) = try validateFile(at: filePath)
         let pageSources = try createPageSources(from: url, fileExtension: fileExtension, options: options)
         var pageResults: [VisionPageResult] = []
         let analyzer = TableAnalyzer()
@@ -268,26 +475,6 @@ final class VisionService {
             pages: pageResults,
             documentHints: deriveDocumentHints(from: pageResults)
         )
-    }
-
-    private func validateFile(at filePath: String, maxBytes: Int) throws -> (URL, String) {
-        let url = URL(fileURLWithPath: filePath)
-        guard FileManager.default.fileExists(atPath: filePath) else {
-            throw VisionError.fileNotFound
-        }
-
-        let values = try url.resourceValues(forKeys: [.fileSizeKey])
-        let fileSize = values.fileSize ?? 0
-        if fileSize > maxBytes {
-            throw VisionError.requestTooLarge(actualBytes: fileSize, maxBytes: maxBytes)
-        }
-
-        let fileExtension = url.pathExtension.lowercased()
-        guard VisionRequestOptions.supportedExtensions.contains(fileExtension) else {
-            throw VisionError.unsupportedFormat
-        }
-
-        return (url, fileExtension)
     }
 
     private func createPageSources(from url: URL, fileExtension: String, options: VisionRequestOptions) throws -> [VisionPageSource] {
@@ -390,6 +577,7 @@ final class VisionService {
         return CGSize(width: width, height: height)
     }
 
+    @available(macOS 26.0, *)
     private func makeTextRequest(options: VisionRequestOptions) -> VNRecognizeTextRequest {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = options.recognitionLevel.requestLevel
@@ -422,6 +610,25 @@ final class VisionService {
             hints.append("document")
         }
         return hints
+    }
+
+    private func renderHeatMapPNG(from pixelBuffer: CVPixelBuffer) -> Data? {
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        let context = CIContext()
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        guard let cgImage = context.createCGImage(ciImage, from: CGRect(x: 0, y: 0, width: width, height: height)) else {
+            return nil
+        }
+        let mutableData = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(mutableData, "public.png" as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(destination, cgImage, nil)
+        guard CGImageDestinationFinalize(destination) else {
+            return nil
+        }
+        return mutableData as Data
     }
 }
 
