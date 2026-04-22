@@ -127,7 +127,6 @@ struct ChatCompletionsController: RouteCollection {
                         allCleanupURLs.append(contentsOf: speechProcessed.cleanupURLs)
                     }
 
-                    visionCleanupURLs = allCleanupURLs
                     defer {
                         for url in allCleanupURLs {
                             try? FileManager.default.removeItem(at: url)
