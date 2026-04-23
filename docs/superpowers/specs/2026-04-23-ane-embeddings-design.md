@@ -3,7 +3,9 @@
 **Status:** Draft
 **Date:** 2026-04-23
 **Author:** Jesse Robbins (with Claude)
-**Branch target:** new branch off `main` (name TBD, e.g., `feat/ane-embeddings`)
+**Branch target:** `feat/embeddings` (off `main`)
+
+> **PR scope note (2026-04-23):** The initial PR implements only the Apple `NLContextualEmbedding` path (Gap 1). The MLX embeddings unblock (Gap 2, `MLXEmbedders` linkage + MLX backend + `--backend mlx` flag) is deferred to a follow-up branch. The MLX sections below remain as the design for that follow-up.
 
 ## Problem
 

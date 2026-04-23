@@ -34,7 +34,6 @@ struct EmbeddingModelEntry: Sendable {
 
 enum EmbeddingBackendKind: String, Sendable {
     case nlContextual
-    case mlx
 }
 
 enum PoolingKind: String, Sendable {

@@ -1,37 +1,25 @@
-# Handoff: ANE Embeddings — feat/ane-embeddings
+# Handoff: ANE Embeddings (Apple NL path)
 
 Date: 2026-04-23
-Branch: `feat/ane-embeddings`
+Branch: `feat/embeddings`
 Repo: `/Users/jesse/GitHub/maclocal-api`
+
+## Scope
+
+Initial PR ships **Apple NaturalLanguage contextual embeddings only**. MLX embedding support is deferred to a follow-up branch once the MLX integration details are worked out.
 
 ## Current State
 
-Local Apple embeddings path is implemented and working:
+Apple NL embeddings path is implemented and working:
 
 - `afm embed` starts a dedicated embeddings server
-- `GET /v1/models` works
-- `POST /v1/embeddings` works for string input on Apple NaturalLanguage
+- `GET /v1/models` lists the running model
+- `POST /v1/embeddings` works for string and array-of-strings input
 - `encoding_format=base64` works
-- `dimensions` truncation + renormalization works
+- `dimensions` truncation + L2 renormalization works
 - `Scripts/test-embeddings.sh` passes for the Apple path
 
-Token-array request support is now added at the API layer:
-
-- `input: [1,2,3]`
-- `input: [[1,2,3],[4,5,6]]`
-
-Decoded and routed correctly. `Tests/MacLocalAPITests/EmbeddingsControllerTests.swift` passes.
-
-## Important Limitation
-
-The Apple / NaturalLanguage backend only supports text input, not pre-tokenized ID arrays.
-
-- Token-array requests against the Apple backend return **400 by design**.
-- If the caller needs token-array compatibility, either:
-  - change the caller to send strings when targeting Apple embeddings, or
-  - finish validating the MLX embeddings path with a cached mlx-community embedding model.
-
-The MLX backend has interface support for token IDs, but MLX model validation is still partial on this machine — there is no cached `mlx-community` embedding model available locally.
+Token-array inputs (`[1,2,3]`, `[[1,2,3],[4,5,6]]`) are decoded at the API layer but always return 400 in this PR because the Apple backend is text-only. The decoder accepts them to keep the client contract stable for when an MLX backend lands.
 
 ## Key Files
 
@@ -42,7 +30,6 @@ Implementation:
 - `Sources/MacLocalAPI/Models/EmbeddingBackend.swift`
 - `Sources/MacLocalAPI/Models/EmbeddingModelRegistry.swift`
 - `Sources/MacLocalAPI/Models/NLContextualEmbeddingBackend.swift`
-- `Sources/MacLocalAPI/Models/MLXEmbedderBackend.swift`
 - `Sources/MacLocalAPI/Models/OpenAIRequest.swift`
 - `Sources/MacLocalAPI/Models/OpenAIResponse.swift`
 
@@ -60,37 +47,26 @@ Tests / scripts:
 
 ## Verified Commands
 
-Passed in this workspace:
-
 - `swift build`
-- `swift test --filter EmbeddingModelRegistryTests`
-- `swift test --filter EmbeddingsControllerTests`
+- `swift test --filter EmbeddingModelRegistryTests` — 3/3 pass
+- `swift test --filter EmbeddingsControllerTests` — 9/9 pass
 - `swift run afm embed --list-models`
 - `./Scripts/test-embeddings.sh --port <port>`
 
 Previously verified manually: a live Apple server returned real embeddings for `apple-nl-contextual-en`.
 
-## Behavior Note (HTTP 400 Regression)
+## Deferred: MLX Backend
 
-- Root cause: the embeddings request decoder originally only accepted strings / arrays of strings.
-- API layer now supports token arrays as well.
-- Apple backend still rejects token IDs because NaturalLanguage embeddings are text-only.
+Deferred from this PR. When picking it back up:
 
-## MLX Status
-
-- Interface support exists, including the token-ID path.
-- Full MLX validation is incomplete on this machine — no cached `mlx-community` embedding model available.
-- `Scripts/test-embeddings.sh --with-mlx` now skips cleanly if no suitable cached model exists.
-
-## Environment Notes
-
-- `Scripts/test-embeddings-openai.py` was added, but the `openai` Python package is not installed in this environment, so it was not executed.
-- Unrelated broader test-suite issues exist elsewhere in the repo; the embeddings-targeted tests above are clean.
+- Re-add the `MLXEmbedders` product dependency in `Package.swift`.
+- Reintroduce an MLX backend conforming to `EmbeddingBackend` (including token-ID support).
+- Add an MLX case to `EmbeddingBackendKind` and MLX resolution logic to `EmbeddingModelRegistry`.
+- Restore the `--backend mlx` CLI flag and MLX branch in `EmbeddingsCommand.run()`.
+- Validate end-to-end against a cached `mlx-community` embedding model (e.g. `models--mlx-community--bge-*` or similar).
+- Re-enable the `--with-mlx` mode in `Scripts/test-embeddings.sh`.
 
 ## Recommended Next Steps
 
-1. Keep the Apple path as the default local embeddings implementation.
-2. If the active caller needs tokenized-input compatibility:
-   - switch the caller to send strings when targeting Apple embeddings, **or**
-   - finish validating the MLX embeddings path with a known-good cached `mlx-community` embedding model.
-3. Before merge, run a broader repo regression pass if desired. The embeddings slice itself is in a good handoff state now.
+1. Land this PR as the default local embeddings implementation.
+2. Open a follow-up branch for the MLX backend once a cached `mlx-community` embedding model is available for validation.

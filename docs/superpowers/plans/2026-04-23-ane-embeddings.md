@@ -2,7 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add OpenAI-compatible embeddings support to AFM via a new `afm embed` command and `/v1/embeddings` endpoint, with Apple `NLContextualEmbedding` as the default ANE-oriented backend and `MLXEmbedders` linked as a gated phase-1 MLX fallback.
+> **PR scope note (2026-04-23):** The initial PR ships only the Apple `NLContextualEmbedding` path. `MLXEmbedders` integration is deferred to a follow-up branch. MLX-tagged tasks below remain as planning material for that follow-up.
+
+**Goal:** Add OpenAI-compatible embeddings support to AFM via a new `afm embed` command and `/v1/embeddings` endpoint, with Apple `NLContextualEmbedding` as the default ANE-oriented backend. MLX embedding support (via `MLXEmbedders`) is planned for a follow-up PR.
 
 **Architecture:** A registry-driven embeddings stack parallel to the existing chat stack. `EmbeddingsCommand` loads exactly one embedding model at startup, resolves it through `EmbeddingModelRegistry`, initializes a single `EmbeddingBackend` actor, blocks on Apple asset prefetch when needed, and exposes `/v1/embeddings` plus `/v1/models` through a dedicated `EmbeddingsController`.
 

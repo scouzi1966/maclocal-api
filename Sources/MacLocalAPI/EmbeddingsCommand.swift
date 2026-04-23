@@ -10,22 +10,14 @@ private func handleEmbeddingShutdown(_ signal: Int32) {
     globalEmbeddingServer?.shutdown()
 }
 
-enum EmbeddingBackendOption: String, ExpressibleByArgument, Decodable {
-    case apple
-    case mlx
-}
-
 struct EmbeddingsCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "embed",
-        abstract: "Serve OpenAI-compatible embeddings with Apple NL or MLX backends"
+        abstract: "Serve OpenAI-compatible embeddings using Apple NaturalLanguage contextual embeddings"
     )
 
     @ArgumentParser.Option(name: [.customShort("m"), .long], help: "Embedding model id")
     var model: String = EmbeddingModelRegistry.defaultModelID
-
-    @ArgumentParser.Option(name: .long, help: "Embedding backend override: apple or mlx")
-    var backend: EmbeddingBackendOption?
 
     @ArgumentParser.Option(name: .shortAndLong, help: "Port to run the embeddings server on")
     var port: Int = 9998
@@ -43,8 +35,7 @@ struct EmbeddingsCommand: ParsableCommand {
     var listModels: Bool = false
 
     func run() async throws {
-        let resolver = MLXCacheResolver()
-        let registry = EmbeddingModelRegistry(resolver: resolver)
+        let registry = EmbeddingModelRegistry()
 
         if listModels {
             for modelID in registry.listModelIDs() {
@@ -53,47 +44,18 @@ struct EmbeddingsCommand: ParsableCommand {
             return
         }
 
-        let backendOverride = backend.map {
-            switch $0 {
-            case .apple:
-                return EmbeddingBackendKind.nlContextual
-            case .mlx:
-                return EmbeddingBackendKind.mlx
-            }
+        guard let requestedEntry = registry.resolve(modelID: model) else {
+            throw ValidationError("Unknown embedding model: \(model)")
         }
 
-        let resolvedEntry: EmbeddingModelEntry
-        let backendInstance: any EmbeddingBackend
-
-        if backendOverride == .mlx {
-            let mlxBackend = try await MLXEmbedderBackend(modelID: model, resolver: resolver)
-            resolvedEntry = (try? registry.makeMLXEntry(modelID: mlxBackend.modelID)) ?? EmbeddingModelEntry(
-                id: mlxBackend.modelID,
-                backend: .mlx,
-                nativeDimension: mlxBackend.nativeDimension,
-                supportsMatryoshka: false,
-                pooling: .mean,
-                normalized: false,
-                maxInputTokens: mlxBackend.maxInputTokens,
-                description: "MLX embedding model"
-            )
-            backendInstance = mlxBackend
-        } else {
-            guard let requestedEntry = try registry.resolve(modelID: model, backendOverride: backendOverride) else {
-                throw ValidationError("Unknown embedding model: \(model)")
-            }
-
-            let nlBackend = try NLContextualEmbeddingBackend(modelID: requestedEntry.id)
-            try await nlBackend.prepare()
-            guard let loadedEntry = registry.makeResolvedAppleEntry(
-                modelID: requestedEntry.id,
-                nativeDimension: nlBackend.nativeDimension,
-                maxInputTokens: nlBackend.maxInputTokens
-            ) else {
-                throw ValidationError("Failed to resolve Apple embedding metadata for \(requestedEntry.id)")
-            }
-            resolvedEntry = loadedEntry
-            backendInstance = nlBackend
+        let nlBackend = try NLContextualEmbeddingBackend(modelID: requestedEntry.id)
+        try await nlBackend.prepare()
+        guard let resolvedEntry = registry.makeResolvedAppleEntry(
+            modelID: requestedEntry.id,
+            nativeDimension: nlBackend.nativeDimension,
+            maxInputTokens: nlBackend.maxInputTokens
+        ) else {
+            throw ValidationError("Failed to resolve Apple embedding metadata for \(requestedEntry.id)")
         }
 
         let server = try await EmbeddingHTTPServer(
@@ -102,7 +64,7 @@ struct EmbeddingsCommand: ParsableCommand {
             verbose: verbose,
             veryVerbose: veryVerbose,
             modelEntry: resolvedEntry,
-            backend: backendInstance
+            backend: nlBackend
         )
 
         globalEmbeddingServer = server

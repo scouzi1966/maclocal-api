@@ -26,7 +26,7 @@ struct EmbeddingsController: RouteCollection {
     private func listModels(req: Request) async throws -> Response {
         let model = EmbeddingModelInfo(
             id: modelEntry.id,
-            ownedBy: modelEntry.backend == .mlx ? "mlx" : "apple"
+            ownedBy: "apple"
         )
         let response = EmbeddingModelsResponse(data: [model])
         return try jsonResponse(for: response)
