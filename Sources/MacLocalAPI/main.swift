@@ -1235,7 +1235,7 @@ struct RootCommand: ParsableCommand {
         GitHub: https://github.com/scouzi1966/maclocal-api
         """,
         version: MacLocalAPI.buildVersion,
-        subcommands: [MlxCommand.self, VisionCommand.self]
+        subcommands: [MlxCommand.self, VisionCommand.self, EmbeddingsCommand.self]
     )
 
     @Option(name: [.customShort("s"), .long], help: "Run a single prompt without starting the server")
@@ -1393,6 +1393,28 @@ if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
         }
     } catch {
         VisionCommand.exit(withError: error)
+    }
+} else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "embed" {
+    let args = Array(CommandLine.arguments.dropFirst(2))
+    do {
+        let cmd = try EmbeddingsCommand.parse(args)
+        let group = DispatchGroup()
+        var caughtError: Error?
+        group.enter()
+        Task {
+            do {
+                try await cmd.run()
+            } catch {
+                caughtError = error
+            }
+            group.leave()
+        }
+        group.wait()
+        if let error = caughtError {
+            throw error
+        }
+    } catch {
+        EmbeddingsCommand.exit(withError: error)
     }
 } else {
     RootCommand.main()

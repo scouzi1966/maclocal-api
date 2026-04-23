@@ -665,3 +665,64 @@ struct BatchListResponse: Content {
         self.hasMore = false
     }
 }
+
+// MARK: - Embeddings API Response Types
+
+enum EmbeddingVectorPayload: Content {
+    case float([Float])
+    case base64(String)
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let floatVector = try? container.decode([Float].self) {
+            self = .float(floatVector)
+        } else if let base64 = try? container.decode(String.self) {
+            self = .base64(base64)
+        } else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Embedding payload must be a float array or base64 string"
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .float(let vector):
+            try container.encode(vector)
+        case .base64(let string):
+            try container.encode(string)
+        }
+    }
+}
+
+struct EmbeddingDataItem: Content {
+    let object: String
+    let index: Int
+    let embedding: EmbeddingVectorPayload
+
+    init(index: Int, embedding: EmbeddingVectorPayload) {
+        self.object = "embedding"
+        self.index = index
+        self.embedding = embedding
+    }
+}
+
+struct EmbeddingsResponse: Content {
+    let object: String
+    let data: [EmbeddingDataItem]
+    let model: String
+    let usage: Usage
+
+    init(model: String, data: [EmbeddingDataItem], promptTokens: Int) {
+        self.object = "list"
+        self.data = data
+        self.model = model
+        self.usage = Usage(
+            promptTokens: promptTokens,
+            completionTokens: 0,
+            totalTokens: promptTokens
+        )
+    }
+}

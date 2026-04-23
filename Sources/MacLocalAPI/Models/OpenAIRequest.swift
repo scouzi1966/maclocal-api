@@ -447,3 +447,113 @@ struct BatchInputLine: Codable {
         case method, url, body
     }
 }
+
+// MARK: - Embeddings API Types
+
+enum EmbeddingInput: Content {
+    case string(String)
+    case array([String])
+    case tokenIDs([Int])
+    case arrayTokenIDs([[Int]])
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let string = try? container.decode(String.self) {
+            self = .string(string)
+        } else if let array = try? container.decode([String].self) {
+            self = .array(array)
+        } else if let tokenIDs = try? container.decode([Int].self) {
+            self = .tokenIDs(tokenIDs)
+        } else if let arrayTokenIDs = try? container.decode([[Int]].self) {
+            self = .arrayTokenIDs(arrayTokenIDs)
+        } else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Embedding input must be a string, array of strings, array of token ids, or array of token-id arrays"
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let string):
+            try container.encode(string)
+        case .array(let array):
+            try container.encode(array)
+        case .tokenIDs(let tokenIDs):
+            try container.encode(tokenIDs)
+        case .arrayTokenIDs(let arrayTokenIDs):
+            try container.encode(arrayTokenIDs)
+        }
+    }
+
+    var strings: [String] {
+        switch self {
+        case .string(let string):
+            return [string]
+        case .array(let array):
+            return array
+        case .tokenIDs, .arrayTokenIDs:
+            return []
+        }
+    }
+
+    var tokenIDArrays: [[Int]] {
+        switch self {
+        case .string, .array:
+            return []
+        case .tokenIDs(let tokenIDs):
+            return [tokenIDs]
+        case .arrayTokenIDs(let arrayTokenIDs):
+            return arrayTokenIDs
+        }
+    }
+
+    var isEmpty: Bool {
+        switch self {
+        case .string(let string):
+            return string.isEmpty
+        case .array(let array):
+            return array.isEmpty || array.contains(where: \.isEmpty)
+        case .tokenIDs(let tokenIDs):
+            return tokenIDs.isEmpty
+        case .arrayTokenIDs(let arrayTokenIDs):
+            return arrayTokenIDs.isEmpty || arrayTokenIDs.contains(where: \.isEmpty)
+        }
+    }
+
+    var isTokenized: Bool {
+        switch self {
+        case .tokenIDs, .arrayTokenIDs:
+            return true
+        case .string, .array:
+            return false
+        }
+    }
+}
+
+enum EmbeddingEncodingFormat: String, Content {
+    case float
+    case base64
+}
+
+struct EmbeddingsRequest: Content {
+    let input: EmbeddingInput
+    let model: String?
+    let encodingFormat: EmbeddingEncodingFormat?
+    let dimensions: Int?
+    let user: String?
+
+    enum CodingKeys: String, CodingKey {
+        case input
+        case model
+        case encodingFormat = "encoding_format"
+        case dimensions
+        case user
+    }
+
+    var resolvedEncodingFormat: EmbeddingEncodingFormat {
+        encodingFormat ?? .float
+    }
+}
