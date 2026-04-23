@@ -19,7 +19,8 @@ Ship ANE-accelerated embeddings as the primary, zero-config embedding path in `a
 
 ## Primary success criteria
 
-- **Functional:** `afm embed` starts a server and serves `/v1/embeddings` against Apple's `NLContextualEmbedding` English model with zero configuration. A request with `input: "hello world"` returns a correctly shaped OpenAI response with a dense vector of the model's native dimension.
+- **Functional:** `afm embed` starts a server and serves `/v1/embeddings` against Apple's `NLContextualEmbedding` English model with zero configuration after a one-time asset fetch (see below). A request with `input: "hello world"` returns a correctly shaped OpenAI response with a dense vector of the model's native dimension.
+- **First-run asset fetch (honest about "zero config"):** `NLContextualEmbedding` requires on-device assets that may not be present on a clean machine. On `afm embed` startup, if `hasAvailableAssets` is false, the server calls `requestEmbeddingAssets(for:)` and blocks startup (with progress logging) until assets are ready. Subsequent startups are instant. Callers never see a partially-initialized server.
 - **OpenAI parity:** Single-string and array-of-strings inputs both work. `encoding_format=float` and `encoding_format=base64` both work. `dimensions` parameter supported via truncation + L2 renormalization where the backend's native dim exceeds the request. `usage.prompt_tokens` is populated.
 - **ANE residency (phase 1, observational):** Running `afm embed` while watching `powermetrics`/`mactop` shows non-zero ANE utilization during requests. No formal gate — this is the recommended implementation path but Apple does not expose a hard "is this on ANE" API from NL framework.
 - **MLX unblock:** `afm embed --backend mlx -m <mlx-embedder-id>` returns a correctly shaped embedding from `MLXEmbedders`. Proves the library is linked and the dispatch path works.
@@ -96,7 +97,7 @@ struct EmbeddingModelEntry: Sendable {
     let backend: EmbeddingBackendKind    // .nlContextual, .mlx, (.coreML in phase 2)
     let nativeDimension: Int
     let supportsMatryoshka: Bool
-    let pooling: PoolingKind             // .mean, .cls, .lastToken, .framework
+    let pooling: PoolingKind             // .mean, .cls, .lastToken
     let normalized: Bool                 // whether output is already L2-normalized
     let maxInputTokens: Int
     let description: String
@@ -111,9 +112,11 @@ enum EmbeddingBackendKind: String, Sendable {
 
 Phase-1 shipped entries:
 
-- `apple-nl-contextual-en` → `.nlContextual`, English variant (default)
-- `apple-nl-contextual-multi` → `.nlContextual`, multilingual variant
+- `apple-nl-contextual-en` → `.nlContextual`, English variant (default), `pooling: .mean`
+- `apple-nl-contextual-multi` → `.nlContextual`, multilingual variant, `pooling: .mean`
 - MLX entries resolved lazily via `MLXCacheResolver` when `--backend mlx -m <hf-id>` is used; entries are constructed from the loaded model's config at startup time rather than hard-coded in the registry (MLX embedders are many and evolve).
+
+Note on Apple NL pooling: `NLContextualEmbedding` exposes only per-token vectors via `enumerateTokenVectors`; it does not return a pooled sentence-level embedding. The backend mean-pools token vectors itself (hence `pooling: .mean` on both Apple entries), then L2-normalizes. This is stated explicitly to avoid the trap of assuming the framework does it.
 
 ### CLI surface
 
@@ -192,6 +195,8 @@ A typed `EmbeddingError` with explicit HTTP mapping (same pattern as the speech/
 | `invalidDimensions(requested, native)` | 400 | `dimensions` > native or < 1 |
 | `inputTooLong` | 413 | input exceeds `maxInputTokens` **and** caller opted out of truncation via `X-Embedding-Truncate: false` request header |
 | `backendUnavailable(id, reason)` | 503 | MLX model not in cache, NL framework returned nil embedder, etc. |
+| `assetDownloadRequired(id)` | 503 | NL Contextual assets not available and startup prefetch hasn't completed (should be rare — startup blocks on this; surfaces only if an async refresh later invalidates cache) |
+| `assetDownloadFailed(id, reason)` | 503 | NL Contextual `requestEmbeddingAssets` callback returned an error at startup |
 | `tokenizationFailed(reason)` | 400 | model's tokenizer rejected input |
 | `internalFailure(reason)` | 500 | unexpected path |
 
@@ -243,6 +248,8 @@ Python snippet in `Scripts/test-embeddings-openai.py` using the official `openai
 ## Risk / open questions
 
 - **`NLContextualEmbedding` dimension stability.** Apple has not publicly committed to fixed dimensions across OS versions. Phase 1 queries the model's declared dim at load and uses that; future OS updates could change it but the registry is already dynamic for this case.
+- **Asset download UX.** First `afm embed` launch on a clean machine will pause to fetch NL Contextual assets. Size is documented by Apple as roughly a few hundred MB per language. Startup logs emit progress lines so the pause doesn't look like a hang. Agents invoking `afm embed` should expect first-run latency.
+- **Asset invalidation.** Apple may invalidate cached assets on OS upgrade. Detection is via `hasAvailableAssets` on each load; a running server does **not** hot-reload — the operator re-runs `afm embed` after an OS update.
 - **MLX `ModelContainer` is an `actor`.** The backend wrapper needs careful `await` plumbing. Not novel — existing `MLXModelService` does similar.
 - **Matryoshka truncation semantics.** Truncating + renormalizing is the mechanically correct operation for Matryoshka-trained models (MRL); for non-MRL models the result is still a valid embedding but lower quality than native-dim at that truncation. Phase 1 documents this; phase 2 tightens by exposing `supportsMatryoshka` in `/v1/models` metadata.
 - **Base64 endianness.** OpenAI spec specifies little-endian float32; verified in the base64 test.
