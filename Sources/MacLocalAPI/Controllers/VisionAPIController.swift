@@ -496,22 +496,32 @@ struct VisionAPIController: RouteCollection {
                 }
 
                 if #available(macOS 26.0, *) {
-                    let documents = try await effectiveInputs.asyncMap { input in
-                        let result = try await visionService.extractTextWithDetails(from: input.path, options: options)
-                        return Self.mapDocument(result, sourceType: input.sourceType)
+                    // In auto mode, treat a per-input "no text found" as an empty OCR
+                    // result rather than failing the whole request — other submode
+                    // results (barcode, classify) should still come back.
+                    var documents: [VisionOCRDocument] = []
+                    for input in effectiveInputs {
+                        do {
+                            let result = try await visionService.extractTextWithDetails(from: input.path, options: options)
+                            documents.append(Self.mapDocument(result, sourceType: input.sourceType))
+                        } catch VisionError.noTextFound {
+                            continue
+                        }
                     }
 
-                    let combinedText = documents.map(\.fullText).joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                    let hints = Array(Set(documents.flatMap(\.documentHints))).sorted()
-                    modesRun.append("text")
-                    textResponse = VisionOCRResponse(
-                        object: "vision.ocr",
-                        mode: "text",
-                        documents: documents,
-                        combinedText: combinedText,
-                        documentHints: hints,
-                        debugOutput: nil
-                    )
+                    if !documents.isEmpty {
+                        let combinedText = documents.map(\.fullText).joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                        let hints = Array(Set(documents.flatMap(\.documentHints))).sorted()
+                        modesRun.append("text")
+                        textResponse = VisionOCRResponse(
+                            object: "vision.ocr",
+                            mode: "text",
+                            documents: documents,
+                            combinedText: combinedText,
+                            documentHints: hints,
+                            debugOutput: nil
+                        )
+                    }
                 }
 
                 modesRun.append("barcode")
