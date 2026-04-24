@@ -223,19 +223,31 @@ struct VisionCommand: ParsableCommand {
             case "auto":
                 var sections: [String] = []
 
-                let barcodes = try visionService.detectBarcodes(from: processPath, options: options)
-                if !barcodes.isEmpty {
-                    sections.append("=== Barcodes ===\n" + barcodes.map { "\($0.type): \($0.payload)" }.joined(separator: "\n"))
-                }
+                // Barcode and classify are image-only. Skip them for PDFs so
+                // `--mode auto` still runs OCR on documents.
+                let fileExt = URL(fileURLWithPath: processPath).pathExtension.lowercased()
+                let isImage = VisionService.imageOnlyExtensions.contains(fileExt)
 
-                let classified = try visionService.classifyImage(from: processPath, maxLabels: maxLabels)
-                if !classified.labels.isEmpty {
-                    sections.append("=== Classifications ===\n" + classified.labels.map { "\($0.label): \(String(format: "%.4f", $0.confidence))" }.joined(separator: "\n"))
+                if isImage {
+                    let barcodes = try visionService.detectBarcodes(from: processPath, options: options)
+                    if !barcodes.isEmpty {
+                        sections.append("=== Barcodes ===\n" + barcodes.map { "\($0.type): \($0.payload)" }.joined(separator: "\n"))
+                    }
+
+                    let classified = try visionService.classifyImage(from: processPath, maxLabels: maxLabels)
+                    if !classified.labels.isEmpty {
+                        sections.append("=== Classifications ===\n" + classified.labels.map { "\($0.label): \(String(format: "%.4f", $0.confidence))" }.joined(separator: "\n"))
+                    }
                 }
 
                 if #available(macOS 26.0, *) {
-                    let text = try await visionService.extractText(from: processPath, options: options)
-                    sections.append("=== Text ===\n" + text)
+                    do {
+                        let text = try await visionService.extractText(from: processPath, options: options)
+                        sections.append("=== Text ===\n" + text)
+                    } catch VisionError.noTextFound {
+                        // Auto mode: an image with no text is fine as long as
+                        // another submode produced something.
+                    }
                 }
 
                 output = sections.isEmpty ? "No results found." : sections.joined(separator: "\n\n")
