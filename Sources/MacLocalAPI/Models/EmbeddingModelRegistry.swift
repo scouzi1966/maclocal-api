@@ -49,9 +49,16 @@ struct EmbeddingModelRegistry {
             pooling: shippedEntry.pooling,
             normalized: shippedEntry.normalized,
             maxInputTokens: maxInputTokens,
-            description: shippedEntry.description
+            description: shippedEntry.description,
+            createdEpoch: shippedEntry.createdEpoch
         )
     }
+
+    // macOS 14.0 release date — NLContextualEmbedding shipped with Sonoma and
+    // has been surface-compatible since then. Using the OS GA as the model's
+    // "created" time gives /v1/models a stable, documented value without
+    // having to track per-macOS-version differences.
+    private static let macOS14ReleaseEpoch = 1_695_686_400 // 2023-09-26 UTC
 
     private static func makeAppleEntry(id: String, description: String) -> EmbeddingModelEntry {
         EmbeddingModelEntry(
@@ -62,7 +69,8 @@ struct EmbeddingModelRegistry {
             pooling: .mean,
             normalized: true,
             maxInputTokens: runtimeResolvedMaxInputTokens,
-            description: description
+            description: description,
+            createdEpoch: macOS14ReleaseEpoch
         )
     }
 }

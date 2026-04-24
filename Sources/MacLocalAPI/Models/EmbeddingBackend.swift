@@ -37,6 +37,11 @@ struct EmbeddingModelEntry: Sendable {
     let normalized: Bool
     let maxInputTokens: Int
     let description: String
+    /// Stable Unix epoch for the `created` field in OpenAI's /v1/models shape.
+    /// Per-model constants keep the response idempotent — the same GET returns
+    /// the same value across process restarts, which is what the OpenAI spec
+    /// implies for a model's intrinsic create time.
+    let createdEpoch: Int
 }
 
 enum EmbeddingBackendKind: String, Sendable {

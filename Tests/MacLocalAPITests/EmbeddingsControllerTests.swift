@@ -229,7 +229,7 @@ final class EmbeddingsControllerTests: XCTestCase {
         try await app.testable(method: .running(port: 0)).test(.GET, "/v1/models") { response async in
             XCTAssertEqual(response.status, .ok)
             struct ModelsPayload: Decodable {
-                struct Entry: Decodable { let id: String }
+                struct Entry: Decodable { let id: String; let created: Int }
                 let object: String
                 let data: [Entry]
             }
@@ -237,9 +237,31 @@ final class EmbeddingsControllerTests: XCTestCase {
                 let decoded = try JSONDecoder().decode(ModelsPayload.self, from: Data(response.body.readableBytesView))
                 XCTAssertEqual(decoded.object, "list")
                 XCTAssertEqual(decoded.data.map(\.id), ["apple-nl-contextual-en"])
+                // `created` should be the per-model stable constant (macOS 14 GA),
+                // not derived from Date() on every request.
+                XCTAssertEqual(decoded.data.first?.created, 1_695_686_400)
             } catch {
                 XCTFail("failed to decode /v1/models: \(error)\nbody: \(response.body.string)")
             }
+        }
+    }
+
+    func testEmptyInnerTokenArrayReturns400() async throws {
+        let backend = FakeEmbeddingBackend(
+            modelID: "apple-nl-contextual-en",
+            nativeDimension: 2,
+            maxInputTokens: 128,
+            result: EmbedResult(vectors: [[1, 0]], tokenCounts: [1])
+        )
+        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+        let body = ByteBuffer(string: #"{"input":[[1,2],[]],"model":"apple-nl-contextual-en"}"#)
+
+        try await app.testable(method: .running(port: 0)).test(.POST, "/v1/embeddings", headers: headers, body: body) { response async in
+            XCTAssertEqual(response.status, .badRequest)
+            XCTAssertContains(response.body.string, "Token-id")
         }
     }
 
@@ -445,7 +467,8 @@ final class EmbeddingsControllerTests: XCTestCase {
             pooling: .mean,
             normalized: true,
             maxInputTokens: 128,
-            description: "test"
+            description: "test",
+            createdEpoch: 1_695_686_400
         )
     }
 }

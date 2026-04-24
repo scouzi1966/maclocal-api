@@ -223,7 +223,7 @@ final class EmbeddingHTTPServer {
             HealthResponse(
                 status: "healthy",
                 timestamp: Date().timeIntervalSince1970,
-                version: "1.0.0"
+                version: BuildInfo.fullVersion
             )
         }
 

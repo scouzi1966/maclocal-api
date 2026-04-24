@@ -41,6 +41,7 @@ actor NLContextualEmbeddingBackend: EmbeddingBackend {
 
         var vectors: [[Float]] = []
         var tokenCounts: [Int] = []
+        var truncatedInputCount = 0
 
         for input in inputs {
             guard !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -59,11 +60,25 @@ actor NLContextualEmbeddingBackend: EmbeddingBackend {
                 )
             }
 
-            tokenCounts.append(Int(result.sequenceLength))
+            let sequenceLength = Int(result.sequenceLength)
+            tokenCounts.append(sequenceLength)
+            // NLContextualEmbedding silently truncates inputs to maximumSequenceLength.
+            // When the returned sequence length equals the backend cap, treat it as
+            // truncated so clients get an X-Embedding-Truncated signal. This over-
+            // counts inputs that happen to land exactly at the cap, but under-
+            // counting (the previous behavior — always 0) is worse for the
+            // long-document workflows this header exists for.
+            if sequenceLength >= maxInputTokens {
+                truncatedInputCount += 1
+            }
             vectors.append(try poolMeanNormalized(result: result))
         }
 
-        return EmbedResult(vectors: vectors, tokenCounts: tokenCounts)
+        return EmbedResult(
+            vectors: vectors,
+            tokenCounts: tokenCounts,
+            truncatedInputCount: truncatedInputCount
+        )
     }
 
     func embedTokenIDs(_ inputs: [[Int]]) async throws -> EmbedResult {

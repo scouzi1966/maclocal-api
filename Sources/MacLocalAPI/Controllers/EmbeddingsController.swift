@@ -30,7 +30,11 @@ struct EmbeddingsController: RouteCollection {
         // Advertise only the model this server actually loaded. Advertising the
         // full shipped-model list would cause 404s when clients discovered and
         // then requested an ID the running backend can't serve.
-        let model = EmbeddingModelInfo(id: modelEntry.id, ownedBy: "apple")
+        let model = EmbeddingModelInfo(
+            id: modelEntry.id,
+            created: modelEntry.createdEpoch,
+            ownedBy: "apple"
+        )
         let response = EmbeddingModelsResponse(data: [model])
         return try jsonResponse(for: response, request: req)
     }
@@ -58,7 +62,11 @@ struct EmbeddingsController: RouteCollection {
 
             let embedResult: EmbedResult
             if request.input.isTokenized {
-                embedResult = try await backend.embedTokenIDs(request.input.tokenIDArrays)
+                let tokenIDArrays = request.input.tokenIDArrays
+                if tokenIDArrays.contains(where: { $0.isEmpty }) {
+                    throw EmbeddingError.invalidInput("Token-id inputs must not be empty arrays")
+                }
+                embedResult = try await backend.embedTokenIDs(tokenIDArrays)
             } else {
                 embedResult = try await backend.embed(request.input.strings)
             }
@@ -147,9 +155,11 @@ struct EmbeddingsController: RouteCollection {
         let allowHeaders = requested.flatMap { $0.isEmpty ? nil : $0 } ?? Self.defaultAllowHeaders
         response.headers.replaceOrAdd(name: .accessControlAllowHeaders, value: allowHeaders)
         response.headers.replaceOrAdd(name: "Access-Control-Expose-Headers", value: "X-Embedding-Truncated")
-        // Intermediary caches must vary on these request headers so a preflight
-        // response computed for one client's header set is not served to another.
-        response.headers.replaceOrAdd(name: .vary, value: "Origin, Access-Control-Request-Headers")
+        // Intermediary caches must vary on the requested-headers list so a
+        // preflight response computed for one client's header set is not served
+        // to another. Origin is omitted because Access-Control-Allow-Origin is
+        // the wildcard `*`, which already implies the response is origin-agnostic.
+        response.headers.replaceOrAdd(name: .vary, value: "Access-Control-Request-Headers")
     }
 
     private static func describeDecodingError(_ error: DecodingError) -> String {
@@ -205,10 +215,10 @@ private struct EmbeddingModelInfo: Content {
         case ownedBy = "owned_by"
     }
 
-    init(id: String, ownedBy: String) {
+    init(id: String, created: Int, ownedBy: String) {
         self.id = id
         self.object = "model"
-        self.created = Int(Date().timeIntervalSince1970)
+        self.created = created
         self.ownedBy = ownedBy
     }
 }
