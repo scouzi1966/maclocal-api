@@ -20,12 +20,12 @@ struct ServeCommand: ParsableCommand {
         discussion: "Starts the macOS server that exposes Apple's Foundation Models through OpenAI-compatible API"
     )
     
-    @Option(name: .shortAndLong, help: "Port to run the server on")
-    var port: Int = 9999
-    
+    @Option(name: .shortAndLong, help: "Port to run server on (default: 9999, falls back to ephemeral if busy)")
+    var port: Int?
+
     @Option(name: [.customShort("H"), .long], help: "Hostname to bind server to")
     var hostname: String = "127.0.0.1"
-    
+
     @Flag(name: .shortAndLong, help: "Enable verbose logging")
     var verbose: Bool = false
 
@@ -96,13 +96,24 @@ struct ServeCommand: ParsableCommand {
             }
         }
 
+        // Port selection: use requested port, default 9999, or fall back to ephemeral
+        let chosenPort: Int
+        if let requested = port {
+            chosenPort = requested
+        } else if isPortAvailable(9999) {
+            chosenPort = 9999
+        } else {
+            chosenPort = try findEphemeralPort()
+            print("Port 9999 is busy, using ephemeral port \(chosenPort)")
+        }
+
         // Parse prewarm flag
         let prewarmEnabled = prewarm.lowercased() != "n" && prewarm.lowercased() != "no" && prewarm != "0"
         let telegramConfiguration = try makeTelegramConfiguration(
             rawBotToken: telegramBotToken,
             rawAllowlist: telegramAllow,
             hostname: hostname,
-            port: port,
+            port: chosenPort,
             modelID: "foundation",
             instructions: instructions,
             verbose: verbose || veryVerbose || vv,
@@ -128,7 +139,7 @@ struct ServeCommand: ParsableCommand {
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: port, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose || vv, trace: vv, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled, telegramConfiguration: telegramConfiguration)
+                let server = try await Server(port: chosenPort, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose || vv, trace: vv, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled, telegramConfiguration: telegramConfiguration)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -1256,8 +1267,8 @@ struct RootCommand: ParsableCommand {
     @Option(name: [.customShort("a"), .long], help: "Path to a .fmadapter file for LoRA adapter fine-tuning")
     var adapter: String?
 
-    @Option(name: .shortAndLong, help: "Port to run the server on")
-    var port: Int = 9999
+    @Option(name: .shortAndLong, help: "Port to run server on (default: 9999, falls back to ephemeral if busy)")
+    var port: Int?
 
     @Option(name: [.customShort("H"), .long], help: "Hostname to bind server to")
     var hostname: String = "127.0.0.1"
@@ -1342,7 +1353,8 @@ struct RootCommand: ParsableCommand {
         // If no subcommand specified and no single prompt, run server.
         // Build argument array and parse — direct struct init doesn't work
         // with ArgumentParser property wrappers (they need parse() to initialize).
-        var args: [String] = ["--port", "\(port)", "--hostname", hostname, "--instructions", instructions, "--prewarm", prewarm]
+        var args: [String] = ["--hostname", hostname, "--instructions", instructions, "--prewarm", prewarm]
+        if let port { args += ["--port", "\(port)"] }
         if verbose { args.append("--verbose") }
         if veryVerbose { args.append("--very-verbose") }
         if noStreaming { args.append("--no-streaming") }
