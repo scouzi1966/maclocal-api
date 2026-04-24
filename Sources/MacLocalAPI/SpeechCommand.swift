@@ -12,26 +12,22 @@ struct SpeechCommand: AsyncParsableCommand {
         Subcommands:
           synthesize  — Convert text to speech audio
           transcribe  — Transcribe audio files to text
+          voices      — List available synthesis voices
 
-        Legacy shortcut:
+        Legacy shortcuts:
+          afm speech file.wav     — Equivalent to: afm speech transcribe -f file.wav
           afm speech -f file.wav  — Equivalent to: afm speech transcribe -f file.wav
 
         Examples:
           afm speech synthesize "Hello world" -o output.aac
           afm speech synthesize "Hello" --voice nova --format wav
-          afm speech --list-voices --locale en
+          afm speech voices --locale en
           afm speech transcribe -f recording.wav
           afm speech transcribe -f meeting.mp3 --format verbose_json
           afm speech -f audio.wav                         # legacy transcribe shortcut
         """,
-        subcommands: [SpeechSynthesizeCommand.self, SpeechTranscribeCommand.self]
+        subcommands: [SpeechSynthesizeCommand.self, SpeechTranscribeCommand.self, SpeechVoicesCommand.self]
     )
-
-    @Flag(name: .long, help: "List available voices and exit")
-    var listVoices: Bool = false
-
-    @Option(name: .long, help: "Filter voices by locale prefix (e.g. 'en', 'ja-JP')")
-    var locale: String?
 
     @Flag(name: .long, help: "Print machine-readable JSON capability card for AI agents and exit")
     var helpJson: Bool = false
@@ -42,28 +38,37 @@ struct SpeechCommand: AsyncParsableCommand {
             return
         }
 
-        if listVoices {
-            if #available(macOS 13.0, *) {
-                let voices = SpeechSynthesisService.listVoices(locale: locale)
-                if voices.isEmpty {
-                    print("No voices found\(locale.map { " for locale '\($0)'" } ?? "").")
-                    return
-                }
-                let maxNameLen = voices.map(\.name.count).max() ?? 10
-                let maxLocaleLen = voices.map(\.locale.count).max() ?? 5
-                for voice in voices {
-                    let name = voice.name.padding(toLength: maxNameLen, withPad: " ", startingAt: 0)
-                    let loc = voice.locale.padding(toLength: maxLocaleLen, withPad: " ", startingAt: 0)
-                    print("\(name)  \(loc)  \(voice.gender)  \(voice.quality)  \(voice.id)")
-                }
-            } else {
-                throw SpeechError.platformUnavailable
-            }
-            return
-        }
-
         // No subcommand and no flags — show help
         throw CleanExit.helpRequest(self)
+    }
+}
+
+struct SpeechVoicesCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "voices",
+        abstract: "List available speech synthesis voices"
+    )
+
+    @Option(name: .long, help: "Filter voices by locale prefix (e.g. 'en', 'ja-JP')")
+    var locale: String?
+
+    func run() async throws {
+        guard #available(macOS 13.0, *) else {
+            throw SpeechError.platformUnavailable
+        }
+
+        let voices = SpeechSynthesisService.listVoices(locale: locale)
+        if voices.isEmpty {
+            print("No voices found\(locale.map { " for locale '\($0)'" } ?? "").")
+            return
+        }
+        let maxNameLen = voices.map(\.name.count).max() ?? 10
+        let maxLocaleLen = voices.map(\.locale.count).max() ?? 5
+        for voice in voices {
+            let name = voice.name.padding(toLength: maxNameLen, withPad: " ", startingAt: 0)
+            let loc = voice.locale.padding(toLength: maxLocaleLen, withPad: " ", startingAt: 0)
+            print("\(name)  \(loc)  \(voice.gender)  \(voice.quality)  \(voice.id)")
+        }
     }
 }
 

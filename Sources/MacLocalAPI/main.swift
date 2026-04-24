@@ -1376,11 +1376,26 @@ if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
     }
 } else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "speech" {
     var args = Array(CommandLine.arguments.dropFirst(2))
-    // Legacy: if the first arg isn't a known subcommand, assume it's a file path
-    // or flag for transcribe (e.g. "afm speech file.wav" or "afm speech -f file.wav").
+    // Legacy shim: pre-subcommand CLI accepted `afm speech file.wav`,
+    // `afm speech -f file.wav`, and `afm speech --list-voices`. Route each
+    // legacy form to the matching subcommand so existing muscle memory keeps
+    // working. Root options would otherwise swallow subcommand options like
+    // `--locale`, so the root stays deliberately flagless (except --help-json).
     let subcommands: Set<String> = ["synthesize", "transcribe", "voices", "help"]
-    if let first = args.first, !subcommands.contains(first), !first.hasPrefix("-") {
-        args.insert("transcribe", at: 0)
+    let transcribeFlags: Set<String> = ["-f", "--file", "--format", "--language", "--timestamps"]
+    if let firstIdx = args.firstIndex(of: "--list-voices") {
+        // Drop the flag and prepend `voices` so any remaining flags (e.g. --locale)
+        // bind to SpeechVoicesCommand.
+        args.remove(at: firstIdx)
+        args.insert("voices", at: 0)
+    } else if let first = args.first, !subcommands.contains(first) {
+        if !first.hasPrefix("-") {
+            // Bare positional — treat as transcribe file path
+            args.insert(contentsOf: ["transcribe", "-f"], at: 0)
+        } else if transcribeFlags.contains(first) {
+            args.insert("transcribe", at: 0)
+        }
+        // Other flags (e.g. --help, --help-json) fall through to SpeechCommand.
     }
     do {
         var cmd = try SpeechCommand.parseAsRoot(args)
