@@ -63,6 +63,11 @@ class Server {
     private let contextWindow: Int?
     private var telegramBridge: TelegramBridge?
 
+    private static let audioAvailable: Bool = {
+        if #available(macOS 13.0, *) { return true }
+        return false
+    }()
+
     init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, telegramConfiguration: TelegramConfiguration? = nil, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil) async throws {
         self.port = port
         self.hostname = hostname
@@ -330,7 +335,7 @@ class Server {
                     total_slots: 1,
                     model_path: mlxModelID,
                     role: "mlx",
-                    modalities: Modalities(vision: true, audio: true),
+                    modalities: Modalities(vision: true, audio: Self.audioAvailable),
                     chat_template: "",
                     bos_token: "",
                     eos_token: "",
@@ -373,7 +378,7 @@ class Server {
                 total_slots: 1,
                 model_path: modelPath,
                 role: self.gatewayEnabled ? "router" : "model",
-                modalities: Modalities(vision: hasVision, audio: true),
+                modalities: Modalities(vision: hasVision, audio: Self.audioAvailable),
                 chat_template: "",
                 bos_token: "",
                 eos_token: "",

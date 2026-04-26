@@ -950,6 +950,8 @@ func printHelpJson(command: String) {
         config = MlxCommand.configuration
     case "afm vision":
         config = VisionCommand.configuration
+    case "afm speech":
+        config = SpeechCommand.configuration
     default:
         config = RootCommand.configuration
     }
@@ -1385,21 +1387,45 @@ if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
         MlxCommand.exit(withError: error)
     }
 } else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "speech" {
-    let args = Array(CommandLine.arguments.dropFirst(2))
+    var args = Array(CommandLine.arguments.dropFirst(2))
+    // Legacy shim: pre-subcommand CLI accepted `afm speech file.wav`,
+    // `afm speech -f file.wav`, and `afm speech --list-voices`. Route each
+    // legacy form to the matching subcommand so existing muscle memory keeps
+    // working. Root options would otherwise swallow subcommand options like
+    // `--locale`, so the root stays deliberately flagless (except --help-json).
+    let subcommands: Set<String> = ["synthesize", "transcribe", "voices", "help"]
+    let transcribeFlags: Set<String> = ["-f", "--file", "--format", "--language", "--timestamps"]
+    if let firstIdx = args.firstIndex(of: "--list-voices") {
+        // Drop the flag and prepend `voices` so any remaining flags (e.g. --locale)
+        // bind to SpeechVoicesCommand.
+        args.remove(at: firstIdx)
+        args.insert("voices", at: 0)
+    } else if let first = args.first, !subcommands.contains(first) {
+        if !first.hasPrefix("-") {
+            // Bare positional — treat as transcribe file path
+            args.insert(contentsOf: ["transcribe", "-f"], at: 0)
+        } else if transcribeFlags.contains(first) {
+            args.insert("transcribe", at: 0)
+        }
+        // Other flags (e.g. --help, --help-json) fall through to SpeechCommand.
+    }
     do {
-        let cmd = try SpeechCommand.parse(args)
-        let group = DispatchGroup()
+        var cmd = try SpeechCommand.parseAsRoot(args)
+        // Use CFRunLoop so AVSpeechSynthesizer callbacks can fire on the main thread
         var caughtError: Error?
-        group.enter()
         Task {
             do {
-                try await cmd.run()
+                if var asyncCmd = cmd as? AsyncParsableCommand {
+                    try await asyncCmd.run()
+                } else {
+                    try cmd.run()
+                }
             } catch {
                 caughtError = error
             }
-            group.leave()
+            CFRunLoopStop(CFRunLoopGetMain())
         }
-        group.wait()
+        CFRunLoopRun()
         if let error = caughtError {
             throw error
         }

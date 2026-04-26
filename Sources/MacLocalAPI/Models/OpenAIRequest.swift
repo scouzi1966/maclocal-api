@@ -184,6 +184,7 @@ struct ImageURL: Codable {
 struct InputAudio: Codable {
     let data: String   // base64-encoded audio
     let format: String // "wav", "mp3", etc.
+    let language: String? // locale for transcription (e.g. "en-US", "ja-JP")
 }
 
 struct Message: Content {
