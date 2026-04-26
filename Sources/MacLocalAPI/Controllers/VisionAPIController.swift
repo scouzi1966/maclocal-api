@@ -2,17 +2,30 @@ import Vapor
 import Foundation
 
 protocol VisionServing {
+    @available(macOS 26.0, *)
     func extractText(from filePath: String) async throws -> String
+    @available(macOS 26.0, *)
     func extractText(from filePath: String, options: VisionRequestOptions) async throws -> String
+    @available(macOS 26.0, *)
     func extractTextWithDetails(from filePath: String) async throws -> VisionResult
+    @available(macOS 26.0, *)
     func extractTextWithDetails(from filePath: String, options: VisionRequestOptions) async throws -> VisionResult
+    @available(macOS 26.0, *)
     func extractTables(from filePath: String) async throws -> [TableResult]
+    @available(macOS 26.0, *)
     func extractTables(from filePath: String, options: VisionRequestOptions) async throws -> [TableResult]
+    @available(macOS 26.0, *)
     func debugRawDetection(from filePath: String) async throws -> String
+    @available(macOS 26.0, *)
     func debugRawDetection(from filePath: String, options: VisionRequestOptions) async throws -> String
+
+    // New modes (macOS 13+)
+    func detectBarcodes(from filePath: String, options: VisionRequestOptions) throws -> [BarcodeResult]
+    func classifyImage(from filePath: String, maxLabels: Int) throws -> ClassifyResult
+    func detectSaliency(from filePath: String, type: String, includeHeatMap: Bool) throws -> SaliencyResult
+    func autoCrop(imageData: Data) throws -> Data
 }
 
-@available(macOS 26.0, *)
 extension VisionService: VisionServing {}
 
 struct VisionOCRRequest: Content {
@@ -29,6 +42,14 @@ struct VisionOCRRequest: Content {
     let usesLanguageCorrection: Bool?
     let languages: [String]?
     let maxPages: Int?
+    // New parameters
+    let mode: String?
+    let detail: String?
+    let autoCrop: Bool?
+    let responseFormat: String?
+    let maxLabels: Int?
+    let saliencyType: String?
+    let includeHeatMap: Bool?
 
     enum CodingKeys: String, CodingKey {
         case file
@@ -44,6 +65,88 @@ struct VisionOCRRequest: Content {
         case usesLanguageCorrection = "uses_language_correction"
         case languages
         case maxPages = "max_pages"
+        case mode
+        case detail
+        case autoCrop = "auto_crop"
+        case responseFormat = "response_format"
+        case maxLabels = "max_labels"
+        case saliencyType = "saliency_type"
+        case includeHeatMap = "include_heat_map"
+    }
+}
+
+// MARK: - New vision mode response types
+
+struct VisionBarcodeResponse: Content {
+    let object: String
+    let mode: String
+    let results: [VisionBarcodeItem]
+}
+
+struct VisionBarcodeItem: Content {
+    let type: String
+    let payload: String
+    let boundingBox: VisionOCRBoundingBox
+    let confidence: Float
+
+    enum CodingKeys: String, CodingKey {
+        case type, payload
+        case boundingBox = "bounding_box"
+        case confidence
+    }
+}
+
+struct VisionClassifyResponse: Content {
+    let object: String
+    let mode: String
+    let labels: [VisionClassifyLabel]
+    let salientRegions: [VisionOCRBoundingBox]
+
+    enum CodingKeys: String, CodingKey {
+        case object, mode, labels
+        case salientRegions = "salient_regions"
+    }
+}
+
+struct VisionClassifyLabel: Content {
+    let label: String
+    let confidence: Float
+}
+
+struct VisionSaliencyResponse: Content {
+    let object: String
+    let mode: String
+    let regions: [VisionSaliencyRegionItem]
+    let heatMap: String?
+
+    enum CodingKeys: String, CodingKey {
+        case object, mode, regions
+        case heatMap = "heat_map"
+    }
+}
+
+struct VisionSaliencyRegionItem: Content {
+    let type: String
+    let boundingBox: VisionOCRBoundingBox
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case boundingBox = "bounding_box"
+    }
+}
+
+struct VisionAutoResponse: Content {
+    let object: String
+    let mode: String
+    let modesRun: [String]
+    let text: VisionOCRResponse?
+    let barcodes: [VisionBarcodeItem]?
+    let labels: [VisionClassifyLabel]?
+
+    enum CodingKeys: String, CodingKey {
+        case object, mode
+        case modesRun = "modes_run"
+        case text, barcodes, labels
     }
 }
 
@@ -216,44 +319,239 @@ struct VisionAPIController: RouteCollection {
 
         defer { cleanup(parsed.cleanupURLs) }
 
+        // Resolve mode: explicit mode > legacy flags > default "text"
         let wantsDebug = parsed.request.debug ?? false
         let wantsTable = parsed.request.table ?? false
-        let mode = wantsDebug ? "debug" : (wantsTable ? "table" : "text")
+        let resolvedMode: String
+        if wantsDebug {
+            resolvedMode = "debug"
+        } else if let explicitMode = parsed.request.mode?.lowercased(), !explicitMode.isEmpty {
+            resolvedMode = explicitMode
+        } else if wantsTable {
+            resolvedMode = "table"
+        } else {
+            resolvedMode = "text"
+        }
+
+        // Apply auto_crop preprocessing if requested
+        var effectiveInputs = parsed.inputs
+        var cropCleanupURLs: [URL] = []
+        if parsed.request.autoCrop ?? false {
+            effectiveInputs = try effectiveInputs.map { input in
+                let fileURL = URL(fileURLWithPath: input.path)
+                let attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+                if let fileSize = attrs[.size] as? Int, fileSize > VisionRequestOptions.defaultMaxFileBytes {
+                    throw VisionError.fileTooLarge(bytes: fileSize, maxBytes: VisionRequestOptions.defaultMaxFileBytes)
+                }
+                let imageData: Data
+                do {
+                    imageData = try Data(contentsOf: fileURL)
+                } catch {
+                    throw VisionError.imageLoadingFailed
+                }
+                let croppedData = try visionService.autoCrop(imageData: imageData)
+                let tempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("afm_vision_crop_\(UUID().uuidString).png")
+                try croppedData.write(to: tempURL)
+                cropCleanupURLs.append(tempURL)
+                return VisionResolvedInput(path: tempURL.path, sourceType: input.sourceType, cleanupURLs: input.cleanupURLs)
+            }
+        }
+        defer { cleanup(cropCleanupURLs) }
 
         do {
-            if wantsDebug {
-                let outputs = try await parsed.inputs.asyncMap { input in
-                    try await visionService.debugRawDetection(from: input.path, options: options)
-                }
-                return try await createSuccessResponse(
-                    VisionOCRResponse(
-                        object: "vision.ocr",
-                        mode: mode,
-                        documents: [],
-                        combinedText: "",
-                        documentHints: [],
-                        debugOutput: outputs.joined(separator: "\n\n")
+            switch resolvedMode {
+            case "debug":
+                if #available(macOS 26.0, *) {
+                    let outputs = try await effectiveInputs.asyncMap { input in
+                        try await visionService.debugRawDetection(from: input.path, options: options)
+                    }
+                    return try await createSuccessResponse(
+                        VisionOCRResponse(
+                            object: "vision.ocr",
+                            mode: resolvedMode,
+                            documents: [],
+                            combinedText: "",
+                            documentHints: [],
+                            debugOutput: outputs.joined(separator: "\n\n")
+                        )
                     )
-                )
-            }
+                } else {
+                    return try await createErrorResponse(
+                        message: VisionError.modeRequiresMacOS26("debug").localizedDescription,
+                        status: .notImplemented
+                    )
+                }
 
-            let documents = try await parsed.inputs.asyncMap { input in
-                let result = try await visionService.extractTextWithDetails(from: input.path, options: options)
-                return Self.mapDocument(result, sourceType: input.sourceType)
-            }
+            case "text", "table":
+                if #available(macOS 26.0, *) {
+                    let documents = try await effectiveInputs.asyncMap { input in
+                        let result = try await visionService.extractTextWithDetails(from: input.path, options: options)
+                        return Self.mapDocument(result, sourceType: input.sourceType)
+                    }
+                    let combinedText = documents.map(\.fullText).joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                    let hints = Array(Set(documents.flatMap(\.documentHints))).sorted()
 
-            let combinedText = documents.map(\.fullText).joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
-            let hints = Array(Set(documents.flatMap(\.documentHints))).sorted()
-            return try await createSuccessResponse(
-                VisionOCRResponse(
+                    // Handle response_format
+                    let responseFormat = parsed.request.responseFormat?.lowercased() ?? "json"
+                    if responseFormat == "text" {
+                        let response = Response(status: .ok)
+                        response.headers.add(name: .contentType, value: "text/plain")
+                        response.headers.add(name: .accessControlAllowOrigin, value: "*")
+                        response.body = .init(string: combinedText)
+                        return response
+                    }
+
+                    return try await createSuccessResponse(
+                        VisionOCRResponse(
+                            object: "vision.ocr",
+                            mode: resolvedMode,
+                            documents: documents,
+                            combinedText: combinedText,
+                            documentHints: hints,
+                            debugOutput: nil
+                        )
+                    )
+                } else {
+                    return try await createErrorResponse(
+                        message: VisionError.modeRequiresMacOS26(resolvedMode).localizedDescription,
+                        status: .notImplemented
+                    )
+                }
+
+            case "barcode":
+                let allBarcodes = try effectiveInputs.flatMap { input in
+                    try visionService.detectBarcodes(from: input.path, options: options)
+                }
+                let items = allBarcodes.map { b in
+                    VisionBarcodeItem(
+                        type: b.type,
+                        payload: b.payload,
+                        boundingBox: VisionOCRBoundingBox(b.boundingBox),
+                        confidence: b.confidence
+                    )
+                }
+                return try await createJSONResponse(VisionBarcodeResponse(
                     object: "vision.ocr",
-                    mode: mode,
-                    documents: documents,
-                    combinedText: combinedText,
-                    documentHints: hints,
-                    debugOutput: nil
+                    mode: "barcode",
+                    results: items
+                ))
+
+            case "classify":
+                let maxLabels = parsed.request.maxLabels ?? 5
+                let allResults = try effectiveInputs.map { input in
+                    try visionService.classifyImage(from: input.path, maxLabels: maxLabels)
+                }
+                let labels = allResults.flatMap { $0.labels }.map {
+                    VisionClassifyLabel(label: $0.label, confidence: $0.confidence)
+                }
+                let regions = allResults.flatMap { $0.salientRegions }.map {
+                    VisionOCRBoundingBox($0)
+                }
+                return try await createJSONResponse(VisionClassifyResponse(
+                    object: "vision.ocr",
+                    mode: "classify",
+                    labels: labels,
+                    salientRegions: regions
+                ))
+
+            case "saliency":
+                let saliencyType = parsed.request.saliencyType ?? "attention"
+                let includeHeatMap = parsed.request.includeHeatMap ?? false
+                let allResults = try effectiveInputs.map { input in
+                    try visionService.detectSaliency(from: input.path, type: saliencyType, includeHeatMap: includeHeatMap)
+                }
+                let regions = allResults.flatMap { $0.regions }.map {
+                    VisionSaliencyRegionItem(type: $0.type, boundingBox: VisionOCRBoundingBox($0.boundingBox))
+                }
+                let heatMap = allResults.compactMap(\.heatMapPNG).first.map { $0.base64EncodedString() }
+                return try await createJSONResponse(VisionSaliencyResponse(
+                    object: "vision.ocr",
+                    mode: "saliency",
+                    regions: regions,
+                    heatMap: heatMap
+                ))
+
+            case "auto":
+                // Run barcode, classify (sync), then text (async)
+                let maxLabels = parsed.request.maxLabels ?? 5
+
+                // Filter to image-only inputs for barcode/classify (they reject PDFs)
+                let imageInputs = effectiveInputs.filter { input in
+                    let ext = URL(fileURLWithPath: input.path).pathExtension.lowercased()
+                    return VisionService.imageOnlyExtensions.contains(ext)
+                }
+
+                var modesRun: [String] = []
+                var barcodeItems: [VisionBarcodeItem]?
+                var classifyLabels: [VisionClassifyLabel]?
+                var textResponse: VisionOCRResponse?
+
+                // Barcode and classify are synchronous Vision framework calls
+                let barcodes = try imageInputs.flatMap { input in
+                    try visionService.detectBarcodes(from: input.path, options: options)
+                }
+                let classified = try imageInputs.map { input in
+                    try visionService.classifyImage(from: input.path, maxLabels: maxLabels)
+                }
+
+                if #available(macOS 26.0, *) {
+                    // In auto mode, treat a per-input "no text found" as an empty OCR
+                    // result rather than failing the whole request — other submode
+                    // results (barcode, classify) should still come back.
+                    var documents: [VisionOCRDocument] = []
+                    for input in effectiveInputs {
+                        do {
+                            let result = try await visionService.extractTextWithDetails(from: input.path, options: options)
+                            documents.append(Self.mapDocument(result, sourceType: input.sourceType))
+                        } catch VisionError.noTextFound {
+                            continue
+                        }
+                    }
+
+                    if !documents.isEmpty {
+                        let combinedText = documents.map(\.fullText).joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                        let hints = Array(Set(documents.flatMap(\.documentHints))).sorted()
+                        modesRun.append("text")
+                        textResponse = VisionOCRResponse(
+                            object: "vision.ocr",
+                            mode: "text",
+                            documents: documents,
+                            combinedText: combinedText,
+                            documentHints: hints,
+                            debugOutput: nil
+                        )
+                    }
+                }
+
+                modesRun.append("barcode")
+                if !barcodes.isEmpty {
+                    barcodeItems = barcodes.map {
+                        VisionBarcodeItem(type: $0.type, payload: $0.payload, boundingBox: VisionOCRBoundingBox($0.boundingBox), confidence: $0.confidence)
+                    }
+                }
+
+                let labels = classified.flatMap(\.labels)
+                modesRun.append("classify")
+                if !labels.isEmpty {
+                    classifyLabels = labels.map { VisionClassifyLabel(label: $0.label, confidence: $0.confidence) }
+                }
+
+                return try await createJSONResponse(VisionAutoResponse(
+                    object: "vision.ocr",
+                    mode: "auto",
+                    modesRun: modesRun,
+                    text: textResponse,
+                    barcodes: barcodeItems,
+                    labels: classifyLabels
+                ))
+
+            default:
+                return try await createErrorResponse(
+                    message: "Unknown mode '\(resolvedMode)'. Supported: text, table, barcode, classify, saliency, auto",
+                    status: .badRequest
                 )
-            )
+            }
         } catch let visionError as VisionError {
             return try await createErrorResponse(
                 message: visionError.localizedDescription,
@@ -288,7 +586,14 @@ struct VisionAPIController: RouteCollection {
                 recognitionLevel: stringField(req, "recognition_level"),
                 usesLanguageCorrection: boolField(req, "uses_language_correction"),
                 languages: arrayField(req, "languages"),
-                maxPages: intField(req, "max_pages")
+                maxPages: intField(req, "max_pages"),
+                mode: stringField(req, "mode"),
+                detail: stringField(req, "detail"),
+                autoCrop: boolField(req, "auto_crop"),
+                responseFormat: stringField(req, "response_format"),
+                maxLabels: intField(req, "max_labels"),
+                saliencyType: stringField(req, "saliency_type"),
+                includeHeatMap: boolField(req, "include_heat_map")
             )
         } else {
             request = try req.content.decode(VisionOCRRequest.self)
@@ -349,6 +654,14 @@ struct VisionAPIController: RouteCollection {
                 throw Abort(.badRequest, reason: "recognition_level must be 'accurate' or 'fast'")
             }
             level = parsed
+        } else if let detail = request.detail?.lowercased(), !detail.isEmpty {
+            // detail is an alias: high -> accurate, low -> fast
+            switch detail {
+            case "high": level = .accurate
+            case "low": level = .fast
+            default:
+                throw Abort(.badRequest, reason: "detail must be 'high' or 'low'")
+            }
         } else {
             level = .accurate
         }
@@ -359,6 +672,14 @@ struct VisionAPIController: RouteCollection {
             recognitionLanguages: request.languages ?? [],
             maxPages: request.maxPages ?? VisionRequestOptions.defaultMaxPages
         )
+    }
+
+    private func createJSONResponse<T: Content>(_ payload: T) async throws -> Response {
+        let response = Response(status: .ok)
+        response.headers.add(name: .contentType, value: "application/json")
+        response.headers.add(name: .accessControlAllowOrigin, value: "*")
+        try response.content.encode(payload)
+        return response
     }
 
     private func createSuccessResponse(_ payload: VisionOCRResponse) async throws -> Response {
@@ -492,13 +813,6 @@ struct VisionAPIController: RouteCollection {
     }
 
     static func writeTempFile(data: Data, filename: String, mediaType: String?) throws -> URL {
-        if data.count > VisionRequestOptions.defaultMaxFileBytes {
-            throw VisionError.requestTooLarge(
-                actualBytes: data.count,
-                maxBytes: VisionRequestOptions.defaultMaxFileBytes
-            )
-        }
-
         let ext = inferExtension(filename: filename, mediaType: mediaType)
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("afm_vision_\(UUID().uuidString).\(ext)")
@@ -629,20 +943,19 @@ struct VisionAPIController: RouteCollection {
             return .badRequest
         case .fileNotFound:
             return .notFound
-        case .requestTooLarge:
+        case .fileTooLarge:
             return .payloadTooLarge
         case .pageLimitExceeded, .imageDimensionsExceeded, .imageLoadingFailed, .textRecognitionFailed, .noTextFound, .noTablesFound, .documentSegmentationFailed:
             return .unprocessableEntity
         case .platformUnavailable:
             return .serviceUnavailable
+        case .modeRequiresMacOS26:
+            return .notImplemented
         }
     }
 
     private static func defaultVisionServiceFactory() -> (any VisionServing)? {
-        if #available(macOS 26.0, *) {
-            return VisionService()
-        }
-        return nil
+        return VisionService()
     }
 }
 

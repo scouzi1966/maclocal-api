@@ -228,6 +228,26 @@ private final class FakeVisionService: VisionServing {
         if let debugError { throw debugError }
         return debugResult
     }
+
+    func detectBarcodes(from filePath: String, options: VisionRequestOptions) throws -> [BarcodeResult] {
+        lastPath = filePath
+        lastOptions = options
+        return []
+    }
+
+    func classifyImage(from filePath: String, maxLabels: Int) throws -> ClassifyResult {
+        lastPath = filePath
+        return ClassifyResult(labels: [], salientRegions: [])
+    }
+
+    func detectSaliency(from filePath: String, type: String, includeHeatMap: Bool) throws -> SaliencyResult {
+        lastPath = filePath
+        return SaliencyResult(regions: [], heatMapPNG: nil)
+    }
+
+    func autoCrop(imageData: Data) throws -> Data {
+        return imageData
+    }
 }
 
 private func makeVisionResult(filePath: String) -> VisionResult {
