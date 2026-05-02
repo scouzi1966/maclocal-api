@@ -1,0 +1,5063 @@
+{
+  "evalId": "eval-OVh-2026-05-02T22:40:28",
+  "results": {
+    "version": 3,
+    "timestamp": "2026-05-02T22:40:28.276Z",
+    "prompts": [
+      {
+        "id": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "raw": "{{prompt}}",
+        "label": "{{prompt}}",
+        "provider": "afm-adaptive-xml-grammar-hermes",
+        "metrics": {
+          "score": 12,
+          "testPassCount": 12,
+          "testFailCount": 0,
+          "testErrorCount": 0,
+          "assertPassCount": 12,
+          "assertFailCount": 0,
+          "totalLatencyMs": 16881,
+          "tokenUsage": {
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "total": 0,
+            "numRequests": 12,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            },
+            "assertions": {
+              "total": 0,
+              "prompt": 0,
+              "completion": 0,
+              "cached": 0,
+              "numRequests": 0,
+              "completionDetails": {
+                "reasoning": 0,
+                "acceptedPrediction": 0,
+                "rejectedPrediction": 0,
+                "cacheReadInputTokens": 0,
+                "cacheCreationInputTokens": 0
+              }
+            }
+          },
+          "namedScores": {},
+          "namedScoresCount": {},
+          "namedScoreWeights": {},
+          "cost": 0
+        }
+      }
+    ],
+    "results": [
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read_file' &&\n  /MLXChatCompletionsController\\.swift$/.test(String(parsed.tool_calls[0].function.arguments.path || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "9149f679-a97c-44a3-9666-bc5cc031a7df",
+        "latencyMs": 1679,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Read Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-hermes"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"type\":\"function\",\"id\":\"call_EakCYfzcm7oEQIPgvAR7UTCW\",\"index\":0,\"function\":{\"name\":\"read_file\",\"arguments\":{\"path\":\"Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift\"}}}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 1679,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a Hermes-style agent using only documented Hermes tools."
+                },
+                {
+                  "role": "user",
+                  "content": "Read Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "read_file",
+                    "description": "Read a file with pagination",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "offset": {
+                          "type": "integer"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "type": "function",
+                        "id": "call_EakCYfzcm7oEQIPgvAR7UTCW",
+                        "index": 0,
+                        "function": {
+                          "name": "read_file",
+                          "arguments": "{\"path\":\"Sources\\/MacLocalAPI\\/Controllers\\/MLXChatCompletionsController.swift\"}"
+                        }
+                      }
+                    ]
+                  },
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "timings": {
+                "prompt_ms": 1217.8821563720703,
+                "predicted_n": 43,
+                "predicted_ms": 437.6969337463379,
+                "prompt_n": 359
+              },
+              "usage": {
+                "prompt_time": 1.22,
+                "completion_time": 0.44,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 1.66,
+                "completion_tokens_per_second": 98.24,
+                "peak_memory_gib": 19.6,
+                "total_tokens": 402,
+                "completion_tokens": 43,
+                "prompt_tokens": 359,
+                "prompt_tokens_per_second": 294.77
+              },
+              "created": 1777761629,
+              "object": "chat.completion",
+              "id": "chatcmpl-9BD4515B",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "884",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 02 May 2026 22:40:29 GMT"
+            },
+            "usage": {
+              "prompt_time": 1.22,
+              "completion_time": 0.44,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.66,
+              "completion_tokens_per_second": 98.24,
+              "peak_memory_gib": 19.6,
+              "total_tokens": 402,
+              "completion_tokens": 43,
+              "prompt_tokens": 359,
+              "prompt_tokens_per_second": 294.77
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "hermes/read_file inspect controller",
+          "metadata": {
+            "suite": "hermes_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+            ],
+            "framework": "Hermes",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Read Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift.",
+            "system_prompt": "You are a Hermes-style agent using only documented Hermes tools.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "read_file",
+                  "description": "Read a file with pagination",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "offset": {
+                        "type": "integer"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read_file' &&\n  /MLXChatCompletionsController\\.swift$/.test(String(parsed.tool_calls[0].function.arguments.path || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 0,
+        "vars": {
+          "prompt": "Read Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift.",
+          "system_prompt": "You are a Hermes-style agent using only documented Hermes tools.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read a file with pagination",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a Hermes-style agent using only documented Hermes tools."
+              },
+              {
+                "role": "user",
+                "content": "Read Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "read_file",
+                  "description": "Read a file with pagination",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "offset": {
+                        "type": "integer"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "type": "function",
+                      "id": "call_EakCYfzcm7oEQIPgvAR7UTCW",
+                      "index": 0,
+                      "function": {
+                        "name": "read_file",
+                        "arguments": "{\"path\":\"Sources\\/MacLocalAPI\\/Controllers\\/MLXChatCompletionsController.swift\"}"
+                      }
+                    }
+                  ]
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "timings": {
+              "prompt_ms": 1217.8821563720703,
+              "predicted_n": 43,
+              "predicted_ms": 437.6969337463379,
+              "prompt_n": 359
+            },
+            "usage": {
+              "prompt_time": 1.22,
+              "completion_time": 0.44,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.66,
+              "completion_tokens_per_second": 98.24,
+              "peak_memory_gib": 19.6,
+              "total_tokens": 402,
+              "completion_tokens": 43,
+              "prompt_tokens": 359,
+              "prompt_tokens_per_second": 294.77
+            },
+            "created": 1777761629,
+            "object": "chat.completion",
+            "id": "chatcmpl-9BD4515B",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "884",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 02 May 2026 22:40:29 GMT"
+          },
+          "usage": {
+            "prompt_time": 1.22,
+            "completion_time": 0.44,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_time": 1.66,
+            "completion_tokens_per_second": 98.24,
+            "peak_memory_gib": 19.6,
+            "total_tokens": 402,
+            "completion_tokens": 43,
+            "prompt_tokens": 359,
+            "prompt_tokens_per_second": 294.77
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read_file' &&\n  /MLXModelService\\.swift$/.test(String(args.path || '')) &&\n  (args.offset !== undefined || args.limit !== undefined);\n"
+              }
+            }
+          ]
+        },
+        "id": "4e7d9fe9-35f5-45fc-a181-ad01dc9d226f",
+        "latencyMs": 1316,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Open Sources/MacLocalAPI/Models/MLXModelService.swift around line 400.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-hermes"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"index\":0,\"type\":\"function\",\"function\":{\"arguments\":{\"limit\":50,\"offset\":390,\"path\":\"Open Sources/MacLocalAPI/Models/MLXModelService.swift\"},\"name\":\"read_file\"},\"id\":\"call_qaoivTiLTQc1yQncMZPNX70r\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 1316,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Open Sources/MacLocalAPI/Models/MLXModelService.swift around line 400."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "read_file",
+                    "description": "Read a file with pagination",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "offset": {
+                          "type": "integer"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "type": "function",
+                        "function": {
+                          "arguments": "{\"limit\":50,\"offset\":390,\"path\":\"Open Sources\\/MacLocalAPI\\/Models\\/MLXModelService.swift\"}",
+                          "name": "read_file"
+                        },
+                        "id": "call_qaoivTiLTQc1yQncMZPNX70r"
+                      }
+                    ]
+                  },
+                  "index": 0,
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "timings": {
+                "prompt_ms": 605.3639650344849,
+                "predicted_n": 68,
+                "prompt_n": 356,
+                "predicted_ms": 700.5900144577026
+              },
+              "usage": {
+                "prompt_time": 0.61,
+                "completion_time": 0.7,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 1.31,
+                "completion_tokens_per_second": 97.06,
+                "peak_memory_gib": 19.6,
+                "total_tokens": 424,
+                "prompt_tokens": 356,
+                "completion_tokens": 68,
+                "prompt_tokens_per_second": 588.08
+              },
+              "created": 1777761631,
+              "object": "chat.completion",
+              "id": "chatcmpl-393FF5A3",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "897",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 02 May 2026 22:40:31 GMT"
+            },
+            "usage": {
+              "prompt_time": 0.61,
+              "completion_time": 0.7,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.31,
+              "completion_tokens_per_second": 97.06,
+              "peak_memory_gib": 19.6,
+              "total_tokens": 424,
+              "prompt_tokens": 356,
+              "completion_tokens": 68,
+              "prompt_tokens_per_second": 588.08
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "hermes/read_file inspect line window",
+          "metadata": {
+            "suite": "hermes_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+            ],
+            "framework": "Hermes",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Open Sources/MacLocalAPI/Models/MLXModelService.swift around line 400.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "read_file",
+                  "description": "Read a file with pagination",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "offset": {
+                        "type": "integer"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read_file' &&\n  /MLXModelService\\.swift$/.test(String(args.path || '')) &&\n  (args.offset !== undefined || args.limit !== undefined);\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 1,
+        "vars": {
+          "prompt": "Open Sources/MacLocalAPI/Models/MLXModelService.swift around line 400.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read a file with pagination",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Open Sources/MacLocalAPI/Models/MLXModelService.swift around line 400."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "read_file",
+                  "description": "Read a file with pagination",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "offset": {
+                        "type": "integer"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "type": "function",
+                      "function": {
+                        "arguments": "{\"limit\":50,\"offset\":390,\"path\":\"Open Sources\\/MacLocalAPI\\/Models\\/MLXModelService.swift\"}",
+                        "name": "read_file"
+                      },
+                      "id": "call_qaoivTiLTQc1yQncMZPNX70r"
+                    }
+                  ]
+                },
+                "index": 0,
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "timings": {
+              "prompt_ms": 605.3639650344849,
+              "predicted_n": 68,
+              "prompt_n": 356,
+              "predicted_ms": 700.5900144577026
+            },
+            "usage": {
+              "prompt_time": 0.61,
+              "completion_time": 0.7,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.31,
+              "completion_tokens_per_second": 97.06,
+              "peak_memory_gib": 19.6,
+              "total_tokens": 424,
+              "prompt_tokens": 356,
+              "completion_tokens": 68,
+              "prompt_tokens_per_second": 588.08
+            },
+            "created": 1777761631,
+            "object": "chat.completion",
+            "id": "chatcmpl-393FF5A3",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "897",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 02 May 2026 22:40:31 GMT"
+          },
+          "usage": {
+            "prompt_time": 0.61,
+            "completion_time": 0.7,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_time": 1.31,
+            "completion_tokens_per_second": 97.06,
+            "peak_memory_gib": 19.6,
+            "total_tokens": 424,
+            "prompt_tokens": 356,
+            "completion_tokens": 68,
+            "prompt_tokens_per_second": 588.08
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'write_file' &&\n  /docs\\/hermes-status\\.md$/.test(String(args.path || '')) &&\n  /#|status/i.test(String(args.content || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "3b8a4969-ea82-4097-9d94-c6c4bab8a4ca",
+        "latencyMs": 3254,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Create docs/hermes-status.md with a short markdown status report.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-hermes"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"index\":0,\"type\":\"function\",\"function\":{\"arguments\":{\"content\":\"# Hermes Status Report\\n\\n**Date:** October 26, 2023  \\n**Version:** 1.0.0  \\n**Status:** 🟢 Operational\\n\\n## Overview\\nThe Hermes system is currently running within normal parameters. All core services are active and responding to requests with acceptable latency.\\n\\n## Key Metrics\\n- **Uptime:** 99.9% (Last 30 days)\\n- **Active Connections:** 1,240\\n- **Average Response Time:** 45ms\\n- **Error Rate:** 0.02%\\n\\n## Recent Updates\\n- Deployed hotfix for authentication timeout issue (v1.0.1).\\n- Updated database connection pool settings to handle peak load.\\n\\n## Known Issues\\n- Minor latency spike observed during batch processing windows (scheduled for optimization in next sprint).\\n\\n## Next Steps\\n- Monitor system performance after the upcoming traffic surge.\\n- Begin planning for the v1.1.0 feature release.\\n\\n---\\n*Report generated automatically.*\",\"path\":\"docs/hermes-status.md\"},\"name\":\"write_file\"},\"id\":\"call_r9MaOhcWATyRslTiUD2ARVPz\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 3254,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Create docs/hermes-status.md with a short markdown status report."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "write_file",
+                    "description": "Write or overwrite a file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "content": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "content"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "type": "function",
+                        "function": {
+                          "arguments": "{\"content\":\"# Hermes Status Report\\n\\n**Date:** October 26, 2023  \\n**Version:** 1.0.0  \\n**Status:** 🟢 Operational\\n\\n## Overview\\nThe Hermes system is currently running within normal parameters. All core services are active and responding to requests with acceptable latency.\\n\\n## Key Metrics\\n- **Uptime:** 99.9% (Last 30 days)\\n- **Active Connections:** 1,240\\n- **Average Response Time:** 45ms\\n- **Error Rate:** 0.02%\\n\\n## Recent Updates\\n- Deployed hotfix for authentication timeout issue (v1.0.1).\\n- Updated database connection pool settings to handle peak load.\\n\\n## Known Issues\\n- Minor latency spike observed during batch processing windows (scheduled for optimization in next sprint).\\n\\n## Next Steps\\n- Monitor system performance after the upcoming traffic surge.\\n- Begin planning for the v1.1.0 feature release.\\n\\n---\\n*Report generated automatically.*\",\"path\":\"docs\\/hermes-status.md\"}",
+                          "name": "write_file"
+                        },
+                        "id": "call_r9MaOhcWATyRslTiUD2ARVPz"
+                      }
+                    ]
+                  },
+                  "index": 0,
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "timings": {
+                "prompt_ms": 564.0619993209839,
+                "predicted_n": 257,
+                "prompt_n": 326,
+                "predicted_ms": 2679.4570684432983
+              },
+              "usage": {
+                "prompt_time": 0.56,
+                "completion_time": 2.68,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 3.24,
+                "completion_tokens_per_second": 95.91,
+                "peak_memory_gib": 19.5,
+                "total_tokens": 583,
+                "prompt_tokens": 326,
+                "completion_tokens": 257,
+                "prompt_tokens_per_second": 577.95
+              },
+              "created": 1777761634,
+              "object": "chat.completion",
+              "id": "chatcmpl-9F6BD216",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1745",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 02 May 2026 22:40:34 GMT"
+            },
+            "usage": {
+              "prompt_time": 0.56,
+              "completion_time": 2.68,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 3.24,
+              "completion_tokens_per_second": 95.91,
+              "peak_memory_gib": 19.5,
+              "total_tokens": 583,
+              "prompt_tokens": 326,
+              "completion_tokens": 257,
+              "prompt_tokens_per_second": 577.95
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "hermes/write_file create markdown report",
+          "metadata": {
+            "suite": "hermes_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+            ],
+            "framework": "Hermes",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Create docs/hermes-status.md with a short markdown status report.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "write_file",
+                  "description": "Write or overwrite a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "content": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "content"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'write_file' &&\n  /docs\\/hermes-status\\.md$/.test(String(args.path || '')) &&\n  /#|status/i.test(String(args.content || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 2,
+        "vars": {
+          "prompt": "Create docs/hermes-status.md with a short markdown status report.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "write_file",
+                "description": "Write or overwrite a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Create docs/hermes-status.md with a short markdown status report."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "write_file",
+                  "description": "Write or overwrite a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "content": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "content"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "type": "function",
+                      "function": {
+                        "arguments": "{\"content\":\"# Hermes Status Report\\n\\n**Date:** October 26, 2023  \\n**Version:** 1.0.0  \\n**Status:** 🟢 Operational\\n\\n## Overview\\nThe Hermes system is currently running within normal parameters. All core services are active and responding to requests with acceptable latency.\\n\\n## Key Metrics\\n- **Uptime:** 99.9% (Last 30 days)\\n- **Active Connections:** 1,240\\n- **Average Response Time:** 45ms\\n- **Error Rate:** 0.02%\\n\\n## Recent Updates\\n- Deployed hotfix for authentication timeout issue (v1.0.1).\\n- Updated database connection pool settings to handle peak load.\\n\\n## Known Issues\\n- Minor latency spike observed during batch processing windows (scheduled for optimization in next sprint).\\n\\n## Next Steps\\n- Monitor system performance after the upcoming traffic surge.\\n- Begin planning for the v1.1.0 feature release.\\n\\n---\\n*Report generated automatically.*\",\"path\":\"docs\\/hermes-status.md\"}",
+                        "name": "write_file"
+                      },
+                      "id": "call_r9MaOhcWATyRslTiUD2ARVPz"
+                    }
+                  ]
+                },
+                "index": 0,
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "timings": {
+              "prompt_ms": 564.0619993209839,
+              "predicted_n": 257,
+              "prompt_n": 326,
+              "predicted_ms": 2679.4570684432983
+            },
+            "usage": {
+              "prompt_time": 0.56,
+              "completion_time": 2.68,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 3.24,
+              "completion_tokens_per_second": 95.91,
+              "peak_memory_gib": 19.5,
+              "total_tokens": 583,
+              "prompt_tokens": 326,
+              "completion_tokens": 257,
+              "prompt_tokens_per_second": 577.95
+            },
+            "created": 1777761634,
+            "object": "chat.completion",
+            "id": "chatcmpl-9F6BD216",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1745",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 02 May 2026 22:40:34 GMT"
+          },
+          "usage": {
+            "prompt_time": 0.56,
+            "completion_time": 2.68,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_time": 3.24,
+            "completion_tokens_per_second": 95.91,
+            "peak_memory_gib": 19.5,
+            "total_tokens": 583,
+            "prompt_tokens": 326,
+            "completion_tokens": 257,
+            "prompt_tokens_per_second": 577.95
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'patch' &&\n  /README\\.md$/.test(String(args.path || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "601a1360-1ba2-40d5-b58d-802c2b5c05ad",
+        "latencyMs": 1257,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Patch README.md to replace the exact text 'Promptfoo results pending.' with 'Promptfoo results recorded.'",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-hermes"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"index\":0,\"type\":\"function\",\"function\":{\"arguments\":{\"new_text\":\"Promptfoo results recorded.\",\"old_text\":\"Promptfoo results pending.\",\"path\":\"README.md\"},\"name\":\"patch\"},\"id\":\"call_dS00KT5v0McLdcIAXGAtLDWF\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 1257,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Patch README.md to replace the exact text 'Promptfoo results pending.' with 'Promptfoo results recorded.'"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "patch",
+                    "description": "Patch a file using exact replacements",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "old_text": {
+                          "type": "string"
+                        },
+                        "new_text": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "old_text",
+                        "new_text"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "type": "function",
+                        "function": {
+                          "arguments": "{\"new_text\":\"Promptfoo results recorded.\",\"old_text\":\"Promptfoo results pending.\",\"path\":\"README.md\"}",
+                          "name": "patch"
+                        },
+                        "id": "call_dS00KT5v0McLdcIAXGAtLDWF"
+                      }
+                    ]
+                  },
+                  "index": 0,
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "timings": {
+                "prompt_ms": 610.029935836792,
+                "predicted_n": 62,
+                "prompt_n": 364,
+                "predicted_ms": 636.2299919128418
+              },
+              "usage": {
+                "prompt_time": 0.61,
+                "completion_time": 0.64,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 1.25,
+                "completion_tokens_per_second": 97.45,
+                "peak_memory_gib": 19.6,
+                "total_tokens": 426,
+                "prompt_tokens": 364,
+                "completion_tokens": 62,
+                "prompt_tokens_per_second": 596.69
+              },
+              "created": 1777761635,
+              "object": "chat.completion",
+              "id": "chatcmpl-35ABD613",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "901",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 02 May 2026 22:40:35 GMT"
+            },
+            "usage": {
+              "prompt_time": 0.61,
+              "completion_time": 0.64,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.25,
+              "completion_tokens_per_second": 97.45,
+              "peak_memory_gib": 19.6,
+              "total_tokens": 426,
+              "prompt_tokens": 364,
+              "completion_tokens": 62,
+              "prompt_tokens_per_second": 596.69
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "hermes/patch surgical update",
+          "metadata": {
+            "suite": "hermes_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+            ],
+            "framework": "Hermes",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Patch README.md to replace the exact text 'Promptfoo results pending.' with 'Promptfoo results recorded.'",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "patch",
+                  "description": "Patch a file using exact replacements",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "old_text": {
+                        "type": "string"
+                      },
+                      "new_text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "old_text",
+                      "new_text"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'patch' &&\n  /README\\.md$/.test(String(args.path || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 3,
+        "vars": {
+          "prompt": "Patch README.md to replace the exact text 'Promptfoo results pending.' with 'Promptfoo results recorded.'",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "patch",
+                "description": "Patch a file using exact replacements",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "old_text": {
+                      "type": "string"
+                    },
+                    "new_text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "old_text",
+                    "new_text"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Patch README.md to replace the exact text 'Promptfoo results pending.' with 'Promptfoo results recorded.'"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "patch",
+                  "description": "Patch a file using exact replacements",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "old_text": {
+                        "type": "string"
+                      },
+                      "new_text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "old_text",
+                      "new_text"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "type": "function",
+                      "function": {
+                        "arguments": "{\"new_text\":\"Promptfoo results recorded.\",\"old_text\":\"Promptfoo results pending.\",\"path\":\"README.md\"}",
+                        "name": "patch"
+                      },
+                      "id": "call_dS00KT5v0McLdcIAXGAtLDWF"
+                    }
+                  ]
+                },
+                "index": 0,
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "timings": {
+              "prompt_ms": 610.029935836792,
+              "predicted_n": 62,
+              "prompt_n": 364,
+              "predicted_ms": 636.2299919128418
+            },
+            "usage": {
+              "prompt_time": 0.61,
+              "completion_time": 0.64,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.25,
+              "completion_tokens_per_second": 97.45,
+              "peak_memory_gib": 19.6,
+              "total_tokens": 426,
+              "prompt_tokens": 364,
+              "completion_tokens": 62,
+              "prompt_tokens_per_second": 596.69
+            },
+            "created": 1777761635,
+            "object": "chat.completion",
+            "id": "chatcmpl-35ABD613",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "901",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 02 May 2026 22:40:35 GMT"
+          },
+          "usage": {
+            "prompt_time": 0.61,
+            "completion_time": 0.64,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_time": 1.25,
+            "completion_tokens_per_second": 97.45,
+            "peak_memory_gib": 19.6,
+            "total_tokens": 426,
+            "prompt_tokens": 364,
+            "completion_tokens": 62,
+            "prompt_tokens_per_second": 596.69
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'search_files' &&\n  /PrefixCache Save complete/.test(String(args.pattern || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "8bc46832-6fca-4a08-95a6-2746cf71df50",
+        "latencyMs": 1041,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Search the repo for the exact text PrefixCache Save complete.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-hermes"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"index\":0,\"type\":\"function\",\"function\":{\"arguments\":{\"literal\":true,\"pattern\":\"PrefixCache Save complete\"},\"name\":\"search_files\"},\"id\":\"call_Cpxb0CEzWsXnIsVDgVTQb9V0\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 1041,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Search the repo for the exact text PrefixCache Save complete."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "search_files",
+                    "description": "Search files by regex or literal text",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "pattern": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": "string"
+                        },
+                        "literal": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "pattern"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "type": "function",
+                        "function": {
+                          "arguments": "{\"literal\":true,\"pattern\":\"PrefixCache Save complete\"}",
+                          "name": "search_files"
+                        },
+                        "id": "call_Cpxb0CEzWsXnIsVDgVTQb9V0"
+                      }
+                    ]
+                  },
+                  "index": 0,
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "timings": {
+                "prompt_ms": 580.7859897613525,
+                "predicted_n": 44,
+                "prompt_n": 349,
+                "predicted_ms": 450.7269859313965
+              },
+              "usage": {
+                "prompt_time": 0.58,
+                "completion_time": 0.45,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 1.03,
+                "completion_tokens_per_second": 97.62,
+                "peak_memory_gib": 19.5,
+                "total_tokens": 393,
+                "prompt_tokens": 349,
+                "completion_tokens": 44,
+                "prompt_tokens_per_second": 600.91
+              },
+              "created": 1777761636,
+              "object": "chat.completion",
+              "id": "chatcmpl-183A3EA3",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "856",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 02 May 2026 22:40:36 GMT"
+            },
+            "usage": {
+              "prompt_time": 0.58,
+              "completion_time": 0.45,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.03,
+              "completion_tokens_per_second": 97.62,
+              "peak_memory_gib": 19.5,
+              "total_tokens": 393,
+              "prompt_tokens": 349,
+              "completion_tokens": 44,
+              "prompt_tokens_per_second": 600.91
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "hermes/search_files targeted string search",
+          "metadata": {
+            "suite": "hermes_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+            ],
+            "framework": "Hermes",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Search the repo for the exact text PrefixCache Save complete.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "search_files",
+                  "description": "Search files by regex or literal text",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "pattern": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "literal": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "pattern"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'search_files' &&\n  /PrefixCache Save complete/.test(String(args.pattern || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 4,
+        "vars": {
+          "prompt": "Search the repo for the exact text PrefixCache Save complete.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "search_files",
+                "description": "Search files by regex or literal text",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "pattern": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "literal": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "pattern"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Search the repo for the exact text PrefixCache Save complete."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "search_files",
+                  "description": "Search files by regex or literal text",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "pattern": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "literal": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "pattern"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "type": "function",
+                      "function": {
+                        "arguments": "{\"literal\":true,\"pattern\":\"PrefixCache Save complete\"}",
+                        "name": "search_files"
+                      },
+                      "id": "call_Cpxb0CEzWsXnIsVDgVTQb9V0"
+                    }
+                  ]
+                },
+                "index": 0,
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "timings": {
+              "prompt_ms": 580.7859897613525,
+              "predicted_n": 44,
+              "prompt_n": 349,
+              "predicted_ms": 450.7269859313965
+            },
+            "usage": {
+              "prompt_time": 0.58,
+              "completion_time": 0.45,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.03,
+              "completion_tokens_per_second": 97.62,
+              "peak_memory_gib": 19.5,
+              "total_tokens": 393,
+              "prompt_tokens": 349,
+              "completion_tokens": 44,
+              "prompt_tokens_per_second": 600.91
+            },
+            "created": 1777761636,
+            "object": "chat.completion",
+            "id": "chatcmpl-183A3EA3",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "856",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 02 May 2026 22:40:36 GMT"
+          },
+          "usage": {
+            "prompt_time": 0.58,
+            "completion_time": 0.45,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_time": 1.03,
+            "completion_tokens_per_second": 97.62,
+            "peak_memory_gib": 19.5,
+            "total_tokens": 393,
+            "prompt_tokens": 349,
+            "completion_tokens": 44,
+            "prompt_tokens_per_second": 600.91
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst query = String(parsed.tool_calls[0]?.function?.arguments?.query || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_search' &&\n  /MLX|prompt cache/i.test(query);\n"
+              }
+            }
+          ]
+        },
+        "id": "b6595c42-b988-457f-a5fd-14ebb1d93bd7",
+        "latencyMs": 1070,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Search the web for recent MLX prompt cache issues from the past week.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-hermes"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"index\":0,\"type\":\"function\",\"function\":{\"arguments\":{\"limit\":10,\"query\":\"MLX prompt cache issues past week\"},\"name\":\"web_search\"},\"id\":\"call_2MZx9gMMbCTbjcDN1Wr7ZB91\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 1070,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Search the web for recent MLX prompt cache issues from the past week."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "web_search",
+                    "description": "Search the web for information",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "query": {
+                          "type": "string"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "query"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "type": "function",
+                        "function": {
+                          "arguments": "{\"limit\":10,\"query\":\"MLX prompt cache issues past week\"}",
+                          "name": "web_search"
+                        },
+                        "id": "call_2MZx9gMMbCTbjcDN1Wr7ZB91"
+                      }
+                    ]
+                  },
+                  "index": 0,
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "timings": {
+                "prompt_ms": 567.7579641342163,
+                "predicted_n": 48,
+                "prompt_n": 326,
+                "predicted_ms": 492.4980401992798
+              },
+              "usage": {
+                "prompt_time": 0.57,
+                "completion_time": 0.49,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 1.06,
+                "completion_tokens_per_second": 97.46,
+                "peak_memory_gib": 19.5,
+                "total_tokens": 374,
+                "prompt_tokens": 326,
+                "completion_tokens": 48,
+                "prompt_tokens_per_second": 574.19
+              },
+              "created": 1777761637,
+              "object": "chat.completion",
+              "id": "chatcmpl-9A96794E",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "856",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 02 May 2026 22:40:37 GMT"
+            },
+            "usage": {
+              "prompt_time": 0.57,
+              "completion_time": 0.49,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.06,
+              "completion_tokens_per_second": 97.46,
+              "peak_memory_gib": 19.5,
+              "total_tokens": 374,
+              "prompt_tokens": 326,
+              "completion_tokens": 48,
+              "prompt_tokens_per_second": 574.19
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "hermes/web_search recent cache articles",
+          "metadata": {
+            "suite": "hermes_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+            ],
+            "framework": "Hermes",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Search the web for recent MLX prompt cache issues from the past week.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "web_search",
+                  "description": "Search the web for information",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst query = String(parsed.tool_calls[0]?.function?.arguments?.query || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_search' &&\n  /MLX|prompt cache/i.test(query);\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 5,
+        "vars": {
+          "prompt": "Search the web for recent MLX prompt cache issues from the past week.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "web_search",
+                "description": "Search the web for information",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Search the web for recent MLX prompt cache issues from the past week."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "web_search",
+                  "description": "Search the web for information",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "type": "function",
+                      "function": {
+                        "arguments": "{\"limit\":10,\"query\":\"MLX prompt cache issues past week\"}",
+                        "name": "web_search"
+                      },
+                      "id": "call_2MZx9gMMbCTbjcDN1Wr7ZB91"
+                    }
+                  ]
+                },
+                "index": 0,
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "timings": {
+              "prompt_ms": 567.7579641342163,
+              "predicted_n": 48,
+              "prompt_n": 326,
+              "predicted_ms": 492.4980401992798
+            },
+            "usage": {
+              "prompt_time": 0.57,
+              "completion_time": 0.49,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.06,
+              "completion_tokens_per_second": 97.46,
+              "peak_memory_gib": 19.5,
+              "total_tokens": 374,
+              "prompt_tokens": 326,
+              "completion_tokens": 48,
+              "prompt_tokens_per_second": 574.19
+            },
+            "created": 1777761637,
+            "object": "chat.completion",
+            "id": "chatcmpl-9A96794E",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "856",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 02 May 2026 22:40:37 GMT"
+          },
+          "usage": {
+            "prompt_time": 0.57,
+            "completion_time": 0.49,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_time": 1.06,
+            "completion_tokens_per_second": 97.46,
+            "peak_memory_gib": 19.5,
+            "total_tokens": 374,
+            "prompt_tokens": 326,
+            "completion_tokens": 48,
+            "prompt_tokens_per_second": 574.19
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst urls = parsed.tool_calls[0]?.function?.arguments?.urls || [];\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_extract' &&\n  Array.isArray(urls) &&\n  urls.some((url) => /https:\\/\\/opencode\\.ai\\/docs\\/tools\\/?/.test(String(url)));\n"
+              }
+            }
+          ]
+        },
+        "id": "ae05e46e-edec-4eda-96fb-7d8294e9f291",
+        "latencyMs": 1094,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Extract the readable content from https://opencode.ai/docs/tools/.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-hermes"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"index\":0,\"type\":\"function\",\"function\":{\"arguments\":{\"format\":\"markdown\",\"urls\":[\"https://opencode.ai/docs/tools/\"]},\"name\":\"web_extract\"},\"id\":\"call_yH8d4RpiodxX8d1weSI6NtJa\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 1094,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Extract the readable content from https://opencode.ai/docs/tools/."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "web_extract",
+                    "description": "Extract content from specific web pages",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "urls": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "format": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "urls"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "type": "function",
+                        "function": {
+                          "arguments": "{\"format\":\"markdown\",\"urls\":[\"https:\\/\\/opencode.ai\\/docs\\/tools\\/\"]}",
+                          "name": "web_extract"
+                        },
+                        "id": "call_yH8d4RpiodxX8d1weSI6NtJa"
+                      }
+                    ]
+                  },
+                  "index": 0,
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "timings": {
+                "prompt_ms": 572.3879337310791,
+                "predicted_n": 50,
+                "prompt_n": 336,
+                "predicted_ms": 513.3800506591797
+              },
+              "usage": {
+                "prompt_time": 0.57,
+                "completion_time": 0.51,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 1.09,
+                "completion_tokens_per_second": 97.39,
+                "peak_memory_gib": 19.5,
+                "total_tokens": 386,
+                "prompt_tokens": 336,
+                "completion_tokens": 50,
+                "prompt_tokens_per_second": 587.01
+              },
+              "created": 1777761639,
+              "object": "chat.completion",
+              "id": "chatcmpl-D0004392",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "882",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 02 May 2026 22:40:39 GMT"
+            },
+            "usage": {
+              "prompt_time": 0.57,
+              "completion_time": 0.51,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.09,
+              "completion_tokens_per_second": 97.39,
+              "peak_memory_gib": 19.5,
+              "total_tokens": 386,
+              "prompt_tokens": 336,
+              "completion_tokens": 50,
+              "prompt_tokens_per_second": 587.01
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "hermes/web_extract fetch docs",
+          "metadata": {
+            "suite": "hermes_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+            ],
+            "framework": "Hermes",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Extract the readable content from https://opencode.ai/docs/tools/.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "web_extract",
+                  "description": "Extract content from specific web pages",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "urls": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "format": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "urls"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst urls = parsed.tool_calls[0]?.function?.arguments?.urls || [];\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_extract' &&\n  Array.isArray(urls) &&\n  urls.some((url) => /https:\\/\\/opencode\\.ai\\/docs\\/tools\\/?/.test(String(url)));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 6,
+        "vars": {
+          "prompt": "Extract the readable content from https://opencode.ai/docs/tools/.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "web_extract",
+                "description": "Extract content from specific web pages",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "urls": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "format": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "urls"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Extract the readable content from https://opencode.ai/docs/tools/."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "web_extract",
+                  "description": "Extract content from specific web pages",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "urls": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "format": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "urls"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "type": "function",
+                      "function": {
+                        "arguments": "{\"format\":\"markdown\",\"urls\":[\"https:\\/\\/opencode.ai\\/docs\\/tools\\/\"]}",
+                        "name": "web_extract"
+                      },
+                      "id": "call_yH8d4RpiodxX8d1weSI6NtJa"
+                    }
+                  ]
+                },
+                "index": 0,
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "timings": {
+              "prompt_ms": 572.3879337310791,
+              "predicted_n": 50,
+              "prompt_n": 336,
+              "predicted_ms": 513.3800506591797
+            },
+            "usage": {
+              "prompt_time": 0.57,
+              "completion_time": 0.51,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.09,
+              "completion_tokens_per_second": 97.39,
+              "peak_memory_gib": 19.5,
+              "total_tokens": 386,
+              "prompt_tokens": 336,
+              "completion_tokens": 50,
+              "prompt_tokens_per_second": 587.01
+            },
+            "created": 1777761639,
+            "object": "chat.completion",
+            "id": "chatcmpl-D0004392",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "882",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 02 May 2026 22:40:39 GMT"
+          },
+          "usage": {
+            "prompt_time": 0.57,
+            "completion_time": 0.51,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_time": 1.09,
+            "completion_tokens_per_second": 97.39,
+            "peak_memory_gib": 19.5,
+            "total_tokens": 386,
+            "prompt_tokens": 336,
+            "completion_tokens": 50,
+            "prompt_tokens_per_second": 587.01
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_navigate' &&\n  /https:\\/\\/example\\.com/.test(String(parsed.tool_calls[0].function.arguments.url || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "d32c01e2-7dd8-48ec-b4c0-5728002ec033",
+        "latencyMs": 873,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Open https://example.com in the browser.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-hermes"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"index\":0,\"type\":\"function\",\"function\":{\"arguments\":{\"url\":\"https://example.com\"},\"name\":\"browser_navigate\"},\"id\":\"call_vPoVHknk7I38IWN89vpJD8j8\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 873,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Open https://example.com in the browser."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "browser_navigate",
+                    "description": "Navigate the browser to a URL",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "url": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "url"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "type": "function",
+                        "function": {
+                          "arguments": "{\"url\":\"https:\\/\\/example.com\"}",
+                          "name": "browser_navigate"
+                        },
+                        "id": "call_vPoVHknk7I38IWN89vpJD8j8"
+                      }
+                    ]
+                  },
+                  "index": 0,
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "timings": {
+                "prompt_ms": 525.44105052948,
+                "predicted_n": 33,
+                "prompt_n": 298,
+                "predicted_ms": 338.52505683898926
+              },
+              "usage": {
+                "prompt_time": 0.53,
+                "completion_time": 0.34,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 0.86,
+                "completion_tokens_per_second": 97.48,
+                "peak_memory_gib": 19.5,
+                "total_tokens": 331,
+                "prompt_tokens": 298,
+                "completion_tokens": 33,
+                "prompt_tokens_per_second": 567.14
+              },
+              "created": 1777761639,
+              "object": "chat.completion",
+              "id": "chatcmpl-A4A608DA",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "838",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 02 May 2026 22:40:39 GMT"
+            },
+            "usage": {
+              "prompt_time": 0.53,
+              "completion_time": 0.34,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 0.86,
+              "completion_tokens_per_second": 97.48,
+              "peak_memory_gib": 19.5,
+              "total_tokens": 331,
+              "prompt_tokens": 298,
+              "completion_tokens": 33,
+              "prompt_tokens_per_second": 567.14
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "hermes/browser_navigate open docs",
+          "metadata": {
+            "suite": "hermes_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+            ],
+            "framework": "Hermes",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Open https://example.com in the browser.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_navigate",
+                  "description": "Navigate the browser to a URL",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_navigate' &&\n  /https:\\/\\/example\\.com/.test(String(parsed.tool_calls[0].function.arguments.url || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 7,
+        "vars": {
+          "prompt": "Open https://example.com in the browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_navigate",
+                "description": "Navigate the browser to a URL",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Open https://example.com in the browser."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_navigate",
+                  "description": "Navigate the browser to a URL",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "type": "function",
+                      "function": {
+                        "arguments": "{\"url\":\"https:\\/\\/example.com\"}",
+                        "name": "browser_navigate"
+                      },
+                      "id": "call_vPoVHknk7I38IWN89vpJD8j8"
+                    }
+                  ]
+                },
+                "index": 0,
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "timings": {
+              "prompt_ms": 525.44105052948,
+              "predicted_n": 33,
+              "prompt_n": 298,
+              "predicted_ms": 338.52505683898926
+            },
+            "usage": {
+              "prompt_time": 0.53,
+              "completion_time": 0.34,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 0.86,
+              "completion_tokens_per_second": 97.48,
+              "peak_memory_gib": 19.5,
+              "total_tokens": 331,
+              "prompt_tokens": 298,
+              "completion_tokens": 33,
+              "prompt_tokens_per_second": 567.14
+            },
+            "created": 1777761639,
+            "object": "chat.completion",
+            "id": "chatcmpl-A4A608DA",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "838",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 02 May 2026 22:40:39 GMT"
+          },
+          "usage": {
+            "prompt_time": 0.53,
+            "completion_time": 0.34,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_time": 0.86,
+            "completion_tokens_per_second": 97.48,
+            "peak_memory_gib": 19.5,
+            "total_tokens": 331,
+            "prompt_tokens": 298,
+            "completion_tokens": 33,
+            "prompt_tokens_per_second": 567.14
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_snapshot';\n"
+              }
+            }
+          ]
+        },
+        "id": "6e0400dd-0778-44d8-a176-beb40e5e1bbd",
+        "latencyMs": 1546,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Get a snapshot of the current browser page.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-hermes"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"index\":0,\"type\":\"function\",\"function\":{\"arguments\":{\"summarize\":false},\"name\":\"browser_snapshot\"},\"id\":\"call_5N5NWEoe1CaBu7Fdwxi7Aodn\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 1546,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Get a snapshot of the current browser page."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "browser_snapshot",
+                    "description": "Capture a text snapshot of the current browser page",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "summarize": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "type": "function",
+                        "function": {
+                          "arguments": "{\"summarize\":false}",
+                          "name": "browser_snapshot"
+                        },
+                        "id": "call_5N5NWEoe1CaBu7Fdwxi7Aodn"
+                      }
+                    ]
+                  },
+                  "index": 0,
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "timings": {
+                "prompt_ms": 523.7020254135132,
+                "predicted_n": 99,
+                "prompt_n": 292,
+                "predicted_ms": 1012.6509666442871
+              },
+              "usage": {
+                "prompt_time": 0.52,
+                "completion_time": 1.01,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 1.54,
+                "completion_tokens_per_second": 97.76,
+                "peak_memory_gib": 19.4,
+                "total_tokens": 391,
+                "prompt_tokens": 292,
+                "completion_tokens": 99,
+                "prompt_tokens_per_second": 557.57
+              },
+              "created": 1777761641,
+              "object": "chat.completion",
+              "id": "chatcmpl-9CD685D2",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "822",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 02 May 2026 22:40:41 GMT"
+            },
+            "usage": {
+              "prompt_time": 0.52,
+              "completion_time": 1.01,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.54,
+              "completion_tokens_per_second": 97.76,
+              "peak_memory_gib": 19.4,
+              "total_tokens": 391,
+              "prompt_tokens": 292,
+              "completion_tokens": 99,
+              "prompt_tokens_per_second": 557.57
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "hermes/browser_snapshot inspect current page",
+          "metadata": {
+            "suite": "hermes_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+            ],
+            "framework": "Hermes",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Get a snapshot of the current browser page.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_snapshot",
+                  "description": "Capture a text snapshot of the current browser page",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "summarize": {
+                        "type": "boolean"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_snapshot';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 8,
+        "vars": {
+          "prompt": "Get a snapshot of the current browser page.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_snapshot",
+                "description": "Capture a text snapshot of the current browser page",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "summarize": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Get a snapshot of the current browser page."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_snapshot",
+                  "description": "Capture a text snapshot of the current browser page",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "summarize": {
+                        "type": "boolean"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "type": "function",
+                      "function": {
+                        "arguments": "{\"summarize\":false}",
+                        "name": "browser_snapshot"
+                      },
+                      "id": "call_5N5NWEoe1CaBu7Fdwxi7Aodn"
+                    }
+                  ]
+                },
+                "index": 0,
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "timings": {
+              "prompt_ms": 523.7020254135132,
+              "predicted_n": 99,
+              "prompt_n": 292,
+              "predicted_ms": 1012.6509666442871
+            },
+            "usage": {
+              "prompt_time": 0.52,
+              "completion_time": 1.01,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.54,
+              "completion_tokens_per_second": 97.76,
+              "peak_memory_gib": 19.4,
+              "total_tokens": 391,
+              "prompt_tokens": 292,
+              "completion_tokens": 99,
+              "prompt_tokens_per_second": 557.57
+            },
+            "created": 1777761641,
+            "object": "chat.completion",
+            "id": "chatcmpl-9CD685D2",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "822",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 02 May 2026 22:40:41 GMT"
+          },
+          "usage": {
+            "prompt_time": 0.52,
+            "completion_time": 1.01,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_time": 1.54,
+            "completion_tokens_per_second": 97.76,
+            "peak_memory_gib": 19.4,
+            "total_tokens": 391,
+            "prompt_tokens": 292,
+            "completion_tokens": 99,
+            "prompt_tokens_per_second": 557.57
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst element = String(parsed.tool_calls[0]?.function?.arguments?.element || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_click' &&\n  element.length > 0;\n"
+              }
+            }
+          ]
+        },
+        "id": "45aaca9f-ec24-4c11-af95-43cc3ebe551a",
+        "latencyMs": 860,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Click the Sign in button in the browser.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-hermes"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"index\":0,\"type\":\"function\",\"function\":{\"arguments\":{\"element\":\"Sign in button\"},\"name\":\"browser_click\"},\"id\":\"call_gGKbNq3MZZmOPBZJPTWa4Zpw\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 860,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Click the Sign in button in the browser."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "browser_click",
+                    "description": "Click an element in the browser",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "element": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "element"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "type": "function",
+                        "function": {
+                          "arguments": "{\"element\":\"Sign in button\"}",
+                          "name": "browser_click"
+                        },
+                        "id": "call_gGKbNq3MZZmOPBZJPTWa4Zpw"
+                      }
+                    ]
+                  },
+                  "index": 0,
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "timings": {
+                "prompt_ms": 523.73206615448,
+                "predicted_n": 32,
+                "prompt_n": 297,
+                "predicted_ms": 327.58796215057373
+              },
+              "usage": {
+                "prompt_time": 0.52,
+                "completion_time": 0.33,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 0.85,
+                "completion_tokens_per_second": 97.68,
+                "peak_memory_gib": 19.5,
+                "total_tokens": 329,
+                "prompt_tokens": 297,
+                "completion_tokens": 32,
+                "prompt_tokens_per_second": 567.08
+              },
+              "created": 1777761642,
+              "object": "chat.completion",
+              "id": "chatcmpl-FAADCAA3",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "828",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 02 May 2026 22:40:42 GMT"
+            },
+            "usage": {
+              "prompt_time": 0.52,
+              "completion_time": 0.33,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 0.85,
+              "completion_tokens_per_second": 97.68,
+              "peak_memory_gib": 19.5,
+              "total_tokens": 329,
+              "prompt_tokens": 297,
+              "completion_tokens": 32,
+              "prompt_tokens_per_second": 567.08
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "hermes/browser_click click sign in",
+          "metadata": {
+            "suite": "hermes_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+            ],
+            "framework": "Hermes",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Click the Sign in button in the browser.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_click",
+                  "description": "Click an element in the browser",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "element": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "element"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst element = String(parsed.tool_calls[0]?.function?.arguments?.element || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_click' &&\n  element.length > 0;\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 9,
+        "vars": {
+          "prompt": "Click the Sign in button in the browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_click",
+                "description": "Click an element in the browser",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "element": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "element"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Click the Sign in button in the browser."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_click",
+                  "description": "Click an element in the browser",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "element": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "element"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "type": "function",
+                      "function": {
+                        "arguments": "{\"element\":\"Sign in button\"}",
+                        "name": "browser_click"
+                      },
+                      "id": "call_gGKbNq3MZZmOPBZJPTWa4Zpw"
+                    }
+                  ]
+                },
+                "index": 0,
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "timings": {
+              "prompt_ms": 523.73206615448,
+              "predicted_n": 32,
+              "prompt_n": 297,
+              "predicted_ms": 327.58796215057373
+            },
+            "usage": {
+              "prompt_time": 0.52,
+              "completion_time": 0.33,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 0.85,
+              "completion_tokens_per_second": 97.68,
+              "peak_memory_gib": 19.5,
+              "total_tokens": 329,
+              "prompt_tokens": 297,
+              "completion_tokens": 32,
+              "prompt_tokens_per_second": 567.08
+            },
+            "created": 1777761642,
+            "object": "chat.completion",
+            "id": "chatcmpl-FAADCAA3",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "828",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 02 May 2026 22:40:42 GMT"
+          },
+          "usage": {
+            "prompt_time": 0.52,
+            "completion_time": 0.33,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_time": 0.85,
+            "completion_tokens_per_second": 97.68,
+            "peak_memory_gib": 19.5,
+            "total_tokens": 329,
+            "prompt_tokens": 297,
+            "completion_tokens": 32,
+            "prompt_tokens_per_second": 567.08
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_type' &&\n  /@/.test(String(args.text || '')) &&\n  String(args.element || '').length > 0;\n"
+              }
+            }
+          ]
+        },
+        "id": "0317a97d-7404-46fa-8cc5-222beccfb713",
+        "latencyMs": 1028,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Type syl@example.com into the email field in the browser.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-hermes"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"index\":0,\"type\":\"function\",\"function\":{\"arguments\":{\"element\":\"email field\",\"text\":\"syl@example.com\"},\"name\":\"browser_type\"},\"id\":\"call_pEg83A3yBPMnonHOvO8HzVpW\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 1028,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Type syl@example.com into the email field in the browser."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "browser_type",
+                    "description": "Type into a browser field",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "element": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "element",
+                        "text"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "type": "function",
+                        "function": {
+                          "arguments": "{\"element\":\"email field\",\"text\":\"syl@example.com\"}",
+                          "name": "browser_type"
+                        },
+                        "id": "call_pEg83A3yBPMnonHOvO8HzVpW"
+                      }
+                    ]
+                  },
+                  "index": 0,
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "timings": {
+                "prompt_ms": 568.7580108642578,
+                "predicted_n": 44,
+                "prompt_n": 324,
+                "predicted_ms": 450.6840705871582
+              },
+              "usage": {
+                "prompt_time": 0.57,
+                "completion_time": 0.45,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 1.02,
+                "completion_tokens_per_second": 97.63,
+                "peak_memory_gib": 19.5,
+                "total_tokens": 368,
+                "prompt_tokens": 324,
+                "completion_tokens": 44,
+                "prompt_tokens_per_second": 569.66
+              },
+              "created": 1777761643,
+              "object": "chat.completion",
+              "id": "chatcmpl-D3B9AC33",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "854",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 02 May 2026 22:40:43 GMT"
+            },
+            "usage": {
+              "prompt_time": 0.57,
+              "completion_time": 0.45,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.02,
+              "completion_tokens_per_second": 97.63,
+              "peak_memory_gib": 19.5,
+              "total_tokens": 368,
+              "prompt_tokens": 324,
+              "completion_tokens": 44,
+              "prompt_tokens_per_second": 569.66
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "hermes/browser_type enter email",
+          "metadata": {
+            "suite": "hermes_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+            ],
+            "framework": "Hermes",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Type syl@example.com into the email field in the browser.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_type",
+                  "description": "Type into a browser field",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "element": {
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "element",
+                      "text"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_type' &&\n  /@/.test(String(args.text || '')) &&\n  String(args.element || '').length > 0;\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 10,
+        "vars": {
+          "prompt": "Type syl@example.com into the email field in the browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_type",
+                "description": "Type into a browser field",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "element": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "element",
+                    "text"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Type syl@example.com into the email field in the browser."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_type",
+                  "description": "Type into a browser field",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "element": {
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "element",
+                      "text"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "type": "function",
+                      "function": {
+                        "arguments": "{\"element\":\"email field\",\"text\":\"syl@example.com\"}",
+                        "name": "browser_type"
+                      },
+                      "id": "call_pEg83A3yBPMnonHOvO8HzVpW"
+                    }
+                  ]
+                },
+                "index": 0,
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "timings": {
+              "prompt_ms": 568.7580108642578,
+              "predicted_n": 44,
+              "prompt_n": 324,
+              "predicted_ms": 450.6840705871582
+            },
+            "usage": {
+              "prompt_time": 0.57,
+              "completion_time": 0.45,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.02,
+              "completion_tokens_per_second": 97.63,
+              "peak_memory_gib": 19.5,
+              "total_tokens": 368,
+              "prompt_tokens": 324,
+              "completion_tokens": 44,
+              "prompt_tokens_per_second": 569.66
+            },
+            "created": 1777761643,
+            "object": "chat.completion",
+            "id": "chatcmpl-D3B9AC33",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "854",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 02 May 2026 22:40:43 GMT"
+          },
+          "usage": {
+            "prompt_time": 0.57,
+            "completion_time": 0.45,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_time": 1.02,
+            "completion_tokens_per_second": 97.63,
+            "peak_memory_gib": 19.5,
+            "total_tokens": 368,
+            "prompt_tokens": 324,
+            "completion_tokens": 44,
+            "prompt_tokens_per_second": 569.66
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'delegate_task' &&\n  /prompt cache|MLX/i.test(String(args.goal || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "03277214-c2ec-434f-8a17-3ed305c6c47d",
+        "latencyMs": 1863,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Delegate a focused subtask to investigate current MLX prompt cache bugs and report back.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-hermes"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"index\":0,\"type\":\"function\",\"function\":{\"arguments\":{\"context\":\"Investigate current bugs and issues related to prompt caching in the MLX framework, specifically focusing on recent changes, known limitations, and reported errors in the community or documentation.\",\"goal\":\"Identify and summarize the current state of prompt cache bugs in MLX, including specific error messages, affected versions, and any workarounds or fixes available.\",\"toolsets\":[\"search\"]},\"name\":\"delegate_task\"},\"id\":\"call_OYLsFJtXSebNi37WiE27jTCx\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 1863,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Delegate a focused subtask to investigate current MLX prompt cache bugs and report back."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "delegate_task",
+                    "description": "Delegate a focused task to a subagent",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "goal": {
+                          "type": "string"
+                        },
+                        "context": {
+                          "type": "string"
+                        },
+                        "toolsets": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "goal"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "type": "function",
+                        "function": {
+                          "arguments": "{\"context\":\"Investigate current bugs and issues related to prompt caching in the MLX framework, specifically focusing on recent changes, known limitations, and reported errors in the community or documentation.\",\"goal\":\"Identify and summarize the current state of prompt cache bugs in MLX, including specific error messages, affected versions, and any workarounds or fixes available.\",\"toolsets\":[\"search\"]}",
+                          "name": "delegate_task"
+                        },
+                        "id": "call_OYLsFJtXSebNi37WiE27jTCx"
+                      }
+                    ]
+                  },
+                  "index": 0,
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "timings": {
+                "prompt_ms": 614.8589849472046,
+                "predicted_n": 120,
+                "prompt_n": 367,
+                "predicted_ms": 1238.8780117034912
+              },
+              "usage": {
+                "prompt_time": 0.61,
+                "completion_time": 1.24,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_time": 1.85,
+                "completion_tokens_per_second": 96.86,
+                "peak_memory_gib": 19.6,
+                "total_tokens": 487,
+                "prompt_tokens": 367,
+                "completion_tokens": 120,
+                "prompt_tokens_per_second": 596.88
+              },
+              "created": 1777761645,
+              "object": "chat.completion",
+              "id": "chatcmpl-CC4426E2",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+              "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1219",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 02 May 2026 22:40:45 GMT"
+            },
+            "usage": {
+              "prompt_time": 0.61,
+              "completion_time": 1.24,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.85,
+              "completion_tokens_per_second": 96.86,
+              "peak_memory_gib": 19.6,
+              "total_tokens": 487,
+              "prompt_tokens": 367,
+              "completion_tokens": 120,
+              "prompt_tokens_per_second": 596.88
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "hermes/delegate_task ask subagent for focused research",
+          "metadata": {
+            "suite": "hermes_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+              "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+            ],
+            "framework": "Hermes",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Delegate a focused subtask to investigate current MLX prompt cache bugs and report back.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "delegate_task",
+                  "description": "Delegate a focused task to a subagent",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "goal": {
+                        "type": "string"
+                      },
+                      "context": {
+                        "type": "string"
+                      },
+                      "toolsets": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "goal"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'delegate_task' &&\n  /prompt cache|MLX/i.test(String(args.goal || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 11,
+        "vars": {
+          "prompt": "Delegate a focused subtask to investigate current MLX prompt cache bugs and report back.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_task",
+                "description": "Delegate a focused task to a subagent",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "type": "string"
+                    },
+                    "context": {
+                      "type": "string"
+                    },
+                    "toolsets": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "goal"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Delegate a focused subtask to investigate current MLX prompt cache bugs and report back."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "delegate_task",
+                  "description": "Delegate a focused task to a subagent",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "goal": {
+                        "type": "string"
+                      },
+                      "context": {
+                        "type": "string"
+                      },
+                      "toolsets": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "goal"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "type": "function",
+                      "function": {
+                        "arguments": "{\"context\":\"Investigate current bugs and issues related to prompt caching in the MLX framework, specifically focusing on recent changes, known limitations, and reported errors in the community or documentation.\",\"goal\":\"Identify and summarize the current state of prompt cache bugs in MLX, including specific error messages, affected versions, and any workarounds or fixes available.\",\"toolsets\":[\"search\"]}",
+                        "name": "delegate_task"
+                      },
+                      "id": "call_OYLsFJtXSebNi37WiE27jTCx"
+                    }
+                  ]
+                },
+                "index": 0,
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "timings": {
+              "prompt_ms": 614.8589849472046,
+              "predicted_n": 120,
+              "prompt_n": 367,
+              "predicted_ms": 1238.8780117034912
+            },
+            "usage": {
+              "prompt_time": 0.61,
+              "completion_time": 1.24,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_time": 1.85,
+              "completion_tokens_per_second": 96.86,
+              "peak_memory_gib": 19.6,
+              "total_tokens": 487,
+              "prompt_tokens": 367,
+              "completion_tokens": 120,
+              "prompt_tokens_per_second": 596.88
+            },
+            "created": 1777761645,
+            "object": "chat.completion",
+            "id": "chatcmpl-CC4426E2",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.5-35B-A3B-4bit",
+            "model": "mlx-community/Qwen3.5-35B-A3B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1219",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 02 May 2026 22:40:45 GMT"
+          },
+          "usage": {
+            "prompt_time": 0.61,
+            "completion_time": 1.24,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_time": 1.85,
+            "completion_tokens_per_second": 96.86,
+            "peak_memory_gib": 19.6,
+            "total_tokens": 487,
+            "prompt_tokens": 367,
+            "completion_tokens": 120,
+            "prompt_tokens_per_second": 596.88
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      }
+    ],
+    "stats": {
+      "successes": 12,
+      "failures": 0,
+      "errors": 0,
+      "tokenUsage": {
+        "prompt": 0,
+        "completion": 0,
+        "cached": 0,
+        "total": 0,
+        "numRequests": 12,
+        "completionDetails": {
+          "reasoning": 0,
+          "acceptedPrediction": 0,
+          "rejectedPrediction": 0,
+          "cacheReadInputTokens": 0,
+          "cacheCreationInputTokens": 0
+        },
+        "assertions": {
+          "total": 0,
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "numRequests": 0,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          }
+        }
+      },
+      "durationMs": 16920,
+      "evaluationDurationMs": 16920
+    }
+  },
+  "config": {
+    "tags": {},
+    "description": "AFM Hermes primary-source tool suite",
+    "prompts": [
+      "{{prompt}}"
+    ],
+    "providers": [
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-default-hermes",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_DEFAULT",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-adaptive-xml-hermes",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_ADAPTIVE_XML",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-adaptive-xml-grammar-hermes",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      }
+    ],
+    "tests": [
+      {
+        "description": "hermes/read_file inspect controller",
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Read Sources/MacLocalAPI/Controllers/MLXChatCompletionsController.swift.",
+          "system_prompt": "You are a Hermes-style agent using only documented Hermes tools.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read a file with pagination",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read_file' &&\n  /MLXChatCompletionsController\\.swift$/.test(String(parsed.tool_calls[0].function.arguments.path || ''));\n"
+          }
+        ]
+      },
+      {
+        "description": "hermes/read_file inspect line window",
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Open Sources/MacLocalAPI/Models/MLXModelService.swift around line 400.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read a file with pagination",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read_file' &&\n  /MLXModelService\\.swift$/.test(String(args.path || '')) &&\n  (args.offset !== undefined || args.limit !== undefined);\n"
+          }
+        ]
+      },
+      {
+        "description": "hermes/write_file create markdown report",
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Create docs/hermes-status.md with a short markdown status report.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "write_file",
+                "description": "Write or overwrite a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'write_file' &&\n  /docs\\/hermes-status\\.md$/.test(String(args.path || '')) &&\n  /#|status/i.test(String(args.content || ''));\n"
+          }
+        ]
+      },
+      {
+        "description": "hermes/patch surgical update",
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Patch README.md to replace the exact text 'Promptfoo results pending.' with 'Promptfoo results recorded.'",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "patch",
+                "description": "Patch a file using exact replacements",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "old_text": {
+                      "type": "string"
+                    },
+                    "new_text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "old_text",
+                    "new_text"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'patch' &&\n  /README\\.md$/.test(String(args.path || ''));\n"
+          }
+        ]
+      },
+      {
+        "description": "hermes/search_files targeted string search",
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Search the repo for the exact text PrefixCache Save complete.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "search_files",
+                "description": "Search files by regex or literal text",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "pattern": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "literal": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "pattern"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'search_files' &&\n  /PrefixCache Save complete/.test(String(args.pattern || ''));\n"
+          }
+        ]
+      },
+      {
+        "description": "hermes/web_search recent cache articles",
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Search the web for recent MLX prompt cache issues from the past week.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "web_search",
+                "description": "Search the web for information",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst query = String(parsed.tool_calls[0]?.function?.arguments?.query || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_search' &&\n  /MLX|prompt cache/i.test(query);\n"
+          }
+        ]
+      },
+      {
+        "description": "hermes/web_extract fetch docs",
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Extract the readable content from https://opencode.ai/docs/tools/.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "web_extract",
+                "description": "Extract content from specific web pages",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "urls": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "format": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "urls"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst urls = parsed.tool_calls[0]?.function?.arguments?.urls || [];\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_extract' &&\n  Array.isArray(urls) &&\n  urls.some((url) => /https:\\/\\/opencode\\.ai\\/docs\\/tools\\/?/.test(String(url)));\n"
+          }
+        ]
+      },
+      {
+        "description": "hermes/browser_navigate open docs",
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Open https://example.com in the browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_navigate",
+                "description": "Navigate the browser to a URL",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_navigate' &&\n  /https:\\/\\/example\\.com/.test(String(parsed.tool_calls[0].function.arguments.url || ''));\n"
+          }
+        ]
+      },
+      {
+        "description": "hermes/browser_snapshot inspect current page",
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Get a snapshot of the current browser page.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_snapshot",
+                "description": "Capture a text snapshot of the current browser page",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "summarize": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_snapshot';\n"
+          }
+        ]
+      },
+      {
+        "description": "hermes/browser_click click sign in",
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Click the Sign in button in the browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_click",
+                "description": "Click an element in the browser",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "element": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "element"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst element = String(parsed.tool_calls[0]?.function?.arguments?.element || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_click' &&\n  element.length > 0;\n"
+          }
+        ]
+      },
+      {
+        "description": "hermes/browser_type enter email",
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Type syl@example.com into the email field in the browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_type",
+                "description": "Type into a browser field",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "element": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "element",
+                    "text"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_type' &&\n  /@/.test(String(args.text || '')) &&\n  String(args.element || '').length > 0;\n"
+          }
+        ]
+      },
+      {
+        "description": "hermes/delegate_task ask subagent for focused research",
+        "metadata": {
+          "suite": "hermes_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/AGENTS.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/tools_config.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/file_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/web_tools.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/browser_tool.py",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/tools/delegate_tool.py"
+          ],
+          "framework": "Hermes",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Delegate a focused subtask to investigate current MLX prompt cache bugs and report back.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_task",
+                "description": "Delegate a focused task to a subagent",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "type": "string"
+                    },
+                    "context": {
+                      "type": "string"
+                    },
+                    "toolsets": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "goal"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'delegate_task' &&\n  /prompt cache|MLX/i.test(String(args.goal || ''));\n"
+          }
+        ]
+      }
+    ],
+    "scenarios": [],
+    "env": {},
+    "outputPath": [
+      "/tmp/afm-promptfoo-out/hermes-adaptive-xml-grammar-mlx-community_Qwen3.5-35B-A3B-4bit.json"
+    ],
+    "extensions": [],
+    "metadata": {},
+    "evaluateOptions": {}
+  },
+  "shareableUrl": null,
+  "metadata": {
+    "promptfooVersion": "0.121.9",
+    "nodeVersion": "v24.0.1",
+    "platform": "darwin",
+    "arch": "arm64",
+    "exportedAt": "2026-05-02T22:40:45.379Z",
+    "evaluationCreatedAt": "2026-05-02T22:40:28.276Z"
+  }
+}
