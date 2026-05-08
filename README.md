@@ -1,5 +1,48 @@
 If you find this useful, please ⭐ the repo! &nbsp; Also check out [Vesta AI Explorer](https://kruks.ai/)! — my full-featured native macOS AI app.
 
+## Install
+
+|  | Stable (v0.9.12) | Nightly (afm-next) |
+|---|---|---|
+| **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
+| **pip** | `pip install macafm` | `pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next` |
+| **Release notes** | [v0.9.12](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.12) | [v0.9.12-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260502-a589c50) |
+
+> [!TIP]
+> **Switching between stable and nightly:**
+> ```bash
+> brew unlink afm && brew install scouzi1966/afm/afm-next   # switch to nightly
+> brew unlink afm-next && brew link afm                      # switch back to stable
+> ASSUMES you did a brew install scouzi1966/afm/afm previously
+> ```
+
+### Install a previous version
+
+Older stable releases are kept as pinned formulae in the Homebrew tap and as version-pinned wheels on PyPI. Useful for reproducing an issue against a specific build or rolling back without waiting for a new release.
+
+**Homebrew (pinned stable formulae):** `afm@<version>` — available for `0.9.0`, `0.9.1`, `0.9.3`–`0.9.10`.
+
+```bash
+brew install scouzi1966/afm/afm@0.9.10      # install v0.9.10
+brew uninstall afm                          # if current afm is already installed
+brew link afm@0.9.10                        # expose `afm` on PATH
+afm --version                               # → v0.9.10
+```
+
+**Homebrew (pinned nightly formulae):** `afm-next@<full-version>` — e.g. `afm-next@0.9.11-next.9c3225e.20260418`. Lists of available pinned nightlies are at [github.com/scouzi1966/homebrew-afm](https://github.com/scouzi1966/homebrew-afm).
+
+```bash
+brew install scouzi1966/afm/afm-next@0.9.11-next.9c3225e.20260418
+```
+
+**pip (version-pinned wheels):** any published release.
+
+```bash
+pip install macafm==0.9.10                  # previous stable
+pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ \
+  macafm-next==0.9.11.dev20260418           # pinned nightly
+```
+
 > [!NOTE]
 >
 > 31 Mar, 2026. AFM was pinned to an older version of https://github.com/huggingface/swift-huggingface. I have now pinned to the latest which uses hub for model cache. The older version downloaded models to the ~/Documents/Huggingface folder which was causing some pain with iCloud sync. They are now stored under ~/.cache which is not in iCloud scope. the TLDR is that models will be re-downloaded again. You can manually delete the older models located in ~/Documents/Huggingface to regain some valuable space available (spring cleaning!). Please report any issues.
@@ -44,49 +87,6 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 
 > [!TIP]
 > 🙏 **Huge thanks to [@jesserobbins](https://github.com/jesserobbins)** — first-time contributor, landed two substantial features in this cycle (Vision OCR + Speech transcription). Both PRs brought afm's Apple-native capabilities from the CLI into first-class HTTP APIs. Contributions of this size and quality from a new contributor are rare and appreciated.
-
-## Install
-
-|  | Stable (v0.9.12) | Nightly (afm-next) |
-|---|---|---|
-| **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
-| **pip** | `pip install macafm` | `pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next` |
-| **Release notes** | [v0.9.12](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.12) | [v0.9.12-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260502-a589c50) |
-
-> [!TIP]
-> **Switching between stable and nightly:**
-> ```bash
-> brew unlink afm && brew install scouzi1966/afm/afm-next   # switch to nightly
-> brew unlink afm-next && brew link afm                      # switch back to stable
-> ASSUMES you did a brew install scouzi1966/afm/afm previously
-> ```
-
-### Install a previous version
-
-Older stable releases are kept as pinned formulae in the Homebrew tap and as version-pinned wheels on PyPI. Useful for reproducing an issue against a specific build or rolling back without waiting for a new release.
-
-**Homebrew (pinned stable formulae):** `afm@<version>` — available for `0.9.0`, `0.9.1`, `0.9.3`–`0.9.10`.
-
-```bash
-brew install scouzi1966/afm/afm@0.9.10      # install v0.9.10
-brew uninstall afm                          # if current afm is already installed
-brew link afm@0.9.10                        # expose `afm` on PATH
-afm --version                               # → v0.9.10
-```
-
-**Homebrew (pinned nightly formulae):** `afm-next@<full-version>` — e.g. `afm-next@0.9.11-next.9c3225e.20260418`. Lists of available pinned nightlies are at [github.com/scouzi1966/homebrew-afm](https://github.com/scouzi1966/homebrew-afm).
-
-```bash
-brew install scouzi1966/afm/afm-next@0.9.11-next.9c3225e.20260418
-```
-
-**pip (version-pinned wheels):** any published release.
-
-```bash
-pip install macafm==0.9.10                  # previous stable
-pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ \
-  macafm-next==0.9.11.dev20260418           # pinned nightly
-```
 
 ## Quick Start
 
