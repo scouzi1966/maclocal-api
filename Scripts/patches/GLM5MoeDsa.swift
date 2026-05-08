@@ -632,7 +632,10 @@ public class GLM5MoeDsaModel: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
     /// [0] = main MLA attention cache, [1] = DSA indexer cache)
     public func newCache(parameters: GenerateParameters?) -> [KVCache] {
         return (0 ..< configuration.numHiddenLayers).map { _ in
-            CacheList(KVCacheSimple(), KVCacheSimple())
+            CacheList(
+                makeAttentionKVCache(parameters: parameters),
+                makeAttentionKVCache(parameters: parameters)
+            )
         }
     }
 

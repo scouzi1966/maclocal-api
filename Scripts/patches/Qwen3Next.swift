@@ -651,7 +651,7 @@ public class Qwen3NextModel: Module, LLMModel, KVCacheDimensionProvider {
                 // MambaCache is ArraysCache(size: 2), compatible with createSSMMask
                 return MambaCache() as any KVCache
             } else {
-                return KVCacheSimple() as any KVCache
+                return makeAttentionKVCache(parameters: parameters) as any KVCache
             }
         }
     }

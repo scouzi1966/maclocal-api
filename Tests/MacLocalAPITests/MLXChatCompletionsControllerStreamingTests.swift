@@ -753,6 +753,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
     func normalizeModel(_ raw: String) -> String { raw }
     func resolvedToolCallParser(logBypass: Bool) -> String? { toolCallParser }
     func tryReserveSlot() -> Bool { true }
+    func waitForSlot(timeout: TimeInterval) async -> Bool { true }
     func releaseSlot() {}
     func ensureBatchMode(concurrency: Int) async throws {}
     func releaseBatchReference() {}
@@ -803,7 +804,8 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
         tools: [RequestTool]?,
         stop: [String]?,
         responseFormat: ResponseFormat?,
-        chatTemplateKwargs: [String: AnyCodable]?
+        chatTemplateKwargs: [String: AnyCodable]?,
+        requestId: String?
     ) async throws -> ChatStreamingResult {
         recordStreamingTools(tools)
         return streamingHandler?(messages) ?? streamingResult

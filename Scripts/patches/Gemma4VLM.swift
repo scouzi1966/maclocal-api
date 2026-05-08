@@ -1552,9 +1552,13 @@ public class Gemma4VLM: Module, VLMModel, KVCacheDimensionProvider {
         return (0 ..< textConfig.numHiddenLayers).map { i in
             let layerType = textConfig.layerTypes[i]
             if layerType == "full_attention" {
-                return KVCacheSimple() as any KVCache
+                return makeAttentionKVCache(parameters: parameters) as any KVCache
             } else {
-                return RotatingKVCache(maxSize: textConfig.slidingWindow, keep: 0) as any KVCache
+                return makeAttentionKVCache(
+                    parameters: parameters,
+                    maxSize: textConfig.slidingWindow,
+                    keep: 0
+                ) as any KVCache
             }
         }
     }
