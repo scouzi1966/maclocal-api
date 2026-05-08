@@ -1,6 +1,7 @@
 import Vapor
 import Foundation
 import Compression
+import Darwin
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -916,13 +917,24 @@ class Server {
         let fileManager = FileManager.default
         let cwd = fileManager.currentDirectoryPath
 
-        // Get the executable's absolute directory
-        let executablePath = CommandLine.arguments[0]
+        // Get the executable's absolute directory. argv[0] is unreliable when invoked
+        // via PATH (it is just "afm"), so go through the Mach-O loader.
+        var size: UInt32 = 0
+        _ = _NSGetExecutablePath(nil, &size)
         let executableURL: URL
-        if executablePath.hasPrefix("/") {
-            executableURL = URL(fileURLWithPath: executablePath)
+        if size > 0 {
+            var buffer = [CChar](repeating: 0, count: Int(size))
+            if _NSGetExecutablePath(&buffer, &size) == 0 {
+                executableURL = URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath()
+            } else if let bundleExec = Bundle.main.executableURL {
+                executableURL = bundleExec.resolvingSymlinksInPath()
+            } else {
+                executableURL = URL(fileURLWithPath: cwd).appendingPathComponent(CommandLine.arguments[0])
+            }
+        } else if let bundleExec = Bundle.main.executableURL {
+            executableURL = bundleExec.resolvingSymlinksInPath()
         } else {
-            executableURL = URL(fileURLWithPath: cwd).appendingPathComponent(executablePath)
+            executableURL = URL(fileURLWithPath: cwd).appendingPathComponent(CommandLine.arguments[0])
         }
         let executableDir = executableURL.deletingLastPathComponent().standardized.path
 

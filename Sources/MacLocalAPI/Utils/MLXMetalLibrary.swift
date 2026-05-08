@@ -1,9 +1,35 @@
 import Foundation
 import ArgumentParser
+import Darwin
 
 enum MLXMetalLibrary {
     private static let lock = NSLock()
     private static var initialized = false
+
+    /// Resolve the absolute path to this binary.
+    ///
+    /// `CommandLine.arguments[0]` is unreliable: when invoked via PATH it is just the
+    /// basename ("afm"), so `URL(fileURLWithPath:)` resolves it relative to the current
+    /// working directory instead of the actual binary location. Use `_NSGetExecutablePath`
+    /// (which goes through the Mach-O loader) and fall back to `Bundle.main.executableURL`
+    /// or argv[0] only if that fails.
+    private static func resolveExecutableURL() -> URL {
+        var size: UInt32 = 0
+        _ = _NSGetExecutablePath(nil, &size)
+        if size > 0 {
+            var buffer = [CChar](repeating: 0, count: Int(size))
+            if _NSGetExecutablePath(&buffer, &size) == 0 {
+                let path = String(cString: buffer)
+                if !path.isEmpty {
+                    return URL(fileURLWithPath: path).resolvingSymlinksInPath()
+                }
+            }
+        }
+        if let bundleExec = Bundle.main.executableURL {
+            return bundleExec.resolvingSymlinksInPath()
+        }
+        return URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+    }
 
     /// Find the metallib without using Bundle.module (which fatalError's when relocated).
     ///
@@ -14,7 +40,7 @@ enum MLXMetalLibrary {
     /// 4. SPM Bundle.module (only if the bundle actually exists — never fatalError)
     private static func resolveMetallib() -> URL? {
         let fileManager = FileManager.default
-        let executableURL = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+        let executableURL = resolveExecutableURL()
         let executableDir = executableURL.deletingLastPathComponent()
 
         // 1. Explicit env var override
