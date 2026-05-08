@@ -39,7 +39,7 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 ## What's new in afm-next
 
 > [!IMPORTANT]
-> The nightly build is the future stable release. It includes everything in v0.9.11 plus:
+> The nightly build is the future stable release. It includes everything in v0.9.12 plus:
 > - No new features yet — nightly is currently in sync with the stable release
 
 > [!TIP]
@@ -47,11 +47,11 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 
 ## Install
 
-|  | Stable (v0.9.11) | Nightly (afm-next) |
+|  | Stable (v0.9.12) | Nightly (afm-next) |
 |---|---|---|
 | **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
 | **pip** | `pip install macafm` | `pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next` |
-| **Release notes** | [v0.9.11](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.11) | [v0.9.12-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260502-a589c50) |
+| **Release notes** | [v0.9.12](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.12) | [v0.9.12-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260502-a589c50) |
 
 > [!TIP]
 > **Switching between stable and nightly:**
