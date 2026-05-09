@@ -730,15 +730,11 @@ class Server {
         transition: background 0.15s;
       }
       .afm-dash-toggle:hover { background: rgba(15, 23, 42, 0.95); }
-      .afm-dash-backdrop {
-        position: fixed; inset: 0; z-index: 999998;
-        background: rgba(0,0,0,0.4);
-        opacity: 0; pointer-events: none; transition: opacity 0.2s;
-      }
-      .afm-dash-backdrop.open { opacity: 1; pointer-events: auto; }
+      /* Non-modal: no backdrop so the rest of the page stays interactive
+         (chat input, model picker, etc.) while the dashboard is open. */
       .afm-dash {
         position: fixed; top: 0; right: 0; bottom: 0;
-        width: min(960px, 92vw);
+        width: min(560px, 50vw);
         z-index: 999999;
         background: #0f172a; color: #e2e8f0;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -834,7 +830,6 @@ class Server {
       .afm-status.err { color: #f87171; }
       .afm-empty { color: #64748b; font-size: 11px; font-style: italic; }
     </style>
-    <div class="afm-dash-backdrop" id="afm-dash-backdrop"></div>
     <button class="afm-dash-toggle" id="afm-dash-toggle" title="Open AFM /metrics dashboard (Esc to close)">📊</button>
     <aside class="afm-dash" id="afm-dash" aria-hidden="true">
       <header>
@@ -881,27 +876,28 @@ class Server {
     (function(){
       // ── Toggle plumbing ────────────────────────────────────────────
       var dash = document.getElementById('afm-dash');
-      var backdrop = document.getElementById('afm-dash-backdrop');
       var toggle = document.getElementById('afm-dash-toggle');
       var closeBtn = document.getElementById('afm-dash-close');
       function openDash() {
         dash.classList.add('open');
-        backdrop.classList.add('open');
         dash.setAttribute('aria-hidden', 'false');
         startPolling();
       }
       function closeDash() {
         dash.classList.remove('open');
-        backdrop.classList.remove('open');
         dash.setAttribute('aria-hidden', 'true');
       }
       toggle.addEventListener('click', function(){
         dash.classList.contains('open') ? closeDash() : openDash();
       });
-      backdrop.addEventListener('click', closeDash);
       closeBtn.addEventListener('click', closeDash);
+      // Esc closes only when focus is NOT inside the chat input
+      // (so the user's escape-to-cancel-typing doesn't accidentally close the panel).
       document.addEventListener('keydown', function(e){
-        if (e.key === 'Escape' && dash.classList.contains('open')) closeDash();
+        if (e.key !== 'Escape' || !dash.classList.contains('open')) return;
+        var t = e.target;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+        closeDash();
       });
 
       // ── Prometheus text parser ─────────────────────────────────────
