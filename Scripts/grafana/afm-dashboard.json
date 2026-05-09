@@ -1639,6 +1639,247 @@
         }
       ],
       "description": "AFM-native: how full the radix prefix cache is. 1.0 = at capacity (default 64 entries). Distinct from the 'Cache Utilization' panel above which now shows broader GPU memory pressure."
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM-AFM"
+      },
+      "description": "Total in-engine time per request (queue + prefill + decode). p50 / p90 / p95 / p99 in seconds.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 80
+      },
+      "id": 21,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM-AFM"
+          },
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by(le) (rate(afm:request_inference_time_seconds_bucket{model_name=~\"$model_name\"}[$__rate_interval])))",
+          "legendFormat": "p50"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM-AFM"
+          },
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by(le) (rate(afm:request_inference_time_seconds_bucket{model_name=~\"$model_name\"}[$__rate_interval])))",
+          "legendFormat": "p90"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM-AFM"
+          },
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by(le) (rate(afm:request_inference_time_seconds_bucket{model_name=~\"$model_name\"}[$__rate_interval])))",
+          "legendFormat": "p95"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM-AFM"
+          },
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by(le) (rate(afm:request_inference_time_seconds_bucket{model_name=~\"$model_name\"}[$__rate_interval])))",
+          "legendFormat": "p99"
+        }
+      ],
+      "title": "Inference Time",
+      "type": "timeseries"
+    },
+    {
+      "id": 22,
+      "title": "Request Rate (started / completed / in-flight)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM-AFM"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 80
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 5
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM-AFM"
+          },
+          "refId": "A",
+          "expr": "rate(afm:requests_started_total{model_name=~\"$model_name\"}[$__rate_interval])",
+          "legendFormat": "started/sec"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM-AFM"
+          },
+          "refId": "B",
+          "expr": "rate(afm:requests_completed_total{model_name=~\"$model_name\"}[$__rate_interval])",
+          "legendFormat": "completed/sec"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM-AFM"
+          },
+          "refId": "C",
+          "expr": "afm:requests_started_total{model_name=~\"$model_name\"} - afm:requests_completed_total{model_name=~\"$model_name\"}",
+          "legendFormat": "in-flight (started \u2212 completed)"
+        }
+      ],
+      "description": "Request lifecycle. Steady-state: started rate \u2248 completed rate. The in-flight series is the gap between the two cumulative counters and should hover near 0 except during active generation. A persistent positive value would indicate abandoned requests or a stuck slot."
+    },
+    {
+      "id": 23,
+      "title": "Server Uptime",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM-AFM"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 88
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM-AFM"
+          },
+          "refId": "A",
+          "expr": "time() - afm:process_start_time_seconds{model_name=~\"$model_name\"}",
+          "legendFormat": "uptime"
+        }
+      ],
+      "description": "Wall-clock seconds since afm process start. Useful for spotting recent restarts in a long timeline."
     }
   ],
   "refresh": "5s",
