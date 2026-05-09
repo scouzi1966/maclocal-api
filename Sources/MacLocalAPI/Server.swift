@@ -1102,10 +1102,26 @@ class Server {
       var state = {
         polling: false,
         timer: null,
-        prev: null,        // previous snapshot for rate computation
+        prev: null,        // previous gen-token snapshot for spark rate
         prevTs: null,
-        spark: [],         // last 60 tok/s samples
+        spark: [],         // last 60 tok/s samples (instantaneous, for sparkline only)
         peakClient: 0,     // client-side high-water for inflight (serial mode fallback)
+        // ── Per-completed-request tracking ─────────────────────────────
+        // We detect a request finishing by `requests_completed_total`
+        // ticking up between polls; at that moment the dashboard's
+        // shown rate becomes the CURRENT request's actual decode rate
+        // (Δgen / Δdecode_time_sum), matching what the chat UI shows
+        // per message (model-reported decode tok/s, not wall clock).
+        // The value sticks until another request completes.
+        prevSnap: null,    // { compTot, genTot, decodeSum }
+        lastReqTps: null,  // tok/s of the most recent completed request
+        lastReqGen: null,  // tokens of the most recent completed request
+        lastReqAt: null,   // wall-clock instant we observed the completion
+        // ── Sticky live values ─────────────────────────────────────────
+        // Whatever Active was last seen non-zero, keep it visible so the
+        // panel reflects "what just happened" instead of snapping to 0.
+        lastActive: 0,
+        lastActiveAt: null,
         metrics: {}
       };
 
@@ -1162,6 +1178,13 @@ class Server {
         var compTot = single('afm:requests_completed_total') || 0;
         var hits    = single('afm:radix_cache_hits_total') || 0;
         var misses  = single('afm:radix_cache_misses_total') || 0;
+        // Decode time accumulator from histogram _sum line — drives the
+        // accurate per-request tok/s computation below.
+        var decodeSum = (function(){
+          var rec = state.metrics['afm:request_decode_time_seconds_sum'];
+          if (!rec || !rec.samples || !rec.samples.length) return 0;
+          return rec.samples.reduce(function(a,s){return a + s.value;}, 0);
+        })();
 
         // In serial mode (no BatchScheduler) the running/peak gauge readers
         // are never registered and the server-side values stay at 0. Fall
@@ -1172,12 +1195,30 @@ class Server {
         if (running > state.peakClient) state.peakClient = running;
         var peak = Math.max(peakRaw, state.peakClient);
         var serialMode = (slots === 0);
-        var slotsLabel = serialMode ? 'serial' : String(slots);
 
-        // Decode rate: instantaneous delta plus a smoothed value over the
-        // last `state.spark` window so the panel doesn't dance between
-        // 0 and a peak number every second.
         var now = Date.now();
+        if (running > 0) { state.lastActive = running; state.lastActiveAt = now; }
+
+        // Detect a request completing on this poll: requests_completed_total
+        // ticked up. When it does, compute that request's TRUE decode tok/s
+        // from the deltas of cumulative counters — this matches the chat
+        // UI's per-message "X.XX t/s" (which is gen_tokens / decode_time
+        // straight from the model). The value sticks in state.lastReqTps
+        // until another request completes.
+        if (state.prevSnap == null) {
+          state.prevSnap = { compTot: compTot, genTot: genTot, decodeSum: decodeSum };
+        } else if (compTot > state.prevSnap.compTot) {
+          var dGen = genTot - state.prevSnap.genTot;
+          var dDec = decodeSum - state.prevSnap.decodeSum;
+          if (dDec > 0 && dGen > 0) {
+            state.lastReqTps = dGen / dDec;
+            state.lastReqGen = dGen;
+            state.lastReqAt = now;
+          }
+          state.prevSnap = { compTot: compTot, genTot: genTot, decodeSum: decodeSum };
+        }
+
+        // Spark (visual only): instantaneous wall-clock delta of genTot.
         var tpsInst = null;
         if (state.prev != null && state.prevTs != null) {
           var dt = (now - state.prevTs) / 1000;
@@ -1188,27 +1229,69 @@ class Server {
           state.spark.push(Math.max(0, tpsInst));
           if (state.spark.length > 60) state.spark.shift();
         }
-        // Smoothed: average of the most recent ≥1 non-zero samples in the
-        // last 10s window. Falls back to instantaneous, then 0.
-        function smoothedTps() {
-          var window = state.spark.slice(-10);
+
+        // Display priority for the Decode rate tile:
+        //   1. Actively generating now → use decodeSum-based live rate
+        //      (Δgen since the active request started / Δdecode if we
+        //       can compute it; fall back to the spark window).
+        //   2. Last completed request's rate (sticky) — matches the chat
+        //      UI's per-message t/s number.
+        //   3. Lifetime cumulative gen / decode_sum.
+        //   4. 0.
+        var displayTps = null, displaySub = '', displayLabel = 'Decode rate';
+        if (running > 0) {
+          // Live: prefer the spark's recent peak so a fast in-progress
+          // burst shows realistic tok/s instead of being averaged down
+          // against the 1s polling window.
+          var window = state.spark.slice(-5);
           var nz = window.filter(function(v){ return v > 0; });
-          if (nz.length) return nz.reduce(function(a,b){return a+b;},0) / nz.length;
-          if (tpsInst != null) return tpsInst;
-          return 0;
+          if (nz.length) {
+            displayTps = Math.max.apply(Math, nz);
+            displaySub = 'generating';
+          } else if (state.lastReqTps != null) {
+            displayTps = state.lastReqTps;
+            displaySub = 'generating (last: ' + state.lastReqTps.toFixed(1) + ' tok/s)';
+          } else {
+            displayTps = 0; displaySub = 'generating';
+          }
+        } else if (state.lastReqTps != null) {
+          displayTps = state.lastReqTps;
+          var ageS = state.lastReqAt ? Math.max(0, Math.round((now - state.lastReqAt) / 1000)) : 0;
+          displaySub = 'last request · ' + (state.lastReqGen ? state.lastReqGen + ' tok' : '') +
+                      (ageS > 0 ? ' · ' + ageS + 's ago' : '');
+          displayLabel = 'Decode rate (last)';
+        } else if (decodeSum > 0) {
+          displayTps = genTot / decodeSum;
+          displaySub = 'lifetime avg';
+        } else {
+          displayTps = 0;
+          displaySub = 'idle';
         }
-        var tps = smoothedTps();
+
+        // Active tile: sticky high-water + sticky last-non-zero count.
+        var activeVal = String(running);
+        var activeSub;
+        if (running > 0) {
+          activeSub = 'peak ' + peak;
+        } else if (state.lastActiveAt != null) {
+          var aS = Math.max(0, Math.round((now - state.lastActiveAt) / 1000));
+          activeSub = 'last ' + state.lastActive + ' · ' + aS + 's ago · peak ' + peak;
+        } else {
+          activeSub = 'peak ' + peak;
+        }
 
         // Live tiles
         var liveTiles = [
-          { key: 'tps',  lbl: 'Decode rate', val: tps == null ? '—' : tps.toFixed(1)+' tok/s',
-            sub: running > 0 ? 'generating' : 'idle', cls: 'live' },
+          { key: 'tps', lbl: displayLabel,
+            val: displayTps == null ? '—' : displayTps.toFixed(1) + ' tok/s',
+            sub: displaySub, cls: 'live' },
           { key: 'inflight', lbl: serialMode ? 'Active' : 'In-flight',
-            val: String(running), sub: 'peak '+peak, cls: 'accent',
+            val: activeVal, sub: activeSub, cls: 'accent',
             barPct: slots > 0 ? running/slots : (running > 0 ? 1 : 0) },
         ];
         if (!serialMode) {
-          liveTiles.push({ key: 'queue', lbl: 'Queue depth', val: String(waiting), sub: 'cap '+slotsLabel });
+          liveTiles.push({ key: 'queue', lbl: 'Queue depth',
+            val: String(waiting), sub: 'cap ' + slots });
         }
         liveTiles.push({ key: 'gpu', lbl: 'GPU KV cache',
           val: gpu == null ? '—' : fmtPct(gpu),
