@@ -1105,6 +1105,7 @@ class Server {
         prev: null,        // previous snapshot for rate computation
         prevTs: null,
         spark: [],         // last 60 tok/s samples
+        peakClient: 0,     // client-side high-water for inflight (serial mode fallback)
         metrics: {}
       };
 
@@ -1150,9 +1151,9 @@ class Server {
 
         document.getElementById('afm-dash-model').innerHTML = '<b>'+modelName()+'</b>';
 
-        var running = single('afm:num_requests_running') || 0;
+        var runningRaw = single('afm:num_requests_running') || 0;
         var waiting = single('afm:num_requests_waiting') || 0;
-        var peak    = single('afm:batch_size_peak') || 0;
+        var peakRaw = single('afm:batch_size_peak') || 0;
         var slots   = single('afm:max_concurrent_slots') || 0;
         var gpu     = single('afm:gpu_cache_usage_perc');
         var genTot  = single('afm:generation_tokens_total') || 0;
@@ -1162,26 +1163,58 @@ class Server {
         var hits    = single('afm:radix_cache_hits_total') || 0;
         var misses  = single('afm:radix_cache_misses_total') || 0;
 
-        // Rate: tokens/sec from genTot delta
+        // In serial mode (no BatchScheduler) the running/peak gauge readers
+        // are never registered and the server-side values stay at 0. Fall
+        // back to (started - completed) so the live panel still tells the
+        // user whether anything is actively generating.
+        var inflightDerived = Math.max(0, startTot - compTot);
+        var running = runningRaw > 0 ? runningRaw : inflightDerived;
+        if (running > state.peakClient) state.peakClient = running;
+        var peak = Math.max(peakRaw, state.peakClient);
+        var serialMode = (slots === 0);
+        var slotsLabel = serialMode ? 'serial' : String(slots);
+
+        // Decode rate: instantaneous delta plus a smoothed value over the
+        // last `state.spark` window so the panel doesn't dance between
+        // 0 and a peak number every second.
         var now = Date.now();
-        var tps = null;
+        var tpsInst = null;
         if (state.prev != null && state.prevTs != null) {
           var dt = (now - state.prevTs) / 1000;
-          if (dt > 0) tps = (genTot - state.prev) / dt;
+          if (dt > 0) tpsInst = (genTot - state.prev) / dt;
         }
         state.prev = genTot; state.prevTs = now;
-        if (tps != null) {
-          state.spark.push(Math.max(0, tps));
+        if (tpsInst != null) {
+          state.spark.push(Math.max(0, tpsInst));
           if (state.spark.length > 60) state.spark.shift();
         }
+        // Smoothed: average of the most recent ≥1 non-zero samples in the
+        // last 10s window. Falls back to instantaneous, then 0.
+        function smoothedTps() {
+          var window = state.spark.slice(-10);
+          var nz = window.filter(function(v){ return v > 0; });
+          if (nz.length) return nz.reduce(function(a,b){return a+b;},0) / nz.length;
+          if (tpsInst != null) return tpsInst;
+          return 0;
+        }
+        var tps = smoothedTps();
 
         // Live tiles
-        renderTiles(document.getElementById('afm-live-grid'), [
-          { key: 'tps',  lbl: 'Decode rate', val: tps == null ? '—' : tps.toFixed(1)+' tok/s', cls: 'live' },
-          { key: 'inflight', lbl: 'In-flight', val: String(running), sub: 'peak '+peak, cls: 'accent', barPct: slots > 0 ? running/slots : 0 },
-          { key: 'queue', lbl: 'Queue depth', val: String(waiting), sub: 'cap '+slots },
-          { key: 'gpu', lbl: 'GPU KV cache', val: gpu == null ? '—' : fmtPct(gpu), barPct: gpu },
-        ]);
+        var liveTiles = [
+          { key: 'tps',  lbl: 'Decode rate', val: tps == null ? '—' : tps.toFixed(1)+' tok/s',
+            sub: running > 0 ? 'generating' : 'idle', cls: 'live' },
+          { key: 'inflight', lbl: serialMode ? 'Active' : 'In-flight',
+            val: String(running), sub: 'peak '+peak, cls: 'accent',
+            barPct: slots > 0 ? running/slots : (running > 0 ? 1 : 0) },
+        ];
+        if (!serialMode) {
+          liveTiles.push({ key: 'queue', lbl: 'Queue depth', val: String(waiting), sub: 'cap '+slotsLabel });
+        }
+        liveTiles.push({ key: 'gpu', lbl: 'GPU KV cache',
+          val: gpu == null ? '—' : fmtPct(gpu),
+          sub: gpu == null ? 'not exported' : '',
+          barPct: gpu });
+        renderTiles(document.getElementById('afm-live-grid'), liveTiles);
         var sparkHost = document.getElementById('afm-spark');
         sparkHost.innerHTML = '';
         var max = Math.max.apply(Math, state.spark.length ? state.spark : [1]);
