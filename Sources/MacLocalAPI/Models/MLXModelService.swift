@@ -1587,6 +1587,7 @@ final class MLXModelService: @unchecked Sendable {
                     generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
                     cachedTokenCount = effectivePrefix
                     cacheOutcome = "hit"
+                    StatsAggregator.shared.cacheHit()  // /metrics: afm:radix_cache_hits_total
                     cacheRestoreTime = tRestore1 - tRestore0
                     cacheTrimTime = tTrim - tRestore1
                     cacheTruncateTime = tRoundtrip - tTrim
@@ -1616,6 +1617,7 @@ final class MLXModelService: @unchecked Sendable {
                 } else {
                     generateInput = input
                     cacheOutcome = bypassExactReplay ? "exact-replay-bypass" : "miss"
+                    StatsAggregator.shared.cacheMiss()  // /metrics: afm:radix_cache_misses_total
                     self.logCachePrefill(
                         mode: "non-streaming",
                         outcome: cacheOutcome,
@@ -2249,6 +2251,7 @@ final class MLXModelService: @unchecked Sendable {
                                 generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
                                 streamCachedTokens = effectivePrefix
                                 cacheOutcome = "hit"
+                                StatsAggregator.shared.cacheHit()  // /metrics: afm:radix_cache_hits_total
                                 cacheRestoreTime = tRestore1 - tRestore0
                                 cacheTrimTime = tTrim - tRestore1
                                 cacheTruncateTime = tRoundtrip - tTrim
@@ -2278,6 +2281,7 @@ final class MLXModelService: @unchecked Sendable {
                             } else {
                                 generateInput = input
                                 cacheOutcome = bypassExactReplay ? "exact-replay-bypass" : "miss"
+                                StatsAggregator.shared.cacheMiss()  // /metrics: afm:radix_cache_misses_total
                                 self.logCachePrefill(
                                     mode: "streaming",
                                     outcome: cacheOutcome,

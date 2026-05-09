@@ -106,6 +106,16 @@ struct MetricsController: RouteCollection {
                 formatDouble(usage)
             )
         }
+        gauge(
+            "afm:num_active_connections",
+            "Number of HTTP client connections currently being served (excludes /metrics scrapes).",
+            String(s.activeConnections)
+        )
+        gauge(
+            "afm:active_connections_peak",
+            "All-time-high number of concurrent HTTP client connections since server start.",
+            String(s.activeConnectionsPeak)
+        )
 
         // ─── Counters ───────────────────────────────────────────────────────
         counter(

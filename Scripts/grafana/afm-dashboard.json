@@ -1529,6 +1529,65 @@
         }
       ],
       "description": "Tokens-per-decode-second, averaged over the rate window \u2014 the model's actual decoding speed during active generation. This matches the chat UI's per-message t/s and the in-webui dashboard's 'Decode rate (last)' tile.\n\nDistinct from the Token Throughput panel above, which shows WALL-CLOCK tokens/sec (= per-request decode speed \u00d7 duty cycle). Per-request decode speed is constant across load; wall-clock throughput scales with how busy afm is."
+    },
+    {
+      "id": 19,
+      "title": "Active HTTP Connections",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM-AFM"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 64
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM-AFM"
+          },
+          "refId": "A",
+          "expr": "afm:num_active_connections{model_name=~\"$model_name\"}",
+          "legendFormat": "active"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM-AFM"
+          },
+          "refId": "B",
+          "expr": "afm:active_connections_peak{model_name=~\"$model_name\"}",
+          "legendFormat": "peak"
+        }
+      ],
+      "description": "AFM-native: HTTP client connections currently being served, plus the all-time-high since server start. /metrics scrapes are excluded so a Prometheus poll doesn't show up as a connection."
     }
   ],
   "refresh": "5s",

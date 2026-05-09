@@ -153,6 +153,11 @@ public final class StatsAggregator: @unchecked Sendable {
         var waiting: GaugeReader?
         var gpuCacheUsage: FractionReader?
         var batchSizePeak: Int = 0
+        // Active HTTP connections — incremented when a request enters
+        // the Vapor pipeline, decremented when its response finalizes.
+        // Maintained by `ActiveConnectionsMiddleware` in Server.swift.
+        var activeConnections: Int = 0
+        var activeConnectionsPeak: Int = 0
     }
 
     private let counters = OSAllocatedUnfairLock(initialState: Counters())
@@ -197,6 +202,25 @@ public final class StatsAggregator: @unchecked Sendable {
     /// the gauge is omitted from the exposition.
     public func registerGpuCacheUsageReader(_ reader: @escaping FractionReader) {
         gauges.withLock { $0.gpuCacheUsage = reader }
+    }
+
+    /// Increment the active-HTTP-connection gauge. Called by the request
+    /// middleware on entry. Also tracks an all-time peak.
+    public func connectionStarted() {
+        gauges.withLock { g in
+            g.activeConnections += 1
+            if g.activeConnections > g.activeConnectionsPeak {
+                g.activeConnectionsPeak = g.activeConnections
+            }
+        }
+    }
+
+    /// Decrement the active-HTTP-connection gauge. Called by the request
+    /// middleware when the response finalizes (success or failure).
+    public func connectionEnded() {
+        gauges.withLock { g in
+            if g.activeConnections > 0 { g.activeConnections -= 1 }
+        }
     }
 
     /// Reset counters and histograms (for long-running processes that
@@ -365,6 +389,8 @@ public final class StatsAggregator: @unchecked Sendable {
         public let numRunning: Int
         public let numWaiting: Int
         public let batchSizePeak: Int
+        public let activeConnections: Int
+        public let activeConnectionsPeak: Int
         public let gpuCacheUsage: Double?
         public let genTokensTotal: UInt64
         public let promptTokensTotal: UInt64
@@ -392,13 +418,13 @@ public final class StatsAggregator: @unchecked Sendable {
         let c = counters.withLock { $0 }
         let h = histograms.withLock { $0 }
         let m = meta.withLock { $0 }
-        let (running, waiting, peak, gpuCache) = gauges.withLock {
-            g -> (Int, Int, Int, Double?) in
+        let (running, waiting, peak, gpuCache, conns, connsPeak) = gauges.withLock {
+            g -> (Int, Int, Int, Double?, Int, Int) in
             let r = g.running?() ?? 0
             let w = g.waiting?() ?? 0
             let cache = g.gpuCacheUsage?()
             if r > g.batchSizePeak { g.batchSizePeak = r }
-            return (r, w, g.batchSizePeak, cache)
+            return (r, w, g.batchSizePeak, cache, g.activeConnections, g.activeConnectionsPeak)
         }
         return Snapshot(
             timestampMs: Int64(Date().timeIntervalSince1970 * 1000),
@@ -408,6 +434,8 @@ public final class StatsAggregator: @unchecked Sendable {
             numRunning: running,
             numWaiting: waiting,
             batchSizePeak: peak,
+            activeConnections: conns,
+            activeConnectionsPeak: connsPeak,
             gpuCacheUsage: gpuCache,
             genTokensTotal: c.genTokensTotal,
             promptTokensTotal: c.promptTokensTotal,

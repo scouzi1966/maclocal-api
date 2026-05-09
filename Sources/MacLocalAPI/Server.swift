@@ -31,6 +31,22 @@ struct PayloadTooLargeMiddleware: AsyncMiddleware {
     }
 }
 
+/// Counts active HTTP requests so `/metrics` can expose
+/// `afm:num_active_connections`. Increments on entry, decrements on
+/// exit (via defer-style task-local cleanup so the gauge always
+/// returns to zero even on early throws). Filters out the /metrics
+/// endpoint itself so a Prometheus scrape doesn't show up as a
+/// connection — that would be self-referential noise on every poll.
+struct ActiveConnectionsMiddleware: AsyncMiddleware {
+    func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
+        let path = request.url.path
+        let track = !(path == "/metrics" || path == "/health" || path == "/healthz")
+        if track { StatsAggregator.shared.connectionStarted() }
+        defer { if track { StatsAggregator.shared.connectionEnded() } }
+        return try await next.respond(to: request)
+    }
+}
+
 class Server {
     private let app: Application
     private let port: Int
@@ -137,6 +153,8 @@ class Server {
 
         // Add custom error middleware to handle payload too large errors
         app.middleware.use(PayloadTooLargeMiddleware())
+        // Track concurrent client connections for /metrics' afm:num_active_connections gauge.
+        app.middleware.use(ActiveConnectionsMiddleware())
 
         try routes()
     }
@@ -1306,6 +1324,12 @@ class Server {
             val: activeVal, sub: activeSub, cls: 'accent',
             barPct: slots > 0 ? running/slots : (running > 0 ? 1 : 0) },
         ];
+        var conn = single('afm:num_active_connections') || 0;
+        var connPeak = single('afm:active_connections_peak') || 0;
+        liveTiles.push({ key: 'conn', lbl: 'Connections',
+          val: String(conn),
+          sub: 'peak ' + connPeak,
+          cls: 'accent' });
         if (!serialMode) {
           liveTiles.push({ key: 'queue', lbl: 'Queue depth',
             val: String(waiting), sub: 'cap ' + slots });
