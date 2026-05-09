@@ -180,6 +180,7 @@ When running tests autonomously (Claude Code, Codex, or other AI agents):
 4. **Port 9999** — ToolCall-15 browser GUI is hardcoded to port 9999. Always use this port for tool-call testing.
 5. **Full model names for batch endpoint** — `POST /v1/batch/completions` requires the full HuggingFace model ID (e.g., `mlx-community/gemma-4-31b-it-4bit`), not short aliases. The regular `/v1/chat/completions` accepts aliases but batch does not.
 6. **Batch request format** — requires `custom_id` per request: `{"requests":[{"custom_id":"tc-01","body":{...}}]}`
+7. **Memory budget (#115)** — the spawned AFM server holds the model weights in unified memory. On 32 GB machines, default to a model under 10 B parameters (e.g. `Meta-Llama-3.1-8B-Instruct-4bit`) for autonomous test runs. A 35 B-class 4-bit model needs ~22 GB resident, which combined with Claude Code's own footprint can OOM the host and crash the server mid-run, producing empty responses and cascading test failures. Only spawn 30 B+ models when the user explicitly opts in or runs on ≥64 GB hardware. Always kill the server in a `trap` or `finally` so it's released on test failure or interrupt.
 
 ### Test Suites Available
 

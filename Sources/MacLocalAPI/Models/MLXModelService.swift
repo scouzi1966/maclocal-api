@@ -207,6 +207,10 @@ final class MLXModelService: @unchecked Sendable {
     /// Set after model load. nil if the model doesn't have think tokens.
     private(set) var thinkStartTag: String?
     private(set) var thinkEndTag: String?
+    /// True when the loaded model uses OpenAI Harmony channel tokens
+    /// (`<|channel|>analysis|message|>...<|end|>`) instead of `<think>` tags.
+    /// Detected from `model_type == "gpt_oss"` in config.json. (#121)
+    private(set) var harmonyChannels: Bool = false
     private var xgrammarService: XGrammarService?
     /// Concurrent generation scheduler (nil = serial mode via container.perform).
     private var scheduler: BatchScheduler?
@@ -1196,6 +1200,22 @@ final class MLXModelService: @unchecked Sendable {
                     print("[\(ts())] [Think] No think tokens found in vocabulary")
                 }
             }
+            // Detect harmony channel format (gpt-oss). When set, the controller
+            // routes <|channel|>analysis|message|> ... <|end|> to reasoning_content
+            // and <|channel|>final|message|> ... <|return|>/<|end|> to content. (#121)
+            self.harmonyChannels = false
+            if let modelDir = self.resolver.localModelDirectory(repoId: modelID) {
+                let configURL = modelDir.appendingPathComponent("config.json")
+                if let data = try? Data(contentsOf: configURL),
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let modelType = json["model_type"] as? String,
+                   modelType.lowercased() == "gpt_oss" {
+                    self.harmonyChannels = true
+                    if debugLogging {
+                        print("[\(ts())] [Harmony] Detected gpt_oss model — enabling channel parsing")
+                    }
+                }
+            }
             self.radixCache?.invalidateAll()
             if self.enablePrefixCaching {
                 self.radixCache = RadixTreeCache(
@@ -1975,6 +1995,25 @@ final class MLXModelService: @unchecked Sendable {
             let input = try await scheduler.prepareInput(userInput)
             let tTokenize = debugLogging ? Date() : Date.distantPast
             let preparedPromptTokens = input.text.tokens.reshaped(-1).asArray(Int.self).count
+
+            // If the chat template appended a think start tag to the prompt
+            // (e.g. Qwen3.5-27B's template ends with `<think>\n`), the model
+            // begins generation already inside a think block and the stream
+            // never contains an opening tag. Detect this and synthesize a
+            // leading chunk so the controller's reasoning extractor latches
+            // on. Mirrors the serial-streaming path at line ~2061. (#99)
+            let templateOpenedThink: Bool = {
+                guard let thinkStart = self.thinkStartTag else { return false }
+                let tokens = input.text.tokens
+                let ndim = tokens.ndim
+                let seqLen = tokens.dim(ndim - 1)
+                guard seqLen >= 2 else { return false }
+                let flat = tokens.reshaped(-1)
+                let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
+                let decoded = scheduler.tokenizer.decode(tokens: lastTwo)
+                return decoded.contains(thinkStart)
+            }()
+
             let schedulerStream = scheduler.submit(
                 input: input,
                 parameters: params,
@@ -1991,6 +2030,25 @@ final class MLXModelService: @unchecked Sendable {
                 thinkEndTag: self.thinkEndTag,
                 requestId: reqId
             )
+            let effectiveStream: AsyncThrowingStream<StreamChunk, Error>
+            if templateOpenedThink, let thinkStart = self.thinkStartTag {
+                effectiveStream = AsyncThrowingStream { continuation in
+                    let task = Task {
+                        continuation.yield(StreamChunk(text: thinkStart))
+                        do {
+                            for try await chunk in schedulerStream {
+                                continuation.yield(chunk)
+                            }
+                            continuation.finish()
+                        } catch {
+                            continuation.finish(throwing: error)
+                        }
+                    }
+                    continuation.onTermination = { _ in task.cancel() }
+                }
+            } else {
+                effectiveStream = schedulerStream
+            }
             self.cleanupTempFiles(mediaTempFiles)
 
             if debugLogging {
@@ -2007,7 +2065,7 @@ final class MLXModelService: @unchecked Sendable {
             let toolTags = toolRuntimeConfig.map { ($0.startTag, $0.endTag) }
 
             endOperationOnExit = false
-            return (modelID, schedulerStream, preparedPromptTokens, toolTags?.0, toolTags?.1, self.thinkStartTag, self.thinkEndTag)
+            return (modelID, effectiveStream, preparedPromptTokens, toolTags?.0, toolTags?.1, self.thinkStartTag, self.thinkEndTag)
         }
 
         // --- Serial path: full-featured generation via container.perform lock ---
