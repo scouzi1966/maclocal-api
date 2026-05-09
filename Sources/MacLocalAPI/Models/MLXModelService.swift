@@ -1391,6 +1391,14 @@ final class MLXModelService: @unchecked Sendable {
         try beginOperation()
         defer { endOperation() }
 
+        // /metrics: serial-path timestamps. The serial generate() has no
+        // explicit queue, so queuedAt == startedAt (queue_time observes ~0).
+        // Token counters (prompt_tokens_total / generation_tokens_total) and
+        // the per-request histograms are recorded at the bottom of this
+        // function, after `completionInfo` is available.
+        let serialQueuedAt = Date()
+        StatsAggregator.shared.requestStarted()
+
         let modelID = try await ensureLoaded(model: model, countOperation: false)
         guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
 
@@ -1870,6 +1878,42 @@ final class MLXModelService: @unchecked Sendable {
                 truncateTime: saveTruncateTime,
                 insertTime: saveInsertTime
             )
+
+            // /metrics: serial-path observations.
+            // - queuedAt ≈ startedAt (no real queue in serial mode)
+            // - firstTokenAt ≈ startedAt + promptTime (prefill ends at first token)
+            // - completedAt = now
+            let completedAt = Date()
+            let firstTokenAt: Date? = (completionTokens > 0 && promptTime >= 0)
+                ? serialQueuedAt.addingTimeInterval(promptTime)
+                : nil
+            StatsAggregator.shared.addPromptTokens(promptTokens)
+            StatsAggregator.shared.addGenTokens(completionTokens)
+            StatsAggregator.shared.observeRequest(
+                StatsAggregator.RequestObservation(
+                    queuedAt: serialQueuedAt.timeIntervalSince1970,
+                    startedAt: serialQueuedAt.timeIntervalSince1970,
+                    firstTokenAt: firstTokenAt?.timeIntervalSince1970,
+                    completedAt: completedAt.timeIntervalSince1970,
+                    promptTokens: promptTokens,
+                    generationTokens: completionTokens,
+                    paramsN: 1,
+                    paramsBestOf: 1
+                )
+            )
+            let serialFinishedReason: String
+            if stoppedBySequence {
+                serialFinishedReason = "stop"
+            } else if completionTokens >= effectiveMaxTokens {
+                serialFinishedReason = "length"
+            } else if responseToolCalls?.isEmpty == false {
+                serialFinishedReason = "tool_calls"
+            } else {
+                serialFinishedReason = "stop"
+            }
+            StatsAggregator.shared.requestSucceeded(reason: serialFinishedReason)
+            StatsAggregator.shared.requestCompleted()
+
             return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount, promptTime, generateTime, stoppedBySequence)
         }
 
