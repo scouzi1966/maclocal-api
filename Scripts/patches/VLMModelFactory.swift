@@ -86,8 +86,11 @@ public enum VLMTypeRegistry {
         "qwen2_vl": create(Qwen2VLConfiguration.self, Qwen2VL.init),
         "qwen2_5_vl": create(Qwen25VLConfiguration.self, Qwen25VL.init),
         "qwen3_vl": create(Qwen3VLConfiguration.self, Qwen3VL.init),
+        "qwen3_6_vl": create(Qwen3VLConfiguration.self, Qwen3VL.init),
+        "qwen3.6_vl": create(Qwen3VLConfiguration.self, Qwen3VL.init),
         "idefics3": create(Idefics3Configuration.self, Idefics3.init),
         "gemma3": create(Gemma3Configuration.self, Gemma3.init),
+        "gemma4": create(Gemma4VLMConfiguration.self, Gemma4VLM.init),
         "smolvlm": create(SmolVLM2Configuration.self, SmolVLM2.init),
         // TODO: see if we can make it work with fastvlm rather than llava_qwen2
         "fastvlm": create(FastVLMConfiguration.self, FastVLM.init),
@@ -98,6 +101,8 @@ public enum VLMTypeRegistry {
         "lfm2-vl": create(LFM2VLConfiguration.self, LFM2VL.init),
         "qwen3_5": create(Qwen3_5MoEVLConfiguration.self, Qwen3_5MoEVL.init),
         "qwen3_5_moe": create(Qwen3_5MoEVLConfiguration.self, Qwen3_5MoEVL.init),
+        "qwen3_6_moe": create(Qwen3_5MoEVLConfiguration.self, Qwen3_5MoEVL.init),
+        "qwen3.6_moe": create(Qwen3_5MoEVLConfiguration.self, Qwen3_5MoEVL.init),
     ])
 }
 
@@ -117,6 +122,8 @@ public enum VLMProcessorTypeRegistry {
             Idefics3ProcessorConfiguration.self, Idefics3Processor.init),
         "Gemma3Processor": create(
             Gemma3ProcessorConfiguration.self, Gemma3Processor.init),
+        "Gemma4Processor": create(
+            Gemma4VLMProcessorConfiguration.self, Gemma4VLMProcessor.init),
         "SmolVLMProcessor": create(
             SmolVLMProcessorConfiguration.self, SmolVLMProcessor.init),
         "FastVLMProcessor": create(
@@ -351,6 +358,10 @@ public final class VLMModelFactory: ModelFactory {
             "mistral3": "Mistral3Processor",
             "qwen3_5": "Qwen3VLProcessor",
             "qwen3_5_moe": "Qwen3VLProcessor",
+            "qwen3_6_vl": "Qwen3VLProcessor",
+            "qwen3.6_vl": "Qwen3VLProcessor",
+            "qwen3_6_moe": "Qwen3VLProcessor",
+            "qwen3.6_moe": "Qwen3VLProcessor",
         ]
         let processorType =
             processorTypeOverrides[baseConfig.modelType] ?? baseProcessorConfig.processorClass

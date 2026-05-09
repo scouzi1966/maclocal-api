@@ -71,7 +71,14 @@ public struct Qwen3VLProcessor: UserInputProcessor {
 
     public func prepare(input: UserInput) async throws -> LMInput {
         let messages = Qwen3VLMessageGenerator().generate(from: input)
-        var promptTokens = try tokenizer.applyChatTemplate(messages: messages, tools: input.tools)
+        // Check for chat template override in additionalContext
+        let chatTemplateArg: ChatTemplateArgument?
+        if let override = input.additionalContext?["chatTemplateOverride"] as? String {
+            chatTemplateArg = .literal(override)
+        } else {
+            chatTemplateArg = nil
+        }
+        var promptTokens = try tokenizer.applyChatTemplate(messages: messages, chatTemplate: chatTemplateArg, addGenerationPrompt: true, truncation: false, maxLength: nil, tools: input.tools, additionalContext: input.additionalContext)
 
         if input.images.isEmpty, input.videos.isEmpty {
             let promptArray = MLXArray(promptTokens).expandedDimensions(axis: 0)

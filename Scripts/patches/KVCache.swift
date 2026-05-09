@@ -39,6 +39,9 @@ public protocol KVCache: Evaluatable, Updatable {
     /// get the current offset
     var offset: Int { get }
 
+    /// Per-sequence offsets [B] for batched RoPE. Nil for non-batched caches.
+    var offsetArray: MLXArray? { get }
+
     /// get the maximum size (if any)
     var maxSize: Int? { get }
 
@@ -57,6 +60,9 @@ public protocol KVCache: Evaluatable, Updatable {
     /// trim n tokens from the cache, returning actual number trimmed
     @discardableResult
     func trim(_ n: Int) -> Int
+
+    /// Physically truncate internal arrays to match offset, eliminating stale data.
+    func truncateToOffset()
 
     /// Create an attention mask for this cache
     ///
@@ -119,6 +125,17 @@ public protocol QuantizedKVCacheProtocol: KVCache {
 open class BaseKVCache: KVCache {
     public var offset: Int = 0
     public var maxSize: Int? { nil }
+    public var offsetArray: MLXArray? { nil }
+
+    /// Sync per-sequence offsets from a reference cache's offsetArray.
+    /// Pass `allEqual` to propagate the cached equality flag without forcing eval.
+    /// Used for KV-shared layers whose caches are never updated via update(keys:values:).
+    open func syncPerSeqOffsets(_ offsets: MLXArray, allEqual: Bool? = nil) {}
+
+    /// Whether all per-sequence offsets are equal (same-length sequences).
+    /// When true, attention code uses scalar RoPE and `.none` mask for bit-identical
+    /// computation to B=1. Override in batch cache subclasses.
+    open var allOffsetsEqual: Bool { true }
 
     public func innerState() -> [MLXArray] { [] }
 
@@ -152,6 +169,15 @@ open class BaseKVCache: KVCache {
 
     @discardableResult
     open func trim(_ n: Int) -> Int { 0 }
+
+    /// Physically truncate internal arrays to match offset.
+    /// Default implementation falls back to state round-trip.
+    /// Subclasses (KVCacheSimple) override with optimized version.
+    open func truncateToOffset() {
+        if !state.isEmpty {
+            state = state
+        }
+    }
 
     /// Default implementation for caches without special mask requirements
     open func makeMask(
@@ -369,10 +395,16 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
             if var currentKeys = self.keys, var currentValues = self.values {
                 if previous != currentCapacity {
                     currentKeys = currentKeys[.ellipsis, ..<previous, 0...]
-                    currentValues = currentValues[.ellipsis, ..<previous, 0...]
+                    if currentValues.dim(3) > 0 {
+                        currentValues = currentValues[.ellipsis, ..<previous, 0...]
+                    }
                 }
                 self.keys = concatenated([currentKeys, newK], axis: 2)
-                self.values = concatenated([currentValues, newV], axis: 2)
+                if currentValues.dim(3) > 0 {
+                    self.values = concatenated([currentValues, newV], axis: 2)
+                } else {
+                    self.values = MLXArray.zeros([self.keys!.dim(0), currentValues.dim(1), self.keys!.dim(2), 0], dtype: currentValues.dtype)
+                }
             } else {
                 self.keys = newK
                 self.values = newV
@@ -384,10 +416,17 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
         self.offset += newTokens
 
         self.keys?[.ellipsis, previous ..< self.offset, 0...] = keys
-        self.values?[.ellipsis, previous ..< self.offset, 0...] = values
+        if values.dim(3) > 0 {
+            self.values?[.ellipsis, previous ..< self.offset, 0...] = values
+        }
 
         let returnedKeys = self.keys![.ellipsis, ..<self.offset, 0...]
-        let returnedValues = self.values![.ellipsis, ..<self.offset, 0...]
+        let returnedValues: MLXArray
+        if self.values!.dim(3) > 0 {
+            returnedValues = self.values![.ellipsis, ..<self.offset, 0...]
+        } else {
+            returnedValues = MLXArray.zeros([returnedKeys.dim(0), self.values!.dim(1), self.offset, 0], dtype: self.values!.dtype)
+        }
 
         return (returnedKeys, returnedValues)
     }
@@ -398,15 +437,18 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
             if offset == keys.dim(2) {
                 return [keys, values]
             } else {
-                return [
-                    keys[.ellipsis, ..<offset, 0...],
-                    values[.ellipsis, ..<offset, 0...],
-                ]
+                let kSlice = keys[.ellipsis, ..<offset, 0...]
+                // Handle zero-width values (e.g. GLM-5 DSA indexer stores keys only)
+                let vSlice = values.dim(3) > 0
+                    ? values[.ellipsis, ..<offset, 0...]
+                    : MLXArray.zeros([keys.dim(0), values.dim(1), offset, 0], dtype: values.dtype)
+                return [kSlice, vSlice]
             }
         }
         set {
             guard newValue.count == 2 else {
-                fatalError("KVCacheSimple state must have exactly 2 arrays (keys, values)")
+                if newValue.isEmpty { return }  // No-op for empty state (fresh/cleared cache)
+                fatalError("KVCacheSimple state must have exactly 2 arrays (keys, values), got \(newValue.count)")
             }
             self.keys = newValue[0]
             self.values = newValue[1]
@@ -430,6 +472,19 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
         let trimmed = min(offset, n)
         offset -= trimmed
         return trimmed
+    }
+
+    /// Physically truncate internal arrays to match offset.
+    /// Replaces the `state = state` round-trip pattern with a single
+    /// slice + assign. No-op if arrays are already aligned or cache is empty.
+    public override func truncateToOffset() {
+        guard let k = keys, let v = values, offset < k.dim(2) else { return }
+        keys = k[.ellipsis, ..<offset, 0...]
+        if v.dim(3) > 0 {
+            values = v[.ellipsis, ..<offset, 0...]
+        } else {
+            values = MLXArray.zeros([k.dim(0), v.dim(1), offset, 0], dtype: v.dtype)
+        }
     }
 
     /// Convert to quantized cache for maximum efficiency
@@ -457,6 +512,29 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
         return quantizedCache
     }
 
+    /// StreamingLLM-style eviction: keep first `sinkCount` tokens + last `windowSize` tokens.
+    /// Evicts everything in between. Returns number of tokens evicted.
+    @discardableResult
+    public func evictStreamingLLM(sinkCount: Int = 4, windowSize: Int) -> Int {
+        guard offset > sinkCount + windowSize else { return 0 }
+        guard let k = keys, let v = values else { return 0 }
+
+        let evictCount = offset - sinkCount - windowSize
+
+        // keys/values shape: [batch, heads, seq_len, head_dim]
+        // Sequence dimension is axis 2
+        let sinkKeys = k[0..., 0..., ..<sinkCount, 0...]
+        let windowKeys = k[0..., 0..., (offset - windowSize)..<offset, 0...]
+        let sinkValues = v[0..., 0..., ..<sinkCount, 0...]
+        let windowValues = v[0..., 0..., (offset - windowSize)..<offset, 0...]
+
+        self.keys = concatenated([sinkKeys, windowKeys], axis: 2)
+        self.values = concatenated([sinkValues, windowValues], axis: 2)
+        self.offset = sinkCount + windowSize
+
+        return evictCount
+    }
+
     public var debugDescription: String {
         "\(String(describing: Self.self)) \(Unmanaged.passUnretained(self).toOpaque()), offset: \(offset), step: \(step), keys: \(keys?.shape.description ?? "-"), values: \(values?.shape.description ?? "-")"
     }
@@ -472,6 +550,13 @@ public class RotatingKVCache: BaseKVCache, CustomDebugStringConvertible {
     private var idx: Int = 0
 
     public override var maxSize: Int? { maxCacheSize }
+
+    /// Whether this cache supports batched operation (requires keep=0 so all sequences wrap simultaneously).
+    public var isBatchable: Bool { keep == 0 }
+    /// Number of sink tokens preserved at the front of the circular buffer.
+    public var keepCount: Int { keep }
+    /// Fixed circular buffer size (sliding window).
+    public var cacheSize: Int { maxCacheSize }
 
     public init(maxSize: Int, keep: Int = 0, step: Int = 256) {
         self.maxCacheSize = maxSize
@@ -622,12 +707,13 @@ public class RotatingKVCache: BaseKVCache, CustomDebugStringConvertible {
         }
         set {
             guard newValue.count == 2 else {
-                fatalError("RotatingKVCache state must have exactly 2 arrays")
+                if newValue.isEmpty { return }  // No-op for empty state (fresh/cleared cache)
+                fatalError("RotatingKVCache state must have exactly 2 arrays, got \(newValue.count): shapes=\(newValue.map { "\($0.shape)" })")
             }
             self.keys = newValue[0]
             self.values = newValue[1]
-            // Note: RotatingKVCache doesn't set offset from keys like KVCache does
-            // The offset is managed through meta_state
+            // Restore offset from key shape so radix cache restore works correctly
+            self.offset = self.keys!.dim(2)
         }
     }
 
@@ -940,6 +1026,11 @@ public class QuantizedKVCache: BaseKVCache, QuantizedKVCacheProtocol {
                     "QuantizedKVCache state must have exactly 6 or 4 arrays (3/2 for keys, 3/2 for values)"
                 )
             }
+            // Restore offset from quantized key shape (dim 2 = sequence length)
+            // Without this, radix cache restore leaves offset=0 → reshape crash
+            if let k = keys {
+                self.offset = k.0.dim(2)
+            }
         }
     }
 
@@ -1138,11 +1229,23 @@ public class MambaCache: ArraysCache {
 
 /// Composite cache that manages multiple sub-caches
 public class CacheList: BaseKVCache {
-    private var caches: [KVCache]
+    public private(set) var caches: [KVCache]
 
     public init(_ caches: KVCache...) {
         self.caches = caches
         super.init()
+    }
+
+    public init(caches: [KVCache]) {
+        self.caches = caches
+        super.init()
+    }
+
+    public var count: Int { caches.count }
+
+    public override var offset: Int {
+        get { caches.map { $0.offset }.max() ?? 0 }
+        set { /* offset is derived from sub-caches */ }
     }
 
     public override func innerState() -> [MLXArray] {
@@ -1170,6 +1273,11 @@ public class CacheList: BaseKVCache {
         }
     }
 
+    public override var metaState: [String] {
+        get { caches.flatMap { $0.metaState } }
+        set { }
+    }
+
     public override var isTrimmable: Bool {
         caches.allSatisfy { $0.isTrimmable }
     }
@@ -1181,6 +1289,12 @@ public class CacheList: BaseKVCache {
             result = cache.trim(n)
         }
         return result
+    }
+
+    public override func truncateToOffset() {
+        for cache in caches {
+            cache.truncateToOffset()
+        }
     }
 }
 

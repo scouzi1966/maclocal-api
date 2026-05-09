@@ -19,9 +19,9 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-PATCH_FILES=("Qwen3VL.swift" "Qwen3Next.swift" "GatedDelta.swift" "Qwen3_5MoE.swift" "DeepseekV3.swift" "MiniMaxM2.swift" "NemotronH.swift" "GLM4MoeLite.swift" "GLM5MoeDsa.swift" "KimiK25.swift" "LLMModelFactory.swift" "Load.swift" "Evaluate.swift" "Tokenizer.swift" "Qwen3_5MoEVL.swift" "VLMModelFactory.swift" "SamplerTests.swift" "ToolCallFormat.swift" "KVCache.swift" "SwitchLayers.swift")
-TARGET_PATHS=("Libraries/MLXVLM/Models/Qwen3VL.swift" "Libraries/MLXLLM/Models/Qwen3Next.swift" "Libraries/MLXLLM/Models/GatedDelta.swift" "Libraries/MLXLLM/Models/Qwen3_5MoE.swift" "Libraries/MLXLLM/Models/DeepseekV3.swift" "Libraries/MLXLLM/Models/MiniMaxM2.swift" "Libraries/MLXLLM/Models/NemotronH.swift" "Libraries/MLXLLM/Models/GLM4MoeLite.swift" "Libraries/MLXLLM/Models/GLM5MoeDsa.swift" "Libraries/MLXLLM/Models/KimiK25.swift" "Libraries/MLXLLM/LLMModelFactory.swift" "Libraries/MLXLMCommon/Load.swift" "Libraries/MLXLMCommon/Evaluate.swift" "Libraries/MLXLMCommon/Tokenizer.swift" "Libraries/MLXVLM/Models/Qwen3_5MoEVL.swift" "Libraries/MLXVLM/VLMModelFactory.swift" "Tests/MLXLMTests/SamplerTests.swift" "Libraries/MLXLMCommon/Tool/ToolCallFormat.swift" "Libraries/MLXLMCommon/KVCache.swift" "Libraries/MLXLMCommon/SwitchLayers.swift")
-NEW_FILES=("Qwen3Next.swift" "GatedDelta.swift" "Qwen3_5MoE.swift" "MiniMaxM2.swift" "NemotronH.swift" "GLM4MoeLite.swift" "GLM5MoeDsa.swift" "KimiK25.swift" "Qwen3_5MoEVL.swift" "SamplerTests.swift")
+PATCH_FILES=("Qwen3VL.swift" "Qwen3Next.swift" "GatedDelta.swift" "Qwen3_5MoE.swift" "DeepseekV3.swift" "MiniMaxM2.swift" "NemotronH.swift" "GLM4MoeLite.swift" "GLM5MoeDsa.swift" "KimiK25.swift" "Gemma4Text.swift" "Gemma4VLM.swift" "LLMModelFactory.swift" "Load.swift" "Evaluate.swift" "Tokenizer.swift" "Qwen3_5MoEVL.swift" "VLMModelFactory.swift" "SamplerTests.swift" "ToolCallFormat.swift" "KVCache.swift" "SwitchLayers.swift" "BatchKVCache.swift" "SSM.swift" "Chat.swift" "Gemma4FunctionParser.swift")
+TARGET_PATHS=("Libraries/MLXVLM/Models/Qwen3VL.swift" "Libraries/MLXLLM/Models/Qwen3Next.swift" "Libraries/MLXLLM/Models/GatedDelta.swift" "Libraries/MLXLLM/Models/Qwen3_5MoE.swift" "Libraries/MLXLLM/Models/DeepseekV3.swift" "Libraries/MLXLLM/Models/MiniMaxM2.swift" "Libraries/MLXLLM/Models/NemotronH.swift" "Libraries/MLXLLM/Models/GLM4MoeLite.swift" "Libraries/MLXLLM/Models/GLM5MoeDsa.swift" "Libraries/MLXLLM/Models/KimiK25.swift" "Libraries/MLXLLM/Models/Gemma4Text.swift" "Libraries/MLXVLM/Models/Gemma4VLM.swift" "Libraries/MLXLLM/LLMModelFactory.swift" "Libraries/MLXLMCommon/Load.swift" "Libraries/MLXLMCommon/Evaluate.swift" "Libraries/MLXLMCommon/Tokenizer.swift" "Libraries/MLXVLM/Models/Qwen3_5MoEVL.swift" "Libraries/MLXVLM/VLMModelFactory.swift" "Tests/MLXLMTests/SamplerTests.swift" "Libraries/MLXLMCommon/Tool/ToolCallFormat.swift" "Libraries/MLXLMCommon/KVCache.swift" "Libraries/MLXLMCommon/SwitchLayers.swift" "Libraries/MLXLMCommon/BatchKVCache.swift" "Libraries/MLXLLM/Models/SSM.swift" "Libraries/MLXLMCommon/Chat.swift" "Libraries/MLXLMCommon/Tool/Parsers/Gemma4FunctionParser.swift")
+NEW_FILES=("Qwen3Next.swift" "GatedDelta.swift" "Qwen3_5MoE.swift" "MiniMaxM2.swift" "NemotronH.swift" "GLM4MoeLite.swift" "GLM5MoeDsa.swift" "KimiK25.swift" "Gemma4Text.swift" "Gemma4VLM.swift" "Qwen3_5MoEVL.swift" "SamplerTests.swift" "BatchKVCache.swift" "Gemma4FunctionParser.swift")
 
 # --- Package-level patches (sed replacements in Package.swift) ---
 # Each entry: "search_pattern|replacement"
@@ -29,6 +29,22 @@ NEW_FILES=("Qwen3Next.swift" "GatedDelta.swift" "Qwen3_5MoE.swift" "MiniMaxM2.sw
 MLX_PACKAGE_SWIFT="$MLX_LM_DIR/Package.swift"
 PACKAGE_PINS=(
   '.upToNextMinor(from: "0.30.3")|exact: "0.30.3"'
+  '.upToNextMinor(from: "1.1.6")|from: "1.3.0"'
+)
+
+PACKAGE_EXCLUDE_PATTERNS=(
+  'MLXLLM|Models/DeepseekV3.swift.original'
+  'MLXLLM|Models/SSM.swift.original'
+  'MLXLLM|LLMModelFactory.swift.original'
+  'MLXVLM|Models/Qwen3VL.swift.original'
+  'MLXVLM|VLMModelFactory.swift.original'
+  'MLXLMCommon|Evaluate.swift.original'
+  'MLXLMCommon|Tool/ToolCallFormat.swift.original'
+  'MLXLMCommon|SwitchLayers.swift.original'
+  'MLXLMCommon|Chat.swift.original'
+  'MLXLMCommon|KVCache.swift.original'
+  'MLXLMCommon|Load.swift.original'
+  'MLXLMCommon|Tokenizer.swift.original'
 )
 
 is_new_file() {
@@ -57,6 +73,33 @@ add_mlxfast_dep() {
   log_info "Added MLXFast dependency to MLXLMCommon"
 }
 
+ensure_target_exclude() {
+  local pkg_file="$1"
+  local target_name="$2"
+  local exclude_entry="$3"
+
+  [ -f "$pkg_file" ] || return 1
+
+  if grep -qF "\"$exclude_entry\"" "$pkg_file"; then
+    return 0
+  fi
+
+  TARGET_NAME="$target_name" EXCLUDE_ENTRY="$exclude_entry" perl -0pi -e '
+    my $target_name = $ENV{TARGET_NAME};
+    my $exclude_entry = $ENV{EXCLUDE_ENTRY};
+    s{
+      (\.target\(\s*
+       \s*name:\s*"$target_name",.*?
+       \s*exclude:\s*\[
+       .*?
+       "README\.md")
+    }{$1,\n                "$exclude_entry"}sx
+      or die "Failed to add exclude $exclude_entry to $target_name\n";
+  ' "$pkg_file"
+
+  log_info "Added Package.swift exclude for $target_name: $exclude_entry"
+}
+
 apply_package_pins() {
   local pkg_file="$1"
   [ -f "$pkg_file" ] || { log_error "Package.swift not found: $pkg_file"; return 1; }
@@ -70,14 +113,20 @@ apply_package_pins() {
   for entry in "${PACKAGE_PINS[@]}"; do
     local search="${entry%%|*}"
     local replace="${entry##*|}"
-    if grep -qF "$replace" "$pkg_file"; then
-      log_info "Already pinned: $replace"
-    elif grep -qF "$search" "$pkg_file"; then
+    if grep -qF "$search" "$pkg_file"; then
       sed -i '' "s|$(echo "$search" | sed 's/[.[\/*^$]/\\&/g')|$(echo "$replace" | sed 's/[&/\]/\\&/g')|g" "$pkg_file"
       log_info "Pinned: $search → $replace"
+    elif grep -qF "$replace" "$pkg_file"; then
+      log_info "Already pinned: $replace"
     else
       log_warn "Pattern not found in Package.swift: $search"
     fi
+  done
+
+  for entry in "${PACKAGE_EXCLUDE_PATTERNS[@]}"; do
+    local target_name="${entry%%|*}"
+    local exclude_entry="${entry##*|}"
+    ensure_target_exclude "$pkg_file" "$target_name" "$exclude_entry"
   done
 }
 
@@ -87,11 +136,26 @@ check_package_pins() {
   [ -f "$pkg_file" ] || { log_warn "Package.swift not found: $pkg_file"; return 1; }
 
   for entry in "${PACKAGE_PINS[@]}"; do
+    local search="${entry%%|*}"
     local replace="${entry##*|}"
-    if grep -qF "$replace" "$pkg_file"; then
+    if grep -qF "$search" "$pkg_file"; then
+      log_warn "Not pinned (original pattern still present): $search"
+      all_ok=false
+    elif grep -qF "$replace" "$pkg_file"; then
       log_info "Pinned: $replace"
     else
       log_warn "Not pinned: $replace"
+      all_ok=false
+    fi
+  done
+
+  for entry in "${PACKAGE_EXCLUDE_PATTERNS[@]}"; do
+    local target_name="${entry%%|*}"
+    local exclude_entry="${entry##*|}"
+    if grep -qF "\"$exclude_entry\"" "$pkg_file"; then
+      log_info "Exclude present for $target_name: $exclude_entry"
+    else
+      log_warn "Missing exclude for $target_name: $exclude_entry"
       all_ok=false
     fi
   done

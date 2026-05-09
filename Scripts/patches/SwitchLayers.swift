@@ -180,12 +180,23 @@ public class SwitchGLU: Module {
         fusedBits = qGate.bits
         fusedMode = qGate.mode
 
-        // Force evaluate the fused tensors so they're materialized once
+        // Materialize fused tensors
         if let fw = fusedWeight, let fs = fusedScales {
             var toEval: [MLXArray] = [fw, fs]
             if let fb = fusedBiases { toEval.append(fb) }
-            eval(toEval)
+            MLX.eval(toEval)
         }
+
+        // Release original gate/up weights via Module.update(parameters:)
+        // to avoid holding both fused and original copies (~289MB/layer).
+        let tiny = MLXArray(Float16(0))
+        let releaseWeights: [String: MLXArray] = [
+            "gate_proj.weight": tiny,
+            "gate_proj.scales": tiny,
+            "up_proj.weight": tiny,
+            "up_proj.scales": tiny,
+        ]
+        self.update(parameters: ModuleParameters.unflattened(releaseWeights))
     }
 
     public func callAsFunction(_ x: MLXArray, _ indices: MLXArray) -> MLXArray {

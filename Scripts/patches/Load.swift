@@ -70,10 +70,19 @@ public func loadWeights(
     var weights = [String: MLXArray]()
     let enumerator = FileManager.default.enumerator(
         at: modelDirectory, includingPropertiesForKeys: nil)!
+
+    // Check if the model has vision parameters — if not, skip vision_tower weights
+    // to avoid loading ~10 GB of unused vision weights for VLM safetensors used as LLM.
+    let modelKeys = Set(model.parameters().flattened().map { $0.0 })
+    let hasVisionParams = modelKeys.contains(where: { $0.hasPrefix("vision_tower") })
+
     for case let url as URL in enumerator {
         if url.pathExtension == "safetensors" {
             let w = try loadArrays(url: url)
             for (key, value) in w {
+                if !hasVisionParams && key.hasPrefix("vision_tower") {
+                    continue
+                }
                 weights[key] = value
             }
         }

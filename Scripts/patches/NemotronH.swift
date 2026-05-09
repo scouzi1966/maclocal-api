@@ -330,10 +330,11 @@ private class NemotronHMLP: Module, UnaryLayer, NemotronHMixer {
     @ModuleInfo(key: "up_proj") var upProj: Linear
     @ModuleInfo(key: "down_proj") var downProj: Linear
 
-    init(_ args: NemotronHConfiguration, intermediateSize: Int? = nil) {
+    init(_ args: NemotronHConfiguration, intermediateSize: Int? = nil, inputSize: Int? = nil) {
         let intermediate = intermediateSize ?? args.intermediateSize
-        self._upProj.wrappedValue = Linear(args.hiddenSize, intermediate, bias: args.mlpBias)
-        self._downProj.wrappedValue = Linear(intermediate, args.hiddenSize, bias: args.mlpBias)
+        let dims = inputSize ?? args.hiddenSize
+        self._upProj.wrappedValue = Linear(dims, intermediate, bias: args.mlpBias)
+        self._downProj.wrappedValue = Linear(intermediate, dims, bias: args.mlpBias)
         super.init()
     }
 
@@ -502,14 +503,17 @@ private class NemotronHMoE: Module, UnaryLayer, NemotronHMixer {
     @ModuleInfo(key: "gate") var gate: NemotronHMoEGate
     @ModuleInfo(key: "switch_mlp") var switchMLP: NemotronHSwitchMLP
     @ModuleInfo(key: "shared_experts") var sharedExperts: NemotronHMLP?
+    @ModuleInfo(key: "fc1_latent_proj") var fc1LatentProj: Linear?
+    @ModuleInfo(key: "fc2_latent_proj") var fc2LatentProj: Linear?
 
     init(_ args: NemotronHConfiguration) {
         self.numExpertsPerTok = args.numExpertsPerTok
         self.hasSharedExperts = args.nSharedExperts != nil && args.nSharedExperts! > 0
+        let expertInputDims = args.moeLatentSize ?? args.hiddenSize
 
         self._gate.wrappedValue = NemotronHMoEGate(args)
         self._switchMLP.wrappedValue = NemotronHSwitchMLP(
-            inputDims: args.hiddenSize,
+            inputDims: expertInputDims,
             hiddenDims: args.moeIntermediateSize,
             numExperts: args.nRoutedExperts
         )
@@ -521,13 +525,24 @@ private class NemotronHMoE: Module, UnaryLayer, NemotronHMixer {
             )
         }
 
+        if let moeLatentSize = args.moeLatentSize {
+            self._fc1LatentProj.wrappedValue = Linear(
+                args.hiddenSize, moeLatentSize, bias: args.mlpBias)
+            self._fc2LatentProj.wrappedValue = Linear(
+                moeLatentSize, args.hiddenSize, bias: args.mlpBias)
+        }
+
         super.init()
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
         let (inds, scores) = gate(x)
-        var y = switchMLP(x, inds)
+        let routedInput = if let fc1LatentProj { fc1LatentProj(x) } else { x }
+        var y = switchMLP(routedInput, inds)
         y = (y * scores[.ellipsis, .newAxis]).sum(axis: -2).asType(y.dtype)
+        if let fc2LatentProj {
+            y = fc2LatentProj(y)
+        }
 
         if let sharedExperts {
             y = y + sharedExperts(x)
@@ -812,6 +827,7 @@ public struct NemotronHConfiguration: Codable, Sendable {
     public var intermediateSize: Int
     public var moeIntermediateSize: Int
     public var moeSharedExpertIntermediateSize: Int
+    public var moeLatentSize: Int?
     public var nRoutedExperts: Int
     public var nSharedExperts: Int?
     public var numExpertsPerTok: Int
@@ -847,6 +863,7 @@ public struct NemotronHConfiguration: Codable, Sendable {
         case intermediateSize = "intermediate_size"
         case moeIntermediateSize = "moe_intermediate_size"
         case moeSharedExpertIntermediateSize = "moe_shared_expert_intermediate_size"
+        case moeLatentSize = "moe_latent_size"
         case nRoutedExperts = "n_routed_experts"
         case nSharedExperts = "n_shared_experts"
         case numExpertsPerTok = "num_experts_per_tok"
@@ -889,6 +906,7 @@ public struct NemotronHConfiguration: Codable, Sendable {
         nGroups = try container.decode(Int.self, forKey: .nGroups)
         intermediateSize = try container.decode(Int.self, forKey: .intermediateSize)
         moeIntermediateSize = try container.decode(Int.self, forKey: .moeIntermediateSize)
+        moeLatentSize = try container.decodeIfPresent(Int.self, forKey: .moeLatentSize)
         moeSharedExpertIntermediateSize = try container.decode(
             Int.self, forKey: .moeSharedExpertIntermediateSize)
         nRoutedExperts = try container.decode(Int.self, forKey: .nRoutedExperts)
@@ -951,6 +969,7 @@ public struct NemotronHConfiguration: Codable, Sendable {
         intermediateSize: Int,
         moeIntermediateSize: Int,
         moeSharedExpertIntermediateSize: Int,
+        moeLatentSize: Int? = nil,
         nRoutedExperts: Int,
         numExpertsPerTok: Int,
         hybridOverridePattern: String,
@@ -986,6 +1005,7 @@ public struct NemotronHConfiguration: Codable, Sendable {
         self.nGroups = nGroups
         self.intermediateSize = intermediateSize
         self.moeIntermediateSize = moeIntermediateSize
+        self.moeLatentSize = moeLatentSize
         self.moeSharedExpertIntermediateSize = moeSharedExpertIntermediateSize
         self.nRoutedExperts = nRoutedExperts
         self.nSharedExperts = nSharedExperts

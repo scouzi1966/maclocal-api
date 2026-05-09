@@ -16,6 +16,17 @@ private func create<C: Codable, M>(
     }
 }
 
+private func isMissingChatTemplateError(_ error: Error) -> Bool {
+    if let tokenizerError = error as? Tokenizers.TokenizerError {
+        if case .missingChatTemplate = tokenizerError {
+            return true
+        }
+    }
+    let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    return message.localizedCaseInsensitiveContains("does not have a chat template")
+        || message.localizedCaseInsensitiveContains("no template was passed")
+}
+
 /// Registry of model type, e.g 'llama', to functions that can instantiate the model from configuration.
 ///
 /// Typically called via ``LLMModelFactory/load(hub:configuration:progressHandler:)``.
@@ -33,12 +44,19 @@ public enum LLMTypeRegistry {
         "gemma3": create(Gemma3TextConfiguration.self, Gemma3TextModel.init),
         "gemma3_text": create(Gemma3TextConfiguration.self, Gemma3TextModel.init),
         "gemma3n": create(Gemma3nTextConfiguration.self, Gemma3nTextModel.init),
+        "gemma4": create(Gemma4Configuration.self, Gemma4Model.init),
+        "gemma4_text": create(Gemma4Configuration.self, Gemma4Model.init),
         "qwen2": create(Qwen2Configuration.self, Qwen2Model.init),
         "qwen3": create(Qwen3Configuration.self, Qwen3Model.init),
         "qwen3_moe": create(Qwen3MoEConfiguration.self, Qwen3MoEModel.init),
         "qwen3_next": create(Qwen3NextConfiguration.self, Qwen3NextModel.init),
         "qwen3_5": create(Qwen3_5MoEConfiguration.self, Qwen3_5MoEModel.init),
         "qwen3_5_moe": create(Qwen3_5MoEConfiguration.self, Qwen3_5MoEModel.init),
+        "qwen3_6": create(Qwen3Configuration.self, Qwen3Model.init),
+        "qwen3_6_moe": create(Qwen3_5MoEConfiguration.self, Qwen3_5MoEModel.init),
+        "qwen3.6_moe": create(Qwen3_5MoEConfiguration.self, Qwen3_5MoEModel.init),
+        "qwen3_6_next": create(Qwen3NextConfiguration.self, Qwen3NextModel.init),
+        "qwen3.6_next": create(Qwen3NextConfiguration.self, Qwen3NextModel.init),
         "starcoder2": create(Starcoder2Configuration.self, Starcoder2Model.init),
         "cohere": create(CohereConfiguration.self, CohereModel.init),
         "openelm": create(OpenElmConfiguration.self, OpenELMModel.init),
@@ -192,6 +210,8 @@ public class LLMRegistry: AbstractModelRegistry, @unchecked Sendable {
         // https://ai.google.dev/gemma/docs/core/prompt-structure
         extraEOSTokens: ["<end_of_turn>"]
     )
+
+
 
     static public let qwen205b4bit = ModelConfiguration(
         id: "mlx-community/Qwen1.5-0.5B-Chat-4bit",
@@ -437,11 +457,23 @@ private struct LLMUserInputProcessor: UserInputProcessor {
     func prepare(input: UserInput) throws -> LMInput {
         let messages = messageGenerator.generate(from: input)
         do {
+            // Check for chat template override in additionalContext
+            let chatTemplateArg: ChatTemplateArgument?
+            if let override = input.additionalContext?["chatTemplateOverride"] as? String {
+                chatTemplateArg = .literal(override)
+            } else {
+                chatTemplateArg = nil
+            }
             let promptTokens = try tokenizer.applyChatTemplate(
-                messages: messages, tools: input.tools, additionalContext: input.additionalContext)
+                messages: messages, chatTemplate: chatTemplateArg, addGenerationPrompt: true,
+                truncation: false, maxLength: nil,
+                tools: input.tools, additionalContext: input.additionalContext)
 
             return LMInput(tokens: MLXArray(promptTokens))
-        } catch TokenizerError.missingChatTemplate {
+        } catch {
+            guard isMissingChatTemplateError(error) else {
+                throw error
+            }
             print(
                 "No chat template was included or provided, so converting messages to simple text format. This is not optimal for model performance, so applications should provide a chat template if none is included with the model."
             )

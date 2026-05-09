@@ -53,6 +53,13 @@ public struct TokenLogprobData: Sendable {
     public let topTokenIds: [Int]
     /// Log probabilities corresponding to topTokenIds
     public let topLogprobs: [Float]
+
+    public init(tokenId: Int, logprob: Float, topTokenIds: [Int], topLogprobs: [Float]) {
+        self.tokenId = tokenId
+        self.logprob = logprob
+        self.topTokenIds = topTokenIds
+        self.topLogprobs = topLogprobs
+    }
 }
 
 /// Parameters for text generation, see ``TokenIterator``.
@@ -113,6 +120,10 @@ public struct GenerateParameters: Sendable {
 
     /// number of top alternative tokens to include in logprob output (0-20, default: 0)
     public var topLogprobsCount: Int
+
+    /// Optional external logit processor (e.g., grammar constrained decoding).
+    /// Applied AFTER the built-in processors in the chain.
+    public var extraProcessor: LogitProcessor?
 
     public init(
         maxTokens: Int? = nil,
@@ -184,6 +195,10 @@ public struct GenerateParameters: Sendable {
             processors.append(MinPProcessor(minP: minP))
         }
 
+        if let extra = extraProcessor {
+            processors.append(extra)
+        }
+
         switch processors.count {
         case 0: return nil
         case 1: return processors[0]
@@ -227,8 +242,16 @@ public struct TopPSampler: LogitSampler {
             let probs = softmax(logits / temp, axis: -1)
             let sortedIndices = argSort(probs, axis: -1)
 
-            // probs shape is [B,V] and after take it will be [1, B, V], so we squeeze it back to [B, V]
-            let sortedProbs = take(probs, sortedIndices, axis: -1).squeezed(axis: 0)
+            // Handle both 1D [vocabSize] (BatchScheduler per-slot decode) and 2D [1, vocabSize]
+            // (single-sequence path). The 2D path goes through `take` + squeeze which assumes
+            // a leading singleton; the 1D path uses `takeAlong` for a direct gather along axis -1.
+            let sortedProbs: MLXArray
+            if logits.ndim == 1 {
+                sortedProbs = takeAlong(probs, sortedIndices, axis: -1)
+            } else {
+                // probs shape is [B,V] and after take it will be [1, B, V], so we squeeze it back to [B, V]
+                sortedProbs = take(probs, sortedIndices, axis: -1).squeezed(axis: 0)
+            }
 
             let cumulativeProbs = cumsum(sortedProbs, axis: -1)
 
@@ -236,7 +259,11 @@ public struct TopPSampler: LogitSampler {
                 cumulativeProbs .> (1 - topP), sortedProbs, zeros(like: sortedProbs))
 
             let sortedToken = categorical(log(topProbs))
-            return sortedIndices.squeezed(axis: 0)[sortedToken]
+            if logits.ndim == 1 {
+                return sortedIndices[sortedToken]
+            } else {
+                return sortedIndices.squeezed(axis: 0)[sortedToken]
+            }
         }
     }
 }
@@ -300,7 +327,12 @@ public struct PresenceContext: LogitProcessor {
         let uniqueTokens = Array(Set(tokens))
         let indices = MLXArray(uniqueTokens.map { UInt32($0) })
         let penalty = MLXArray(presencePenalty)
-        logits[0..., indices] = logits[0..., indices] - penalty
+        // Handle both 1D [vocabSize] (prefillOne / per-slot decode) and 2D [B, vocabSize]
+        if logits.ndim == 1 {
+            logits[indices] = logits[indices] - penalty
+        } else {
+            logits[0..., indices] = logits[0..., indices] - penalty
+        }
         return logits
     }
 
@@ -332,10 +364,17 @@ public struct TopKProcessor: LogitProcessor {
         let vocabSize = logits.dim(-1)
         guard k > 0, k < vocabSize else { return logits }
 
-        // Sort descending along the last axis to find the k-th largest value
+        // Sort ascending along the last axis to find the k-th largest value
         let sorted = MLX.sorted(logits, axis: -1)
         // k-th largest is at index [vocabSize - k] in ascending-sorted array
-        let threshold = sorted[0..., vocabSize - k]
+        // Handle both 1D [vocabSize] (prefillOne / per-slot decode) and 2D [B, vocabSize]
+        let threshold: MLXArray
+        if logits.ndim == 1 {
+            threshold = sorted[vocabSize - k]
+        } else {
+            // Extract [B] then expand to [B, 1] for broadcasting with [B, vocabSize]
+            threshold = sorted[0..., vocabSize - k].reshaped([-1, 1])
+        }
 
         return MLX.where(logits .>= threshold, logits, MLXArray(-Float.infinity))
     }
@@ -363,6 +402,39 @@ public struct MinPProcessor: LogitProcessor {
         let threshold = maxLogit + MLXArray(log(minP))
 
         return MLX.where(logits .>= threshold, logits, MLXArray(-Float.infinity))
+    }
+}
+
+/// Logit processor that masks tokens based on grammar constraints.
+/// Uses reference semantics (class) so the mask can be updated externally per-token.
+public final class GrammarLogitProcessor: LogitProcessor, @unchecked Sendable {
+    /// Pre-computed MLXArray mask from the grammar matcher (0 for allowed, -1e9 for disallowed).
+    /// nil = no constraint (passthrough).
+    public var tokenMask: MLXArray?
+
+    /// The grammar matcher handle (type-erased). Caller manages lifecycle.
+    public var matcherHandle: AnyObject?
+
+    /// Callback invoked after each token is sampled, with the token ID.
+    /// Used to advance grammar state and update tokenMask for the next token.
+    public var onTokenSampled: ((Int) -> Void)?
+
+    public init() {}
+
+    public func prompt(_ prompt: MLXArray) {
+        // No-op — grammar state managed externally
+    }
+
+    public func process(logits: MLXArray) -> MLXArray {
+        guard let mask = tokenMask else {
+            return logits  // No constraint — passthrough
+        }
+        return logits + mask
+    }
+
+    public func didSample(token: MLXArray) {
+        let tokenID = token.item(Int.self)
+        onTokenSampled?(tokenID)
     }
 }
 
@@ -429,13 +501,18 @@ public struct RepetitionContext: LogitProcessor {
     public func process(logits: MLXArray) -> MLXArray {
         if tokens.count > 0 {
             let indices = MLXArray(tokens.map { UInt32($0) })
-            var selectedLogits = logits[0..., indices]
+            // Handle both 1D [vocabSize] (prefillOne / per-slot decode) and 2D [B, vocabSize]
+            var selectedLogits = logits.ndim == 1 ? logits[indices] : logits[0..., indices]
 
             selectedLogits = MLX.where(
                 selectedLogits .< 0, selectedLogits * repetitionPenalty,
                 selectedLogits / repetitionPenalty)
 
-            logits[0..., indices] = selectedLogits
+            if logits.ndim == 1 {
+                logits[indices] = selectedLogits
+            } else {
+                logits[0..., indices] = selectedLogits
+            }
             return logits
         }
 
@@ -479,7 +556,8 @@ public struct TokenIterator: Sequence, IteratorProtocol {
     let model: any LanguageModel
     var state: LMOutput.State?
 
-    var y: LMInput.Text
+    // Optional so teardown() can drop the final token array explicitly.
+    var y: LMInput.Text?
     var cache: [KVCache]
     var processor: LogitProcessor?
     let sampler: LogitSampler
@@ -530,7 +608,8 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         parameters: GenerateParameters
     ) throws {
         self.model = model
-        self.y = .init(tokens: prompt)
+        let promptText = LMInput.Text(tokens: prompt)
+        self.y = promptText
         self.cache = cache ?? model.newCache(parameters: parameters)
 
         self.processor = parameters.processor()
@@ -547,7 +626,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         self.temperatureForLogprobs = parameters.temperature
 
         self.promptPrefillTime = try measure {
-            try prepare(input: .init(text: y), windowSize: parameters.prefillStepSize)
+            try prepare(input: .init(text: promptText), windowSize: parameters.prefillStepSize)
         }
     }
 
@@ -635,13 +714,15 @@ public struct TokenIterator: Sequence, IteratorProtocol {
             y = tokens
 
             // evaluate the remainder of the prompt -- this primes the pump
-            let token = step(previous: y)
+            let token = step(previous: tokens)
             y = .init(tokens: token)
-            asyncEval(y.tokens)
+            asyncEval(token)
 
         case .logits(let result):
             y = .init(tokens: convertToToken(logits: result.logits))
-            asyncEval(y.tokens)
+            if let y {
+                asyncEval(y.tokens)
+            }
 
             break
         }
@@ -738,14 +819,15 @@ public struct TokenIterator: Sequence, IteratorProtocol {
             return nil
         }
 
+        guard let previousY = y else {
+            return nil
+        }
+
         let tStart: UInt64 = Self.perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
 
         // Promote pending logprob info: the logprob computed during the PREVIOUS
         // step() corresponds to the token we are about to return (previousY).
         lastLogprobInfo = pendingLogprobInfo
-
-        // save current value -- this will be returned
-        let previousY = y
 
         // compute the next state and async eval the next token
         let token = step(previous: previousY)
@@ -813,6 +895,17 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         [PERF]   overhead      : \(String(format: "%8.1f", overheadMs))ms  \(pct(overheadMs))  (\(String(format: "%.3f", overheadMs / Double(perfTokenCount)))ms/tok)
         [PERF]   GPU sync probe@100: \(String(format: "%.3f", toMs(perfGpuSyncNs)))ms (0=async working, >0=GPU was still busy)
         """)
+    }
+
+    /// Explicitly release iterator-held generation state so ARC can drop
+    /// MLX-backed arrays before the final stream synchronization.
+    public mutating func teardown() {
+        cache = []
+        state = nil
+        y = nil
+        processor = nil
+        pendingLogprobInfo = nil
+        lastLogprobInfo = nil
     }
 }
 
@@ -1314,6 +1407,11 @@ public func generateTask(
             print("[PERF] Loop overhead: detokenize+yield=\(String(format: "%.1f", detokMs))ms (\(String(format: "%.2f", detokMs / Double(iterator.perfTokenCount)))ms/tok)")
         }
         iterator.printPerfSummary()
+
+        // Explicitly release iterator-held GPU arrays (cache, last token, state)
+        // before synchronizing. This ensures no stale references survive into
+        // the next request's generation pass.
+        iterator.teardown()
 
         let now = Date.timeIntervalSinceReferenceDate
         let generateTime = now - start
