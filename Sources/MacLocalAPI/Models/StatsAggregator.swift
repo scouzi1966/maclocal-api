@@ -37,8 +37,21 @@ public final class StatsAggregator: @unchecked Sendable {
 
     // MARK: - vLLM bucket boundaries
 
-    /// Bucket boundaries match `vllm/engine/metrics.py` exactly so
-    /// Grafana dashboards from the vLLM ecosystem are drop-in compatible.
+    /// Bucket boundaries match upstream vLLM exactly so Grafana
+    /// dashboards from the vLLM ecosystem are drop-in compatible.
+    ///
+    /// Provenance (port-time snapshot, **not a live dependency** — values
+    /// are literals; nothing in afm's build or runtime reaches out to
+    /// vllm-project/vllm):
+    ///
+    ///   - source repo: vllm-project/vllm
+    ///   - source file: vllm/v1/metrics/loggers.py
+    ///   - source blob: 6855efd9f54c6f8ac5b95704455f64d6e456b4c8
+    ///   - repo HEAD:   2ee8c2a56e41fbd00b4fb52f29464fb7fca48dba
+    ///   - port date:   2026-05-09
+    ///
+    /// See `Scripts/grafana/UPSTREAM.md` for the full provenance trail
+    /// and the procedure to re-port if upstream evolves.
     public enum Buckets {
         /// Used for e2e latency, queue time, inference time, prefill time,
         /// decode time. Seconds.
