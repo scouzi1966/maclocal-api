@@ -1478,6 +1478,57 @@
         }
       ],
       "description": "AFM-native: batch slot utilization. cap=0 means serial mode (no BatchScheduler)."
+    },
+    {
+      "id": 18,
+      "title": "Per-request Decode Speed",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM-AFM"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM-AFM"
+          },
+          "refId": "A",
+          "expr": "sum(rate(afm:generation_tokens_total{model_name=~\"$model_name\"}[$__rate_interval])) / sum(rate(afm:request_decode_time_seconds_sum{model_name=~\"$model_name\"}[$__rate_interval]))",
+          "legendFormat": "decode tok/s (per request, model speed)"
+        }
+      ],
+      "description": "Tokens-per-decode-second, averaged over the rate window \u2014 the model's actual decoding speed during active generation. This matches the chat UI's per-message t/s and the in-webui dashboard's 'Decode rate (last)' tile.\n\nDistinct from the Token Throughput panel above, which shows WALL-CLOCK tokens/sec (= per-request decode speed \u00d7 duty cycle). Per-request decode speed is constant across load; wall-clock throughput scales with how busy afm is."
     }
   ],
   "refresh": "5s",

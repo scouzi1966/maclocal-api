@@ -1280,11 +1280,28 @@ class Server {
           activeSub = 'peak ' + peak;
         }
 
+        // Sustained (wall-clock) throughput — mean of the spark's recent
+        // non-empty window. This is what Grafana's Token Throughput panel
+        // computes via rate(generation_tokens_total[5m]). Always lower
+        // than `displayTps` because it includes idle gaps between
+        // requests; both numbers are useful, they answer different
+        // questions ("how fast does the model decode?" vs "how many
+        // tokens is the system sustaining?").
+        var sustained = null;
+        if (state.spark.length > 0) {
+          var sum = state.spark.reduce(function(a, b) { return a + b; }, 0);
+          sustained = sum / state.spark.length;
+        }
+
         // Live tiles
         var liveTiles = [
           { key: 'tps', lbl: displayLabel,
             val: displayTps == null ? '—' : displayTps.toFixed(1) + ' tok/s',
             sub: displaySub, cls: 'live' },
+          { key: 'sustained', lbl: 'Sustained throughput',
+            val: sustained == null ? '—' : sustained.toFixed(1) + ' tok/s',
+            sub: 'wall-clock · last ' + state.spark.length + 's',
+            cls: 'live' },
           { key: 'inflight', lbl: serialMode ? 'Active' : 'In-flight',
             val: activeVal, sub: activeSub, cls: 'accent',
             barPct: slots > 0 ? running/slots : (running > 0 ? 1 : 0) },
