@@ -1,0 +1,52 @@
+# Local Prometheus + Grafana wired against the afm /metrics endpoint
+# running on the host (default port 9999). Quick start:
+#
+#   docker compose up -d
+#   open http://localhost:3000        # admin / admin (forced password change first time)
+#   # The "AFM (vLLM-compatible)" dashboard auto-loads under "AFM" folder.
+#
+#   docker compose down               # stop, keep volumes (history persists)
+#   docker compose down -v            # stop + delete time-series data
+#
+# Adjust prometheus.yml's `targets` if afm runs on a different port.
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: afm-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    extra_hosts:
+      # Some Linux Docker Engines need this; harmless on macOS where
+      # host.docker.internal already resolves natively.
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: afm-grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./grafana-datasource.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - ./grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/afm.yml:ro
+      - ./afm-dashboard.json:/var/lib/grafana/dashboards/afm-dashboard.json:ro
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  prometheus-data:
+  grafana-data:

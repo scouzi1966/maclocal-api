@@ -1,0 +1,133 @@
+# AFM Grafana dashboard
+
+A drop-in Grafana dashboard for afm's `/metrics` endpoint, ported from
+[vLLM's production_monitoring example](https://github.com/vllm-project/vllm/tree/main/examples/observability/prometheus_grafana)
+since afm's Prometheus output is intentionally vLLM-compatible (same metric
+names with `afm:` prefix, identical bucket boundaries).
+
+## What you get
+
+13 panels under a single dashboard ("AFM" folder, title "AFM (vLLM-compatible)"):
+
+| Panel | What it shows |
+|---|---|
+| E2E Request Latency | p50/p95/p99 of `e2e_request_latency_seconds` over time |
+| Token Throughput | rate(generation_tokens) and rate(prompt_tokens) |
+| Inter Token Latency | p50/p95/p99 of `time_per_output_token_seconds` |
+| Scheduler State | `num_requests_running` and `num_requests_waiting` (batch mode only) |
+| Time To First Token | p50/p95/p99 of `time_to_first_token_seconds` |
+| Cache Utilization | `gpu_cache_usage_perc` (when a reader is registered) |
+| Request Prompt Length | distribution of prompt token counts |
+| Request Generation Length | distribution of generation token counts |
+| Finish Reason | `request_success_total` broken out by `finished_reason` label |
+| Queue Time | sum of `request_queue_time_seconds` |
+| Prefill and Decode Time | sums of `request_prefill_time_seconds` and `request_decode_time_seconds` |
+| Radix Prefix Cache Hit Rate | **AFM-native:** `hits / (hits + misses)` |
+| Batch Utilization (in-flight vs cap) | **AFM-native:** running, peak, and configured cap |
+
+Use the `model_name` dropdown at the top of the dashboard to filter panels
+to a single model (or `.*` for all).
+
+## Quick start (Docker, recommended)
+
+```bash
+cd Scripts/grafana
+docker compose up -d
+open http://localhost:3000      # admin / admin (forced password change first time)
+```
+
+The dashboard appears under **Dashboards → AFM → AFM (vLLM-compatible)**. The
+Prometheus datasource is auto-provisioned (UID `PROM-AFM`) and pre-wired to
+scrape `host.docker.internal:9999` every 5 seconds.
+
+To stop:
+
+```bash
+docker compose down              # keep time-series data
+docker compose down -v           # also delete it
+```
+
+## Quick start (Homebrew, no Docker)
+
+```bash
+brew install prometheus grafana
+
+# Start Prometheus pointing at our config file
+prometheus --config.file=Scripts/grafana/prometheus.yml &
+
+# Start Grafana
+brew services start grafana
+open http://localhost:3000       # admin / admin first time
+
+# In the Grafana UI:
+#   1. Connections → Data sources → Add → Prometheus
+#      URL: http://localhost:9090, save & test
+#   2. Dashboards → New → Import → upload Scripts/grafana/afm-dashboard.json
+#      Pick the Prometheus datasource you just added, click Import
+```
+
+(The Homebrew flow loses the auto-provisioning convenience — you have to
+add the datasource and import the dashboard manually. Docker is friendlier
+for try-it-out-then-throw-away.)
+
+## Adjusting for a different afm port
+
+If you launched afm with `--port` other than the default `9999`, edit
+`prometheus.yml`:
+
+```yaml
+- targets: ['host.docker.internal:9999']   # ← change this
+```
+
+Then either reload Prometheus (`curl -X POST http://localhost:9090/-/reload`)
+or `docker compose restart prometheus`.
+
+## What populates which panel
+
+- **Counters / throughput / finish reason** — populated by every completed
+  request, batch or serial path.
+- **Histograms (latencies, sizes)** — same. Each completed request adds one
+  observation to every applicable histogram.
+- **Scheduler State** (running/waiting gauges) — only meaningful when running
+  with `--concurrent N >= 2`. In serial mode (default for RotatingKVCache
+  models like gemma-3n / gemma-4) the gauges stay at 0 because BatchScheduler
+  is never instantiated. The in-webui dashboard derives these from
+  `started - completed` instead; that derivation isn't replicated here yet.
+- **Cache Utilization** — currently always empty. `gpu_cache_usage_perc` is
+  exported only when something calls `StatsAggregator.shared.registerGpuCacheUsageReader`,
+  which hasn't been wired up to the actual KV cache yet.
+- **Radix Prefix Cache Hit Rate** — populated in either path, when the
+  prefix cache is enabled.
+
+## Why bother (vs the in-webui dashboard)
+
+The in-webui dashboard (📊 button on the right edge of the chat UI) is for
+"is afm doing the thing right now?" — instant, no setup, but no history.
+
+This Grafana setup is for:
+
+- **Long-term timelines**. p99 spikes are visible in a 6-hour chart, lost
+  in the in-page 60-sample sparkline.
+- **Comparing runs**. Run baseline → deploy a change → run again. One
+  Grafana time-range gives you side-by-side percentiles.
+- **Surviving restarts**. Counters reset every time afm starts; Prometheus
+  keeps 30 days of scraped data by default (`storage.tsdb.retention.time`).
+- **Alerting**. Set "tok/s drops below 30 for 5 minutes" → Slack message.
+- **Sharing**. Screenshot, or send the Grafana URL.
+
+## Updating the dashboard
+
+The JSON was generated by porting upstream
+`vllm-project/vllm:examples/observability/prometheus_grafana/grafana.json`
+with these mechanical edits:
+
+1. Global `vllm:` → `afm:` prefix swap
+2. `vllm:inter_token_latency_seconds` → `afm:time_per_output_token_seconds`
+3. `vllm:kv_cache_usage_perc` → `afm:gpu_cache_usage_perc`
+4. Drop the "Max Generation Token in Sequence Group" panel (no afm metric)
+5. Hard-code datasource UID to `PROM-AFM` for auto-provisioning
+6. Append two AFM-native panels (Radix hit rate, Batch utilization)
+
+To pull a newer upstream version, repeat those steps. The transform script
+isn't checked in but is straightforward enough — see commit history for a
+worked example.
