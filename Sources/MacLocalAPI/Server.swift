@@ -1334,10 +1334,15 @@ class Server {
           liveTiles.push({ key: 'queue', lbl: 'Queue depth',
             val: String(waiting), sub: 'cap ' + slots });
         }
-        liveTiles.push({ key: 'gpu', lbl: 'GPU KV cache',
+        liveTiles.push({ key: 'gpu', lbl: 'GPU memory',
           val: gpu == null ? '—' : fmtPct(gpu),
-          sub: gpu == null ? 'not exported' : '',
+          sub: gpu == null ? 'not exported' : 'of recommended VRAM',
           barPct: gpu });
+        var radixFill = single('afm:radix_cache_fill_perc');
+        liveTiles.push({ key: 'radix', lbl: 'Prefix cache fill',
+          val: radixFill == null ? '—' : fmtPct(radixFill),
+          sub: radixFill == null ? '--enable-prefix-caching off' : 'radix tree',
+          barPct: radixFill });
         renderTiles(document.getElementById('afm-live-grid'), liveTiles);
         var sparkHost = document.getElementById('afm-spark');
         sparkHost.innerHTML = '';

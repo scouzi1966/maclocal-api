@@ -1588,6 +1588,57 @@
         }
       ],
       "description": "AFM-native: HTTP client connections currently being served, plus the all-time-high since server start. /metrics scrapes are excluded so a Prometheus poll doesn't show up as a connection."
+    },
+    {
+      "id": 20,
+      "title": "Prefix Cache Fill (radix)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM-AFM"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 72
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM-AFM"
+          },
+          "refId": "A",
+          "expr": "afm:radix_cache_fill_perc{model_name=~\"$model_name\"}",
+          "legendFormat": "fill (entries / capacity)"
+        }
+      ],
+      "description": "AFM-native: how full the radix prefix cache is. 1.0 = at capacity (default 64 entries). Distinct from the 'Cache Utilization' panel above which now shows broader GPU memory pressure."
     }
   ],
   "refresh": "5s",

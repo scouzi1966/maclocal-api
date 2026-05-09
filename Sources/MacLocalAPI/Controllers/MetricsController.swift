@@ -102,8 +102,15 @@ struct MetricsController: RouteCollection {
         if let usage = s.gpuCacheUsage {
             gauge(
                 "afm:gpu_cache_usage_perc",
-                "GPU KV-cache usage as a fraction in [0, 1] (1.0 = 100%).",
+                "GPU memory pressure as a fraction in [0, 1] of Metal's maxRecommendedWorkingSetSize (model weights + KV cache + intermediate tensors).",
                 formatDouble(usage)
+            )
+        }
+        if let radix = s.radixCacheFill {
+            gauge(
+                "afm:radix_cache_fill_perc",
+                "Radix prefix cache fill as a fraction in [0, 1] (current entries / configured capacity). Omitted when --enable-prefix-caching is off.",
+                formatDouble(radix)
             )
         }
         gauge(

@@ -1224,9 +1224,28 @@ final class MLXModelService: @unchecked Sendable {
                     debugLogging: debugLogging
                 )
                 print("[\(ts())] [PrefixCache] Radix tree prefix caching active (64 entries max)")
+                // /metrics: expose radix fill as afm:radix_cache_fill_perc.
+                // The closure captures `self` weakly so it doesn't extend
+                // the service's lifetime; nil-check guards model unload.
+                StatsAggregator.shared.registerRadixCacheFillReader { [weak self] in
+                    self?.radixCache?.usageFraction ?? 0
+                }
             } else {
                 self.radixCache = nil
                 print("[\(ts())] [PrefixCache] Prefix caching disabled")
+            }
+            // /metrics: expose total GPU memory pressure as
+            // afm:gpu_cache_usage_perc — fraction of Metal's recommended
+            // working set currently in active MLX allocations. This
+            // includes model weights + KV cache + intermediate tensors,
+            // so it's broader than vLLM's strict "KV pool fill" but is
+            // the most useful single signal for "is afm running out of
+            // VRAM?". Registered on every successful model load.
+            let maxWorkingSetBytes = GPU.deviceInfo().maxRecommendedWorkingSetSize
+            StatsAggregator.shared.registerGpuCacheUsageReader {
+                guard maxWorkingSetBytes > 0 else { return 0 }
+                let active = Double(GPU.activeMemory)
+                return min(1.0, active / Double(maxWorkingSetBytes))
             }
             try registry.registerModel(modelID)
             stage?(.ready)

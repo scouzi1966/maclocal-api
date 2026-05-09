@@ -152,6 +152,7 @@ public final class StatsAggregator: @unchecked Sendable {
         var running: GaugeReader?
         var waiting: GaugeReader?
         var gpuCacheUsage: FractionReader?
+        var radixCacheFill: FractionReader?
         var batchSizePeak: Int = 0
         // Active HTTP connections — incremented when a request enters
         // the Vapor pipeline, decremented when its response finalizes.
@@ -202,6 +203,13 @@ public final class StatsAggregator: @unchecked Sendable {
     /// the gauge is omitted from the exposition.
     public func registerGpuCacheUsageReader(_ reader: @escaping FractionReader) {
         gauges.withLock { $0.gpuCacheUsage = reader }
+    }
+
+    /// Register a reader for `radix_cache_fill_perc` (entries / capacity,
+    /// in [0, 1]). Polled once per `/metrics` request. Optional — omitted
+    /// when not registered (e.g. when `--enable-prefix-caching` is off).
+    public func registerRadixCacheFillReader(_ reader: @escaping FractionReader) {
+        gauges.withLock { $0.radixCacheFill = reader }
     }
 
     /// Increment the active-HTTP-connection gauge. Called by the request
@@ -392,6 +400,7 @@ public final class StatsAggregator: @unchecked Sendable {
         public let activeConnections: Int
         public let activeConnectionsPeak: Int
         public let gpuCacheUsage: Double?
+        public let radixCacheFill: Double?
         public let genTokensTotal: UInt64
         public let promptTokensTotal: UInt64
         public let requestsStartedTotal: UInt64
@@ -418,13 +427,14 @@ public final class StatsAggregator: @unchecked Sendable {
         let c = counters.withLock { $0 }
         let h = histograms.withLock { $0 }
         let m = meta.withLock { $0 }
-        let (running, waiting, peak, gpuCache, conns, connsPeak) = gauges.withLock {
-            g -> (Int, Int, Int, Double?, Int, Int) in
+        let (running, waiting, peak, gpuCache, radixFill, conns, connsPeak) = gauges.withLock {
+            g -> (Int, Int, Int, Double?, Double?, Int, Int) in
             let r = g.running?() ?? 0
             let w = g.waiting?() ?? 0
             let cache = g.gpuCacheUsage?()
+            let radix = g.radixCacheFill?()
             if r > g.batchSizePeak { g.batchSizePeak = r }
-            return (r, w, g.batchSizePeak, cache, g.activeConnections, g.activeConnectionsPeak)
+            return (r, w, g.batchSizePeak, cache, radix, g.activeConnections, g.activeConnectionsPeak)
         }
         return Snapshot(
             timestampMs: Int64(Date().timeIntervalSince1970 * 1000),
@@ -437,6 +447,7 @@ public final class StatsAggregator: @unchecked Sendable {
             activeConnections: conns,
             activeConnectionsPeak: connsPeak,
             gpuCacheUsage: gpuCache,
+            radixCacheFill: radixFill,
             genTokensTotal: c.genTokensTotal,
             promptTokensTotal: c.promptTokensTotal,
             requestsStartedTotal: c.requestsStartedTotal,
