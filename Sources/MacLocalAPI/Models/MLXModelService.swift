@@ -1968,6 +1968,11 @@ final class MLXModelService: @unchecked Sendable {
         let wantLogprobs = logprobs == true
         let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
 
+        // /metrics: streaming-path queue timestamp. The actual
+        // requestStarted/observe calls happen ONLY in the serial-path
+        // task below (the batch path's stats are owned by BatchScheduler).
+        let streamQueuedAt = Date()
+
         var params = GenerateParameters(
             maxTokens: effectiveMaxTokens,
             kvBits: self.kvBits,
@@ -2120,6 +2125,17 @@ final class MLXModelService: @unchecked Sendable {
         let streamGpuProfile = gpuProfile
         if streamGpuProfile { printGPUProfileHeader() }
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
+            // /metrics: serial-streaming counters. Captured here (after the
+            // batch-path branch has been ruled out) so we don't double-count
+            // with BatchScheduler.submit().
+            StatsAggregator.shared.requestStarted()
+            // Mutables filled inside container.perform so the final
+            // observation can fire just before continuation.finish().
+            var streamStatPromptTokens = 0
+            var streamStatCompletionTokens = 0
+            var streamStatPromptTime = 0.0
+            var streamStatGenerateTime = 0.0
+            var streamStatStoppedBySequence = false
             let task = Task {
                 defer { self.endOperation() }
                 do {
@@ -2363,6 +2379,7 @@ final class MLXModelService: @unchecked Sendable {
                                                     continuation.yield(StreamChunk(text: "", logprobs: resolved, stoppedBySequence: true))
                                                 }
                                             }
+                                            streamStatStoppedBySequence = true  // /metrics: finished_reason=stop
                                             break
                                         }
                                         // Flush safe portion of the buffer (keep tail that could be partial stop match)
@@ -2406,6 +2423,11 @@ final class MLXModelService: @unchecked Sendable {
                                         truncateTime: cacheTruncateTime
                                     )
                                     continuation.yield(StreamChunk(text: "", promptTokens: finalPromptTokens, completionTokens: info.generationTokenCount, promptTime: info.promptTime, generateTime: info.generateTime))
+                                    // /metrics: capture for the post-loop observation
+                                    streamStatPromptTokens = finalPromptTokens
+                                    streamStatCompletionTokens = info.generationTokenCount
+                                    streamStatPromptTime = info.promptTime
+                                    streamStatGenerateTime = info.generateTime
                                     // GPU profile: emit footer with real token counts
                                     if streamGpuProfile {
                                         self.printGPUProfileFooter(promptTokens: finalPromptTokens, completionTokens: info.generationTokenCount, promptTime: info.promptTime, generateTime: info.generateTime)
@@ -2512,6 +2534,39 @@ final class MLXModelService: @unchecked Sendable {
                         )
                     }
                     self.cleanupTempFiles(mediaTempFiles)
+
+                    // /metrics: serial-streaming observation. Mirrors the
+                    // non-streaming generate() path; queue time ≈ 0 in
+                    // serial mode so queuedAt == startedAt.
+                    let streamCompletedAt = Date()
+                    let streamFirstTokenAt: Date? = (streamStatCompletionTokens > 0 && streamStatPromptTime >= 0)
+                        ? streamQueuedAt.addingTimeInterval(streamStatPromptTime)
+                        : nil
+                    StatsAggregator.shared.addPromptTokens(streamStatPromptTokens)
+                    StatsAggregator.shared.addGenTokens(streamStatCompletionTokens)
+                    StatsAggregator.shared.observeRequest(
+                        StatsAggregator.RequestObservation(
+                            queuedAt: streamQueuedAt.timeIntervalSince1970,
+                            startedAt: streamQueuedAt.timeIntervalSince1970,
+                            firstTokenAt: streamFirstTokenAt?.timeIntervalSince1970,
+                            completedAt: streamCompletedAt.timeIntervalSince1970,
+                            promptTokens: streamStatPromptTokens,
+                            generationTokens: streamStatCompletionTokens,
+                            paramsN: 1,
+                            paramsBestOf: 1
+                        )
+                    )
+                    let streamReason: String
+                    if streamStatStoppedBySequence {
+                        streamReason = "stop"
+                    } else if streamStatCompletionTokens >= effectiveMaxTokens {
+                        streamReason = "length"
+                    } else {
+                        streamReason = "stop"
+                    }
+                    StatsAggregator.shared.requestSucceeded(reason: streamReason)
+                    StatsAggregator.shared.requestCompleted()
+
                     continuation.finish()
                 } catch {
                     if debugLogging {
@@ -2519,6 +2574,10 @@ final class MLXModelService: @unchecked Sendable {
                     }
                     self.radixCache?.invalidateAll()
                     self.cleanupTempFiles(mediaTempFiles)
+                    // /metrics: error path — still complete the lifecycle so
+                    // requests_completed_total tracks requests_started_total.
+                    StatsAggregator.shared.requestSucceeded(reason: "error")
+                    StatsAggregator.shared.requestCompleted()
                     continuation.finish(throwing: error)
                 }
             }
