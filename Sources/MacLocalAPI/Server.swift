@@ -424,8 +424,11 @@ class Server {
         }
     }
 
-    /// Custom CSS/JS to inject into webui (branding + auto-select default model)
-    private var customCSS: String { Self.customCSSTemplate.replacingOccurrences(of: "/*_IS_MLX_PLACEHOLDER*/false", with: mlxModelID != nil ? "true" : "false") }
+    /// Custom CSS/JS to inject into webui (branding + auto-select default model + /metrics dashboard)
+    private var customCSS: String {
+        Self.customCSSTemplate.replacingOccurrences(of: "/*_IS_MLX_PLACEHOLDER*/false", with: mlxModelID != nil ? "true" : "false")
+        + Self.dashboardTemplate
+    }
     private static let customCSSTemplate = """
     <style>
     /* Hide page until branding + model selection complete */
@@ -704,6 +707,547 @@ class Server {
         } else {
             init();
         }
+    })();
+    </script>
+    """
+
+    /// Live `/metrics` dashboard injected alongside the webui customCSS.
+    /// Renders a slide-out panel from the right edge of the page that polls
+    /// `GET /metrics` every 1s, parses the Prometheus text exposition output,
+    /// and renders every `afm:*` series with p50/p95/p99 derived from
+    /// cumulative bucket counts. Toggle button is fixed to the right edge.
+    private static let dashboardTemplate = """
+    <style>
+      .afm-dash-toggle {
+        position: fixed; right: 0; top: 50%; transform: translateY(-50%);
+        z-index: 999998;
+        width: 32px; height: 80px;
+        border: none; background: rgba(15, 23, 42, 0.85); color: #e2e8f0;
+        border-radius: 8px 0 0 8px;
+        cursor: pointer; font-size: 18px;
+        display: flex; align-items: center; justify-content: center;
+        box-shadow: -2px 0 8px rgba(0,0,0,0.2);
+        transition: background 0.15s;
+      }
+      .afm-dash-toggle:hover { background: rgba(15, 23, 42, 0.95); }
+      .afm-dash-backdrop {
+        position: fixed; inset: 0; z-index: 999998;
+        background: rgba(0,0,0,0.4);
+        opacity: 0; pointer-events: none; transition: opacity 0.2s;
+      }
+      .afm-dash-backdrop.open { opacity: 1; pointer-events: auto; }
+      .afm-dash {
+        position: fixed; top: 0; right: 0; bottom: 0;
+        width: min(960px, 92vw);
+        z-index: 999999;
+        background: #0f172a; color: #e2e8f0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-size: 13px; line-height: 1.5;
+        transform: translateX(100%); transition: transform 0.25s ease-out;
+        overflow-y: auto;
+        box-shadow: -8px 0 32px rgba(0,0,0,0.4);
+      }
+      .afm-dash.open { transform: translateX(0); }
+      .afm-dash header {
+        position: sticky; top: 0; z-index: 1;
+        background: linear-gradient(to right, #1e293b, #0f172a);
+        padding: 14px 20px; border-bottom: 1px solid #334155;
+        display: flex; align-items: baseline; gap: 14px;
+      }
+      .afm-dash header h1 {
+        margin: 0; font-size: 16px; font-weight: 600;
+        background: linear-gradient(to right, #3b82f6, #a855f7, #ec4899);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+      .afm-dash header .afm-dash-meta { color: #94a3b8; font-size: 11px; }
+      .afm-dash header .afm-dash-meta b { color: #cbd5e1; font-weight: 600; }
+      .afm-dash header .afm-dash-close {
+        margin-left: auto; background: none; border: 1px solid #334155;
+        color: #cbd5e1; padding: 4px 10px; border-radius: 4px; cursor: pointer;
+        font-size: 12px;
+      }
+      .afm-dash header .afm-dash-close:hover { background: #1e293b; }
+      .afm-dash section { padding: 16px 20px; border-bottom: 1px solid #1e293b; }
+      .afm-dash section h2 {
+        margin: 0 0 10px; font-size: 11px; font-weight: 700;
+        color: #64748b; text-transform: uppercase; letter-spacing: 1.2px;
+      }
+      .afm-dash .grid {
+        display: grid; gap: 8px;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      }
+      .afm-tile {
+        background: #1e293b; border: 1px solid #334155; border-radius: 6px;
+        padding: 10px 12px;
+      }
+      .afm-tile .lbl { color: #64748b; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
+      .afm-tile .val { color: #f1f5f9; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 4px; }
+      .afm-tile .sub { color: #64748b; font-size: 10px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+      .afm-tile.accent .val { color: #60a5fa; }
+      .afm-tile.live .val { color: #34d399; }
+      .afm-bar {
+        height: 4px; background: #334155; border-radius: 2px;
+        margin-top: 6px; overflow: hidden;
+      }
+      .afm-bar > div { height: 100%; background: linear-gradient(to right, #3b82f6, #a855f7); transition: width 0.3s; }
+      .afm-hist {
+        background: #1e293b; border: 1px solid #334155; border-radius: 6px;
+        padding: 10px 12px;
+      }
+      .afm-hist .row1 {
+        display: flex; align-items: baseline; gap: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      .afm-hist .name { color: #cbd5e1; font-size: 12px; font-weight: 600; flex: 1; }
+      .afm-hist .pcts { color: #94a3b8; font-size: 11px; }
+      .afm-hist .pcts b { color: #f1f5f9; }
+      .afm-hist .summary { color: #64748b; font-size: 10px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+      .afm-hist .bars {
+        display: flex; align-items: flex-end; gap: 1px; height: 36px;
+        margin-top: 6px;
+      }
+      .afm-hist .bars > span {
+        flex: 1; background: #475569; border-radius: 1px 1px 0 0; min-height: 1px;
+      }
+      .afm-hist .bars > span.hot { background: linear-gradient(to top, #3b82f6, #60a5fa); }
+      .afm-spark {
+        height: 30px; display: flex; align-items: flex-end; gap: 1px;
+        margin-top: 8px;
+      }
+      .afm-spark > span {
+        flex: 1; background: #34d399; border-radius: 1px 1px 0 0; min-height: 1px;
+        opacity: 0.5;
+      }
+      .afm-spark > span:last-child { opacity: 1; }
+      .afm-reasons { display: grid; gap: 4px; }
+      .afm-reasons > div {
+        display: grid; grid-template-columns: 110px 1fr 60px;
+        align-items: center; gap: 8px; font-size: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      .afm-reasons .name { color: #cbd5e1; }
+      .afm-reasons .bar { height: 8px; background: #334155; border-radius: 4px; overflow: hidden; }
+      .afm-reasons .bar > div { height: 100%; background: #34d399; transition: width 0.3s; }
+      .afm-reasons .v { color: #f1f5f9; text-align: right; }
+      .afm-status { font-size: 11px; color: #64748b; }
+      .afm-status.err { color: #f87171; }
+      .afm-empty { color: #64748b; font-size: 11px; font-style: italic; }
+    </style>
+    <div class="afm-dash-backdrop" id="afm-dash-backdrop"></div>
+    <button class="afm-dash-toggle" id="afm-dash-toggle" title="Open AFM /metrics dashboard (Esc to close)">📊</button>
+    <aside class="afm-dash" id="afm-dash" aria-hidden="true">
+      <header>
+        <h1>AFM /metrics</h1>
+        <div class="afm-dash-meta">
+          <span id="afm-dash-model">—</span> ·
+          <span id="afm-dash-status" class="afm-status">connecting…</span>
+        </div>
+        <button class="afm-dash-close" id="afm-dash-close">Close</button>
+      </header>
+
+      <section>
+        <h2>Live</h2>
+        <div class="grid" id="afm-live-grid"></div>
+        <div style="margin-top:10px; font-size:11px; color:#64748b;">Decode rate (last 60s):</div>
+        <div class="afm-spark" id="afm-spark"></div>
+      </section>
+
+      <section>
+        <h2>Counters</h2>
+        <div class="grid" id="afm-counter-grid"></div>
+      </section>
+
+      <section>
+        <h2>Finished reasons</h2>
+        <div class="afm-reasons" id="afm-reasons"></div>
+      </section>
+
+      <section>
+        <h2>Latency histograms</h2>
+        <div class="grid" style="grid-template-columns: 1fr;" id="afm-latency-grid"></div>
+      </section>
+
+      <section>
+        <h2>Size + sampling histograms</h2>
+        <div class="grid" style="grid-template-columns: 1fr;" id="afm-size-grid"></div>
+      </section>
+
+      <section style="font-size:10px; color:#475569;">
+        Last scrape: <span id="afm-dash-ts">—</span>. Polling interval: 1s.
+      </section>
+    </aside>
+    <script>
+    (function(){
+      // ── Toggle plumbing ────────────────────────────────────────────
+      var dash = document.getElementById('afm-dash');
+      var backdrop = document.getElementById('afm-dash-backdrop');
+      var toggle = document.getElementById('afm-dash-toggle');
+      var closeBtn = document.getElementById('afm-dash-close');
+      function openDash() {
+        dash.classList.add('open');
+        backdrop.classList.add('open');
+        dash.setAttribute('aria-hidden', 'false');
+        startPolling();
+      }
+      function closeDash() {
+        dash.classList.remove('open');
+        backdrop.classList.remove('open');
+        dash.setAttribute('aria-hidden', 'true');
+      }
+      toggle.addEventListener('click', function(){
+        dash.classList.contains('open') ? closeDash() : openDash();
+      });
+      backdrop.addEventListener('click', closeDash);
+      closeBtn.addEventListener('click', closeDash);
+      document.addEventListener('keydown', function(e){
+        if (e.key === 'Escape' && dash.classList.contains('open')) closeDash();
+      });
+
+      // ── Prometheus text parser ─────────────────────────────────────
+      // Returns: { name: { type, help, samples: [{labels:{...}, value, le?}] } }
+      function parsePrometheus(txt) {
+        var out = {}, name;
+        var lines = txt.split(/\\r?\\n/);
+        for (var i = 0; i < lines.length; i++) {
+          var l = lines[i];
+          if (!l) continue;
+          if (l.charCodeAt(0) === 35) {  // '#'
+            var m = l.match(/^# (HELP|TYPE) (\\S+) (.*)$/);
+            if (!m) continue;
+            name = m[2];
+            out[name] = out[name] || { type: '', help: '', samples: [] };
+            if (m[1] === 'HELP') out[name].help = m[3];
+            else                 out[name].type = m[3];
+            continue;
+          }
+          // sample line: NAME{labels} VALUE   or   NAME VALUE
+          var sp = l.indexOf(' ');
+          if (sp < 0) continue;
+          var head = l.slice(0, sp);
+          var val = parseFloat(l.slice(sp + 1));
+          var lb = head.indexOf('{');
+          var key, labels = {};
+          if (lb < 0) {
+            key = head;
+          } else {
+            key = head.slice(0, lb);
+            var rb = head.lastIndexOf('}');
+            var inner = head.slice(lb + 1, rb);
+            // crude label parser — handles escaped \\" inside values
+            var re = /([a-zA-Z_][a-zA-Z0-9_]*)="((?:[^"\\\\]|\\\\.)*)"/g;
+            var lm;
+            while ((lm = re.exec(inner)) !== null) {
+              labels[lm[1]] = lm[2].replace(/\\\\(.)/g, '$1');
+            }
+          }
+          // For histogram bucket lines, key ends with "_bucket"
+          var rec = out[key] || (out[key] = { type: 'untyped', help: '', samples: [] });
+          rec.samples.push({ labels: labels, value: val });
+        }
+        return out;
+      }
+
+      // ── Histogram percentile from cumulative buckets ───────────────
+      // Buckets are emitted in ascending order; values are cumulative.
+      // Returns an interpolated quantile value, or null if no data.
+      function percentile(buckets, total, p) {
+        if (!buckets || !buckets.length || !total) return null;
+        var target = total * p;
+        var prevCount = 0, prevLe = 0;
+        for (var i = 0; i < buckets.length; i++) {
+          var b = buckets[i];
+          if (b.count >= target) {
+            if (b.le === Infinity) return prevLe;  // cap at last finite bucket
+            if (b.count === prevCount) return b.le;
+            // linear interp inside (prevLe, le]
+            var frac = (target - prevCount) / (b.count - prevCount);
+            return prevLe + (b.le - prevLe) * frac;
+          }
+          prevCount = b.count; prevLe = (b.le === Infinity ? prevLe : b.le);
+        }
+        return prevLe;
+      }
+      function histBuckets(rec) {
+        // Convert bucket samples into [{le, count}], sorted by le ascending,
+        // with +Inf last.
+        if (!rec || !rec.samples) return [];
+        return rec.samples.map(function(s){
+          var leStr = s.labels.le;
+          var le = leStr === '+Inf' ? Infinity : parseFloat(leStr);
+          return { le: le, count: s.value };
+        }).filter(function(b){ return !isNaN(b.le); })
+          .sort(function(a,b){ return a.le - b.le; });
+      }
+
+      // ── Format helpers ─────────────────────────────────────────────
+      function fmtN(v) {
+        if (v == null || isNaN(v)) return '—';
+        if (v >= 1e9) return (v/1e9).toFixed(2)+'B';
+        if (v >= 1e6) return (v/1e6).toFixed(2)+'M';
+        if (v >= 1e3) return (v/1e3).toFixed(1)+'k';
+        return Math.round(v).toString();
+      }
+      function fmtSec(v) {
+        if (v == null || isNaN(v) || !isFinite(v)) return '—';
+        if (v < 0.001) return (v*1e6).toFixed(0)+'µs';
+        if (v < 1) return (v*1000).toFixed(0)+'ms';
+        if (v < 60) return v.toFixed(2)+'s';
+        return (v/60).toFixed(1)+'m';
+      }
+      function fmtPct(v) {
+        if (v == null || isNaN(v)) return '—';
+        return (v*100).toFixed(1)+'%';
+      }
+
+      // ── Tile + histogram + reason renderers ────────────────────────
+      function renderTiles(host, tiles) {
+        // tiles: [{key, lbl, val, sub?, cls?, barPct?}]
+        var existing = {};
+        host.querySelectorAll('[data-key]').forEach(function(el){
+          existing[el.getAttribute('data-key')] = el;
+        });
+        tiles.forEach(function(t){
+          var el = existing[t.key];
+          if (!el) {
+            el = document.createElement('div');
+            el.className = 'afm-tile' + (t.cls ? ' '+t.cls : '');
+            el.setAttribute('data-key', t.key);
+            el.innerHTML = '<div class="lbl"></div><div class="val"></div><div class="sub"></div><div class="afm-bar" style="display:none"><div></div></div>';
+            host.appendChild(el);
+          }
+          el.className = 'afm-tile' + (t.cls ? ' '+t.cls : '');
+          el.querySelector('.lbl').textContent = t.lbl;
+          el.querySelector('.val').textContent = t.val;
+          el.querySelector('.sub').textContent = t.sub || '';
+          var bar = el.querySelector('.afm-bar');
+          if (t.barPct != null) {
+            bar.style.display = '';
+            bar.firstChild.style.width = Math.max(0, Math.min(100, t.barPct*100))+'%';
+          } else {
+            bar.style.display = 'none';
+          }
+          delete existing[t.key];
+        });
+        Object.values(existing).forEach(function(el){ el.remove(); });
+      }
+
+      function renderHistogram(host, key, label, rec, fmt) {
+        var bs = histBuckets(rec);
+        var sumRec = (state.metrics[key.replace(/_bucket$/,'')+'_sum']) || null;
+        var countRec = (state.metrics[key.replace(/_bucket$/,'')+'_count']) || null;
+        var sum = sumRec ? sumRec.samples.reduce(function(a,s){return a+s.value;},0) : null;
+        var total = countRec ? countRec.samples.reduce(function(a,s){return a+s.value;},0) : null;
+        var p50 = percentile(bs, total, 0.5);
+        var p95 = percentile(bs, total, 0.95);
+        var p99 = percentile(bs, total, 0.99);
+
+        var el = host.querySelector('[data-key="'+key+'"]');
+        if (!el) {
+          el = document.createElement('div');
+          el.className = 'afm-hist';
+          el.setAttribute('data-key', key);
+          el.innerHTML = '<div class="row1"><div class="name"></div><div class="pcts"></div></div><div class="summary"></div><div class="bars"></div>';
+          host.appendChild(el);
+        }
+        el.querySelector('.name').textContent = label;
+        el.querySelector('.pcts').innerHTML =
+          'p50 <b>'+fmt(p50)+'</b> · p95 <b>'+fmt(p95)+'</b> · p99 <b>'+fmt(p99)+'</b>';
+        el.querySelector('.summary').textContent =
+          'count '+fmtN(total)+' · sum '+(sum!=null?fmt(sum):'—')+
+          ' · mean '+(total>0?fmt(sum/total):'—');
+
+        // Per-bucket bar widths (relative to most populated finite bucket)
+        var bars = el.querySelector('.bars');
+        bars.innerHTML = '';
+        if (!total) {
+          bars.style.display = 'none';
+        } else {
+          bars.style.display = '';
+          // Compute non-cumulative deltas for visual clarity
+          var prevCount = 0;
+          var deltas = [];
+          for (var i = 0; i < bs.length; i++) {
+            deltas.push(bs[i].count - prevCount);
+            prevCount = bs[i].count;
+          }
+          var max = Math.max.apply(Math, deltas);
+          var hotIdx = deltas.indexOf(max);
+          deltas.forEach(function(d, i){
+            var s = document.createElement('span');
+            s.style.height = max > 0 ? Math.max(1, (d/max)*100)+'%' : '1%';
+            s.title = 'le=' + (bs[i].le === Infinity ? '+Inf' : bs[i].le) + ': ' + d + ' obs';
+            if (i === hotIdx) s.classList.add('hot');
+            bars.appendChild(s);
+          });
+        }
+      }
+
+      function renderReasons(host, sumByReason) {
+        host.innerHTML = '';
+        var keys = Object.keys(sumByReason).sort();
+        if (!keys.length || keys.every(function(k){ return sumByReason[k] === 0; })) {
+          host.innerHTML = '<div class="afm-empty">No completed requests yet.</div>';
+          return;
+        }
+        var max = Math.max.apply(Math, keys.map(function(k){ return sumByReason[k]; }));
+        keys.forEach(function(k){
+          var v = sumByReason[k];
+          var row = document.createElement('div');
+          row.innerHTML = '<div class="name"></div><div class="bar"><div></div></div><div class="v"></div>';
+          row.querySelector('.name').textContent = k;
+          row.querySelector('.bar > div').style.width = max > 0 ? (v/max)*100+'%' : '0';
+          row.querySelector('.v').textContent = fmtN(v);
+          host.appendChild(row);
+        });
+      }
+
+      // ── Polling state ─────────────────────────────────────────────
+      var state = {
+        polling: false,
+        timer: null,
+        prev: null,        // previous snapshot for rate computation
+        prevTs: null,
+        spark: [],         // last 60 tok/s samples
+        metrics: {}
+      };
+
+      function tick() {
+        fetch('/metrics', { headers: { Accept: 'text/plain' } })
+          .then(function(r){
+            if (!r.ok) throw new Error('HTTP '+r.status);
+            return r.text();
+          })
+          .then(function(txt){
+            state.metrics = parsePrometheus(txt);
+            paint();
+            var statusEl = document.getElementById('afm-dash-status');
+            statusEl.textContent = 'live'; statusEl.classList.remove('err');
+            document.getElementById('afm-dash-ts').textContent = new Date().toLocaleTimeString();
+          })
+          .catch(function(err){
+            var statusEl = document.getElementById('afm-dash-status');
+            statusEl.textContent = 'error: '+err.message; statusEl.classList.add('err');
+          });
+      }
+      function startPolling() {
+        if (state.polling) return;
+        state.polling = true;
+        tick();
+        state.timer = setInterval(tick, 1000);
+      }
+      // Note: we keep polling even when closed so the spark stays continuous.
+
+      // ── Paint loop ────────────────────────────────────────────────
+      function paint() {
+        var m = state.metrics;
+        function single(name) {
+          var rec = m[name];
+          if (!rec || !rec.samples || !rec.samples.length) return null;
+          // For our schema each gauge/counter has a single sample.
+          return rec.samples[0].value;
+        }
+        function modelName() {
+          var rec = m['afm:max_concurrent_slots'];
+          return rec && rec.samples[0] ? rec.samples[0].labels.model_name : '—';
+        }
+
+        document.getElementById('afm-dash-model').innerHTML = '<b>'+modelName()+'</b>';
+
+        var running = single('afm:num_requests_running') || 0;
+        var waiting = single('afm:num_requests_waiting') || 0;
+        var peak    = single('afm:batch_size_peak') || 0;
+        var slots   = single('afm:max_concurrent_slots') || 0;
+        var gpu     = single('afm:gpu_cache_usage_perc');
+        var genTot  = single('afm:generation_tokens_total') || 0;
+        var promTot = single('afm:prompt_tokens_total') || 0;
+        var startTot = single('afm:requests_started_total') || 0;
+        var compTot = single('afm:requests_completed_total') || 0;
+        var hits    = single('afm:radix_cache_hits_total') || 0;
+        var misses  = single('afm:radix_cache_misses_total') || 0;
+
+        // Rate: tokens/sec from genTot delta
+        var now = Date.now();
+        var tps = null;
+        if (state.prev != null && state.prevTs != null) {
+          var dt = (now - state.prevTs) / 1000;
+          if (dt > 0) tps = (genTot - state.prev) / dt;
+        }
+        state.prev = genTot; state.prevTs = now;
+        if (tps != null) {
+          state.spark.push(Math.max(0, tps));
+          if (state.spark.length > 60) state.spark.shift();
+        }
+
+        // Live tiles
+        renderTiles(document.getElementById('afm-live-grid'), [
+          { key: 'tps',  lbl: 'Decode rate', val: tps == null ? '—' : tps.toFixed(1)+' tok/s', cls: 'live' },
+          { key: 'inflight', lbl: 'In-flight', val: String(running), sub: 'peak '+peak, cls: 'accent', barPct: slots > 0 ? running/slots : 0 },
+          { key: 'queue', lbl: 'Queue depth', val: String(waiting), sub: 'cap '+slots },
+          { key: 'gpu', lbl: 'GPU KV cache', val: gpu == null ? '—' : fmtPct(gpu), barPct: gpu },
+        ]);
+        var sparkHost = document.getElementById('afm-spark');
+        sparkHost.innerHTML = '';
+        var max = Math.max.apply(Math, state.spark.length ? state.spark : [1]);
+        state.spark.forEach(function(v){
+          var s = document.createElement('span');
+          s.style.height = max > 0 ? Math.max(1, (v/max)*100)+'%' : '1%';
+          s.title = v.toFixed(1)+' tok/s';
+          sparkHost.appendChild(s);
+        });
+
+        // Counter tiles
+        var hitRate = (hits + misses) > 0 ? hits / (hits + misses) : null;
+        renderTiles(document.getElementById('afm-counter-grid'), [
+          { key: 'gen', lbl: 'Generation tokens', val: fmtN(genTot) },
+          { key: 'prompt', lbl: 'Prompt tokens', val: fmtN(promTot) },
+          { key: 'started', lbl: 'Requests started', val: fmtN(startTot) },
+          { key: 'completed', lbl: 'Requests completed', val: fmtN(compTot), sub: startTot ? fmtPct(compTot/startTot) + ' of started' : '' },
+          { key: 'hits', lbl: 'Radix cache hits', val: fmtN(hits) },
+          { key: 'misses', lbl: 'Radix cache misses', val: fmtN(misses), sub: hitRate == null ? '' : 'hit rate ' + fmtPct(hitRate), barPct: hitRate },
+        ]);
+
+        // Reasons
+        var reasonRec = m['afm:request_success_total'];
+        var reasonMap = {};
+        if (reasonRec && reasonRec.samples) {
+          reasonRec.samples.forEach(function(s){
+            var k = s.labels.finished_reason || 'unknown';
+            reasonMap[k] = (reasonMap[k] || 0) + s.value;
+          });
+        }
+        renderReasons(document.getElementById('afm-reasons'), reasonMap);
+
+        // Latency histograms
+        var latencyHost = document.getElementById('afm-latency-grid');
+        var latencyHists = [
+          ['afm:e2e_request_latency_seconds_bucket',     'End-to-end latency', fmtSec],
+          ['afm:request_queue_time_seconds_bucket',      'Queue time',          fmtSec],
+          ['afm:request_inference_time_seconds_bucket',  'Inference time',      fmtSec],
+          ['afm:request_prefill_time_seconds_bucket',    'Prefill time',        fmtSec],
+          ['afm:request_decode_time_seconds_bucket',     'Decode time',         fmtSec],
+          ['afm:time_to_first_token_seconds_bucket',     'Time to first token', fmtSec],
+          ['afm:time_per_output_token_seconds_bucket',   'Time per output token', fmtSec],
+        ];
+        latencyHists.forEach(function(h){
+          renderHistogram(latencyHost, h[0], h[1], m[h[0]], h[2]);
+        });
+
+        // Size + sampling
+        var sizeHost = document.getElementById('afm-size-grid');
+        var sizeHists = [
+          ['afm:request_prompt_tokens_bucket',     'Prompt tokens / request',     fmtN],
+          ['afm:request_generation_tokens_bucket', 'Generation tokens / request', fmtN],
+          ['afm:request_params_n_bucket',          'Sampling param n',            fmtN],
+          ['afm:request_params_best_of_bucket',    'Sampling param best_of',      fmtN],
+        ];
+        sizeHists.forEach(function(h){
+          renderHistogram(sizeHost, h[0], h[1], m[h[0]], h[2]);
+        });
+      }
+
+      // Don't auto-poll — only when opened.
+      // (User can still click the toggle to peek.)
     })();
     </script>
     """
