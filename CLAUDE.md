@@ -180,6 +180,7 @@ When running tests autonomously (Claude Code, Codex, or other AI agents):
 4. **Port 9999** — ToolCall-15 browser GUI is hardcoded to port 9999. Always use this port for tool-call testing.
 5. **Full model names for batch endpoint** — `POST /v1/batch/completions` requires the full HuggingFace model ID (e.g., `mlx-community/gemma-4-31b-it-4bit`), not short aliases. The regular `/v1/chat/completions` accepts aliases but batch does not.
 6. **Batch request format** — requires `custom_id` per request: `{"requests":[{"custom_id":"tc-01","body":{...}}]}`
+7. **Never claim a failure is "pre-existing", "model quality", or "not a regression" without proof.** Acceptable proof is exactly one of: (a) a linked GitHub issue that names the exact failing assertion or interaction (e.g. #86 for concurrent + grammar empty responses); (b) a baseline run of the same suite against `main` (or the parent commit) showing the same failures, with the report file path captured; (c) a documented vendor / model-card limitation cited inline; (d) a `git blame` showing the assertion was already failing before this branch existed. If none apply, the failure is **unattributed** — surface it as such, run the baseline before claiming attribution, or treat it as a candidate regression and investigate. Do not invent categories like "model non-determinism" or "build-cache quirk" without reproducing them in a clean run.
 
 ### Test Suites Available
 
