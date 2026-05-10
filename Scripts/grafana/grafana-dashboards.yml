@@ -1,0 +1,11 @@
+apiVersion: 1
+providers:
+  - name: afm
+    orgId: 1
+    folder: AFM
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

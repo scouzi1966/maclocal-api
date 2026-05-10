@@ -77,6 +77,9 @@ struct ServeCommand: ParsableCommand {
     @Option(name: .long, help: "Pre-warm the model on server startup for faster first response (y/n, default: y)")
     var prewarm: String = "y"
 
+    @Option(name: .long, help: "Constrain output to match a JSON schema (vLLM-compatible). Applied to chat completions that omit their own response_format.")
+    var guidedJson: String?
+
     func run() throws {
         // Validate temperature parameter
         if let temp = temperature {
@@ -94,6 +97,14 @@ struct ServeCommand: ParsableCommand {
             } catch {
                 throw ValidationError("Invalid randomness parameter format")
             }
+        }
+
+        let defaultGuidedJsonSchema: ResponseFormat?
+        if let guidedJson {
+            let schema = try parseGuidedJsonSchema(guidedJson)
+            defaultGuidedJsonSchema = ResponseFormat(type: "json_schema", jsonSchema: schema)
+        } else {
+            defaultGuidedJsonSchema = nil
         }
 
         // Port selection: use requested port, default 9999, or fall back to ephemeral
@@ -139,7 +150,7 @@ struct ServeCommand: ParsableCommand {
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: chosenPort, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose || vv, trace: vv, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled, telegramConfiguration: telegramConfiguration)
+                let server = try await Server(port: chosenPort, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose || vv, trace: vv, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled, telegramConfiguration: telegramConfiguration, defaultGuidedJsonSchema: defaultGuidedJsonSchema)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -1371,6 +1382,7 @@ struct RootCommand: ParsableCommand {
         if let temperature { args += ["--temperature", "\(temperature)"] }
         if let randomness { args += ["--randomness", randomness] }
         if let stop { args += ["--stop", stop] }
+        if let guidedJson { args += ["--guided-json", guidedJson] }
         var serveCommand = try ServeCommand.parse(args)
         try serveCommand.run()
     }

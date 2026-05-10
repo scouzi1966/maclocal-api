@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: afm
+    metrics_path: /metrics
+    static_configs:
+      # `host.docker.internal` resolves to the host running Docker Desktop,
+      # so Prometheus inside the container reaches the afm process listening
+      # on the host. Adjust the port if you launched afm with a different
+      # --port.
+      - targets: ['host.docker.internal:9999']
+        labels:
+          instance: afm-local

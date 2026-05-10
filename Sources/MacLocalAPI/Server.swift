@@ -76,6 +76,42 @@ struct PayloadTooLargeMiddleware: AsyncMiddleware {
     }
 }
 
+/// Counts active HTTP requests so `/metrics` can expose
+/// `afm:num_active_connections`. Increments on entry, decrements on
+/// exit (via defer-style task-local cleanup so the gauge always
+/// returns to zero even on early throws). Filters out the /metrics
+/// endpoint itself so a Prometheus scrape doesn't show up as a
+/// connection — that would be self-referential noise on every poll.
+///
+/// Streaming endpoints (chat completions when `stream:true`) account
+/// for themselves: their handler returns the Response object
+/// immediately while the SSE body keeps writing for the duration of
+/// the generation. If we counted them here, the gauge would
+/// undercount — defer fires when `next.respond` returns, not when the
+/// body finishes. Streaming controllers wrap the asyncStream body in
+/// their own connectionStarted/connectionEnded bracket.
+struct ActiveConnectionsMiddleware: AsyncMiddleware {
+    static let nonStreamingExcluded: Set<String> = ["/metrics", "/health", "/healthz", "/openapi.json", "/docs"]
+    static let streamingPaths: Set<String> = [
+        "/v1/chat/completions",
+        "/v1/batch/completions"
+    ]
+
+    static func shouldTrackInMiddleware(path: String) -> Bool {
+        if nonStreamingExcluded.contains(path) { return false }
+        // Filter the streaming chat path — its controller handles its own counting.
+        if streamingPaths.contains(path) { return false }
+        return true
+    }
+
+    func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
+        let track = Self.shouldTrackInMiddleware(path: request.url.path)
+        if track { StatsAggregator.shared.connectionStarted() }
+        defer { if track { StatsAggregator.shared.connectionEnded() } }
+        return try await next.respond(to: request)
+    }
+}
+
 class Server {
     private let app: Application
     private let port: Int
@@ -95,6 +131,7 @@ class Server {
     private let gatewayEnabled: Bool
     private let prewarmEnabled: Bool
     private let telegramConfiguration: TelegramConfiguration?
+    private let defaultGuidedJsonSchema: ResponseFormat?
     private let mlxModelID: String?
     private let mlxModelService: MLXModelService?
     private let mlxRepetitionPenalty: Double?
@@ -114,7 +151,7 @@ class Server {
         return false
     }()
 
-    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, telegramConfiguration: TelegramConfiguration? = nil, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil) async throws {
+    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, telegramConfiguration: TelegramConfiguration? = nil, defaultGuidedJsonSchema: ResponseFormat? = nil, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -132,6 +169,7 @@ class Server {
         self.gatewayEnabled = gatewayEnabled
         self.prewarmEnabled = prewarmEnabled
         self.telegramConfiguration = telegramConfiguration
+        self.defaultGuidedJsonSchema = defaultGuidedJsonSchema
         self.mlxModelID = mlxModelID
         self.mlxModelService = mlxModelService
         self.mlxRepetitionPenalty = mlxRepetitionPenalty
@@ -184,6 +222,8 @@ class Server {
 
         // Add custom error middleware to handle payload too large errors
         app.middleware.use(PayloadTooLargeMiddleware())
+        // Track concurrent client connections for /metrics' afm:num_active_connections gauge.
+        app.middleware.use(ActiveConnectionsMiddleware())
 
         try routes()
     }
@@ -352,6 +392,14 @@ class Server {
                 maxLogprobs: mlxMaxLogprobs
             )
             try app.register(collection: batchCompletionsController)
+
+            // Seed the metrics aggregator with the live model id and the
+            // configured concurrency so /metrics labels are correct from
+            // the first scrape.
+            StatsAggregator.shared.setModel(
+                mlxModelID,
+                maxConcurrent: mlxModelService.maxConcurrent
+            )
         } else {
             let chatController = ChatCompletionsController(
                 streamingEnabled: streamingEnabled,
@@ -361,10 +409,15 @@ class Server {
                 randomness: randomness,
                 permissiveGuardrails: permissiveGuardrails,
                 veryVerbose: veryVerbose,
-                stop: stop
+                stop: stop,
+                defaultGuidedJsonSchema: defaultGuidedJsonSchema
             )
             try app.register(collection: chatController)
         }
+
+        // Prometheus metrics — always on, regardless of backend.
+        // GET /metrics returns afm:* counters/gauges modelled after vLLM.
+        try app.register(collection: MetricsController())
 
         // Props endpoint for llama.cpp webui compatibility (per-model capabilities)
         app.get("props") { [self] req async -> PropsResponse in
@@ -458,8 +511,11 @@ class Server {
         }
     }
 
-    /// Custom CSS/JS to inject into webui (branding + auto-select default model)
-    private var customCSS: String { Self.customCSSTemplate.replacingOccurrences(of: "/*_IS_MLX_PLACEHOLDER*/false", with: mlxModelID != nil ? "true" : "false") }
+    /// Custom CSS/JS to inject into webui (branding + auto-select default model + /metrics dashboard)
+    private var customCSS: String {
+        Self.customCSSTemplate.replacingOccurrences(of: "/*_IS_MLX_PLACEHOLDER*/false", with: mlxModelID != nil ? "true" : "false")
+        + Self.dashboardTemplate
+    }
     private static let customCSSTemplate = """
     <style>
     /* Hide page until branding + model selection complete */
@@ -738,6 +794,687 @@ class Server {
         } else {
             init();
         }
+    })();
+    </script>
+    """
+
+    /// Live `/metrics` dashboard injected alongside the webui customCSS.
+    /// Renders a slide-out panel from the right edge of the page that polls
+    /// `GET /metrics` every 1s, parses the Prometheus text exposition output,
+    /// and renders every `afm:*` series with p50/p95/p99 derived from
+    /// cumulative bucket counts. Toggle button is fixed to the right edge.
+    private static let dashboardTemplate = """
+    <style>
+      .afm-dash-toggle {
+        position: fixed; right: 0; top: 50%; transform: translateY(-50%);
+        z-index: 999998;
+        width: 32px; height: 80px;
+        border: none; background: rgba(15, 23, 42, 0.85); color: #e2e8f0;
+        border-radius: 8px 0 0 8px;
+        cursor: pointer; font-size: 18px;
+        display: flex; align-items: center; justify-content: center;
+        box-shadow: -2px 0 8px rgba(0,0,0,0.2);
+        transition: background 0.15s;
+      }
+      .afm-dash-toggle:hover { background: rgba(15, 23, 42, 0.95); }
+      /* Non-modal: no backdrop so the rest of the page stays interactive
+         (chat input, model picker, etc.) while the dashboard is open. */
+      .afm-dash {
+        position: fixed; top: 0; right: 0; bottom: 0;
+        width: min(560px, 50vw);
+        z-index: 999999;
+        background: #0f172a; color: #e2e8f0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-size: 13px; line-height: 1.5;
+        transform: translateX(100%); transition: transform 0.25s ease-out;
+        overflow-y: auto;
+        box-shadow: -8px 0 32px rgba(0,0,0,0.4);
+      }
+      .afm-dash.open { transform: translateX(0); }
+      .afm-dash header {
+        position: sticky; top: 0; z-index: 1;
+        background: linear-gradient(to right, #1e293b, #0f172a);
+        padding: 14px 20px; border-bottom: 1px solid #334155;
+        display: flex; align-items: baseline; gap: 14px;
+      }
+      .afm-dash header h1 {
+        margin: 0; font-size: 16px; font-weight: 600;
+        background: linear-gradient(to right, #3b82f6, #a855f7, #ec4899);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+      .afm-dash header .afm-dash-meta { color: #94a3b8; font-size: 11px; }
+      .afm-dash header .afm-dash-meta b { color: #cbd5e1; font-weight: 600; }
+      .afm-dash header .afm-dash-close {
+        margin-left: auto; background: none; border: 1px solid #334155;
+        color: #cbd5e1; padding: 4px 10px; border-radius: 4px; cursor: pointer;
+        font-size: 12px;
+      }
+      .afm-dash header .afm-dash-close:hover { background: #1e293b; }
+      .afm-dash section { padding: 16px 20px; border-bottom: 1px solid #1e293b; }
+      .afm-dash section h2 {
+        margin: 0 0 10px; font-size: 11px; font-weight: 700;
+        color: #64748b; text-transform: uppercase; letter-spacing: 1.2px;
+      }
+      .afm-dash .grid {
+        display: grid; gap: 8px;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      }
+      .afm-tile {
+        background: #1e293b; border: 1px solid #334155; border-radius: 6px;
+        padding: 10px 12px;
+      }
+      .afm-tile .lbl { color: #64748b; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
+      .afm-tile .val { color: #f1f5f9; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 4px; }
+      .afm-tile .sub { color: #64748b; font-size: 10px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+      .afm-tile.accent .val { color: #60a5fa; }
+      .afm-tile.live .val { color: #34d399; }
+      .afm-bar {
+        height: 4px; background: #334155; border-radius: 2px;
+        margin-top: 6px; overflow: hidden;
+      }
+      .afm-bar > div { height: 100%; background: linear-gradient(to right, #3b82f6, #a855f7); transition: width 0.3s; }
+      .afm-hist {
+        background: #1e293b; border: 1px solid #334155; border-radius: 6px;
+        padding: 10px 12px;
+      }
+      .afm-hist .row1 {
+        display: flex; align-items: baseline; gap: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      .afm-hist .name { color: #cbd5e1; font-size: 12px; font-weight: 600; flex: 1; }
+      .afm-hist .pcts { color: #94a3b8; font-size: 11px; }
+      .afm-hist .pcts b { color: #f1f5f9; }
+      .afm-hist .summary { color: #64748b; font-size: 10px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+      .afm-hist .bars {
+        display: flex; align-items: flex-end; gap: 1px; height: 36px;
+        margin-top: 6px;
+      }
+      .afm-hist .bars > span {
+        flex: 1; background: #475569; border-radius: 1px 1px 0 0; min-height: 1px;
+      }
+      .afm-hist .bars > span.hot { background: linear-gradient(to top, #3b82f6, #60a5fa); }
+      .afm-spark {
+        height: 30px; display: flex; align-items: flex-end; gap: 1px;
+        margin-top: 8px;
+      }
+      .afm-spark > span {
+        flex: 1; background: #34d399; border-radius: 1px 1px 0 0; min-height: 1px;
+        opacity: 0.5;
+      }
+      .afm-spark > span:last-child { opacity: 1; }
+      .afm-reasons { display: grid; gap: 4px; }
+      .afm-reasons > div {
+        display: grid; grid-template-columns: 110px 1fr 60px;
+        align-items: center; gap: 8px; font-size: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      .afm-reasons .name { color: #cbd5e1; }
+      .afm-reasons .bar { height: 8px; background: #334155; border-radius: 4px; overflow: hidden; }
+      .afm-reasons .bar > div { height: 100%; background: #34d399; transition: width 0.3s; }
+      .afm-reasons .v { color: #f1f5f9; text-align: right; }
+      .afm-status { font-size: 11px; color: #64748b; }
+      .afm-status.err { color: #f87171; }
+      .afm-empty { color: #64748b; font-size: 11px; font-style: italic; }
+    </style>
+    <button class="afm-dash-toggle" id="afm-dash-toggle" title="Open AFM /metrics dashboard (Esc to close)">📊</button>
+    <aside class="afm-dash" id="afm-dash" aria-hidden="true">
+      <header>
+        <h1>AFM /metrics</h1>
+        <div class="afm-dash-meta">
+          <span id="afm-dash-model">—</span> ·
+          <span id="afm-dash-status" class="afm-status">connecting…</span>
+        </div>
+        <button class="afm-dash-close" id="afm-dash-close">Close</button>
+      </header>
+
+      <section>
+        <h2>Live</h2>
+        <div class="grid" id="afm-live-grid"></div>
+        <div style="margin-top:10px; font-size:11px; color:#64748b;">Decode rate (last 60s):</div>
+        <div class="afm-spark" id="afm-spark"></div>
+      </section>
+
+      <section>
+        <h2>Counters</h2>
+        <div class="grid" id="afm-counter-grid"></div>
+      </section>
+
+      <section>
+        <h2>Finished reasons</h2>
+        <div class="afm-reasons" id="afm-reasons"></div>
+      </section>
+
+      <section>
+        <h2>Latency histograms</h2>
+        <div class="grid" style="grid-template-columns: 1fr;" id="afm-latency-grid"></div>
+      </section>
+
+      <section>
+        <h2>Size + sampling histograms</h2>
+        <div class="grid" style="grid-template-columns: 1fr;" id="afm-size-grid"></div>
+      </section>
+
+      <section style="font-size:10px; color:#475569;">
+        Last scrape: <span id="afm-dash-ts">—</span>. Polling interval: 1s.
+      </section>
+    </aside>
+    <script>
+    (function(){
+      // ── Toggle plumbing ────────────────────────────────────────────
+      var dash = document.getElementById('afm-dash');
+      var toggle = document.getElementById('afm-dash-toggle');
+      var closeBtn = document.getElementById('afm-dash-close');
+      function openDash() {
+        dash.classList.add('open');
+        dash.setAttribute('aria-hidden', 'false');
+        startPolling();
+      }
+      function closeDash() {
+        dash.classList.remove('open');
+        dash.setAttribute('aria-hidden', 'true');
+      }
+      toggle.addEventListener('click', function(){
+        dash.classList.contains('open') ? closeDash() : openDash();
+      });
+      closeBtn.addEventListener('click', closeDash);
+      // Esc closes only when focus is NOT inside the chat input
+      // (so the user's escape-to-cancel-typing doesn't accidentally close the panel).
+      document.addEventListener('keydown', function(e){
+        if (e.key !== 'Escape' || !dash.classList.contains('open')) return;
+        var t = e.target;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+        closeDash();
+      });
+
+      // ── Prometheus text parser ─────────────────────────────────────
+      // Returns: { name: { type, help, samples: [{labels:{...}, value, le?}] } }
+      function parsePrometheus(txt) {
+        var out = {}, name;
+        var lines = txt.split(/\\r?\\n/);
+        for (var i = 0; i < lines.length; i++) {
+          var l = lines[i];
+          if (!l) continue;
+          if (l.charCodeAt(0) === 35) {  // '#'
+            var m = l.match(/^# (HELP|TYPE) (\\S+) (.*)$/);
+            if (!m) continue;
+            name = m[2];
+            out[name] = out[name] || { type: '', help: '', samples: [] };
+            if (m[1] === 'HELP') out[name].help = m[3];
+            else                 out[name].type = m[3];
+            continue;
+          }
+          // sample line: NAME{labels} VALUE   or   NAME VALUE
+          var sp = l.indexOf(' ');
+          if (sp < 0) continue;
+          var head = l.slice(0, sp);
+          var val = parseFloat(l.slice(sp + 1));
+          var lb = head.indexOf('{');
+          var key, labels = {};
+          if (lb < 0) {
+            key = head;
+          } else {
+            key = head.slice(0, lb);
+            var rb = head.lastIndexOf('}');
+            var inner = head.slice(lb + 1, rb);
+            // crude label parser — handles escaped \\" inside values
+            var re = /([a-zA-Z_][a-zA-Z0-9_]*)="((?:[^"\\\\]|\\\\.)*)"/g;
+            var lm;
+            while ((lm = re.exec(inner)) !== null) {
+              labels[lm[1]] = lm[2].replace(/\\\\(.)/g, '$1');
+            }
+          }
+          // For histogram bucket lines, key ends with "_bucket"
+          var rec = out[key] || (out[key] = { type: 'untyped', help: '', samples: [] });
+          rec.samples.push({ labels: labels, value: val });
+        }
+        return out;
+      }
+
+      // ── Histogram percentile from cumulative buckets ───────────────
+      // Buckets are emitted in ascending order; values are cumulative.
+      // Returns an interpolated quantile value, or null if no data.
+      function percentile(buckets, total, p) {
+        if (!buckets || !buckets.length || !total) return null;
+        var target = total * p;
+        var prevCount = 0, prevLe = 0;
+        for (var i = 0; i < buckets.length; i++) {
+          var b = buckets[i];
+          if (b.count >= target) {
+            if (b.le === Infinity) return prevLe;  // cap at last finite bucket
+            if (b.count === prevCount) return b.le;
+            // linear interp inside (prevLe, le]
+            var frac = (target - prevCount) / (b.count - prevCount);
+            return prevLe + (b.le - prevLe) * frac;
+          }
+          prevCount = b.count; prevLe = (b.le === Infinity ? prevLe : b.le);
+        }
+        return prevLe;
+      }
+      function histBuckets(rec) {
+        // Convert bucket samples into [{le, count}], sorted by le ascending,
+        // with +Inf last.
+        if (!rec || !rec.samples) return [];
+        return rec.samples.map(function(s){
+          var leStr = s.labels.le;
+          var le = leStr === '+Inf' ? Infinity : parseFloat(leStr);
+          return { le: le, count: s.value };
+        }).filter(function(b){ return !isNaN(b.le); })
+          .sort(function(a,b){ return a.le - b.le; });
+      }
+
+      // ── Format helpers ─────────────────────────────────────────────
+      function fmtN(v) {
+        if (v == null || isNaN(v)) return '—';
+        if (v >= 1e9) return (v/1e9).toFixed(2)+'B';
+        if (v >= 1e6) return (v/1e6).toFixed(2)+'M';
+        if (v >= 1e3) return (v/1e3).toFixed(1)+'k';
+        return Math.round(v).toString();
+      }
+      function fmtSec(v) {
+        if (v == null || isNaN(v) || !isFinite(v)) return '—';
+        if (v < 0.001) return (v*1e6).toFixed(0)+'µs';
+        if (v < 1) return (v*1000).toFixed(0)+'ms';
+        if (v < 60) return v.toFixed(2)+'s';
+        return (v/60).toFixed(1)+'m';
+      }
+      function fmtPct(v) {
+        if (v == null || isNaN(v)) return '—';
+        return (v*100).toFixed(1)+'%';
+      }
+
+      // ── Tile + histogram + reason renderers ────────────────────────
+      function renderTiles(host, tiles) {
+        // tiles: [{key, lbl, val, sub?, cls?, barPct?}]
+        var existing = {};
+        host.querySelectorAll('[data-key]').forEach(function(el){
+          existing[el.getAttribute('data-key')] = el;
+        });
+        tiles.forEach(function(t){
+          var el = existing[t.key];
+          if (!el) {
+            el = document.createElement('div');
+            el.className = 'afm-tile' + (t.cls ? ' '+t.cls : '');
+            el.setAttribute('data-key', t.key);
+            el.innerHTML = '<div class="lbl"></div><div class="val"></div><div class="sub"></div><div class="afm-bar" style="display:none"><div></div></div>';
+            host.appendChild(el);
+          }
+          el.className = 'afm-tile' + (t.cls ? ' '+t.cls : '');
+          el.querySelector('.lbl').textContent = t.lbl;
+          el.querySelector('.val').textContent = t.val;
+          el.querySelector('.sub').textContent = t.sub || '';
+          var bar = el.querySelector('.afm-bar');
+          if (t.barPct != null) {
+            bar.style.display = '';
+            bar.firstChild.style.width = Math.max(0, Math.min(100, t.barPct*100))+'%';
+          } else {
+            bar.style.display = 'none';
+          }
+          delete existing[t.key];
+        });
+        Object.values(existing).forEach(function(el){ el.remove(); });
+      }
+
+      function renderHistogram(host, key, label, rec, fmt) {
+        var bs = histBuckets(rec);
+        var sumRec = (state.metrics[key.replace(/_bucket$/,'')+'_sum']) || null;
+        var countRec = (state.metrics[key.replace(/_bucket$/,'')+'_count']) || null;
+        var sum = sumRec ? sumRec.samples.reduce(function(a,s){return a+s.value;},0) : null;
+        var total = countRec ? countRec.samples.reduce(function(a,s){return a+s.value;},0) : null;
+        var p50 = percentile(bs, total, 0.5);
+        var p95 = percentile(bs, total, 0.95);
+        var p99 = percentile(bs, total, 0.99);
+
+        var el = host.querySelector('[data-key="'+key+'"]');
+        if (!el) {
+          el = document.createElement('div');
+          el.className = 'afm-hist';
+          el.setAttribute('data-key', key);
+          el.innerHTML = '<div class="row1"><div class="name"></div><div class="pcts"></div></div><div class="summary"></div><div class="bars"></div>';
+          host.appendChild(el);
+        }
+        el.querySelector('.name').textContent = label;
+        el.querySelector('.pcts').innerHTML =
+          'p50 <b>'+fmt(p50)+'</b> · p95 <b>'+fmt(p95)+'</b> · p99 <b>'+fmt(p99)+'</b>';
+        el.querySelector('.summary').textContent =
+          'count '+fmtN(total)+' · sum '+(sum!=null?fmt(sum):'—')+
+          ' · mean '+(total>0?fmt(sum/total):'—');
+
+        // Per-bucket bar widths (relative to most populated finite bucket)
+        var bars = el.querySelector('.bars');
+        bars.innerHTML = '';
+        if (!total) {
+          bars.style.display = 'none';
+        } else {
+          bars.style.display = '';
+          // Compute non-cumulative deltas for visual clarity
+          var prevCount = 0;
+          var deltas = [];
+          for (var i = 0; i < bs.length; i++) {
+            deltas.push(bs[i].count - prevCount);
+            prevCount = bs[i].count;
+          }
+          var max = Math.max.apply(Math, deltas);
+          var hotIdx = deltas.indexOf(max);
+          deltas.forEach(function(d, i){
+            var s = document.createElement('span');
+            s.style.height = max > 0 ? Math.max(1, (d/max)*100)+'%' : '1%';
+            s.title = 'le=' + (bs[i].le === Infinity ? '+Inf' : bs[i].le) + ': ' + d + ' obs';
+            if (i === hotIdx) s.classList.add('hot');
+            bars.appendChild(s);
+          });
+        }
+      }
+
+      function renderReasons(host, sumByReason) {
+        host.innerHTML = '';
+        var keys = Object.keys(sumByReason).sort();
+        if (!keys.length || keys.every(function(k){ return sumByReason[k] === 0; })) {
+          host.innerHTML = '<div class="afm-empty">No completed requests yet.</div>';
+          return;
+        }
+        var max = Math.max.apply(Math, keys.map(function(k){ return sumByReason[k]; }));
+        keys.forEach(function(k){
+          var v = sumByReason[k];
+          var row = document.createElement('div');
+          row.innerHTML = '<div class="name"></div><div class="bar"><div></div></div><div class="v"></div>';
+          row.querySelector('.name').textContent = k;
+          row.querySelector('.bar > div').style.width = max > 0 ? (v/max)*100+'%' : '0';
+          row.querySelector('.v').textContent = fmtN(v);
+          host.appendChild(row);
+        });
+      }
+
+      // ── Polling state ─────────────────────────────────────────────
+      var state = {
+        polling: false,
+        timer: null,
+        prev: null,        // previous gen-token snapshot for spark rate
+        prevTs: null,
+        spark: [],         // last 60 tok/s samples (instantaneous, for sparkline only)
+        peakClient: 0,     // client-side high-water for inflight (serial mode fallback)
+        // ── Per-completed-request tracking ─────────────────────────────
+        // We detect a request finishing by `requests_completed_total`
+        // ticking up between polls; at that moment the dashboard's
+        // shown rate becomes the CURRENT request's actual decode rate
+        // (Δgen / Δdecode_time_sum), matching what the chat UI shows
+        // per message (model-reported decode tok/s, not wall clock).
+        // The value sticks until another request completes.
+        prevSnap: null,    // { compTot, genTot, decodeSum }
+        lastReqTps: null,  // tok/s of the most recent completed request
+        lastReqGen: null,  // tokens of the most recent completed request
+        lastReqAt: null,   // wall-clock instant we observed the completion
+        // ── Sticky live values ─────────────────────────────────────────
+        // Whatever Active was last seen non-zero, keep it visible so the
+        // panel reflects "what just happened" instead of snapping to 0.
+        lastActive: 0,
+        lastActiveAt: null,
+        metrics: {}
+      };
+
+      function tick() {
+        fetch('/metrics', { headers: { Accept: 'text/plain' } })
+          .then(function(r){
+            if (!r.ok) throw new Error('HTTP '+r.status);
+            return r.text();
+          })
+          .then(function(txt){
+            state.metrics = parsePrometheus(txt);
+            paint();
+            var statusEl = document.getElementById('afm-dash-status');
+            statusEl.textContent = 'live'; statusEl.classList.remove('err');
+            document.getElementById('afm-dash-ts').textContent = new Date().toLocaleTimeString();
+          })
+          .catch(function(err){
+            var statusEl = document.getElementById('afm-dash-status');
+            statusEl.textContent = 'error: '+err.message; statusEl.classList.add('err');
+          });
+      }
+      function startPolling() {
+        if (state.polling) return;
+        state.polling = true;
+        tick();
+        state.timer = setInterval(tick, 1000);
+      }
+      // Note: we keep polling even when closed so the spark stays continuous.
+
+      // ── Paint loop ────────────────────────────────────────────────
+      function paint() {
+        var m = state.metrics;
+        function single(name) {
+          var rec = m[name];
+          if (!rec || !rec.samples || !rec.samples.length) return null;
+          // For our schema each gauge/counter has a single sample.
+          return rec.samples[0].value;
+        }
+        function modelName() {
+          var rec = m['afm:max_concurrent_slots'];
+          return rec && rec.samples[0] ? rec.samples[0].labels.model_name : '—';
+        }
+
+        document.getElementById('afm-dash-model').innerHTML = '<b>'+modelName()+'</b>';
+
+        var runningRaw = single('afm:num_requests_running') || 0;
+        var waiting = single('afm:num_requests_waiting') || 0;
+        var peakRaw = single('afm:batch_size_peak') || 0;
+        var slots   = single('afm:max_concurrent_slots') || 0;
+        var gpu     = single('afm:gpu_cache_usage_perc');
+        var genTot  = single('afm:generation_tokens_total') || 0;
+        var promTot = single('afm:prompt_tokens_total') || 0;
+        var startTot = single('afm:requests_started_total') || 0;
+        var compTot = single('afm:requests_completed_total') || 0;
+        var hits    = single('afm:radix_cache_hits_total') || 0;
+        var misses  = single('afm:radix_cache_misses_total') || 0;
+        // Decode time accumulator from histogram _sum line — drives the
+        // accurate per-request tok/s computation below.
+        var decodeSum = (function(){
+          var rec = state.metrics['afm:request_decode_time_seconds_sum'];
+          if (!rec || !rec.samples || !rec.samples.length) return 0;
+          return rec.samples.reduce(function(a,s){return a + s.value;}, 0);
+        })();
+
+        // In serial mode (no BatchScheduler) the running/peak gauge readers
+        // are never registered and the server-side values stay at 0. Fall
+        // back to (started - completed) so the live panel still tells the
+        // user whether anything is actively generating.
+        var inflightDerived = Math.max(0, startTot - compTot);
+        var running = runningRaw > 0 ? runningRaw : inflightDerived;
+        if (running > state.peakClient) state.peakClient = running;
+        var peak = Math.max(peakRaw, state.peakClient);
+        var serialMode = (slots === 0);
+
+        var now = Date.now();
+        if (running > 0) { state.lastActive = running; state.lastActiveAt = now; }
+
+        // Detect a request completing on this poll: requests_completed_total
+        // ticked up. When it does, compute that request's TRUE decode tok/s
+        // from the deltas of cumulative counters — this matches the chat
+        // UI's per-message "X.XX t/s" (which is gen_tokens / decode_time
+        // straight from the model). The value sticks in state.lastReqTps
+        // until another request completes.
+        if (state.prevSnap == null) {
+          state.prevSnap = { compTot: compTot, genTot: genTot, decodeSum: decodeSum };
+        } else if (compTot > state.prevSnap.compTot) {
+          var dGen = genTot - state.prevSnap.genTot;
+          var dDec = decodeSum - state.prevSnap.decodeSum;
+          if (dDec > 0 && dGen > 0) {
+            state.lastReqTps = dGen / dDec;
+            state.lastReqGen = dGen;
+            state.lastReqAt = now;
+          }
+          state.prevSnap = { compTot: compTot, genTot: genTot, decodeSum: decodeSum };
+        }
+
+        // Spark (visual only): instantaneous wall-clock delta of genTot.
+        var tpsInst = null;
+        if (state.prev != null && state.prevTs != null) {
+          var dt = (now - state.prevTs) / 1000;
+          if (dt > 0) tpsInst = (genTot - state.prev) / dt;
+        }
+        state.prev = genTot; state.prevTs = now;
+        if (tpsInst != null) {
+          state.spark.push(Math.max(0, tpsInst));
+          if (state.spark.length > 60) state.spark.shift();
+        }
+
+        // Display priority for the Decode rate tile:
+        //   1. Actively generating now → use decodeSum-based live rate
+        //      (Δgen since the active request started / Δdecode if we
+        //       can compute it; fall back to the spark window).
+        //   2. Last completed request's rate (sticky) — matches the chat
+        //      UI's per-message t/s number.
+        //   3. Lifetime cumulative gen / decode_sum.
+        //   4. 0.
+        var displayTps = null, displaySub = '', displayLabel = 'Decode rate';
+        if (running > 0) {
+          // Live: prefer the spark's recent peak so a fast in-progress
+          // burst shows realistic tok/s instead of being averaged down
+          // against the 1s polling window.
+          var window = state.spark.slice(-5);
+          var nz = window.filter(function(v){ return v > 0; });
+          if (nz.length) {
+            displayTps = Math.max.apply(Math, nz);
+            displaySub = 'generating';
+          } else if (state.lastReqTps != null) {
+            displayTps = state.lastReqTps;
+            displaySub = 'generating (last: ' + state.lastReqTps.toFixed(1) + ' tok/s)';
+          } else {
+            displayTps = 0; displaySub = 'generating';
+          }
+        } else if (state.lastReqTps != null) {
+          displayTps = state.lastReqTps;
+          var ageS = state.lastReqAt ? Math.max(0, Math.round((now - state.lastReqAt) / 1000)) : 0;
+          displaySub = 'last request · ' + (state.lastReqGen ? state.lastReqGen + ' tok' : '') +
+                      (ageS > 0 ? ' · ' + ageS + 's ago' : '');
+          displayLabel = 'Decode rate (last)';
+        } else if (decodeSum > 0) {
+          displayTps = genTot / decodeSum;
+          displaySub = 'lifetime avg';
+        } else {
+          displayTps = 0;
+          displaySub = 'idle';
+        }
+
+        // Active tile: sticky high-water + sticky last-non-zero count.
+        var activeVal = String(running);
+        var activeSub;
+        if (running > 0) {
+          activeSub = 'peak ' + peak;
+        } else if (state.lastActiveAt != null) {
+          var aS = Math.max(0, Math.round((now - state.lastActiveAt) / 1000));
+          activeSub = 'last ' + state.lastActive + ' · ' + aS + 's ago · peak ' + peak;
+        } else {
+          activeSub = 'peak ' + peak;
+        }
+
+        // Sustained (wall-clock) throughput — mean of the spark's recent
+        // non-empty window. This is what Grafana's Token Throughput panel
+        // computes via rate(generation_tokens_total[5m]). Always lower
+        // than `displayTps` because it includes idle gaps between
+        // requests; both numbers are useful, they answer different
+        // questions ("how fast does the model decode?" vs "how many
+        // tokens is the system sustaining?").
+        var sustained = null;
+        if (state.spark.length > 0) {
+          var sum = state.spark.reduce(function(a, b) { return a + b; }, 0);
+          sustained = sum / state.spark.length;
+        }
+
+        // Live tiles
+        var liveTiles = [
+          { key: 'tps', lbl: displayLabel,
+            val: displayTps == null ? '—' : displayTps.toFixed(1) + ' tok/s',
+            sub: displaySub, cls: 'live' },
+          { key: 'sustained', lbl: 'Sustained throughput',
+            val: sustained == null ? '—' : sustained.toFixed(1) + ' tok/s',
+            sub: 'wall-clock · last ' + state.spark.length + 's',
+            cls: 'live' },
+          { key: 'inflight', lbl: serialMode ? 'Active' : 'In-flight',
+            val: activeVal, sub: activeSub, cls: 'accent',
+            barPct: slots > 0 ? running/slots : (running > 0 ? 1 : 0) },
+        ];
+        var conn = single('afm:num_active_connections') || 0;
+        var connPeak = single('afm:active_connections_peak') || 0;
+        liveTiles.push({ key: 'conn', lbl: 'Connections',
+          val: String(conn),
+          sub: 'peak ' + connPeak,
+          cls: 'accent' });
+        if (!serialMode) {
+          liveTiles.push({ key: 'queue', lbl: 'Queue depth',
+            val: String(waiting), sub: 'cap ' + slots });
+        }
+        liveTiles.push({ key: 'gpu', lbl: 'GPU memory',
+          val: gpu == null ? '—' : fmtPct(gpu),
+          sub: gpu == null ? 'not exported' : 'of recommended VRAM',
+          barPct: gpu });
+        var radixFill = single('afm:radix_cache_fill_perc');
+        liveTiles.push({ key: 'radix', lbl: 'Prefix cache fill',
+          val: radixFill == null ? '—' : fmtPct(radixFill),
+          sub: radixFill == null ? '--enable-prefix-caching off' : 'radix tree',
+          barPct: radixFill });
+        renderTiles(document.getElementById('afm-live-grid'), liveTiles);
+        var sparkHost = document.getElementById('afm-spark');
+        sparkHost.innerHTML = '';
+        var max = Math.max.apply(Math, state.spark.length ? state.spark : [1]);
+        state.spark.forEach(function(v){
+          var s = document.createElement('span');
+          s.style.height = max > 0 ? Math.max(1, (v/max)*100)+'%' : '1%';
+          s.title = v.toFixed(1)+' tok/s';
+          sparkHost.appendChild(s);
+        });
+
+        // Counter tiles
+        var hitRate = (hits + misses) > 0 ? hits / (hits + misses) : null;
+        renderTiles(document.getElementById('afm-counter-grid'), [
+          { key: 'gen', lbl: 'Generation tokens', val: fmtN(genTot) },
+          { key: 'prompt', lbl: 'Prompt tokens', val: fmtN(promTot) },
+          { key: 'started', lbl: 'Requests started', val: fmtN(startTot) },
+          { key: 'completed', lbl: 'Requests completed', val: fmtN(compTot), sub: startTot ? fmtPct(compTot/startTot) + ' of started' : '' },
+          { key: 'hits', lbl: 'Radix cache hits', val: fmtN(hits) },
+          { key: 'misses', lbl: 'Radix cache misses', val: fmtN(misses), sub: hitRate == null ? '' : 'hit rate ' + fmtPct(hitRate), barPct: hitRate },
+        ]);
+
+        // Reasons
+        var reasonRec = m['afm:request_success_total'];
+        var reasonMap = {};
+        if (reasonRec && reasonRec.samples) {
+          reasonRec.samples.forEach(function(s){
+            var k = s.labels.finished_reason || 'unknown';
+            reasonMap[k] = (reasonMap[k] || 0) + s.value;
+          });
+        }
+        renderReasons(document.getElementById('afm-reasons'), reasonMap);
+
+        // Latency histograms
+        var latencyHost = document.getElementById('afm-latency-grid');
+        var latencyHists = [
+          ['afm:e2e_request_latency_seconds_bucket',     'End-to-end latency', fmtSec],
+          ['afm:request_queue_time_seconds_bucket',      'Queue time',          fmtSec],
+          ['afm:request_inference_time_seconds_bucket',  'Inference time',      fmtSec],
+          ['afm:request_prefill_time_seconds_bucket',    'Prefill time',        fmtSec],
+          ['afm:request_decode_time_seconds_bucket',     'Decode time',         fmtSec],
+          ['afm:time_to_first_token_seconds_bucket',     'Time to first token', fmtSec],
+          ['afm:time_per_output_token_seconds_bucket',   'Time per output token', fmtSec],
+        ];
+        latencyHists.forEach(function(h){
+          renderHistogram(latencyHost, h[0], h[1], m[h[0]], h[2]);
+        });
+
+        // Size + sampling
+        var sizeHost = document.getElementById('afm-size-grid');
+        var sizeHists = [
+          ['afm:request_prompt_tokens_bucket',     'Prompt tokens / request',     fmtN],
+          ['afm:request_generation_tokens_bucket', 'Generation tokens / request', fmtN],
+          ['afm:request_params_n_bucket',          'Sampling param n',            fmtN],
+          ['afm:request_params_best_of_bucket',    'Sampling param best_of',      fmtN],
+        ];
+        sizeHists.forEach(function(h){
+          renderHistogram(sizeHost, h[0], h[1], m[h[0]], h[2]);
+        });
+      }
+
+      // Don't auto-poll — only when opened.
+      // (User can still click the toggle to peek.)
     })();
     </script>
     """

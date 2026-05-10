@@ -207,6 +207,10 @@ final class MLXModelService: @unchecked Sendable {
     /// Set after model load. nil if the model doesn't have think tokens.
     private(set) var thinkStartTag: String?
     private(set) var thinkEndTag: String?
+    /// True when the loaded model uses OpenAI Harmony channel tokens
+    /// (`<|channel|>analysis|message|>...<|end|>`) instead of `<think>` tags.
+    /// Detected from `model_type == "gpt_oss"` in config.json. (#121)
+    private(set) var harmonyChannels: Bool = false
     private var xgrammarService: XGrammarService?
     /// Concurrent generation scheduler (nil = serial mode via container.perform).
     private var scheduler: BatchScheduler?
@@ -1196,6 +1200,22 @@ final class MLXModelService: @unchecked Sendable {
                     print("[\(ts())] [Think] No think tokens found in vocabulary")
                 }
             }
+            // Detect harmony channel format (gpt-oss). When set, the controller
+            // routes <|channel|>analysis|message|> ... <|end|> to reasoning_content
+            // and <|channel|>final|message|> ... <|return|>/<|end|> to content. (#121)
+            self.harmonyChannels = false
+            if let modelDir = self.resolver.localModelDirectory(repoId: modelID) {
+                let configURL = modelDir.appendingPathComponent("config.json")
+                if let data = try? Data(contentsOf: configURL),
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let modelType = json["model_type"] as? String,
+                   modelType.lowercased() == "gpt_oss" {
+                    self.harmonyChannels = true
+                    if debugLogging {
+                        print("[\(ts())] [Harmony] Detected gpt_oss model — enabling channel parsing")
+                    }
+                }
+            }
             self.radixCache?.invalidateAll()
             if self.enablePrefixCaching {
                 self.radixCache = RadixTreeCache(
@@ -1204,9 +1224,28 @@ final class MLXModelService: @unchecked Sendable {
                     debugLogging: debugLogging
                 )
                 print("[\(ts())] [PrefixCache] Radix tree prefix caching active (64 entries max)")
+                // /metrics: expose radix fill as afm:radix_cache_fill_perc.
+                // The closure captures `self` weakly so it doesn't extend
+                // the service's lifetime; nil-check guards model unload.
+                StatsAggregator.shared.registerRadixCacheFillReader { [weak self] in
+                    self?.radixCache?.usageFraction ?? 0
+                }
             } else {
                 self.radixCache = nil
                 print("[\(ts())] [PrefixCache] Prefix caching disabled")
+            }
+            // /metrics: expose total GPU memory pressure as
+            // afm:gpu_cache_usage_perc — fraction of Metal's recommended
+            // working set currently in active MLX allocations. This
+            // includes model weights + KV cache + intermediate tensors,
+            // so it's broader than vLLM's strict "KV pool fill" but is
+            // the most useful single signal for "is afm running out of
+            // VRAM?". Registered on every successful model load.
+            let maxWorkingSetBytes = GPU.deviceInfo().maxRecommendedWorkingSetSize
+            StatsAggregator.shared.registerGpuCacheUsageReader {
+                guard maxWorkingSetBytes > 0 else { return 0 }
+                let active = Double(GPU.activeMemory)
+                return min(1.0, active / Double(maxWorkingSetBytes))
             }
             try registry.registerModel(modelID)
             stage?(.ready)
@@ -1370,6 +1409,25 @@ final class MLXModelService: @unchecked Sendable {
     ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?, cachedTokens: Int, promptTime: Double, generateTime: Double, stoppedBySequence: Bool) {
         try beginOperation()
         defer { endOperation() }
+
+        // /metrics: serial-path timestamps. The serial generate() has no
+        // explicit queue, so queuedAt == startedAt (queue_time observes ~0).
+        // Token counters (prompt_tokens_total / generation_tokens_total) and
+        // the per-request histograms are recorded at the bottom of this
+        // function, after `completionInfo` is available.
+        let serialQueuedAt = Date()
+        StatsAggregator.shared.requestStarted()
+        // Balance the requests_started_total counter on every exit, including
+        // throws between here and the success path below. Without this, an
+        // error during model load or input prep increments started_total
+        // without a matching completed_total, breaking dashboards and alerts.
+        var serialRequestRecorded = false
+        defer {
+            if !serialRequestRecorded {
+                StatsAggregator.shared.requestSucceeded(reason: "error")
+                StatsAggregator.shared.requestCompleted()
+            }
+        }
 
         let modelID = try await ensureLoaded(model: model, countOperation: false)
         guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
@@ -1559,6 +1617,7 @@ final class MLXModelService: @unchecked Sendable {
                     generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
                     cachedTokenCount = effectivePrefix
                     cacheOutcome = "hit"
+                    StatsAggregator.shared.cacheHit()  // /metrics: afm:radix_cache_hits_total
                     cacheRestoreTime = tRestore1 - tRestore0
                     cacheTrimTime = tTrim - tRestore1
                     cacheTruncateTime = tRoundtrip - tTrim
@@ -1588,6 +1647,7 @@ final class MLXModelService: @unchecked Sendable {
                 } else {
                     generateInput = input
                     cacheOutcome = bypassExactReplay ? "exact-replay-bypass" : "miss"
+                    StatsAggregator.shared.cacheMiss()  // /metrics: afm:radix_cache_misses_total
                     self.logCachePrefill(
                         mode: "non-streaming",
                         outcome: cacheOutcome,
@@ -1850,6 +1910,43 @@ final class MLXModelService: @unchecked Sendable {
                 truncateTime: saveTruncateTime,
                 insertTime: saveInsertTime
             )
+
+            // /metrics: serial-path observations.
+            // - queuedAt ≈ startedAt (no real queue in serial mode)
+            // - firstTokenAt ≈ startedAt + promptTime (prefill ends at first token)
+            // - completedAt = now
+            let completedAt = Date()
+            let firstTokenAt: Date? = (completionTokens > 0 && promptTime >= 0)
+                ? serialQueuedAt.addingTimeInterval(promptTime)
+                : nil
+            StatsAggregator.shared.addPromptTokens(promptTokens)
+            StatsAggregator.shared.addGenTokens(completionTokens)
+            StatsAggregator.shared.observeRequest(
+                StatsAggregator.RequestObservation(
+                    queuedAt: serialQueuedAt.timeIntervalSince1970,
+                    startedAt: serialQueuedAt.timeIntervalSince1970,
+                    firstTokenAt: firstTokenAt?.timeIntervalSince1970,
+                    completedAt: completedAt.timeIntervalSince1970,
+                    promptTokens: promptTokens,
+                    generationTokens: completionTokens,
+                    paramsN: 1,
+                    paramsBestOf: 1
+                )
+            )
+            let serialFinishedReason: String
+            if stoppedBySequence {
+                serialFinishedReason = "stop"
+            } else if completionTokens >= effectiveMaxTokens {
+                serialFinishedReason = "length"
+            } else if responseToolCalls?.isEmpty == false {
+                serialFinishedReason = "tool_calls"
+            } else {
+                serialFinishedReason = "stop"
+            }
+            StatsAggregator.shared.requestSucceeded(reason: serialFinishedReason)
+            StatsAggregator.shared.requestCompleted()
+            serialRequestRecorded = true
+
             return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount, promptTime, generateTime, stoppedBySequence)
         }
 
@@ -1903,6 +2000,11 @@ final class MLXModelService: @unchecked Sendable {
         let promptTokens = estimateTokens(promptText)
         let wantLogprobs = logprobs == true
         let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
+
+        // /metrics: streaming-path queue timestamp. The actual
+        // requestStarted/observe calls happen ONLY in the serial-path
+        // task below (the batch path's stats are owned by BatchScheduler).
+        let streamQueuedAt = Date()
 
         var params = GenerateParameters(
             maxTokens: effectiveMaxTokens,
@@ -1975,6 +2077,25 @@ final class MLXModelService: @unchecked Sendable {
             let input = try await scheduler.prepareInput(userInput)
             let tTokenize = debugLogging ? Date() : Date.distantPast
             let preparedPromptTokens = input.text.tokens.reshaped(-1).asArray(Int.self).count
+
+            // If the chat template appended a think start tag to the prompt
+            // (e.g. Qwen3.5-27B's template ends with `<think>\n`), the model
+            // begins generation already inside a think block and the stream
+            // never contains an opening tag. Detect this and synthesize a
+            // leading chunk so the controller's reasoning extractor latches
+            // on. Mirrors the serial-streaming path at line ~2061. (#99)
+            let templateOpenedThink: Bool = {
+                guard let thinkStart = self.thinkStartTag else { return false }
+                let tokens = input.text.tokens
+                let ndim = tokens.ndim
+                let seqLen = tokens.dim(ndim - 1)
+                guard seqLen >= 2 else { return false }
+                let flat = tokens.reshaped(-1)
+                let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
+                let decoded = scheduler.tokenizer.decode(tokens: lastTwo)
+                return decoded.contains(thinkStart)
+            }()
+
             let schedulerStream = scheduler.submit(
                 input: input,
                 parameters: params,
@@ -1991,6 +2112,25 @@ final class MLXModelService: @unchecked Sendable {
                 thinkEndTag: self.thinkEndTag,
                 requestId: reqId
             )
+            let effectiveStream: AsyncThrowingStream<StreamChunk, Error>
+            if templateOpenedThink, let thinkStart = self.thinkStartTag {
+                effectiveStream = AsyncThrowingStream { continuation in
+                    let task = Task {
+                        continuation.yield(StreamChunk(text: thinkStart))
+                        do {
+                            for try await chunk in schedulerStream {
+                                continuation.yield(chunk)
+                            }
+                            continuation.finish()
+                        } catch {
+                            continuation.finish(throwing: error)
+                        }
+                    }
+                    continuation.onTermination = { _ in task.cancel() }
+                }
+            } else {
+                effectiveStream = schedulerStream
+            }
             self.cleanupTempFiles(mediaTempFiles)
 
             if debugLogging {
@@ -2007,7 +2147,7 @@ final class MLXModelService: @unchecked Sendable {
             let toolTags = toolRuntimeConfig.map { ($0.startTag, $0.endTag) }
 
             endOperationOnExit = false
-            return (modelID, schedulerStream, preparedPromptTokens, toolTags?.0, toolTags?.1, self.thinkStartTag, self.thinkEndTag)
+            return (modelID, effectiveStream, preparedPromptTokens, toolTags?.0, toolTags?.1, self.thinkStartTag, self.thinkEndTag)
         }
 
         // --- Serial path: full-featured generation via container.perform lock ---
@@ -2018,6 +2158,17 @@ final class MLXModelService: @unchecked Sendable {
         let streamGpuProfile = gpuProfile
         if streamGpuProfile { printGPUProfileHeader() }
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
+            // /metrics: serial-streaming counters. Captured here (after the
+            // batch-path branch has been ruled out) so we don't double-count
+            // with BatchScheduler.submit().
+            StatsAggregator.shared.requestStarted()
+            // Mutables filled inside container.perform so the final
+            // observation can fire just before continuation.finish().
+            var streamStatPromptTokens = 0
+            var streamStatCompletionTokens = 0
+            var streamStatPromptTime = 0.0
+            var streamStatGenerateTime = 0.0
+            var streamStatStoppedBySequence = false
             let task = Task {
                 defer { self.endOperation() }
                 do {
@@ -2131,6 +2282,7 @@ final class MLXModelService: @unchecked Sendable {
                                 generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
                                 streamCachedTokens = effectivePrefix
                                 cacheOutcome = "hit"
+                                StatsAggregator.shared.cacheHit()  // /metrics: afm:radix_cache_hits_total
                                 cacheRestoreTime = tRestore1 - tRestore0
                                 cacheTrimTime = tTrim - tRestore1
                                 cacheTruncateTime = tRoundtrip - tTrim
@@ -2160,6 +2312,7 @@ final class MLXModelService: @unchecked Sendable {
                             } else {
                                 generateInput = input
                                 cacheOutcome = bypassExactReplay ? "exact-replay-bypass" : "miss"
+                                StatsAggregator.shared.cacheMiss()  // /metrics: afm:radix_cache_misses_total
                                 self.logCachePrefill(
                                     mode: "streaming",
                                     outcome: cacheOutcome,
@@ -2261,6 +2414,7 @@ final class MLXModelService: @unchecked Sendable {
                                                     continuation.yield(StreamChunk(text: "", logprobs: resolved, stoppedBySequence: true))
                                                 }
                                             }
+                                            streamStatStoppedBySequence = true  // /metrics: finished_reason=stop
                                             break
                                         }
                                         // Flush safe portion of the buffer (keep tail that could be partial stop match)
@@ -2304,6 +2458,11 @@ final class MLXModelService: @unchecked Sendable {
                                         truncateTime: cacheTruncateTime
                                     )
                                     continuation.yield(StreamChunk(text: "", promptTokens: finalPromptTokens, completionTokens: info.generationTokenCount, promptTime: info.promptTime, generateTime: info.generateTime))
+                                    // /metrics: capture for the post-loop observation
+                                    streamStatPromptTokens = finalPromptTokens
+                                    streamStatCompletionTokens = info.generationTokenCount
+                                    streamStatPromptTime = info.promptTime
+                                    streamStatGenerateTime = info.generateTime
                                     // GPU profile: emit footer with real token counts
                                     if streamGpuProfile {
                                         self.printGPUProfileFooter(promptTokens: finalPromptTokens, completionTokens: info.generationTokenCount, promptTime: info.promptTime, generateTime: info.generateTime)
@@ -2410,6 +2569,39 @@ final class MLXModelService: @unchecked Sendable {
                         )
                     }
                     self.cleanupTempFiles(mediaTempFiles)
+
+                    // /metrics: serial-streaming observation. Mirrors the
+                    // non-streaming generate() path; queue time ≈ 0 in
+                    // serial mode so queuedAt == startedAt.
+                    let streamCompletedAt = Date()
+                    let streamFirstTokenAt: Date? = (streamStatCompletionTokens > 0 && streamStatPromptTime >= 0)
+                        ? streamQueuedAt.addingTimeInterval(streamStatPromptTime)
+                        : nil
+                    StatsAggregator.shared.addPromptTokens(streamStatPromptTokens)
+                    StatsAggregator.shared.addGenTokens(streamStatCompletionTokens)
+                    StatsAggregator.shared.observeRequest(
+                        StatsAggregator.RequestObservation(
+                            queuedAt: streamQueuedAt.timeIntervalSince1970,
+                            startedAt: streamQueuedAt.timeIntervalSince1970,
+                            firstTokenAt: streamFirstTokenAt?.timeIntervalSince1970,
+                            completedAt: streamCompletedAt.timeIntervalSince1970,
+                            promptTokens: streamStatPromptTokens,
+                            generationTokens: streamStatCompletionTokens,
+                            paramsN: 1,
+                            paramsBestOf: 1
+                        )
+                    )
+                    let streamReason: String
+                    if streamStatStoppedBySequence {
+                        streamReason = "stop"
+                    } else if streamStatCompletionTokens >= effectiveMaxTokens {
+                        streamReason = "length"
+                    } else {
+                        streamReason = "stop"
+                    }
+                    StatsAggregator.shared.requestSucceeded(reason: streamReason)
+                    StatsAggregator.shared.requestCompleted()
+
                     continuation.finish()
                 } catch {
                     if debugLogging {
@@ -2417,6 +2609,10 @@ final class MLXModelService: @unchecked Sendable {
                     }
                     self.radixCache?.invalidateAll()
                     self.cleanupTempFiles(mediaTempFiles)
+                    // /metrics: error path — still complete the lifecycle so
+                    // requests_completed_total tracks requests_started_total.
+                    StatsAggregator.shared.requestSucceeded(reason: "error")
+                    StatsAggregator.shared.requestCompleted()
                     continuation.finish(throwing: error)
                 }
             }

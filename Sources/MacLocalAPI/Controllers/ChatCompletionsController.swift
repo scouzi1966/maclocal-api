@@ -10,6 +10,7 @@ struct ChatCompletionsController: RouteCollection {
     private let permissiveGuardrails: Bool
     private let veryVerbose: Bool
     private let stop: String?
+    private let defaultGuidedJsonSchema: ResponseFormat?
 
     init(
         streamingEnabled: Bool = true,
@@ -19,7 +20,8 @@ struct ChatCompletionsController: RouteCollection {
         randomness: String? = nil,
         permissiveGuardrails: Bool,
         veryVerbose: Bool = false,
-        stop: String? = nil
+        stop: String? = nil,
+        defaultGuidedJsonSchema: ResponseFormat? = nil
     ) {
         self.streamingEnabled = streamingEnabled
         self.instructions = instructions
@@ -29,6 +31,7 @@ struct ChatCompletionsController: RouteCollection {
         self.permissiveGuardrails = permissiveGuardrails
         self.veryVerbose = veryVerbose
         self.stop = stop
+        self.defaultGuidedJsonSchema = defaultGuidedJsonSchema
     }
     func boot(routes: RoutesBuilder) throws {
         let v1 = routes.grouped("v1")
@@ -326,6 +329,10 @@ struct ChatCompletionsController: RouteCollection {
         let streamId = UUID().uuidString
 
         httpResponse.body = .init(asyncStream: { writer in
+            // Streaming routes account for their own afm:num_active_connections.
+            // See MLXChatCompletionsController for the rationale. (PR #122 review fix)
+            StatsAggregator.shared.connectionStarted()
+            defer { StatsAggregator.shared.connectionEnded() }
             let encoder = JSONEncoder()
             var fullStreamedContent = ""
 
@@ -521,6 +528,10 @@ struct ChatCompletionsController: RouteCollection {
         let model = chatRequest.model ?? "foundation"
 
         httpResponse.body = .init(asyncStream: { writer in
+            // Bypass streaming (vision OCR / speech) — same active-connections
+            // bracket as the regular chat path. (PR #122 review fix)
+            StatsAggregator.shared.connectionStarted()
+            defer { StatsAggregator.shared.connectionEnded() }
             let encoder = JSONEncoder()
 
             do {
@@ -564,11 +575,26 @@ struct ChatCompletionsController: RouteCollection {
         return httpResponse
     }
 
-    /// Check if the request has a strict json_schema response format.
-    private func hasStrictJsonSchema(_ chatRequest: ChatCompletionRequest) -> ResponseJsonSchema? {
-        guard let responseFormat = chatRequest.responseFormat,
-              responseFormat.type == "json_schema",
-              let jsonSchema = responseFormat.jsonSchema,
+    /// Check if the request has a strict json_schema response format. When the
+    /// request omits one, fall back to the server-level --guided-json schema (#103).
+    func hasStrictJsonSchema(_ chatRequest: ChatCompletionRequest) -> ResponseJsonSchema? {
+        Self.resolveStrictJsonSchema(
+            requestFormat: chatRequest.responseFormat,
+            serverDefault: defaultGuidedJsonSchema
+        )
+    }
+
+    /// Pure resolver exposed for unit testing: per-request format wins, falls back
+    /// to the server-level `--guided-json` default. Returns nil unless a strict
+    /// json_schema is in effect. (#103)
+    static func resolveStrictJsonSchema(
+        requestFormat: ResponseFormat?,
+        serverDefault: ResponseFormat?
+    ) -> ResponseJsonSchema? {
+        let format = requestFormat ?? serverDefault
+        guard let format,
+              format.type == "json_schema",
+              let jsonSchema = format.jsonSchema,
               jsonSchema.strict == true else {
             return nil
         }

@@ -276,4 +276,14 @@ final class RadixTreeCache: @unchecked Sendable {
 
     /// Current number of cached entries.
     var count: Int { entryCount }
+
+    /// Configured cap on cached entries.
+    var capacity: Int { maxEntries }
+
+    /// Current fill fraction in [0, 1]. Used by `/metrics` to expose
+    /// `afm:radix_cache_fill_perc`.
+    var usageFraction: Double {
+        guard maxEntries > 0 else { return 0 }
+        return Double(entryCount) / Double(maxEntries)
+    }
 }

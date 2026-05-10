@@ -65,11 +65,17 @@ actor BatchScheduler {
         let requestId: String
         let continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation
         let promptTokenCount: Int
+        /// Wall-clock instant the request was accepted by `submit()` —
+        /// drives e2e latency, queue time, and TTFT in `/metrics`.
+        let queuedAt: Date
         /// Set to the moment prefill begins (prefillStart), so elapsed includes prefill + decode.
         let startTime: Date
         let prefillTime: TimeInterval
         var tokenCount = 0
         var firstTokenTime: TimeInterval = 0
+        /// Wall-clock instant the first generated token was yielded to the
+        /// continuation, or nil if the request finished before producing any.
+        var firstTokenAt: Date?
         let inputTokens: [Int]
         let cachedTokens: Int
         /// Snapshotted per-layer KV state from prefill (for prefix cache save).
@@ -116,6 +122,7 @@ actor BatchScheduler {
             requestId: String = "",
             continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation,
             promptTokenCount: Int,
+            queuedAt: Date,
             startTime: Date,
             prefillTime: TimeInterval,
             inputTokens: [Int],
@@ -140,6 +147,7 @@ actor BatchScheduler {
             self.requestId = requestId
             self.continuation = continuation
             self.promptTokenCount = promptTokenCount
+            self.queuedAt = queuedAt
             self.prefillTime = prefillTime
             self.startTime = startTime
             self.inputTokens = inputTokens
@@ -307,6 +315,9 @@ actor BatchScheduler {
 
     struct PendingRequest: @unchecked Sendable {
         let requestId: String
+        /// Wall-clock instant the request was accepted by `submit()`. Used to
+        /// derive queue time, e2e latency, and TTFT in `/metrics`.
+        let queuedAt: Date
         let input: LMInput
         let parameters: GenerateParameters
         let promptTokens: Int
@@ -440,6 +451,28 @@ actor BatchScheduler {
             }
         }
         self.eosTokenIds = eos
+
+        // Wire gauge readers into the global stats aggregator. `num_running`
+        // is (inflight - waiting), since _inFlightCount covers both actively
+        // decoding and still-pending requests. `num_waiting` reads the
+        // pending queue directly. Both closures read nonisolated state
+        // through existing unfair locks — no actor hop, no async.
+        //
+        // These closures hold weak references to `self` via the unowned
+        // nonisolated lock pointers, so they do not extend scheduler
+        // lifetime beyond MLXModelService's hold.
+        let pending = self._pendingQueue
+        let inflight = self._inFlightCount
+        StatsAggregator.shared.registerGaugeReaders(
+            running: {
+                let total = inflight.withLock { $0 }
+                let queued = pending.withLock { $0.count }
+                return max(0, total - queued)
+            },
+            waiting: {
+                return pending.withLock { $0.count }
+            }
+        )
     }
 
     /// Number of requests currently generating.
@@ -474,6 +507,7 @@ actor BatchScheduler {
         _pendingQueue.withLock {
             $0.append(PendingRequest(
                 requestId: requestId,
+                queuedAt: Date(),
                 input: input,
                 parameters: parameters,
                 promptTokens: promptTokens,
@@ -486,6 +520,7 @@ actor BatchScheduler {
             ))
         }
 
+        StatsAggregator.shared.requestStarted()
         DebugLogger.log("[BatchScheduler] Request enqueued req=\(requestId) (\(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
         Task { await self.ensureLoopRunning() }
 
@@ -711,7 +746,9 @@ actor BatchScheduler {
                     }
 
                     if slot.firstTokenTime == 0 {
-                        slot.firstTokenTime = Date().timeIntervalSince(slot.startTime)
+                        let now = Date()
+                        slot.firstTokenTime = now.timeIntervalSince(slot.startTime)
+                        slot.firstTokenAt = now
                     }
 
                     if token == tokenizer.unknownTokenId || eosTokenIds.contains(token) {
@@ -729,6 +766,7 @@ actor BatchScheduler {
                     slot.detokenizer.append(token: token)
                     if let chunk = slot.detokenizer.next() {
                         slot.tokenCount += 1
+                        StatsAggregator.shared.addGenTokens(1)
                         if yieldTextChunk(chunk, for: slot, logprobs: logprobsForThisToken) {
                             completedIndices.append(i)
                         }
@@ -945,10 +983,22 @@ actor BatchScheduler {
 
         mergeCacheIntoBatch(individualCache: cache, modelState: result.state)
 
+        // Only count the un-cached suffix in prompt_tokens_total so the
+        // counter reflects tokens the GPU actually prefilled, not tokens
+        // served from the radix cache. This matches vLLM semantics.
+        let suffixPromptTokens = max(0, inputTokens.count - cachedTokens)
+        StatsAggregator.shared.addPromptTokens(suffixPromptTokens)
+        if cachedTokens > 0 {
+            StatsAggregator.shared.cacheHit()
+        } else if !isMultimodal {
+            StatsAggregator.shared.cacheMiss()
+        }
+
         let slot = SlotState(
             requestId: req.requestId,
             continuation: req.continuation,
             promptTokenCount: inputTokens.count,
+            queuedAt: req.queuedAt,
             startTime: prefillStart,
             prefillTime: prefillTime,
             inputTokens: inputTokens,
@@ -1279,6 +1329,7 @@ actor BatchScheduler {
                 requestId: req.requestId,
                 continuation: req.continuation,
                 promptTokenCount: allInputTokens[i].count,
+                queuedAt: req.queuedAt,
                 startTime: prefillStart,
                 prefillTime: prefillTime,
                 inputTokens: allInputTokens[i],
@@ -1343,6 +1394,11 @@ actor BatchScheduler {
         let totalInputTokens = lengths.reduce(0, +)
         print("[\(batchTs())] [BatchScheduler] Batched prefill: B=\(B), maxLen=\(maxLen), totalTokens=\(totalInputTokens), leftPads=\(leftPads), time=\(String(format: "%.3f", prefillTime))s (\(String(format: "%.0f", Double(totalInputTokens) / prefillTime)) tok/s)")
         DebugLogger.log("[BatchScheduler] Batched prefill complete: B=\(B), \(String(format: "%.0f", prefillTime * 1000))ms")
+        StatsAggregator.shared.addPromptTokens(totalInputTokens)
+        // Batched prefill requires fresh (empty) caches — every request in
+        // it is a cache miss by definition. Requests that hit the radix
+        // cache go through prefillOne and are counted there.
+        for _ in 0..<B { StatsAggregator.shared.cacheMiss() }
     }
 
     /// Merge a newly-prefilled individual cache into the batch.
@@ -1520,6 +1576,35 @@ actor BatchScheduler {
         slot.continuation.finish()
         slot.constraintRuntime?.matcherHandle?.release()
         _inFlightCount.withLock { $0 = max($0 - 1, 0) }
+
+        // ─── Per-request /metrics observations ────────────────────────────
+        // Determine the OpenAI-style finished_reason from the slot's
+        // terminal state. Order matters: stop-sequence first (stoppedBySequence
+        // implies an explicit stop string match), then length-cap, otherwise
+        // a clean stop (EOS / model-emitted end).
+        let finishedReason: String
+        if slot.stoppedBySequence {
+            finishedReason = "stop"
+        } else if let max = slot.maxTokens, slot.tokenCount >= max {
+            finishedReason = "length"
+        } else {
+            finishedReason = "stop"
+        }
+        let completedAt = Date()
+        StatsAggregator.shared.observeRequest(
+            StatsAggregator.RequestObservation(
+                queuedAt: slot.queuedAt.timeIntervalSince1970,
+                startedAt: slot.startTime.timeIntervalSince1970,
+                firstTokenAt: slot.firstTokenAt?.timeIntervalSince1970,
+                completedAt: completedAt.timeIntervalSince1970,
+                promptTokens: slot.promptTokenCount,
+                generationTokens: slot.tokenCount,
+                paramsN: 1,
+                paramsBestOf: 1
+            )
+        )
+        StatsAggregator.shared.requestSucceeded(reason: finishedReason)
+        StatsAggregator.shared.requestCompleted()
 
         DebugLogger.log("[BatchScheduler] Finished slot req=\(slot.requestId) (\(slot.tokenCount) tok, \(String(format: "%.2f", elapsed))s, in-flight: \(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
 
