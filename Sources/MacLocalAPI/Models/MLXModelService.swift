@@ -1255,6 +1255,22 @@ final class MLXModelService: @unchecked Sendable {
         }
     }
 
+    /// Encode text using the loaded model's tokenizer. (T1.6)
+    /// Concurrent mode pulls from the scheduler's nonisolated tokenizer; serial
+    /// mode dives into the container under its actor lock.
+    /// Throws `MLXServiceError.noModelLoaded` if no model is currently loaded.
+    func tokenize(text: String) async throws -> [Int] {
+        if let scheduler = self.scheduler {
+            return scheduler.tokenizer.encode(text: text)
+        }
+        guard let container = withStateLock({ currentContainer }) else {
+            throw MLXServiceError.noModelLoaded
+        }
+        return await container.perform { context in
+            context.tokenizer.encode(text: text)
+        }
+    }
+
     /// Initialize the concurrent BatchScheduler by extracting model/tokenizer/processor
     /// from the container. Must be called after ensureLoaded() and only when maxConcurrent >= 2.
     func initScheduler() async throws {
