@@ -75,6 +75,51 @@ struct InflightCancelTests {
         #expect(cancelled == false)
         #expect(fired.value == false)
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // MARK: - CancellableTaskHandle (race-free registration)
+    // ═══════════════════════════════════════════════════════════════════
+
+    @Test("CancellableTaskHandle: assign-then-cancel cancels the assigned task")
+    func handleAssignThenCancel() async {
+        let handle = CancellableTaskHandle()
+        let didStart = TestFlag()
+        let task = Task<Void, Never> {
+            didStart.set()
+            // Long-running work — wait until cancelled.
+            for _ in 0..<1000 {
+                if Task.isCancelled { return }
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+        handle.assign(task)
+        // Wait for task to start.
+        for _ in 0..<200 where !didStart.value { try? await Task.sleep(nanoseconds: 5_000_000) }
+        #expect(didStart.value)
+        handle.cancel()
+        await task.value
+        #expect(task.isCancelled)
+    }
+
+    @Test("CancellableTaskHandle: cancel-then-assign immediately cancels the late-arriving task")
+    func handleCancelBeforeAssign() async {
+        let handle = CancellableTaskHandle()
+        // Fire cancel BEFORE the task is created — closes the race where the
+        // CancelController hits the registry before the asyncStream closure
+        // has spawned the body Task.
+        handle.cancel()
+
+        let task = Task<Void, Never> {
+            // Loop until cancelled.
+            for _ in 0..<1000 {
+                if Task.isCancelled { return }
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+        handle.assign(task)
+        await task.value
+        #expect(task.isCancelled)
+    }
 }
 
 /// Minimal Sendable flag for asserting closure invocation across the actor boundary.
