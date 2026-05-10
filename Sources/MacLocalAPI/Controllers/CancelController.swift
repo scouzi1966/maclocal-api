@@ -26,7 +26,8 @@ struct CancelController: RouteCollection {
         let response = Response(status: .ok)
         response.headers.add(name: .accessControlAllowOrigin, value: "*")
         response.headers.add(name: .accessControlAllowMethods, value: "POST, OPTIONS")
-        response.headers.add(name: .accessControlAllowHeaders, value: "Content-Type, Authorization")
+        // Whitelist correlation headers for browser preflight. (T1.1/T1.5)
+        response.headers.add(name: .accessControlAllowHeaders, value: "Content-Type, Authorization, X-Request-ID, OpenAI-Request-ID")
         return response
     }
 

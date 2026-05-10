@@ -54,6 +54,56 @@ struct RequestIDMiddleware: AsyncMiddleware {
     }
 }
 
+/// Renders our typed errors (`TokenizeUnsupportedError`, `TokenizeBadRequestError`)
+/// in OpenAI's `{"error": {"message", "type", "code", "request_id"}}` shape so
+/// agents using the OpenAI SDK get a parsable error body. Falls through for
+/// everything else so Vapor's default error middleware still handles it. (T1.6)
+///
+/// Both `type` and `code` are populated with the same machine-readable
+/// identifier (`tokenize_unsupported`, `invalid_request_error`, …). OpenAI's
+/// SDKs commonly switch on `code`, so leaving it nil makes those clients fall
+/// through to a generic-error path even though `type` is meaningful.
+struct OpenAIErrorRenderingMiddleware: AsyncMiddleware {
+    func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
+        do {
+            return try await next.respond(to: request)
+        } catch let err as TokenizeUnsupportedError {
+            return try Self.render(
+                request: request,
+                status: err.status,
+                message: err.reason,
+                type: TokenizeUnsupportedError.errorType,
+                code: TokenizeUnsupportedError.errorType,
+                requestId: err.requestId
+            )
+        } catch let err as TokenizeBadRequestError {
+            return try Self.render(
+                request: request,
+                status: err.status,
+                message: err.reason,
+                type: TokenizeBadRequestError.errorType,
+                code: TokenizeBadRequestError.errorType,
+                requestId: err.requestId
+            )
+        }
+    }
+
+    private static func render(request: Request, status: HTTPResponseStatus, message: String, type: String, code: String?, requestId: String) throws -> Response {
+        let id = requestId.isEmpty ? request.afmRequestID : requestId
+        let payload = OpenAIError(
+            message: message,
+            type: type,
+            code: code,
+            requestId: id.isEmpty ? nil : id
+        )
+        let response = Response(status: status)
+        response.headers.add(name: .contentType, value: "application/json")
+        response.headers.add(name: .accessControlAllowOrigin, value: "*")
+        try response.content.encode(payload)
+        return response
+    }
+}
+
 // Middleware to handle payload too large errors with a user-friendly message
 struct PayloadTooLargeMiddleware: AsyncMiddleware {
     func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
@@ -182,6 +232,9 @@ class Server {
         // middleware so ID is visible in error paths too. (T1.1)
         app.middleware.use(RequestIDMiddleware())
 
+        // Render typed errors (TokenizeUnsupportedError, etc.) in OpenAI shape. (T1.6)
+        app.middleware.use(OpenAIErrorRenderingMiddleware())
+
         // Add custom error middleware to handle payload too large errors
         app.middleware.use(PayloadTooLargeMiddleware())
 
@@ -299,6 +352,14 @@ class Server {
         try app.register(collection: SpeechAPIController())
         // POST /v1/chat/completions/{id}/cancel — agent cancel endpoint (T1.5).
         try app.register(collection: CancelController())
+        // POST /v1/tokenize, /v1/count_tokens — agent token-budgeting endpoints (T1.6).
+        try app.register(collection: TokenizeController(
+            mlxModelID: mlxModelID,
+            mlxModelService: mlxModelService,
+            contextWindow: contextWindow
+        ))
+        // GET /openapi.json + /docs — schema discovery for self-configuring agents (T1.7).
+        try app.register(collection: OpenAPIController())
 
         if let mlxModelID = mlxModelID, let mlxModelService = mlxModelService {
             let mlxController = MLXChatCompletionsController(
