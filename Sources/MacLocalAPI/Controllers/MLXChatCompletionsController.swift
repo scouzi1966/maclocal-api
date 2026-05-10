@@ -104,7 +104,8 @@ struct MLXChatCompletionsController: RouteCollection {
     private static let debugPipeline = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
 
     func chatCompletions(req: Request) async throws -> Response {
-        let reqId = String(UUID().uuidString.prefix(8))
+        // RequestIDMiddleware sets this; controller piggybacks for log correlation. (T1.1)
+        let reqId = req.afmRequestID
         do {
             let httpArrival = Self.debugPipeline ? Date() : Date.distantPast
             let chatRequest = try req.content.decode(ChatCompletionRequest.self)
@@ -391,6 +392,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 content: result.content,
                 toolCalls: result.toolCalls,
                 toolChoice: chatRequest.toolChoice,
+                parallelToolCalls: chatRequest.parallelToolCalls,
                 extractThinking: extractThinking,
                 thinkStartTag: service.thinkStartTag ?? "<think>",
                 thinkEndTag: service.thinkEndTag ?? "</think>",
@@ -986,6 +988,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     content: fullContent,
                     toolCalls: hasToolCalls ? collectedToolCalls : nil,
                     toolChoice: chatRequest.toolChoice,
+                    parallelToolCalls: chatRequest.parallelToolCalls,
                     extractThinking: extractThinking,
                     thinkStartTag: thinkStartTag ?? "<think>",
                     thinkEndTag: thinkEndTag ?? "</think>",
@@ -1108,15 +1111,18 @@ struct MLXChatCompletionsController: RouteCollection {
                 if let jsonString = String(data: finalData, encoding: .utf8) {
                     try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                 }
-                let usageChunk = ChatCompletionStreamResponse(
-                    id: streamId,
-                    model: res.modelID,
-                    usage: usage,
-                    timings: StreamTimings(prompt_n: promptTokens, prompt_ms: promptTime * 1000, predicted_n: completionTokens, predicted_ms: generateTime * 1000)
-                )
-                let usageData = try encoder.encode(usageChunk)
-                if let jsonString = String(data: usageData, encoding: .utf8) {
-                    try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                // Gate the usage chunk on stream_options.include_usage. (T1.2)
+                if chatRequest.includeStreamingUsage {
+                    let usageChunk = ChatCompletionStreamResponse(
+                        id: streamId,
+                        model: res.modelID,
+                        usage: usage,
+                        timings: StreamTimings(prompt_n: promptTokens, prompt_ms: promptTime * 1000, predicted_n: completionTokens, predicted_ms: generateTime * 1000)
+                    )
+                    let usageData = try encoder.encode(usageChunk)
+                    if let jsonString = String(data: usageData, encoding: .utf8) {
+                        try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                    }
                 }
                 // AFM Profile: send as a final SSE event before [DONE]
                 if wantStreamProfile {
@@ -1425,6 +1431,7 @@ struct MLXChatCompletionsController: RouteCollection {
         content: String,
         toolCalls: [ResponseToolCall]?,
         toolChoice: ToolChoice?,
+        parallelToolCalls: Bool? = nil,
         extractThinking: Bool,
         thinkStartTag: String,
         thinkEndTag: String,
@@ -1433,7 +1440,13 @@ struct MLXChatCompletionsController: RouteCollection {
         maxTokens: Int,
         sanitizeContent: (String) -> String
     ) -> FinalizedAssistantTurn {
-        let effectiveToolCalls = applyToolChoice(toolCalls, toolChoice: toolChoice)
+        var effectiveToolCalls = applyToolChoice(toolCalls, toolChoice: toolChoice)
+        // Honor parallel_tool_calls=false by truncating to the first call. (T1.3)
+        if parallelToolCalls == false,
+           let calls = effectiveToolCalls,
+           calls.count > 1 {
+            effectiveToolCalls = [calls[0]]
+        }
         if let effectiveToolCalls, !effectiveToolCalls.isEmpty {
             return FinalizedAssistantTurn(
                 finishReason: "tool_calls",

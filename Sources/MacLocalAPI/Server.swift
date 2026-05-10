@@ -11,6 +11,49 @@ struct ContinuationKey: StorageKey {
     typealias Value = CheckedContinuation<Void, Error>
 }
 
+/// Storage key for the per-request correlation ID (T1.1).
+/// Set by `RequestIDMiddleware`, read by controllers and error emitters so the
+/// same ID appears on the `X-Request-ID` / `OpenAI-Request-ID` response header,
+/// inside `error.request_id`, and in server logs.
+enum RequestIDKey: StorageKey {
+    typealias Value = String
+}
+
+extension Request {
+    /// The agent-correlatable request ID (T1.1). Always present after the
+    /// `RequestIDMiddleware` has run.
+    var afmRequestID: String {
+        storage[RequestIDKey.self] ?? ""
+    }
+}
+
+/// Mints or echoes a stable request ID for every HTTP request and copies it
+/// to the response headers. Honors inbound `X-Request-ID` (most common) and
+/// `OpenAI-Request-ID` (OpenAI SDK convention); otherwise mints `req_<uuid12>`
+/// matching the format used by `BatchAPIController`. (T1.1)
+struct RequestIDMiddleware: AsyncMiddleware {
+    static let inboundHeaders = ["X-Request-ID", "OpenAI-Request-ID"]
+    static let outboundHeaders = ["X-Request-ID", "OpenAI-Request-ID"]
+
+    static func mint() -> String {
+        "req_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(12)
+    }
+
+    func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
+        let inbound = Self.inboundHeaders
+            .compactMap { request.headers.first(name: $0)?.trimmingCharacters(in: .whitespaces) }
+            .first(where: { !$0.isEmpty })
+        let id = inbound ?? Self.mint()
+        request.storage.set(RequestIDKey.self, to: id)
+
+        let response = try await next.respond(to: request)
+        for name in Self.outboundHeaders {
+            response.headers.replaceOrAdd(name: name, value: id)
+        }
+        return response
+    }
+}
+
 // Middleware to handle payload too large errors with a user-friendly message
 struct PayloadTooLargeMiddleware: AsyncMiddleware {
     func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
@@ -18,9 +61,11 @@ struct PayloadTooLargeMiddleware: AsyncMiddleware {
             return try await next.respond(to: request)
         } catch let abort as Abort where abort.status == .payloadTooLarge {
             // Return a JSON error response compatible with OpenAI format
+            let reqId = request.afmRequestID
             let errorResponse = OpenAIError(
                 message: "Your conversation is too long. Please start a new conversation.",
-                type: "payload_too_large"
+                type: "payload_too_large",
+                requestId: reqId.isEmpty ? nil : reqId
             )
             let response = Response(status: .payloadTooLarge)
             response.headers.add(name: .contentType, value: "application/json")
@@ -132,6 +177,10 @@ class Server {
         // Increase max body size for long conversations (default is 16KB)
         // 100MB should handle very long conversation histories
         app.routes.defaultMaxBodySize = "100mb"
+
+        // Mint/echo X-Request-ID for every request — must run before other
+        // middleware so ID is visible in error paths too. (T1.1)
+        app.middleware.use(RequestIDMiddleware())
 
         // Add custom error middleware to handle payload too large errors
         app.middleware.use(PayloadTooLargeMiddleware())

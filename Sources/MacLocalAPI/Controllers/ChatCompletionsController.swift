@@ -420,21 +420,26 @@ struct ChatCompletionsController: RouteCollection {
                 if let jsonString = String(data: finalData, encoding: .utf8) {
                     try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                 }
-                let usageChunk = ChatCompletionStreamResponse(
-                    id: streamId,
-                    model: chatRequest.model ?? "foundation",
-                    usage: usage,
-                    timings: timings
-                )
-                let usageData = try encoder.encode(usageChunk)
-                if let jsonString = String(data: usageData, encoding: .utf8) {
-                    try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                // Gate the usage chunk on stream_options.include_usage. (T1.2)
+                if chatRequest.includeStreamingUsage {
+                    let usageChunk = ChatCompletionStreamResponse(
+                        id: streamId,
+                        model: chatRequest.model ?? "foundation",
+                        usage: usage,
+                        timings: timings
+                    )
+                    let usageData = try encoder.encode(usageChunk)
+                    if let jsonString = String(data: usageData, encoding: .utf8) {
+                        try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                    }
+                    if self.veryVerbose {
+                        req.logger.info("Foundation stream usage chunk: \(encodeJSON(usageChunk))")
+                    }
                 }
                 if self.veryVerbose {
                     req.logger.info("Foundation full streamed response content: \(fullStreamedContent)")
                     req.logger.info("Foundation stream final usage: \(encodeJSON(usage))")
                     req.logger.info("Foundation stream final chunk: \(encodeJSON(finalChunk))")
-                    req.logger.info("Foundation stream usage chunk: \(encodeJSON(usageChunk))")
                 }
 
                 // Send done marker

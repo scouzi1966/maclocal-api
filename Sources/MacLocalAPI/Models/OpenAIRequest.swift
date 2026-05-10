@@ -19,9 +19,11 @@ struct ChatCompletionRequest: Content {
     let topLogprobs: Int?
     let stop: [String]?
     let stream: Bool?
+    let streamOptions: StreamOptions?
     let user: String?
     let tools: [RequestTool]?
     let toolChoice: ToolChoice?
+    let parallelToolCalls: Bool?
     let responseFormat: ResponseFormat?
     let chatTemplateKwargs: [String: AnyCodable]?
 
@@ -43,11 +45,19 @@ struct ChatCompletionRequest: Content {
         case topLogprobs = "top_logprobs"
         case stop
         case stream
+        case streamOptions = "stream_options"
         case user
         case tools
         case toolChoice = "tool_choice"
+        case parallelToolCalls = "parallel_tool_calls"
         case responseFormat = "response_format"
         case chatTemplateKwargs = "chat_template_kwargs"
+    }
+
+    /// Whether the final SSE chunk should carry a `usage` block. Mirrors OpenAI's
+    /// `stream_options.include_usage`. Default true preserves existing behavior. (T1.2)
+    var includeStreamingUsage: Bool {
+        streamOptions?.includeUsage ?? true
     }
 
     var effectiveMaxTokens: Int? {
@@ -56,6 +66,15 @@ struct ChatCompletionRequest: Content {
 
     var effectiveRepetitionPenalty: Double? {
         repetitionPenalty ?? repeatPenalty
+    }
+}
+
+/// OpenAI-compatible `stream_options`. Currently models `include_usage`. (T1.2)
+struct StreamOptions: Content {
+    let includeUsage: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case includeUsage = "include_usage"
     }
 }
 
