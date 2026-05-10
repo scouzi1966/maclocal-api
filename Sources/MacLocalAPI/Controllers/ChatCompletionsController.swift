@@ -330,6 +330,12 @@ struct ChatCompletionsController: RouteCollection {
         // T1.4/T1.5: Capture inflight registry + request id for cancellation hook.
         let inflightRegistry = req.application.inflightRegistry
         let streamReqId = req.afmRequestID
+        // Register the cancel hook BEFORE the asyncStream closure spawns the
+        // body Task — closes the cancel-arrives-too-early race. (T1.4/T1.5 fix)
+        let cancelHandle = CancellableTaskHandle()
+        if !streamReqId.isEmpty {
+            await inflightRegistry.register(id: streamReqId, cancel: { cancelHandle.cancel() })
+        }
 
         httpResponse.body = .init(asyncStream: { writer in
             let bodyTask = Task<Void, Never> {
@@ -460,53 +466,71 @@ struct ChatCompletionsController: RouteCollection {
                 try await writer.write(.end)
 
             } catch {
-                req.logger.error("Streaming error: \(error)")
-
-                // Detect specific error types and provide user-friendly messages
-                let errorMessage: String
-
-                if let foundationError = error as? FoundationModelError {
-                    switch foundationError {
-                    case .contextWindowExceeded(let provided, let maximum):
-                        errorMessage = "⚠️ **Context window exceeded**\n\nYour conversation has \(provided) tokens but the maximum is \(maximum).\n\nPlease start a new conversation or reduce the message length."
-                    case .guardrailViolation(let message):
-                        errorMessage = "⚠️ **Content Policy Violation**\n\n\(message)\n\nPlease rephrase your request."
-                    default:
-                        errorMessage = "⚠️ **Error**\n\n\(foundationError.localizedDescription)"
+                // Distinguish cooperative cancellation (T1.4/T1.5) from genuine
+                // errors. Cancellation must NOT emit a "⚠️ Error" content chunk.
+                let isCancellation = (error is CancellationError) || Task.isCancelled
+                if isCancellation {
+                    req.logger.info("Streaming cancelled")
+                    let cancelledFinal = ChatCompletionStreamResponse(
+                        id: streamId,
+                        model: chatRequest.model ?? "foundation",
+                        content: "",
+                        isFinished: true,
+                        finishReason: "cancelled"
+                    )
+                    if let data = try? encoder.encode(cancelledFinal),
+                       let jsonString = String(data: data, encoding: .utf8) {
+                        try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                     }
                 } else {
-                    let errorString = String(describing: error)
-                    if errorString.contains("exceededContextWindowSize") || errorString.contains("context") && errorString.contains("exceeds") {
-                        errorMessage = "⚠️ **Context window exceeded**\n\nThe conversation is too long. Apple Foundation Models has a 4096 token limit.\n\nPlease start a new conversation."
-                    } else if errorString.contains("guardrailViolation") || errorString.contains("unsafe content") {
-                        errorMessage = "⚠️ **Content Policy Violation**\n\nYour request was blocked due to content policy restrictions.\n\nPlease rephrase your request."
+                    req.logger.error("Streaming error: \(error)")
+
+                    // Detect specific error types and provide user-friendly messages
+                    let errorMessage: String
+
+                    if let foundationError = error as? FoundationModelError {
+                        switch foundationError {
+                        case .contextWindowExceeded(let provided, let maximum):
+                            errorMessage = "⚠️ **Context window exceeded**\n\nYour conversation has \(provided) tokens but the maximum is \(maximum).\n\nPlease start a new conversation or reduce the message length."
+                        case .guardrailViolation(let message):
+                            errorMessage = "⚠️ **Content Policy Violation**\n\n\(message)\n\nPlease rephrase your request."
+                        default:
+                            errorMessage = "⚠️ **Error**\n\n\(foundationError.localizedDescription)"
+                        }
                     } else {
-                        errorMessage = "⚠️ **Error**\n\n\(error.localizedDescription)"
+                        let errorString = String(describing: error)
+                        if errorString.contains("exceededContextWindowSize") || errorString.contains("context") && errorString.contains("exceeds") {
+                            errorMessage = "⚠️ **Context window exceeded**\n\nThe conversation is too long. Apple Foundation Models has a 4096 token limit.\n\nPlease start a new conversation."
+                        } else if errorString.contains("guardrailViolation") || errorString.contains("unsafe content") {
+                            errorMessage = "⚠️ **Content Policy Violation**\n\nYour request was blocked due to content policy restrictions.\n\nPlease rephrase your request."
+                        } else {
+                            errorMessage = "⚠️ **Error**\n\n\(error.localizedDescription)"
+                        }
                     }
-                }
 
-                // Send error as visible content in the chat (so user sees it)
-                let errorChunk = ChatCompletionStreamResponse(
-                    id: streamId,
-                    model: chatRequest.model ?? "foundation",
-                    content: errorMessage,
-                    isFirst: true
-                )
-                if let errorData = try? encoder.encode(errorChunk),
-                   let jsonString = String(data: errorData, encoding: .utf8) {
-                    try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
-                }
+                    // Send error as visible content in the chat (so user sees it)
+                    let errorChunk = ChatCompletionStreamResponse(
+                        id: streamId,
+                        model: chatRequest.model ?? "foundation",
+                        content: errorMessage,
+                        isFirst: true
+                    )
+                    if let errorData = try? encoder.encode(errorChunk),
+                       let jsonString = String(data: errorData, encoding: .utf8) {
+                        try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                    }
 
-                // Send final chunk to mark completion
-                let finalChunk = ChatCompletionStreamResponse(
-                    id: streamId,
-                    model: chatRequest.model ?? "foundation",
-                    content: "",
-                    isFinished: true
-                )
-                if let finalData = try? encoder.encode(finalChunk),
-                   let jsonString = String(data: finalData, encoding: .utf8) {
-                    try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                    // Send final chunk to mark completion
+                    let finalChunk = ChatCompletionStreamResponse(
+                        id: streamId,
+                        model: chatRequest.model ?? "foundation",
+                        content: "",
+                        isFinished: true
+                    )
+                    if let finalData = try? encoder.encode(finalChunk),
+                       let jsonString = String(data: finalData, encoding: .utf8) {
+                        try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                    }
                 }
 
                 // Send [DONE] marker to properly terminate the stream
@@ -514,10 +538,9 @@ struct ChatCompletionsController: RouteCollection {
                 try? await writer.write(.end)
             }
             } // end bodyTask
-            // T1.4/T1.5: Register cancel hook, await body completion, release.
-            if !streamReqId.isEmpty {
-                await inflightRegistry.register(id: streamReqId, cancel: { bodyTask.cancel() })
-            }
+            // T1.4/T1.5: Bridge bodyTask into the pre-registered cancel handle,
+            // await completion, then release.
+            cancelHandle.assign(bodyTask)
             _ = await bodyTask.value
             if !streamReqId.isEmpty {
                 await inflightRegistry.release(id: streamReqId)

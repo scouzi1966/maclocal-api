@@ -45,6 +45,39 @@ actor InflightRequestRegistry {
     }
 }
 
+/// Bridges the gap between (a) the request handler's synchronous registration
+/// of a cancel closure with `InflightRequestRegistry` and (b) the deferred
+/// creation of the actual streaming `Task` inside Vapor's `asyncStream`
+/// closure. The registry stores `cancel(handle.cancel)`; the asyncStream
+/// closure later calls `handle.assign(bodyTask)`. If a cancellation arrived
+/// before assignment, `assign` immediately cancels the task it just received.
+///
+/// Without this, there's a small race window between when the request handler
+/// returns the streaming Response and when the asyncStream closure spawns the
+/// body Task — a cancel arriving in that window would 404 silently.
+final class CancellableTaskHandle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: Task<Void, Never>?
+    private var cancelledEarly: Bool = false
+
+    /// Called from the asyncStream closure once the body Task is created.
+    func assign(_ t: Task<Void, Never>) {
+        lock.lock(); defer { lock.unlock() }
+        if cancelledEarly {
+            t.cancel()
+        }
+        task = t
+    }
+
+    /// Called from the registry's cancel closure (typically from another HTTP
+    /// request handler — `CancelController.cancel`).
+    func cancel() {
+        lock.lock(); defer { lock.unlock() }
+        cancelledEarly = true
+        task?.cancel()
+    }
+}
+
 extension Application {
     private struct InflightRegistryKey: StorageKey {
         typealias Value = InflightRequestRegistry

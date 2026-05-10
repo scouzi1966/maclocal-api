@@ -31,8 +31,11 @@ struct CancelController: RouteCollection {
     }
 
     func cancel(req: Request) async throws -> Response {
-        guard let id = req.parameters.get("id"),
-              !id.trimmingCharacters(in: .whitespaces).isEmpty else {
+        guard let raw = req.parameters.get("id") else {
+            throw Abort(.badRequest, reason: "missing or empty id parameter")
+        }
+        let id = raw.trimmingCharacters(in: .whitespaces)
+        guard !id.isEmpty else {
             throw Abort(.badRequest, reason: "missing or empty id parameter")
         }
 
