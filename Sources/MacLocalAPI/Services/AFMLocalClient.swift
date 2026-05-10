@@ -57,9 +57,11 @@ final class AFMLocalClient {
             topLogprobs: nil,
             stop: nil,
             stream: false,
+            streamOptions: nil,
             user: userTag,
             tools: nil,
             toolChoice: nil,
+            parallelToolCalls: nil,
             responseFormat: nil,
             chatTemplateKwargs: nil
         )
