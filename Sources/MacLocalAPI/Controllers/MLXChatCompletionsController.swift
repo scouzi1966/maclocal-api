@@ -523,12 +523,22 @@ struct MLXChatCompletionsController: RouteCollection {
         if wantStreamProfile { service.startAPIProfile() }
 
         let streamReqId = requestId
+        // Capture the registry on the request thread so the asyncStream closure
+        // can register a cancel hook without re-resolving it.
+        let inflightRegistry = req.application.inflightRegistry
         httpResponse.body = .init(asyncStream: { writer in
-            // Streaming routes account for their own afm:num_active_connections —
-            // ActiveConnectionsMiddleware filters them because its defer fires
-            // when the controller returns the Response, not when the SSE body
-            // finishes. Bracket the body lifetime here so the gauge stays
-            // accurate. (PR #122 review fix)
+            // T1.4/T1.5: Wrap the streaming body in an explicit Task so we can
+            // cancel it from outside (cancel endpoint, client disconnect detection).
+            // Cooperative cancellation propagates through the AsyncThrowingStream
+            // iterator (`res.stream` below) — when the body Task is cancelled,
+            // its `next()` throws `CancellationError`, the iterator deinits, and
+            // its `onTermination` fires `task.cancel()` on the underlying model
+            // generator (BatchScheduler / MLX serial path), stopping GPU work.
+            let bodyTask = Task<Void, Never> {
+            // PR #122: Streaming routes account for their own
+            // afm:num_active_connections — ActiveConnectionsMiddleware filters
+            // them because its defer fires when the controller returns, not
+            // when the SSE body finishes.
             StatsAggregator.shared.connectionStarted()
             defer { StatsAggregator.shared.connectionEnded() }
             let encoder = JSONEncoder()
@@ -1271,6 +1281,16 @@ struct MLXChatCompletionsController: RouteCollection {
                 }
                 try? await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
                 try? await writer.write(.end)
+            }
+            } // end bodyTask
+            // T1.4/T1.5: Register cancel hook, await body completion, release.
+            // No-op when the request id is empty (degenerate path — middleware always sets one).
+            if !streamReqId.isEmpty {
+                await inflightRegistry.register(id: streamReqId, cancel: { bodyTask.cancel() })
+            }
+            _ = await bodyTask.value
+            if !streamReqId.isEmpty {
+                await inflightRegistry.release(id: streamReqId)
             }
         })
 

@@ -337,6 +337,8 @@ class Server {
 
         try app.register(collection: VisionAPIController())
         try app.register(collection: SpeechAPIController())
+        // POST /v1/chat/completions/{id}/cancel — agent cancel endpoint (T1.5).
+        try app.register(collection: CancelController())
 
         if let mlxModelID = mlxModelID, let mlxModelService = mlxModelService {
             let mlxController = MLXChatCompletionsController(

@@ -327,10 +327,15 @@ struct ChatCompletionsController: RouteCollection {
         httpResponse.headers.add(name: "X-Accel-Buffering", value: "no")
 
         let streamId = UUID().uuidString
+        // T1.4/T1.5: Capture inflight registry + request id for cancellation hook.
+        let inflightRegistry = req.application.inflightRegistry
+        let streamReqId = req.afmRequestID
 
         httpResponse.body = .init(asyncStream: { writer in
-            // Streaming routes account for their own afm:num_active_connections.
-            // See MLXChatCompletionsController for the rationale. (PR #122 review fix)
+            let bodyTask = Task<Void, Never> {
+            // PR #122: Streaming routes account for their own
+            // afm:num_active_connections. See MLXChatCompletionsController
+            // for the rationale.
             StatsAggregator.shared.connectionStarted()
             defer { StatsAggregator.shared.connectionEnded() }
             let encoder = JSONEncoder()
@@ -507,6 +512,15 @@ struct ChatCompletionsController: RouteCollection {
                 // Send [DONE] marker to properly terminate the stream
                 try? await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
                 try? await writer.write(.end)
+            }
+            } // end bodyTask
+            // T1.4/T1.5: Register cancel hook, await body completion, release.
+            if !streamReqId.isEmpty {
+                await inflightRegistry.register(id: streamReqId, cancel: { bodyTask.cancel() })
+            }
+            _ = await bodyTask.value
+            if !streamReqId.isEmpty {
+                await inflightRegistry.release(id: streamReqId)
             }
         })
 
