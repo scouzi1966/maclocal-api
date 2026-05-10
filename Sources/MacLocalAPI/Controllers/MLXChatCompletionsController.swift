@@ -522,7 +522,25 @@ struct MLXChatCompletionsController: RouteCollection {
         if wantStreamProfile { service.startAPIProfile() }
 
         let streamReqId = requestId
+        // Capture the registry on the request thread so the asyncStream closure
+        // can register a cancel hook without re-resolving it.
+        let inflightRegistry = req.application.inflightRegistry
+        // Register the cancel hook BEFORE the asyncStream closure spawns the
+        // body Task. Eliminates the race where a cancel arrives between the
+        // Response being returned and the closure firing. (T1.4/T1.5 fix)
+        let cancelHandle = CancellableTaskHandle()
+        if !streamReqId.isEmpty {
+            await inflightRegistry.register(id: streamReqId, cancel: { cancelHandle.cancel() })
+        }
         httpResponse.body = .init(asyncStream: { writer in
+            // T1.4/T1.5: Wrap the streaming body in an explicit Task so we can
+            // cancel it from outside (cancel endpoint, client disconnect detection).
+            // Cooperative cancellation propagates through the AsyncThrowingStream
+            // iterator (`res.stream` below) — when the body Task is cancelled,
+            // its `next()` throws `CancellationError`, the iterator deinits, and
+            // its `onTermination` fires `task.cancel()` on the underlying model
+            // generator (BatchScheduler / MLX serial path), stopping GPU work.
+            let bodyTask = Task<Void, Never> {
             let encoder = JSONEncoder()
             var fullContent = ""
             let started = Date()
@@ -1157,31 +1175,60 @@ struct MLXChatCompletionsController: RouteCollection {
                 if wantStreamProfile || wantStreamExtended {
                     _ = self.service.stopAPIProfile(promptTokens: 0, completionTokens: 0, promptTime: 0, generateTime: 0)
                 }
-                // Log summary even on error/cancellation
+                // Distinguish cooperative cancellation (T1.4/T1.5) from genuine
+                // errors. Cancellation must NOT emit a "⚠️ Error" content chunk;
+                // the stream should end cleanly with finish_reason="cancelled".
+                let isCancellation = (error is CancellationError) || Task.isCancelled
                 let completionTokens = self.estimateTokens(fullContent)
                 let generationDuration = max(Date().timeIntervalSince(started), 0.001)
                 let tokPerSec = generationDuration > 0 ? Double(completionTokens) / generationDuration : 0
-                if self.veryVerbose {
-                    let (finalAnswer, _) = Self.extractThinkContent(from: fullContent, startTag: self.service.thinkStartTag ?? "<think>", endTag: self.service.thinkEndTag ?? "</think>")
-                    let trimmedAnswer = finalAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmedAnswer.isEmpty {
-                        print("\(Self.teal)[\(Self.timestamp())] MLX full answer (before error):\n  \(trimmedAnswer)\(Self.reset)")
+                if isCancellation {
+                    if self.veryVerbose {
+                        print("\(Self.orange)[\(Self.timestamp())] MLX cancelled: stream=true completion_tokens=\(completionTokens) elapsed=\(String(format: "%.2f", generationDuration))s\(Self.reset)")
+                        fflush(stdout)
                     }
-                    print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true\n  completion_tokens=\(completionTokens)\n  elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec))\n  error=\(error.localizedDescription)\(Self.reset)")
-                    fflush(stdout)
-                }
-                req.logger.error("[\(Self.timestamp())] MLX stream error: \(error)")
-                let errorChunk = ChatCompletionStreamResponse(
-                    id: streamId,
-                    model: self.modelID,
-                    content: "⚠️ **Error**\n\n\(error.localizedDescription)",
-                    isFirst: true
-                )
-                if let data = try? encoder.encode(errorChunk), let json = String(data: data, encoding: .utf8) {
-                    try? await writer.write(.buffer(.init(string: "data: \(json)\n\n")))
+                    let cancelledFinal = ChatCompletionStreamResponse(
+                        id: streamId,
+                        model: self.modelID,
+                        content: "",
+                        isFinished: true,
+                        finishReason: "cancelled"
+                    )
+                    if let data = try? encoder.encode(cancelledFinal), let json = String(data: data, encoding: .utf8) {
+                        try? await writer.write(.buffer(.init(string: "data: \(json)\n\n")))
+                    }
+                } else {
+                    if self.veryVerbose {
+                        let (finalAnswer, _) = Self.extractThinkContent(from: fullContent, startTag: self.service.thinkStartTag ?? "<think>", endTag: self.service.thinkEndTag ?? "</think>")
+                        let trimmedAnswer = finalAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmedAnswer.isEmpty {
+                            print("\(Self.teal)[\(Self.timestamp())] MLX full answer (before error):\n  \(trimmedAnswer)\(Self.reset)")
+                        }
+                        print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=true\n  completion_tokens=\(completionTokens)\n  elapsed=\(String(format: "%.2f", generationDuration))s tok/s=\(String(format: "%.1f", tokPerSec))\n  error=\(error.localizedDescription)\(Self.reset)")
+                        fflush(stdout)
+                    }
+                    req.logger.error("[\(Self.timestamp())] MLX stream error: \(error)")
+                    let errorChunk = ChatCompletionStreamResponse(
+                        id: streamId,
+                        model: self.modelID,
+                        content: "⚠️ **Error**\n\n\(error.localizedDescription)",
+                        isFirst: true
+                    )
+                    if let data = try? encoder.encode(errorChunk), let json = String(data: data, encoding: .utf8) {
+                        try? await writer.write(.buffer(.init(string: "data: \(json)\n\n")))
+                    }
                 }
                 try? await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
                 try? await writer.write(.end)
+            }
+            } // end bodyTask
+            // T1.4/T1.5: Bridge bodyTask into the pre-registered cancel handle,
+            // await completion, then release. Pre-registration eliminates the
+            // race where cancel arrives before the closure fires.
+            cancelHandle.assign(bodyTask)
+            _ = await bodyTask.value
+            if !streamReqId.isEmpty {
+                await inflightRegistry.release(id: streamReqId)
             }
         })
 
