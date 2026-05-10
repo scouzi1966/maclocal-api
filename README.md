@@ -107,6 +107,34 @@ MACAFM_MLX_MODEL_CACHE=/path/to/models afm mlx -w
 afm -w
 ```
 
+## Why AFM for agents
+
+afm is built for agentic clients — OpenCode, OpenClaw, Cline, Continue.dev, Aider, Cursor, Hermes — that drive multi-turn tool-using LLM loops against a local OpenAI-compatible endpoint. The capabilities below are already in the box:
+
+| Capability | What it gets you | Where it lives |
+|---|---|---|
+| **7+ tool-call formats, auto-detected** | json, lfm2, xmlFunction (Qwen3-Coder), glm4, gemma, kimiK2, minimaxM2 picked from `model_type` in `config.json` — no per-model tuning | `MLXModelService.swift:inferToolCallFormat` |
+| **`afm_adaptive_xml` parser** | JSON-in-XML fallback, type coercion, nullable schema flatten, fuzzy tool-name match — survives the malformed XML real models emit | `Models/ToolCallStreamingRuntime.swift` |
+| **`tool_choice`: auto / none / required / named function** | Standard OpenAI semantics; named-function forcing routed end-to-end | `Models/OpenAIRequest.swift:ToolChoice` |
+| **Streaming tool-call deltas** | Token-level start/end tag detection; content outside tool calls streams normally | `Controllers/MLXChatCompletionsController.swift` |
+| **`<think>` + harmony channel reasoning extraction** | Routes Qwen/DeepSeek `<think>…</think>` and gpt-oss `<\|channel\|>analysis…` into `reasoning_content` so the WebUI/agent can show it separately | `Controllers/MLXChatCompletionsController.swift:extractThinkTags / extractHarmonyChannels` |
+| **Strict `json_schema` + xgrammar EBNF** | Guaranteed-valid JSON via token-level grammar enforcement when `--enable-grammar-constraints` is on | `Models/XGrammarService.swift` |
+| **`--guided-json` server default** | One CLI flag pins a schema across every chat request that omits its own `response_format` (Foundation + MLX backends) | `Sources/MacLocalAPI/main.swift` |
+| **Deterministic `seed`, `logprobs`, `top_logprobs`** | All sampling controls (temperature, top_p, top_k, min_p, repetition_penalty, presence_penalty, seed, logprobs+top_logprobs up to 20) plumbed end-to-end | `Models/OpenAIRequest.swift` + `Scripts/patches/Evaluate.swift` |
+| **Radix-tree prefix KV cache** | `--enable-prefix-caching` reuses KV across turns — agent loops with stable system prompts get prefill for free | `Models/RadixTreeCache.swift` |
+| **4/8-bit KV quantization** | `--kv-bits 4|8` cuts memory ~2-4× on long-context turns | `Sources/MacLocalAPI/main.swift` |
+| **Concurrent batch decode** | `--concurrent N` runs N requests through one model with fair queueing; vLLM-style metrics expose queue depth | `Models/BatchScheduler.swift` |
+| **vLLM-namespaced Prometheus `/metrics`** | `afm:max_concurrent_slots`, `afm:num_requests_running`, `afm:num_requests_waiting`, plus per-request token/timing histograms | `Controllers/MetricsController.swift` |
+| **`Retry-After: 2` on 503** | Tells well-behaved agents (LangChain, OpenAI SDK) when to retry — no thundering herd | `Controllers/MLXChatCompletionsController.swift` |
+| **Multi-backend gateway mode** | `--gateway` discovers Ollama / LM Studio / Jan on the same machine and proxies them under one OpenAI surface, normalizing `reasoning` → `reasoning_content` | `Models/BackendDiscoveryService.swift` + `BackendProxyService.swift` |
+| **`X-Request-ID` / `OpenAI-Request-ID` echo** | Inbound IDs are honored; otherwise minted as `req_<uuid12>`. Echoed on every response and inside `error.request_id` for retry correlation | `Server.swift:RequestIDMiddleware` |
+| **`stream_options.include_usage` honored** | Suppress the final usage chunk when the client doesn't want it (matches OpenAI strict mode) | `Models/OpenAIRequest.swift:StreamOptions` |
+| **`parallel_tool_calls: false` honored** | Truncate to a single tool call per turn for agents that want serial execution | `Controllers/MLXChatCompletionsController.swift:finalizeAssistantTurn` |
+| **Speech (transcribe + TTS) and Vision OCR** | `/v1/audio/transcriptions`, `/v1/audio/speech`, `/v1/ocr` — agents can hand off audio/image inputs without a separate service | `Controllers/SpeechAPIController.swift`, `VisionAPIController.swift` |
+| **Per-client config generators** | `afm mlx -m <model> --openclaw-config` prints a paste-ready provider config; cookbook recipes in [`docs/clients/`](docs/clients/) cover OpenCode, OpenClaw, Cline, Continue.dev, Aider, Cursor, Hermes | `Sources/MacLocalAPI/main.swift:printOpenClawConfig` |
+
+See [`docs/clients/`](docs/clients/) for one-page recipes per agent.
+
 ## Use with OpenCode
 
 [OpenCode](https://opencode.ai/) is a terminal-based AI coding assistant. Connect it to afm for a fully local coding experience — no cloud, no API keys. No Internet required (other than initially download the model of course!)

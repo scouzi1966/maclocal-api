@@ -537,10 +537,17 @@ struct OpenAIError: Content, Error {
         let message: String
         let type: String
         let code: String?
+        /// Correlates with the `X-Request-ID`/`OpenAI-Request-ID` response header. (T1.1)
+        let requestId: String?
+
+        enum CodingKeys: String, CodingKey {
+            case message, type, code
+            case requestId = "request_id"
+        }
     }
 
-    init(message: String, type: String = "invalid_request_error", code: String? = nil) {
-        self.error = ErrorDetail(message: message, type: type, code: code)
+    init(message: String, type: String = "invalid_request_error", code: String? = nil, requestId: String? = nil) {
+        self.error = ErrorDetail(message: message, type: type, code: code, requestId: requestId)
     }
 }
 

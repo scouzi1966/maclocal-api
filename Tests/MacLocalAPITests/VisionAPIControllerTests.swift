@@ -154,9 +154,11 @@ final class VisionAPIControllerTests: XCTestCase {
             topLogprobs: nil,
             stop: nil,
             stream: nil,
+            streamOptions: nil,
             user: nil,
             tools: [tool],
             toolChoice: .mode("auto"),
+            parallelToolCalls: nil,
             responseFormat: nil,
             chatTemplateKwargs: nil
         )
