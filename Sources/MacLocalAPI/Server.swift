@@ -58,6 +58,11 @@ struct RequestIDMiddleware: AsyncMiddleware {
 /// in OpenAI's `{"error": {"message", "type", "code", "request_id"}}` shape so
 /// agents using the OpenAI SDK get a parsable error body. Falls through for
 /// everything else so Vapor's default error middleware still handles it. (T1.6)
+///
+/// Both `type` and `code` are populated with the same machine-readable
+/// identifier (`tokenize_unsupported`, `invalid_request_error`, …). OpenAI's
+/// SDKs commonly switch on `code`, so leaving it nil makes those clients fall
+/// through to a generic-error path even though `type` is meaningful.
 struct OpenAIErrorRenderingMiddleware: AsyncMiddleware {
     func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
         do {
@@ -68,6 +73,7 @@ struct OpenAIErrorRenderingMiddleware: AsyncMiddleware {
                 status: err.status,
                 message: err.reason,
                 type: TokenizeUnsupportedError.errorType,
+                code: TokenizeUnsupportedError.errorType,
                 requestId: err.requestId
             )
         } catch let err as TokenizeBadRequestError {
@@ -76,17 +82,18 @@ struct OpenAIErrorRenderingMiddleware: AsyncMiddleware {
                 status: err.status,
                 message: err.reason,
                 type: TokenizeBadRequestError.errorType,
+                code: TokenizeBadRequestError.errorType,
                 requestId: err.requestId
             )
         }
     }
 
-    private static func render(request: Request, status: HTTPResponseStatus, message: String, type: String, requestId: String) throws -> Response {
+    private static func render(request: Request, status: HTTPResponseStatus, message: String, type: String, code: String?, requestId: String) throws -> Response {
         let id = requestId.isEmpty ? request.afmRequestID : requestId
         let payload = OpenAIError(
             message: message,
             type: type,
-            code: nil,
+            code: code,
             requestId: id.isEmpty ? nil : id
         )
         let response = Response(status: status)
