@@ -35,7 +35,9 @@ struct TokenizeController: RouteCollection {
         let response = Response(status: .ok)
         response.headers.add(name: .accessControlAllowOrigin, value: "*")
         response.headers.add(name: .accessControlAllowMethods, value: "POST, OPTIONS")
-        response.headers.add(name: .accessControlAllowHeaders, value: "Content-Type, Authorization")
+        // Browser agents that pass X-Request-ID / OpenAI-Request-ID need the
+        // preflight to whitelist them or the actual request fails with CORS. (T1.1/T1.6)
+        response.headers.add(name: .accessControlAllowHeaders, value: "Content-Type, Authorization, X-Request-ID, OpenAI-Request-ID")
         return response
     }
 
@@ -76,7 +78,14 @@ struct TokenizeController: RouteCollection {
            service.normalizeModel(requestedModel) != loaded {
             req.logger.info("tokenize: requested model '\(requestedModel)' differs from loaded '\(loaded)'; tokenizing with the loaded one")
         }
-        return try await service.tokenize(text: text)
+        do {
+            return try await service.tokenize(text: text)
+        } catch MLXServiceError.noModelLoaded {
+            // Service exists but its container went away (e.g. teardown). Surface
+            // the same OpenAI-shaped 422 the no-MLX-mode path uses, instead of
+            // letting the raw MLX error escape and bypass our error middleware.
+            throw TokenizeUnsupportedError(requestId: req.afmRequestID)
+        }
     }
 
     private static func decodeBody(_ req: Request) throws -> TokenizeRequest {
