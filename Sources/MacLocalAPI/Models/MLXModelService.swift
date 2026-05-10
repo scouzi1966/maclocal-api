@@ -1417,6 +1417,17 @@ final class MLXModelService: @unchecked Sendable {
         // function, after `completionInfo` is available.
         let serialQueuedAt = Date()
         StatsAggregator.shared.requestStarted()
+        // Balance the requests_started_total counter on every exit, including
+        // throws between here and the success path below. Without this, an
+        // error during model load or input prep increments started_total
+        // without a matching completed_total, breaking dashboards and alerts.
+        var serialRequestRecorded = false
+        defer {
+            if !serialRequestRecorded {
+                StatsAggregator.shared.requestSucceeded(reason: "error")
+                StatsAggregator.shared.requestCompleted()
+            }
+        }
 
         let modelID = try await ensureLoaded(model: model, countOperation: false)
         guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
@@ -1934,6 +1945,7 @@ final class MLXModelService: @unchecked Sendable {
             }
             StatsAggregator.shared.requestSucceeded(reason: serialFinishedReason)
             StatsAggregator.shared.requestCompleted()
+            serialRequestRecorded = true
 
             return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount, promptTime, generateTime, stoppedBySequence)
         }

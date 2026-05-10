@@ -329,6 +329,10 @@ struct ChatCompletionsController: RouteCollection {
         let streamId = UUID().uuidString
 
         httpResponse.body = .init(asyncStream: { writer in
+            // Streaming routes account for their own afm:num_active_connections.
+            // See MLXChatCompletionsController for the rationale. (PR #122 review fix)
+            StatsAggregator.shared.connectionStarted()
+            defer { StatsAggregator.shared.connectionEnded() }
             let encoder = JSONEncoder()
             var fullStreamedContent = ""
 
@@ -519,6 +523,10 @@ struct ChatCompletionsController: RouteCollection {
         let model = chatRequest.model ?? "foundation"
 
         httpResponse.body = .init(asyncStream: { writer in
+            // Bypass streaming (vision OCR / speech) — same active-connections
+            // bracket as the regular chat path. (PR #122 review fix)
+            StatsAggregator.shared.connectionStarted()
+            defer { StatsAggregator.shared.connectionEnded() }
             let encoder = JSONEncoder()
 
             do {

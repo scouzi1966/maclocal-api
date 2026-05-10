@@ -101,12 +101,15 @@ public final class StatsAggregator: @unchecked Sendable {
         }
 
         public mutating func observe(_ value: Double) {
-            // Guard against NaN / negative noise — clamp to 0 so the
-            // sum is meaningful.
-            let v = (value.isFinite && value >= 0) ? value : 0
-            sum += v
+            // Drop NaN / negative noise instead of clamping to 0.
+            // Clamping would systematically bias percentiles toward the
+            // lowest bucket whenever upstream emits a bad measurement,
+            // skewing p50/p95 used for SLOs and dashboard alerts.
+            guard value.isFinite, value >= 0 else { return }
+
+            sum += value
             count &+= 1
-            for i in 0..<buckets.count where v <= buckets[i] {
+            for i in 0..<buckets.count where value <= buckets[i] {
                 bucketCounts[i] &+= 1
             }
             // +Inf bucket always increments

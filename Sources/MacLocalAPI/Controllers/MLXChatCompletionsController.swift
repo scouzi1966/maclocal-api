@@ -522,6 +522,13 @@ struct MLXChatCompletionsController: RouteCollection {
 
         let streamReqId = requestId
         httpResponse.body = .init(asyncStream: { writer in
+            // Streaming routes account for their own afm:num_active_connections —
+            // ActiveConnectionsMiddleware filters them because its defer fires
+            // when the controller returns the Response, not when the SSE body
+            // finishes. Bracket the body lifetime here so the gauge stays
+            // accurate. (PR #122 review fix)
+            StatsAggregator.shared.connectionStarted()
+            defer { StatsAggregator.shared.connectionEnded() }
             let encoder = JSONEncoder()
             var fullContent = ""
             let started = Date()

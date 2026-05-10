@@ -37,10 +37,30 @@ struct PayloadTooLargeMiddleware: AsyncMiddleware {
 /// returns to zero even on early throws). Filters out the /metrics
 /// endpoint itself so a Prometheus scrape doesn't show up as a
 /// connection — that would be self-referential noise on every poll.
+///
+/// Streaming endpoints (chat completions when `stream:true`) account
+/// for themselves: their handler returns the Response object
+/// immediately while the SSE body keeps writing for the duration of
+/// the generation. If we counted them here, the gauge would
+/// undercount — defer fires when `next.respond` returns, not when the
+/// body finishes. Streaming controllers wrap the asyncStream body in
+/// their own connectionStarted/connectionEnded bracket.
 struct ActiveConnectionsMiddleware: AsyncMiddleware {
+    static let nonStreamingExcluded: Set<String> = ["/metrics", "/health", "/healthz", "/openapi.json", "/docs"]
+    static let streamingPaths: Set<String> = [
+        "/v1/chat/completions",
+        "/v1/batch/completions"
+    ]
+
+    static func shouldTrackInMiddleware(path: String) -> Bool {
+        if nonStreamingExcluded.contains(path) { return false }
+        // Filter the streaming chat path — its controller handles its own counting.
+        if streamingPaths.contains(path) { return false }
+        return true
+    }
+
     func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
-        let path = request.url.path
-        let track = !(path == "/metrics" || path == "/health" || path == "/healthz")
+        let track = Self.shouldTrackInMiddleware(path: request.url.path)
         if track { StatsAggregator.shared.connectionStarted() }
         defer { if track { StatsAggregator.shared.connectionEnded() } }
         return try await next.respond(to: request)
