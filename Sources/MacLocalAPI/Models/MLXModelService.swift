@@ -3383,14 +3383,31 @@ final class MLXModelService: @unchecked Sendable {
         for (k, v) in parsed {
             if let s = v as? String {
                 arguments[k] = s
-            } else if let data = try? JSONSerialization.data(withJSONObject: v),
-                      let s = String(data: data, encoding: .utf8) {
+            } else if let s = jsonValueToString(v) {
                 arguments[k] = s
             } else {
                 arguments[k] = "\(v)"
             }
         }
         return ToolCall(function: .init(name: name, arguments: arguments))
+    }
+
+    /// Serialize a JSON value (parsed via `JSONSerialization`) to its string form.
+    ///
+    /// `JSONSerialization.data(withJSONObject:)` raises an Objective-C
+    /// `NSInvalidArgumentException` ("Invalid top-level type in JSON write") when the
+    /// top-level value is a scalar — a number, boolean, or null. That exception is NOT a
+    /// Swift `Error`, so `try?` cannot catch it and the process crashes. We wrap the value
+    /// in a single-element array (always a valid top-level type), serialize, then strip the
+    /// enclosing brackets to recover the value's JSON representation. Mirrors the idiom in
+    /// `ToolCallStreamingRuntime.jsonEncodeString`.
+    private static func jsonValueToString(_ value: Any) -> String? {
+        guard let data = try? JSONSerialization.data(withJSONObject: [value]),
+              let wrapped = String(data: data, encoding: .utf8),
+              wrapped.count >= 2 else {
+            return nil
+        }
+        return String(wrapped.dropFirst().dropLast())
     }
 
     /// Regex-based XML function parser with entity decoding.
