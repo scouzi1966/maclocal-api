@@ -359,6 +359,34 @@ struct XMLToolCallParsingTests {
         #expect(path == "/tmp/a.txt")
     }
 
+    @Test("XML+embedded-JSON tool call with scalar arg values does not crash (regression)")
+    func embeddedJSONScalarValuesNoCrash() {
+        // Regression: model emits the hybrid form <function=NAME, "arguments":{...}} where
+        // a value is a JSON scalar (number / bool / null). JSONSerialization.data(withJSONObject:)
+        // raises an *uncaught* ObjC NSInvalidArgumentException ("Invalid top-level type in JSON
+        // write") for scalar top-level types — try? cannot catch it, so the server crashed.
+        // Values must be wrapped before serialization.
+        let text = #"<tool_call><function=set_options, "arguments": {"index": 5, "enabled": true, "ratio": 1.5, "note": null}}</tool_call>"#
+        let (calls, _) = MLXModelService.extractToolCallsFallback(from: text)
+        #expect(calls.count == 1)
+        #expect(calls[0].function.name == "set_options")
+        #expect(calls[0].function.arguments["index"]?.anyValue as? String == "5")
+        #expect(calls[0].function.arguments["enabled"]?.anyValue as? String == "true")
+        #expect(calls[0].function.arguments["ratio"]?.anyValue as? String == "1.5")
+        #expect(calls[0].function.arguments["note"]?.anyValue as? String == "null")
+    }
+
+    @Test("XML+embedded-JSON tool call preserves nested object/array values")
+    func embeddedJSONNestedValues() {
+        let text = #"<tool_call><function=configure, "arguments": {"name": "left", "opts": {"a": 1}, "ids": [1, 2, 3]}}</tool_call>"#
+        let (calls, _) = MLXModelService.extractToolCallsFallback(from: text)
+        #expect(calls.count == 1)
+        #expect(calls[0].function.name == "configure")
+        #expect(calls[0].function.arguments["name"]?.anyValue as? String == "left")
+        #expect(calls[0].function.arguments["opts"]?.anyValue as? String == #"{"a":1}"#)
+        #expect(calls[0].function.arguments["ids"]?.anyValue as? String == "[1,2,3]")
+    }
+
     @Test("JSON-in-XML with no arguments key still parses name")
     func parsesJSONInXMLNameOnly() {
         let text = """
