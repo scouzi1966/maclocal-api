@@ -1,5 +1,6 @@
 import Foundation
-import AVFoundation
+// AVFoundation audio types (AVAudioPCMBuffer, AVSpeechSynthesizer) aren't Sendable-audited.
+@preconcurrency import AVFoundation
 import os
 
 enum SpeechSynthesisError: Error, LocalizedError {
@@ -162,9 +163,9 @@ final class SpeechSynthesisService: NSObject, @unchecked Sendable {
         utterance.rate = clampRate(options.speed)
 
         let synthesizer = AVSpeechSynthesizer()
-        let allBuffers: [AVAudioPCMBuffer] = try await withThrowingTaskGroup(of: [AVAudioPCMBuffer].self) { group in
+        let allBuffers: [AVAudioPCMBuffer] = try await withThrowingTaskGroup(of: UncheckedSendable<[AVAudioPCMBuffer]>.self) { group in
             group.addTask {
-                let state = OSAllocatedUnfairLock(initialState: (resumed: false, buffers: [AVAudioPCMBuffer](), continuation: nil as CheckedContinuation<[AVAudioPCMBuffer], Error>?))
+                let state = OSAllocatedUnfairLock(initialState: (resumed: false, buffers: [AVAudioPCMBuffer](), continuation: nil as CheckedContinuation<UncheckedSendable<[AVAudioPCMBuffer]>, Error>?))
                 return try await withTaskCancellationHandler {
                     try await withCheckedThrowingContinuation { continuation in
                         state.withLock { $0.continuation = continuation }
@@ -175,7 +176,7 @@ final class SpeechSynthesisService: NSObject, @unchecked Sendable {
                                 state.withLock { s in
                                     guard !s.resumed else { return }
                                     s.resumed = true
-                                    s.continuation?.resume(returning: s.buffers)
+                                    s.continuation?.resume(returning: UncheckedSendable(s.buffers))
                                     s.continuation = nil
                                 }
                             }
@@ -207,7 +208,7 @@ final class SpeechSynthesisService: NSObject, @unchecked Sendable {
             }
             let result = try await group.next()!
             group.cancelAll()
-            return result
+            return result.value
         }
 
         guard !allBuffers.isEmpty else {

@@ -468,7 +468,7 @@ final class ToolCallStreamingRuntime {
             }
             // Use .anyValue to convert JSONValue → plain types before re-init,
             // otherwise JSONValue.from() double-wraps via String(describing:).
-            let plainArgs: [String: any Sendable] = toolCall.function.arguments.mapValues { $0.anyValue }
+            let plainArgs: [String: any Sendable] = toolCall.function.arguments.mapValues { MLXModelService.asSendableJSON($0.anyValue) }
             return ToolCall(function: .init(name: resolvedName, arguments: plainArgs))
         }
     }
