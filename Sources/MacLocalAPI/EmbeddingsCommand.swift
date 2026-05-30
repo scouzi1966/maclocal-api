@@ -115,10 +115,7 @@ struct EmbeddingsCommand: ParsableCommand {
     }
 }
 
-// @unchecked Sendable: owns a Vapor Application (not Sendable-audited). Start/
-// shutdown are driven from a single flow with lock-guarded shared flags, so the
-// shutdown Task can safely capture self.
-final class EmbeddingHTTPServer: @unchecked Sendable {
+final class EmbeddingHTTPServer {
     private let app: Application
     private let port: Int
     private let hostname: String
@@ -163,9 +160,9 @@ final class EmbeddingHTTPServer: @unchecked Sendable {
         // server finishing bind. If shutdown() ran against an un-started
         // server, its app.server.shutdown() was a no-op, so we need to either
         // skip the bind entirely or tear it down right after it completes.
-        let shutdownRequestedBeforeStart = shutdownLock.withLock {
-            app.storage[EmbeddingShutdownRequestedKey.self] == true
-        }
+        shutdownLock.lock()
+        let shutdownRequestedBeforeStart = app.storage[EmbeddingShutdownRequestedKey.self] == true
+        shutdownLock.unlock()
 
         if shutdownRequestedBeforeStart {
             print("Embeddings server shutdown requested before bind; skipping start.")
@@ -179,9 +176,9 @@ final class EmbeddingHTTPServer: @unchecked Sendable {
         // this point already marked the flag. The prior shutdown() call ran
         // app.server.shutdown() on an un-started server (no-op), so tear down
         // the freshly-bound listener here.
-        let shutdownRequestedDuringStart = shutdownLock.withLock {
-            app.storage[EmbeddingShutdownRequestedKey.self] == true
-        }
+        shutdownLock.lock()
+        let shutdownRequestedDuringStart = app.storage[EmbeddingShutdownRequestedKey.self] == true
+        shutdownLock.unlock()
         if shutdownRequestedDuringStart {
             print("Shutdown requested during start; shutting the just-bound server down.")
             await app.server.shutdown()

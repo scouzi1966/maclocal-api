@@ -302,14 +302,14 @@ struct AnyCodable: Codable, Sendable {
     }
 
     /// Convert to a dictionary suitable for ToolSpec ([String: any Sendable])
-    func toSendable() -> any Sendable {
+    func toSendable() -> Any {
         value.toAny()
     }
 
     /// Convert to a type hierarchy compatible with Jinja Value.init(any:).
     /// Strips null values from dicts (Jinja can't handle NSNull or boxed Optional<Any>).
     /// JSON Schema nulls (e.g. "default": null) are semantically equivalent when omitted.
-    func toJinjaCompatible() -> any Sendable {
+    func toJinjaCompatible() -> Any {
         value.toJinjaCompatible()
     }
 }
@@ -345,7 +345,7 @@ enum AnyCodableValue: Codable, Sendable {
         }
     }
 
-    func toAny() -> any Sendable {
+    func toAny() -> Any {
         switch self {
         case .null: return NSNull()
         case .bool(let b): return b
@@ -364,7 +364,7 @@ enum AnyCodableValue: Codable, Sendable {
     /// equivalent when omitted — templates use `is defined` checks, not null comparisons.
     /// Arrays filter out nulls. Standalone nulls become empty string (shouldn't occur in
     /// practice since null only appears as dict values or array elements in JSON Schema).
-    func toJinjaCompatible() -> any Sendable {
+    func toJinjaCompatible() -> Any {
         switch self {
         case .null: return "" // Standalone null fallback; dict/array nulls are stripped
         case .bool(let b): return b
@@ -372,12 +372,12 @@ enum AnyCodableValue: Codable, Sendable {
         case .double(let d): return d
         case .string(let s): return s
         case .array(let arr):
-            return arr.compactMap { element -> (any Sendable)? in
+            return arr.compactMap { element -> Any? in
                 if case .null = element { return nil }
                 return element.toJinjaCompatible()
             }
         case .object(let dict):
-            var result: [String: any Sendable] = [:]
+            var result: [String: Any] = [:]
             for (key, value) in dict {
                 if case .null = value { continue } // Strip null-valued keys
                 result[key] = value.toJinjaCompatible()
@@ -388,7 +388,7 @@ enum AnyCodableValue: Codable, Sendable {
             // Flatten anyOf/oneOf nullable patterns for Jinja template compatibility.
             // e.g. {"anyOf": [{"type": "string"}, {"type": "null"}]} → {"type": "string"}
             // Templates like Gemma 4 do `value['type'] | upper` which crashes on anyOf dicts.
-            if result["type"] == nil, let anyOf = result["anyOf"] as? [[String: any Sendable]] ?? result["oneOf"] as? [[String: any Sendable]] {
+            if result["type"] == nil, let anyOf = result["anyOf"] as? [[String: Any]] ?? result["oneOf"] as? [[String: Any]] {
                 let nonNull = anyOf.filter { ($0["type"] as? String) != "null" }
                 if nonNull.count == 1, let single = nonNull.first {
                     var flattened = result

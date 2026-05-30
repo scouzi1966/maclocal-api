@@ -14,7 +14,7 @@ final class XGrammarService: @unchecked Sendable {
     private let debugLogging: Bool
 
     /// Error message captured from C++ exceptions via the error handler callback.
-    nonisolated(unsafe) private static var lastError: String?
+    private static var lastError: String?
     private static let errorLock = NSLock()
 
     init(vocabSize: Int, debugLogging: Bool = false) {

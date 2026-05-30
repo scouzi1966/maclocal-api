@@ -258,23 +258,15 @@ actor BackendDiscoveryService {
             using: .tcp
         )
 
-        // Lock-guarded one-shot guard in a Sendable reference so the @Sendable
-        // finish()/state handlers can share it without a captured-var race.
-        final class OneShot: @unchecked Sendable {
-            private let lock = NSLock()
-            private var done = false
-            func fire() -> Bool {
-                lock.lock(); defer { lock.unlock() }
-                if done { return false }
-                done = true
-                return true
-            }
-        }
         return await withCheckedContinuation { continuation in
-            let resumed = OneShot()
+            var resumed = false
+            let lock = NSLock()
 
             @Sendable func finish(_ result: Bool) {
-                guard resumed.fire() else { return }
+                lock.lock()
+                defer { lock.unlock() }
+                guard !resumed else { return }
+                resumed = true
                 connection.cancel()
                 continuation.resume(returning: result)
             }

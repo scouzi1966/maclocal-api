@@ -100,7 +100,7 @@ struct TranscriptionResult: Sendable, Codable {
 }
 
 @available(macOS 13.0, *)
-final class SpeechService: Sendable {
+final class SpeechService {
 
     func transcribe(from filePath: String) async throws -> String {
         try await transcribe(from: filePath, options: SpeechRequestOptions())
@@ -159,14 +159,8 @@ final class SpeechService: Sendable {
         // Run recognition with a timeout to prevent hung requests.
         // OSAllocatedUnfairLock guards the one-shot continuation resume.
         let resumed = OSAllocatedUnfairLock(initialState: false)
-        // Holds the SFSpeechRecognitionTask so onCancel can reach it. Wrapped
-        // because SFSpeechRecognitionTask isn't Sendable but must live in the
-        // lock's (Sendable) state and be reachable from the @Sendable onCancel.
-        let taskRef = OSAllocatedUnfairLock<UncheckedSendable<SFSpeechRecognitionTask?>>(initialState: UncheckedSendable(nil))
-        // SFSpeechRecognizer / SFSpeechURLRecognitionRequest aren't Sendable, so box
-        // them to carry into the (sending) task-group child without a capture error.
-        let recognizerBox = UncheckedSendable(recognizer)
-        let requestBox = UncheckedSendable(request)
+        // Holds the SFSpeechRecognitionTask so onCancel can reach it.
+        let taskRef = OSAllocatedUnfairLock<SFSpeechRecognitionTask?>(initialState: nil)
 
         let transcriptionResult: TranscriptionResult = try await withThrowingTaskGroup(of: TranscriptionResult.self) { group in
             group.addTask {
@@ -175,9 +169,8 @@ final class SpeechService: Sendable {
                         let queue = OperationQueue()
                         queue.qualityOfService = .userInitiated
 
-                        let recognizer = recognizerBox.value
                         recognizer.queue = queue
-                        let task = recognizer.recognitionTask(with: requestBox.value) { result, error in
+                        let task = recognizer.recognitionTask(with: request) { result, error in
                             if let error {
                                 let shouldResume = resumed.withLock { done in
                                     if done { return false }
@@ -234,12 +227,11 @@ final class SpeechService: Sendable {
                                 segments: segments
                             ))
                         }
-                        let taskBox = UncheckedSendable<SFSpeechRecognitionTask?>(task)
-                        taskRef.withLock { $0 = taskBox }
-                        if Task.isCancelled { taskRef.withLock { $0.value?.cancel() } }
+                        taskRef.withLock { $0 = task }
+                        if Task.isCancelled { task.cancel() }
                     }
                 } onCancel: {
-                    taskRef.withLock { $0.value?.cancel() }
+                    taskRef.withLock { $0?.cancel() }
                 }
             }
             group.addTask {

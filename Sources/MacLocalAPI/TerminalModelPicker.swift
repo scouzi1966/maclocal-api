@@ -131,8 +131,8 @@ private func hasConfigAndWeights(_ dir: URL) -> Bool {
 
 // MARK: - Interactive Picker
 
-nonisolated(unsafe) private var savedTermios = termios()
-nonisolated(unsafe) private var terminalModified = false
+private var savedTermios = termios()
+private var terminalModified = false
 
 func runInteractiveModelPicker(models: [CachedModelEntry]) -> String? {
     guard !models.isEmpty else { return nil }

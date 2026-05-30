@@ -44,7 +44,7 @@ struct RequestIDMiddleware: AsyncMiddleware {
             .compactMap { request.headers.first(name: $0)?.trimmingCharacters(in: .whitespaces) }
             .first(where: { !$0.isEmpty })
         let id = inbound ?? Self.mint()
-        await request.storage.setWithAsyncShutdown(RequestIDKey.self, to: id)
+        request.storage.set(RequestIDKey.self, to: id)
 
         let response = try await next.respond(to: request)
         for name in Self.outboundHeaders {
@@ -162,11 +162,7 @@ struct ActiveConnectionsMiddleware: AsyncMiddleware {
     }
 }
 
-// @unchecked Sendable: the server owns a Vapor Application and assorted service
-// references that aren't Sendable-audited. Lifecycle (start/shutdown) is driven
-// from a single controlling flow and the closures it spawns only read immutable
-// configuration or hop to @MainActor, so cross-task sharing is safe in practice.
-class Server: @unchecked Sendable {
+class Server {
     private let app: Application
     private let port: Int
     private let hostname: String

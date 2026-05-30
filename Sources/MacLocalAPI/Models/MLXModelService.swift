@@ -5,11 +5,7 @@ import MLX
 import Cmlx
 import MLXLLM
 import MLXVLM
-// @preconcurrency: MLXLMCommon predates Swift 6 concurrency. Its value types
-// (LMInput, ModelContext, UserInput, GenerateParameters) aren't Sendable-audited;
-// this downgrades cross-boundary Sendable diagnostics for them to warnings without
-// changing runtime behavior. Access is already serialized via ModelContainer.
-@preconcurrency import MLXLMCommon
+import MLXLMCommon
 import Tokenizers
 import Hub
 import HuggingFace
@@ -100,51 +96,9 @@ private let vvCyan = "\u{1B}[38;5;87m"
 private let vvReset = "\u{1B}[0m"
 /// Module-level trace flag, set by MLXModelService.trace when the service is configured.
 /// Used by static parsing/conversion methods that can't access instance properties.
-nonisolated(unsafe) private var traceLogging = false
+private var traceLogging = false
 /// Module-level grammar constraint flag — enables cross-parameter dedup in the XML parser.
-nonisolated(unsafe) private var grammarConstraintsActive = false
-
-/// Carries values out of the serialized `container.perform` generation closure.
-///
-/// Swift 6 forbids a `@Sendable` closure from capturing-and-mutating local `var`s.
-/// The generation closure runs under the model's serial-access lock and is fully
-/// awaited before any of these fields are read, so there is no real concurrency —
-/// `@unchecked Sendable` documents that the synchronization is provided externally
-/// by `ModelContainer.perform`. This preserves the prior single-sequence behavior
-/// exactly while moving the mutable storage into a reference the closure can capture.
-private final class NonStreamingScratch: @unchecked Sendable {
-    /// Non-Sendable model input, handed to the closure through this box.
-    var userInput: UserInput!
-    var collectedLogprobs = [TokenLogprobData]()
-    var resolvedLogprobs: [ResolvedLogprob]? = nil
-    var collectedToolCalls = [ToolCall]()
-    var completionInfo: GenerateCompletionInfo? = nil
-    var cachedTokenCount = 0
-    var stoppedBySequence = false
-    var cacheOutcome = "disabled"
-    var cacheLookupTime: Double? = nil
-    var cacheRestoreTime: Double? = nil
-    var cacheTrimTime: Double? = nil
-    var cacheTruncateTime: Double? = nil
-    var cacheInputTokenCount = 0
-    var saveTrimTime: Double? = nil
-    var saveTruncateTime: Double? = nil
-    var saveInsertTime: Double? = nil
-}
-
-/// Streaming counterpart of `NonStreamingScratch`. Holds the non-Sendable model
-/// input and the post-generation metric counters that the nested, serialized
-/// `container.perform` closure fills in. Same justification for `@unchecked
-/// Sendable`: the closure runs under the model lock and is awaited before these
-/// fields are read by the metrics observation below it.
-private final class StreamingScratch: @unchecked Sendable {
-    var userInput: UserInput!
-    var streamStatPromptTokens = 0
-    var streamStatCompletionTokens = 0
-    var streamStatPromptTime = 0.0
-    var streamStatGenerateTime = 0.0
-    var streamStatStoppedBySequence = false
-}
+private var grammarConstraintsActive = false
 
 final class MLXModelService: @unchecked Sendable {
     private struct ConstrainedDecodingSetup {
@@ -594,9 +548,9 @@ final class MLXModelService: @unchecked Sendable {
     // DRAM power → bandwidth calibration via GPU memory stress (MLX).
     // Runs a known GPU workload (x + 1 on 1 GiB array) for 1s, measures DRAM power
     // via IOReport, derives GB/s-per-watt from actual GPU→DRAM traffic.
-    nonisolated(unsafe) private static var dramIdlePowerW = 0.3
-    nonisolated(unsafe) private static var dramGBsPerWatt = 10.5  // fallback if calibration fails
-    nonisolated(unsafe) private static var dramCalibrated = false
+    private static var dramIdlePowerW = 0.3
+    private static var dramGBsPerWatt = 10.5  // fallback if calibration fails
+    private static var dramCalibrated = false
 
     /// Thread-safe dispatch_once calibration — runs async on background queue.
     /// Default dramGBsPerWatt (10.5) is used until calibration completes.
@@ -1202,9 +1156,8 @@ final class MLXModelService: @unchecked Sendable {
                 currentToolCallFormat = detectedFormat
             }
             // Detect think start/end tags from tokenizer vocabulary
-            // Run the tokenizer-vocabulary inspection inside `perform` so the
-            // non-Sendable ModelContext never crosses the isolation boundary.
-            try await loaded.perform { context in
+            do {
+                let ctx = try await loaded.perform { context in context }
                 let knownThinkPairs: [(start: String, end: String)] = [
                     ("<|channel>", "<channel|>"),  // Gemma 4 channel-based thinking
                     ("<think>", "</think>"),
@@ -1219,8 +1172,8 @@ final class MLXModelService: @unchecked Sendable {
                     return ids.count == 1 || (ids.count == 2 && tokenizer.decode(tokens: [ids.last!]) == s)
                 }
                 for pair in knownThinkPairs {
-                    if isSingleToken(pair.start, context.tokenizer)
-                        && isSingleToken(pair.end, context.tokenizer)
+                    if isSingleToken(pair.start, ctx.tokenizer)
+                        && isSingleToken(pair.end, ctx.tokenizer)
                     {
                         self.thinkStartTag = pair.start
                         self.thinkEndTag = pair.end
@@ -1502,67 +1455,45 @@ final class MLXModelService: @unchecked Sendable {
         let wantLogprobs = logprobs == true
         let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
 
-        // Mutable generation state lives in a scratch box so the @Sendable
-        // `container.perform` closure (Swift 6) can capture-and-mutate it.
-        // perform serializes the whole generation under the model lock and is
-        // awaited before these fields are read, so access stays single-sequence.
-        let scratch = NonStreamingScratch()
-        scratch.userInput = userInput
+        var params = GenerateParameters(
+            maxTokens: effectiveMaxTokens,
+            kvBits: self.kvBits,
+            kvGroupSize: 64,
+            quantizedKVStart: 0,
+            temperature: normalizedTemperature(temperature),
+            topP: normalizedTopP(topP),
+            repetitionPenalty: normalizedRepetitionPenalty(repetitionPenalty),
+            repetitionContextSize: 64,
+            topK: normalizedTopK(topK),
+            minP: normalizedMinP(minP),
+            presencePenalty: normalizedPresencePenalty(presencePenalty),
+            seed: normalizedSeed(seed),
+            computeLogprobs: wantLogprobs,
+            topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
+            prefillStepSize: self.prefillStepSize
+        )
+
+        var collectedLogprobs = [TokenLogprobData]()
+        var resolvedLogprobs: [ResolvedLogprob]? = nil
+        var collectedToolCalls = [ToolCall]()
+        var completionInfo: GenerateCompletionInfo? = nil
+        var cachedTokenCount = 0
+        var stoppedBySequence = false
+        var cacheOutcome = "disabled"
+        var cacheLookupTime: Double? = nil
+        var cacheRestoreTime: Double? = nil
+        var cacheTrimTime: Double? = nil
+        var cacheTruncateTime: Double? = nil
+        var cacheInputTokenCount = 0
+        var saveTrimTime: Double? = nil
+        var saveTruncateTime: Double? = nil
+        var saveInsertTime: Double? = nil
         // GPU capture/trace/profile: start before inference
         let capturePath = gpuCapturePath
         let capturing = beginGPUCaptureIfNeeded()
         let tracing = beginGPUTraceIfNeeded()
         if gpuProfile { printGPUProfileHeader() }
         let generated: String = try await container.perform { context in
-            var params = GenerateParameters(
-                maxTokens: effectiveMaxTokens,
-                kvBits: self.kvBits,
-                kvGroupSize: 64,
-                quantizedKVStart: 0,
-                temperature: normalizedTemperature(temperature),
-                topP: normalizedTopP(topP),
-                repetitionPenalty: normalizedRepetitionPenalty(repetitionPenalty),
-                repetitionContextSize: 64,
-                topK: normalizedTopK(topK),
-                minP: normalizedMinP(minP),
-                presencePenalty: normalizedPresencePenalty(presencePenalty),
-                seed: normalizedSeed(seed),
-                computeLogprobs: wantLogprobs,
-                topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
-                prefillStepSize: self.prefillStepSize
-            )
-            var collectedLogprobs = [TokenLogprobData]()
-            var resolvedLogprobs: [ResolvedLogprob]? = nil
-            var collectedToolCalls = [ToolCall]()
-            var completionInfo: GenerateCompletionInfo? = nil
-            var cachedTokenCount = 0
-            var stoppedBySequence = false
-            var cacheOutcome = "disabled"
-            var cacheLookupTime: Double? = nil
-            var cacheRestoreTime: Double? = nil
-            var cacheTrimTime: Double? = nil
-            var cacheTruncateTime: Double? = nil
-            var cacheInputTokenCount = 0
-            var saveTrimTime: Double? = nil
-            var saveTruncateTime: Double? = nil
-            var saveInsertTime: Double? = nil
-            defer {
-                scratch.collectedLogprobs = collectedLogprobs
-                scratch.resolvedLogprobs = resolvedLogprobs
-                scratch.collectedToolCalls = collectedToolCalls
-                scratch.completionInfo = completionInfo
-                scratch.cachedTokenCount = cachedTokenCount
-                scratch.stoppedBySequence = stoppedBySequence
-                scratch.cacheOutcome = cacheOutcome
-                scratch.cacheLookupTime = cacheLookupTime
-                scratch.cacheRestoreTime = cacheRestoreTime
-                scratch.cacheTrimTime = cacheTrimTime
-                scratch.cacheTruncateTime = cacheTruncateTime
-                scratch.cacheInputTokenCount = cacheInputTokenCount
-                scratch.saveTrimTime = saveTrimTime
-                scratch.saveTruncateTime = saveTruncateTime
-                scratch.saveInsertTime = saveInsertTime
-            }
             // Grammar constraint setup (needs tokenizer from context)
             let constrainedDecoding = self.setupConstrainedDecodingProcessor(
                 modelID: modelID,
@@ -1577,7 +1508,7 @@ final class MLXModelService: @unchecked Sendable {
                 params.extraProcessor = constrainedDecoding.processor
             }
 
-            let input = try await context.processor.prepare(input: scratch.userInput)
+            let input = try await context.processor.prepare(input: userInput)
 
             // DEBUG/VV: decode and print the full prompt to see what the template produced
             if debugLogging || self.trace {
@@ -1923,23 +1854,6 @@ final class MLXModelService: @unchecked Sendable {
             return out
         }
 
-        // Re-bind generation outputs from the scratch box so the post-closure
-        // code below reads them by their original names unchanged.
-        let resolvedLogprobs = scratch.resolvedLogprobs
-        let collectedToolCalls = scratch.collectedToolCalls
-        let completionInfo = scratch.completionInfo
-        let cachedTokenCount = scratch.cachedTokenCount
-        let stoppedBySequence = scratch.stoppedBySequence
-        let cacheOutcome = scratch.cacheOutcome
-        let cacheLookupTime = scratch.cacheLookupTime
-        let cacheRestoreTime = scratch.cacheRestoreTime
-        let cacheTrimTime = scratch.cacheTrimTime
-        let cacheTruncateTime = scratch.cacheTruncateTime
-        let cacheInputTokenCount = scratch.cacheInputTokenCount
-        let saveTrimTime = scratch.saveTrimTime
-        let saveTruncateTime = scratch.saveTruncateTime
-        let saveInsertTime = scratch.saveInsertTime
-
         // GPU capture/trace/profile: end after GPU sync completes inside container.perform
         if capturing, let path = capturePath {
             endGPUCapture(path: path)
@@ -2266,34 +2180,15 @@ final class MLXModelService: @unchecked Sendable {
             StatsAggregator.shared.requestStarted()
             // Mutables filled inside container.perform so the final
             // observation can fire just before continuation.finish().
-            // Held in a scratch box so the nested @Sendable perform closure can
-            // mutate them (Swift 6); the box also carries the non-Sendable input.
-            let streamScratch = StreamingScratch()
-            streamScratch.userInput = userInput
+            var streamStatPromptTokens = 0
+            var streamStatCompletionTokens = 0
+            var streamStatPromptTime = 0.0
+            var streamStatGenerateTime = 0.0
+            var streamStatStoppedBySequence = false
             let task = Task {
                 defer { self.endOperation() }
                 do {
                     try await container.perform { context in
-                        // Local generation params (the outer `params` is a captured
-                        // var used by the concurrent path; a fresh local keeps this
-                        // @Sendable closure free of captured-var mutation).
-                        var params = GenerateParameters(
-                            maxTokens: effectiveMaxTokens,
-                            kvBits: self.kvBits,
-                            kvGroupSize: 64,
-                            quantizedKVStart: 0,
-                            temperature: normalizedTemperature(temperature),
-                            topP: normalizedTopP(topP),
-                            repetitionPenalty: normalizedRepetitionPenalty(repetitionPenalty),
-                            repetitionContextSize: 64,
-                            topK: normalizedTopK(topK),
-                            minP: normalizedMinP(minP),
-                            presencePenalty: normalizedPresencePenalty(presencePenalty),
-                            seed: normalizedSeed(seed),
-                            computeLogprobs: wantLogprobs,
-                            topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
-                            prefillStepSize: self.prefillStepSize
-                        )
                         // Grammar constraint setup — see non-streaming path for details.
                         let constrainedDecoding = self.setupConstrainedDecodingProcessor(
                             modelID: modelID,
@@ -2308,7 +2203,7 @@ final class MLXModelService: @unchecked Sendable {
                             params.extraProcessor = constrainedDecoding.processor
                         }
 
-                        let input = try await context.processor.prepare(input: streamScratch.userInput)
+                        let input = try await context.processor.prepare(input: userInput)
 
                         // -VV: decode and print the full prompt (streaming path)
                         if self.trace {
@@ -2535,7 +2430,7 @@ final class MLXModelService: @unchecked Sendable {
                                                     continuation.yield(StreamChunk(text: "", logprobs: resolved, stoppedBySequence: true))
                                                 }
                                             }
-                                            streamScratch.streamStatStoppedBySequence = true  // /metrics: finished_reason=stop
+                                            streamStatStoppedBySequence = true  // /metrics: finished_reason=stop
                                             break
                                         }
                                         // Flush safe portion of the buffer (keep tail that could be partial stop match)
@@ -2580,10 +2475,10 @@ final class MLXModelService: @unchecked Sendable {
                                     )
                                     continuation.yield(StreamChunk(text: "", promptTokens: finalPromptTokens, completionTokens: info.generationTokenCount, promptTime: info.promptTime, generateTime: info.generateTime))
                                     // /metrics: capture for the post-loop observation
-                                    streamScratch.streamStatPromptTokens = finalPromptTokens
-                                    streamScratch.streamStatCompletionTokens = info.generationTokenCount
-                                    streamScratch.streamStatPromptTime = info.promptTime
-                                    streamScratch.streamStatGenerateTime = info.generateTime
+                                    streamStatPromptTokens = finalPromptTokens
+                                    streamStatCompletionTokens = info.generationTokenCount
+                                    streamStatPromptTime = info.promptTime
+                                    streamStatGenerateTime = info.generateTime
                                     // GPU profile: emit footer with real token counts
                                     if streamGpuProfile {
                                         self.printGPUProfileFooter(promptTokens: finalPromptTokens, completionTokens: info.generationTokenCount, promptTime: info.promptTime, generateTime: info.generateTime)
@@ -2689,12 +2584,6 @@ final class MLXModelService: @unchecked Sendable {
                             insertTime: saveInsertTime
                         )
                     }
-                    // Re-bind metric counters from the scratch box so the
-                    // observation below reads them by their original names.
-                    let streamStatPromptTokens = streamScratch.streamStatPromptTokens
-                    let streamStatCompletionTokens = streamScratch.streamStatCompletionTokens
-                    let streamStatPromptTime = streamScratch.streamStatPromptTime
-                    let streamStatStoppedBySequence = streamScratch.streamStatStoppedBySequence
                     self.cleanupTempFiles(mediaTempFiles)
 
                     // /metrics: serial-streaming observation. Mirrors the
@@ -2926,33 +2815,12 @@ final class MLXModelService: @unchecked Sendable {
         }
     }
 
-    /// Recursively convert a `JSONSerialization`-derived value (Foundation `Any`)
-    /// into an `any Sendable` tree. Strings bridge `NSString -> String`; `NSNumber`
-    /// and `NSNull` already conform to `Sendable` and are kept as-is so JSON
-    /// round-tripping through `JSONSerialization` stays byte-identical.
-    static func asSendableJSON(_ value: Any) -> any Sendable {
-        switch value {
-        case let s as String: return s
-        case let arr as [Any]: return arr.map { asSendableJSON($0) }
-        case let dict as [String: Any]: return dict.mapValues { asSendableJSON($0) }
-        case let n as NSNumber: return n
-        case is NSNull: return NSNull()
-        default:
-            // Unreachable for the only caller input (`JSONSerialization.jsonObject`
-            // output, which is exclusively NSString/NSNumber/NSNull/NSArray/
-            // NSDictionary). Kept as a non-throwing safety net so an unexpected
-            // value can never crash the tool-call argument path; it degrades to a
-            // string rather than propagating. Revisit if a non-JSON source is added.
-            return String(describing: value)
-        }
-    }
-
     static func remapResponseToolCallArguments(_ rtc: ResponseToolCall, tools: [RequestTool]?) -> ResponseToolCall {
         guard let tools, !tools.isEmpty else { return rtc }
         guard let data = rtc.function.arguments.data(using: .utf8),
               let argsDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return rtc }
         var sendableArgs = [String: any Sendable]()
-        for (key, value) in argsDict { sendableArgs[key] = Self.asSendableJSON(value) }
+        for (key, value) in argsDict { sendableArgs[key] = value }
         let remapped = remapArgumentKeys(sendableArgs, toolName: rtc.function.name, tools: tools)
         let remappedAny = remapped.mapValues { $0 as Any }
         guard let newData = try? JSONSerialization.data(withJSONObject: remappedAny, options: [.sortedKeys]),
@@ -3575,7 +3443,7 @@ final class MLXModelService: @unchecked Sendable {
                 if let data = val.data(using: .utf8),
                    let parsed = try? JSONSerialization.jsonObject(with: data),
                    (parsed is [Any] || parsed is [String: Any]) {
-                    arguments[key] = Self.asSendableJSON(parsed)
+                    arguments[key] = parsed
                 } else {
                     arguments[key] = val
                 }
@@ -3601,7 +3469,7 @@ final class MLXModelService: @unchecked Sendable {
                     if let data = decoded.data(using: .utf8),
                        let parsed = try? JSONSerialization.jsonObject(with: data),
                        (parsed is [Any] || parsed is [String: Any]) {
-                        arguments[key] = Self.asSendableJSON(parsed)
+                        arguments[key] = parsed
                     } else {
                         arguments[key] = decoded
                     }
@@ -3700,7 +3568,7 @@ final class MLXModelService: @unchecked Sendable {
         var arguments: [String: any Sendable] = [:]
         if let args = (json["arguments"] as? [String: Any]) ?? (json["parameters"] as? [String: Any]) {
             for (k, v) in args {
-                arguments[k] = Self.asSendableJSON(v)
+                arguments[k] = v
             }
         }
         return ToolCall(function: .init(name: name, arguments: arguments))
@@ -4504,7 +4372,7 @@ final class MLXModelService: @unchecked Sendable {
         }
 
         // Merge chat template kwargs: server defaults first, then request-level overrides
-        var resolvedKwargs: [String: any Sendable] = (self.defaultChatTemplateKwargs ?? [:]).mapValues { Self.asSendableJSON($0) }
+        var resolvedKwargs: [String: Any] = self.defaultChatTemplateKwargs ?? [:]
         if let requestKwargs = chatTemplateKwargs {
             for (key, value) in requestKwargs {
                 resolvedKwargs[key] = value.value.toAny()
@@ -4592,23 +4460,20 @@ final class MLXModelService: @unchecked Sendable {
 
     private func awaitURL(url: URL) throws -> (Data, URLResponse) {
         let sem = DispatchSemaphore(value: 0)
-        // Box the result so the @Sendable URLSession completion handler can write
-        // it without a captured-var data race. The semaphore guarantees the write
-        // happens-before the read below, so the SendableBox is sound here.
-        let box = SendableBox<Result<(Data, URLResponse), Error>?>(nil)
+        var result: Result<(Data, URLResponse), Error>?
         let task = URLSession.shared.dataTask(with: url) { data, response, error in
             if let error {
-                box.value = .failure(error)
+                result = .failure(error)
             } else if let data, let response {
-                box.value = .success((data, response))
+                result = .success((data, response))
             } else {
-                box.value = .failure(MLXServiceError.downloadFailed("image download failed"))
+                result = .failure(MLXServiceError.downloadFailed("image download failed"))
             }
             sem.signal()
         }
         task.resume()
         sem.wait()
-        switch box.value {
+        switch result {
         case .success(let pair):
             return pair
         case .failure(let error):

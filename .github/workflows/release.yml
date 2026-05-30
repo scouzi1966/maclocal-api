@@ -11,13 +11,12 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
-
-    # Use the runner's default Xcode toolchain (Swift 6.x on macos-latest),
-    # which is required both for the macOS 26 SDK / Foundation Models APIs and
-    # for Package.swift's `swift-tools-version: 6.0` (Swift 6 language mode).
-    # Do NOT pin an older swift-actions/setup-swift toolchain: Swift < 6.0
-    # cannot build a 6.0 tools-version package, and a swift.org toolchain lacks
-    # the FoundationModels framework.
+    
+    - name: Set up Swift
+      uses: swift-actions/setup-swift@v1
+      with:
+        swift-version: "5.9"
+    
     - name: Build Release Binary
       run: swift build --configuration release
     

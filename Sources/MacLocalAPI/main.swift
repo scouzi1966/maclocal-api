@@ -2,12 +2,9 @@ import ArgumentParser
 import Foundation
 import Darwin
 
-// Global references for signal handling. Accessed from the C signal handler
-// (a nonisolated context), so these opt out of the main-actor isolation that
-// Swift 6 infers for top-level globals. Signal-handler access is inherently
-// single-threaded with respect to the run loop, so the unsafety is contained.
-nonisolated(unsafe) private var globalServer: Server?
-nonisolated(unsafe) private var shouldKeepRunning = true
+// Global references for signal handling
+private var globalServer: Server?
+private var shouldKeepRunning = true
 
 // Signal handler function
 func handleShutdown(_ signal: Int32) {
@@ -725,7 +722,7 @@ struct MlxCommand: ParsableCommand {
         }
 
         let group = DispatchGroup()
-        let output = SendableBox<Result<String, Error>?>(nil)
+        var output: Result<String, Error>?
         // In single-prompt mode, suppress ALL output (stdout + stderr) during model loading
         // and generation. Only the final response goes to stdout. --verbose overrides this.
         let stdoutFD = dup(STDOUT_FILENO)
@@ -788,10 +785,10 @@ struct MlxCommand: ParsableCommand {
                     stop: stopSequences,
                     responseFormat: responseFormat
                 )
-                output.value = .success(res.content)
+                output = .success(res.content)
             } catch {
                 MLXLoadReporter.finishActiveWithError(error.localizedDescription)
-                output.value = .failure(error)
+                output = .failure(error)
             }
             group.leave()
         }
@@ -806,7 +803,7 @@ struct MlxCommand: ParsableCommand {
             close(stderrFD)
         }
 
-        switch output.value {
+        switch output {
         case .success(let text):
             if raw {
                 print(text)
@@ -1499,9 +1496,9 @@ private func ensureMLXMetalLibraryAvailable(verbose: Bool) throws {
     try MLXMetalLibrary.ensureAvailable(verbose: verbose)
 }
 
-private final class MLXLoadReporter: @unchecked Sendable {
+private final class MLXLoadReporter {
     private static let reporterLock = NSLock()
-    nonisolated(unsafe) private static weak var activeReporter: MLXLoadReporter?
+    private static weak var activeReporter: MLXLoadReporter?
 
     private let modelID: String
     private let lock = NSLock()
@@ -1743,7 +1740,7 @@ extension RootCommand {
         DebugLogger.log("Temperature: \(temperature?.description ?? "nil"), Randomness: \(randomness ?? "nil")")
 
         let group = DispatchGroup()
-        let result = SendableBox<Result<String, Error>?>(nil)
+        var result: Result<String, Error>?
 
         group.enter()
         Task {
@@ -1762,21 +1759,21 @@ extension RootCommand {
                         response = try await foundationService.generateResponse(for: [message], temperature: temperature, randomness: randomness)
                     }
                     DebugLogger.log("Response generated successfully")
-                    result.value = .success(response)
+                    result = .success(response)
                 } else {
                     DebugLogger.log("macOS 26+ not available")
-                    result.value = .failure(FoundationModelError.notAvailable)
+                    result = .failure(FoundationModelError.notAvailable)
                 }
             } catch {
                 DebugLogger.log("Error occurred: \(error)")
-                result.value = .failure(error)
+                result = .failure(error)
             }
             group.leave()
         }
         
         group.wait()
         
-        switch result.value {
+        switch result {
         case .success(let response):
             print(response)
         case .failure(let error):

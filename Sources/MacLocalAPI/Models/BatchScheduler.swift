@@ -1,8 +1,6 @@
 import Foundation
 import MLX
-// See MLXModelService.swift for rationale: MLXLMCommon value types predate Swift 6
-// concurrency; downgrade their Sendable diagnostics to warnings.
-@preconcurrency import MLXLMCommon
+import MLXLMCommon
 import Tokenizers
 import os
 
@@ -883,11 +881,7 @@ actor BatchScheduler {
             cacheLookupTime = tLookup1 - tLookup0
             let forcedSuffix = unsafeExactReplaySuffix()
             let effectivePrefix: Int
-            // Inlined hasRecurrentLayers(cache): an actor-isolated call would make
-            // the compiler treat the non-Sendable `cache` as "sent", conflicting
-            // with its later in-actor uses. Inlining keeps it in one region.
-            let recurrent = cache.contains { $0 is ArraysCache || $0 is CacheList }
-            if prefixLen == inputTokens.count && recurrent && forcedSuffix == nil {
+            if prefixLen == inputTokens.count && hasRecurrentLayers(cache) && forcedSuffix == nil {
                 effectivePrefix = 0
                 if prefixLen > 0 {
                     cacheOutcome = "exact-replay-bypass"
@@ -919,10 +913,8 @@ actor BatchScheduler {
                 let tTrim = Date.timeIntervalSinceReferenceDate
                 // Physically truncate trimmed cache arrays to eliminate stale data. (#47)
                 for i in 0..<cache.count {
-                    // Inlined supportsPhysicalTruncation (see note above) to avoid
-                    // sending the non-Sendable cache element across a call boundary.
                     if cache[i].isTrimmable && cache[i].offset > 0
-                        && !(cache[i] is RotatingKVCache)
+                        && supportsPhysicalTruncation(cache[i])
                     {
                         cache[i].truncateToOffset()
                     }
@@ -1852,7 +1844,7 @@ actor BatchScheduler {
         guard let data = rtc.function.arguments.data(using: .utf8),
               let argsDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return rtc }
         var sendableArgs = [String: any Sendable]()
-        for (key, value) in argsDict { sendableArgs[key] = MLXModelService.asSendableJSON(value) }
+        for (key, value) in argsDict { sendableArgs[key] = value }
         let remapped = MLXModelService.remapArgumentKeys(sendableArgs, toolName: rtc.function.name, tools: tools)
         let remappedAny = remapped.mapValues { $0 as Any }
         guard let newData = try? JSONSerialization.data(withJSONObject: remappedAny, options: [.sortedKeys]),

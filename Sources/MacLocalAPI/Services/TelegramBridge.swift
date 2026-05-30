@@ -447,10 +447,7 @@ actor TelegramActiveRequestStore {
     }
 }
 
-// @unchecked Sendable: bridges Telegram polling to the model service. Mutable
-// state is confined to its own serial watcher task / actor-guarded request map,
-// so the `[weak self]` Tasks it spawns can safely capture it.
-final class TelegramBridge: @unchecked Sendable {
+final class TelegramBridge {
     private let config: TelegramConfiguration
     private let client: AFMLocalClient
     private let bot: TelegramBotClient

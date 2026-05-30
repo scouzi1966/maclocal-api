@@ -394,21 +394,17 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
             toolsJSON: Self.readFileToolsJSON
         )
 
-        // Compute headers up front so the `async let` child tasks don't capture
-        // `self` (XCTestCase is non-Sendable) via requestHeaders(for:).
-        let weatherHeaders = requestHeaders(for: weatherBody)
-        let readmeHeaders = requestHeaders(for: readmeBody)
         async let weatherResponse: XCTHTTPResponse = tester.sendRequest(
             .POST,
             "/v1/chat/completions",
-            headers: weatherHeaders,
+            headers: requestHeaders(for: weatherBody),
             body: weatherBody
         )
 
         async let readmeResponse: XCTHTTPResponse = tester.sendRequest(
             .POST,
             "/v1/chat/completions",
-            headers: readmeHeaders,
+            headers: requestHeaders(for: readmeBody),
             body: readmeBody
         )
 
