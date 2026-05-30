@@ -4,7 +4,7 @@ import Darwin
 
 enum MLXMetalLibrary {
     private static let lock = NSLock()
-    private static var initialized = false
+    nonisolated(unsafe) private static var initialized = false
 
     /// Resolve the absolute path to this binary.
     ///

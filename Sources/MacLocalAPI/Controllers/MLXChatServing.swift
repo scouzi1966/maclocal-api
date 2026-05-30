@@ -23,7 +23,7 @@ typealias ChatStreamingResult = (
     thinkEndTag: String?
 )
 
-protocol MLXChatServing {
+protocol MLXChatServing: Sendable {
     var maxConcurrent: Int { get }
     var toolCallParser: String? { get }
     var supportsStrictToolGrammar: Bool { get }
