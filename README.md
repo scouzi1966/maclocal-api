@@ -246,11 +246,11 @@ afm --version
 git clone --recurse-submodules https://github.com/scouzi1966/maclocal-api.git
 cd maclocal-api
 
-# Build everything from scratch (patches + webui + release build)
-./Scripts/build-from-scratch.sh
+# Build everything from scratch (checks/installs deps + patches + webui + release build)
+./build.sh
 
 # Or skip webui if you don't have Node.js
-./Scripts/build-from-scratch.sh --skip-webui
+./build.sh --skip-webui
 
 # Or use make (patches + release build, no webui)
 make
@@ -576,10 +576,10 @@ git clone --recurse-submodules https://github.com/scouzi1966/maclocal-api.git
 cd maclocal-api
 
 # Full build from scratch (submodules + patches + webui + release)
-./Scripts/build-from-scratch.sh
+./build.sh
 
 # Or for debug builds during development
-./Scripts/build-from-scratch.sh --debug --skip-webui
+./build.sh --debug --skip-webui
 
 # Run with verbose logging
 ./.build/debug/afm -w -g -v
