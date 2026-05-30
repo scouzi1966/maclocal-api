@@ -2937,7 +2937,13 @@ final class MLXModelService: @unchecked Sendable {
         case let dict as [String: Any]: return dict.mapValues { asSendableJSON($0) }
         case let n as NSNumber: return n
         case is NSNull: return NSNull()
-        default: return String(describing: value)
+        default:
+            // Unreachable for the only caller input (`JSONSerialization.jsonObject`
+            // output, which is exclusively NSString/NSNumber/NSNull/NSArray/
+            // NSDictionary). Kept as a non-throwing safety net so an unexpected
+            // value can never crash the tool-call argument path; it degrades to a
+            // string rather than propagating. Revisit if a non-JSON source is added.
+            return String(describing: value)
         }
     }
 
@@ -4588,11 +4594,8 @@ final class MLXModelService: @unchecked Sendable {
         let sem = DispatchSemaphore(value: 0)
         // Box the result so the @Sendable URLSession completion handler can write
         // it without a captured-var data race. The semaphore guarantees the write
-        // happens-before the read below, so @unchecked Sendable is sound.
-        final class ResultBox: @unchecked Sendable {
-            var value: Result<(Data, URLResponse), Error>?
-        }
-        let box = ResultBox()
+        // happens-before the read below, so the SendableBox is sound here.
+        let box = SendableBox<Result<(Data, URLResponse), Error>?>(nil)
         let task = URLSession.shared.dataTask(with: url) { data, response, error in
             if let error {
                 box.value = .failure(error)
