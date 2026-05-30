@@ -34,6 +34,8 @@ DO_SUBMODULES=true
 DO_PATCHES=true
 DO_WEBUI=true
 ASSUME_YES=false
+DO_INSTALL=false
+INSTALL_PREFIX="/usr/local"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -57,6 +59,7 @@ Options:
   --skip-patches       Skip MLX + xgrammar patch application
   --skip-webui         Skip llama.cpp webui build
   --yes, -y            Assume "yes" for dependency-install prompts (non-interactive)
+  --install            After building, install afm to $INSTALL_PREFIX/bin (uses sudo if needed)
   -h, --help           Show help
 
 Default behavior:
@@ -72,6 +75,7 @@ for arg in "$@"; do
     --skip-patches) DO_PATCHES=false ;;
     --skip-webui) DO_WEBUI=false ;;
     --yes|-y) ASSUME_YES=true ;;
+    --install) DO_INSTALL=true ;;
     -h|--help) usage; exit 0 ;;
     *)
       log_error "Unknown option: $arg"
@@ -355,9 +359,71 @@ mkdir -p "$DEBUG_BUNDLE"
 cp "$METALLIB_BUNDLE" "$DEBUG_BUNDLE/default.metallib"
 log_info "Metallib available for swift test (symlink + debug bundle)"
 
+# ---------------------------------------------------------------------------
+# Step 6 (optional): Install to /usr/local
+# ---------------------------------------------------------------------------
+# /usr/local/bin is the first entry in macOS's /etc/paths, so it's on PATH by
+# default for every shell — no profile edits needed. On Apple Silicon it does
+# not collide with Homebrew (which lives in /opt/homebrew). The directory is
+# root-owned, so writes escalate with sudo only when it isn't already writable.
+if $DO_INSTALL; then
+  log_step "Installing afm to $INSTALL_PREFIX/bin"
+  BUNDLE_SRC="$FINAL_DIR/MacLocalAPI_MacLocalAPI.bundle"
+  WEBUI_SRC="$ROOT_DIR/Resources/webui/index.html.gz"
+
+  SUDO=""
+  if [ ! -w "$INSTALL_PREFIX" ] || [ ! -w "$INSTALL_PREFIX/bin" ]; then
+    SUDO="sudo"
+    log_warn "$INSTALL_PREFIX is not writable — using sudo (you may be prompted for your password)"
+  fi
+
+  $SUDO install -d "$INSTALL_PREFIX/bin" "$INSTALL_PREFIX/libexec/afm" "$INSTALL_PREFIX/share/afm/webui"
+  $SUDO install -m 755 "$FINAL_BIN" "$INSTALL_PREFIX/bin/afm"
+
+  # afm resolves its Metal shader library as a sibling bundle of the binary.
+  # Keep the bundle in libexec and symlink it next to the binary — this mirrors
+  # the Homebrew formula and avoids macOS code-signing stripping a bundle placed
+  # directly in bin.
+  $SUDO rm -rf "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_MacLocalAPI.bundle"
+  $SUDO cp -R "$BUNDLE_SRC" "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_MacLocalAPI.bundle"
+  $SUDO ln -sfn "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_MacLocalAPI.bundle" \
+    "$INSTALL_PREFIX/bin/MacLocalAPI_MacLocalAPI.bundle"
+
+  if [ -f "$WEBUI_SRC" ]; then
+    $SUDO install -m 644 "$WEBUI_SRC" "$INSTALL_PREFIX/share/afm/webui/index.html.gz"
+  fi
+
+  log_info "Installed: $INSTALL_PREFIX/bin/afm"
+fi
+
 log_info "Build complete"
 echo ""
-echo "afm binary: $FINAL_BIN"
+
+# Always report the built binary's full path — and fail loudly if it isn't
+# where we expect it.
+if [ -x "$FINAL_BIN" ]; then
+  log_info "afm binary: $FINAL_BIN"
+else
+  log_error "Expected built binary not found or not executable: $FINAL_BIN"
+  exit 1
+fi
+
+# When installing, report the installed path too — and fail if the install
+# didn't land where expected.
+if $DO_INSTALL; then
+  INSTALLED_BIN="$INSTALL_PREFIX/bin/afm"
+  if [ -x "$INSTALLED_BIN" ]; then
+    log_info "Installed:  $INSTALLED_BIN"
+  else
+    log_error "Install step ran but afm is not where expected: $INSTALLED_BIN"
+    exit 1
+  fi
+fi
+
 echo ""
 echo "Example run:"
-echo "  $FINAL_BIN mlx --help"
+if $DO_INSTALL; then
+  echo "  afm mlx --help"
+else
+  echo "  $FINAL_BIN mlx --help"
+fi

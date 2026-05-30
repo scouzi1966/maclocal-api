@@ -18,7 +18,13 @@ cd maclocal-api
 ./build.sh
 ```
 
-That's it. The `afm` binary lands in `.build/release/afm`. Run `./build.sh --help` for options (`--debug`, `--skip-webui`, `--yes` for non-interactive/CI).
+That's it. The `afm` binary lands in `.build/release/afm`. Add `--install` to also install it to `/usr/local/bin` (on your `PATH` by default; uses `sudo` if needed):
+
+```bash
+./build.sh --install
+```
+
+Run `./build.sh --help` for all options (`--debug`, `--skip-webui`, `--yes` for non-interactive/CI).
 
 > [!TIP]
 > **Switching between stable and nightly:**
