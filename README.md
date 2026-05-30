@@ -8,6 +8,18 @@ If you find this useful, please ⭐ the repo! &nbsp; Also check out [Vesta AI Ex
 | **pip** | `pip install macafm` | `pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next` |
 | **Release notes** | [v0.9.12](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.12) | [v0.9.12-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260502-a589c50) |
 
+### 🔨 Build from source — one command
+
+Clone and build everything (submodules, patches, WebUI, release binary) with a single script. It checks your toolchain, auto-installs what it can (Node via Homebrew), and tells you what to install manually (Xcode Command Line Tools) — no AI agent or project knowledge required. The script initializes submodules for you, so a plain `git clone` is all you need.
+
+```bash
+git clone https://github.com/scouzi1966/maclocal-api.git
+cd maclocal-api
+./build.sh
+```
+
+That's it. The `afm` binary lands in `.build/release/afm`. Run `./build.sh --help` for options (`--debug`, `--skip-webui`, `--yes` for non-interactive/CI).
+
 > [!TIP]
 > **Switching between stable and nightly:**
 > ```bash
@@ -242,8 +254,8 @@ afm --version
 #### Option 3: Build from Source
 
 ```bash
-# Clone the repository with submodules
-git clone --recurse-submodules https://github.com/scouzi1966/maclocal-api.git
+# Clone the repository (build.sh initializes submodules for you)
+git clone https://github.com/scouzi1966/maclocal-api.git
 cd maclocal-api
 
 # Build everything from scratch (checks/installs deps + patches + webui + release build)
@@ -571,8 +583,8 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 ### Development Setup
 
 ```bash
-# Clone the repo with submodules
-git clone --recurse-submodules https://github.com/scouzi1966/maclocal-api.git
+# Clone the repo (build.sh initializes submodules for you)
+git clone https://github.com/scouzi1966/maclocal-api.git
 cd maclocal-api
 
 # Full build from scratch (submodules + patches + webui + release)
