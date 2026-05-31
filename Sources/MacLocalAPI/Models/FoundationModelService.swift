@@ -194,22 +194,22 @@ enum FoundationModelError: Error, LocalizedError {
 }
 
 @available(macOS 26.0, *)
-class FoundationModelService {
+class FoundationModelService: @unchecked Sendable {
     
     #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
     private var session: LanguageModelSession?
     #endif
     
     // Shared singleton instance
-    static var shared: FoundationModelService?
-    
+    nonisolated(unsafe) static var shared: FoundationModelService?
+
     // Shared adapter for reuse across instances
     #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS && !DISABLE_FOUNDATION_MODELS
-    static var sharedAdapter: SystemLanguageModel.Adapter?
+    nonisolated(unsafe) static var sharedAdapter: SystemLanguageModel.Adapter?
     #else
-    static var sharedAdapter: Any?
+    nonisolated(unsafe) static var sharedAdapter: Any?
     #endif
-    static var sharedAdapterPath: String?
+    nonisolated(unsafe) static var sharedAdapterPath: String?
     
     init(instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) async throws {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS && !DISABLE_FOUNDATION_MODELS
