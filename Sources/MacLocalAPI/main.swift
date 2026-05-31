@@ -1425,23 +1425,27 @@ if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
         // Other flags (e.g. --help, --help-json) fall through to SpeechCommand.
     }
     do {
-        var cmd = try SpeechCommand.parseAsRoot(args)
-        // Use CFRunLoop so AVSpeechSynthesizer callbacks can fire on the main thread
-        var caughtError: Error?
+        let cmd = try SpeechCommand.parseAsRoot(args)
+        // Use CFRunLoop so AVSpeechSynthesizer callbacks can fire on the main thread.
+        // The non-Sendable command and the caught error cross into the Task; the
+        // CFRunLoopStop happens-before the reads below, so these boxes are sound.
+        let cmdBox = UncheckedSendable(cmd)
+        let errorBox = SendableBox<Error?>(nil)
         Task {
             do {
-                if var asyncCmd = cmd as? AsyncParsableCommand {
+                if var asyncCmd = cmdBox.value as? AsyncParsableCommand {
                     try await asyncCmd.run()
                 } else {
-                    try cmd.run()
+                    var syncCmd = cmdBox.value
+                    try syncCmd.run()
                 }
             } catch {
-                caughtError = error
+                errorBox.value = error
             }
             CFRunLoopStop(CFRunLoopGetMain())
         }
         CFRunLoopRun()
-        if let error = caughtError {
+        if let error = errorBox.value {
             throw error
         }
     } catch {
