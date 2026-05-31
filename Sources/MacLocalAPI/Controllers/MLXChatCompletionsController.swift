@@ -1631,6 +1631,20 @@ struct MLXChatCompletionsController: RouteCollection {
     /// Extract `<think>...</think>` content from a streaming buffer.
     /// Returns any reasoning and regular content that can be flushed.
     /// The buffer retains incomplete tag fragments for the next call.
+    /// Longest suffix of `buffer` that is a proper prefix of `tag` (capped at tag.count-1).
+    /// Streaming withholds exactly this many trailing chars so it can emit everything else
+    /// immediately while never splitting a boundary tag across chunks. Returns 0 when the
+    /// buffer tail can't begin the tag (the common case → emit with zero added latency).
+    static func partialBoundaryHoldback(_ buffer: String, _ tag: String) -> Int {
+        let b = Array(buffer), t = Array(tag)
+        var k = Swift.min(b.count, t.count - 1)
+        while k > 0 {
+            if Array(b.suffix(k)) == Array(t.prefix(k)) { return k }
+            k -= 1
+        }
+        return 0
+    }
+
     static func extractThinkTags(
         buffer: inout String,
         insideThinkBlock: inout Bool,
@@ -1639,8 +1653,6 @@ struct MLXChatCompletionsController: RouteCollection {
     ) -> (reasoning: String?, content: String?) {
         var reasoning = ""
         var content = ""
-        let startTagLen = startTag.count
-        let endTagLen = endTag.count
 
         while !buffer.isEmpty {
             if insideThinkBlock {
@@ -1648,12 +1660,18 @@ struct MLXChatCompletionsController: RouteCollection {
                     reasoning += String(buffer[buffer.startIndex..<endRange.lowerBound])
                     buffer = String(buffer[endRange.upperBound...])
                     insideThinkBlock = false
-                } else if buffer.count > endTagLen {
-                    let safeEnd = buffer.index(buffer.endIndex, offsetBy: -endTagLen)
-                    reasoning += String(buffer[buffer.startIndex..<safeEnd])
-                    buffer = String(buffer[safeEnd...])
-                    break
                 } else {
+                    // Emit reasoning eagerly: withhold only the trailing chars that could be the
+                    // start of a partial end tag (a prefix of "</think>"), instead of a fixed
+                    // endTagLen. For typical reasoning text (not ending mid-tag) this holds back 0
+                    // chars and streams immediately, cutting first-reasoning-token latency (TTFT)
+                    // by several tokens. Correctness preserved: a partial end tag is never emitted.
+                    let hb = Self.partialBoundaryHoldback(buffer, endTag)
+                    if buffer.count > hb {
+                        let safeEnd = buffer.index(buffer.endIndex, offsetBy: -hb)
+                        reasoning += String(buffer[buffer.startIndex..<safeEnd])
+                        buffer = String(buffer[safeEnd...])
+                    }
                     break
                 }
             } else {
@@ -1662,12 +1680,15 @@ struct MLXChatCompletionsController: RouteCollection {
                     content += before
                     buffer = String(buffer[startRange.upperBound...])
                     insideThinkBlock = true
-                } else if buffer.count > startTagLen {
-                    let safeEnd = buffer.index(buffer.endIndex, offsetBy: -startTagLen)
-                    content += String(buffer[buffer.startIndex..<safeEnd])
-                    buffer = String(buffer[safeEnd...])
-                    break
                 } else {
+                    // Same eager-emit optimization for the pre-think content path: withhold only a
+                    // partial start-tag prefix, not a fixed startTagLen.
+                    let hb = Self.partialBoundaryHoldback(buffer, startTag)
+                    if buffer.count > hb {
+                        let safeEnd = buffer.index(buffer.endIndex, offsetBy: -hb)
+                        content += String(buffer[buffer.startIndex..<safeEnd])
+                        buffer = String(buffer[safeEnd...])
+                    }
                     break
                 }
             }
