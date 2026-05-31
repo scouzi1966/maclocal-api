@@ -24,7 +24,8 @@ let package = Package(
         .package(url: "https://github.com/huggingface/swift-huggingface.git", from: "0.8.1"),
         // Pin mlx-swift to 0.30.3 — 0.30.4+ has SDPA regression (PR #3023 "Faster two pass sdpa")
         // causing NaN/garbage at ~1500 tokens. Post-0.30.6 fixes (PRs #3119, #3121) don't fully
-        // resolve it. Monitor for a properly fixed release.
+        // resolve it. RECONFIRMED 2026-05-31: 0.31.3 still produces garbage/empty at >1500 tok
+        // (afm decode@16k deficit vs newer-MLX engines is the price of correct long-context output).
         .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.30.3"),
         // Jinja (transitive via swift-transformers) — exposed for test target
         .package(url: "https://github.com/huggingface/swift-jinja.git", from: "2.0.0")
