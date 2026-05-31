@@ -371,6 +371,8 @@ struct MlxCommand: ParsableCommand {
     var kvBits: Int?
     @Option(name: .long, help: "Prefill step size — number of prompt tokens processed per GPU pass (default: 2048)")
     var prefillStepSize: Int?
+    @Option(name: .long, help: "Pre-warm MLX kernels on startup for faster first response/TTFT (y/n, default: y)")
+    var prewarm: String = "y"
     @Flag(name: .long, help: "Trust remote code (compatibility)")
     var trustRemoteCode: Bool = false
     @Option(name: .long, help: "Chat template (compatibility)")
@@ -652,6 +654,8 @@ struct MlxCommand: ParsableCommand {
             print("Loading MLX model (download if needed): \(selectedModel)")
         }
 
+        let prewarmEnabled = prewarm.lowercased() != "n" && prewarm.lowercased() != "no" && prewarm != "0"
+
         _ = Task {
             do {
                 let loadReporter = MLXLoadReporter(modelID: selectedModel)
@@ -664,6 +668,23 @@ struct MlxCommand: ParsableCommand {
                 loadReporter.finish(success: true)
                 // Initialize concurrent scheduler after model is loaded
                 try await service.initScheduler()
+                // Prewarm MLX Metal kernels (prefill + decode + gated-delta step) so the FIRST
+                // real request doesn't pay the one-time ~0.35s graph/kernel compilation that
+                // otherwise inflates time-to-first-token. Best-effort; never blocks serving.
+                if prewarmEnabled {
+                    let prewarmStart = Date()
+                    do {
+                        _ = try await service.generate(
+                            model: selectedModel,
+                            messages: [Message(role: "user", content: "warmup")],
+                            temperature: 0, maxTokens: 4, topP: nil, repetitionPenalty: nil)
+                        if verbose {
+                            print("MLX prewarm complete in \(String(format: "%.2f", Date().timeIntervalSince(prewarmStart)))s")
+                        }
+                    } catch {
+                        if verbose { print("MLX prewarm skipped: \(error)") }
+                    }
+                }
                 let server = try await Server(
                     port: chosenPort,
                     hostname: hostname,
