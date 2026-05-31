@@ -1,0 +1,10 @@
+{
+  "label": "lmstudio-mlx-4bit",
+  "decode_tps_streamed": 15.38,
+  "decode_deltas": 197,
+  "server_completion_tokens": 199,
+  "decode_ttft_s": 0.574,
+  "prefill_ttft_s": 14.874,
+  "prefill_prompt_tokens": 1786,
+  "prefill_tps": 120.1
+}

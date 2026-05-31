@@ -1,0 +1,101 @@
+{
+  "meta": {
+    "model": "Qwen3.6-27B (4-bit class)",
+    "hardware": "Apple M4 Pro, 14-core (10P/4E), 64 GB unified",
+    "os": "macOS 26.5",
+    "conditions": "single stream (batch=1), temperature 0, thinking enabled, one engine on GPU at a time"
+  },
+  "engines": [
+    {
+      "engine": "afm",
+      "backend": "MLX (Swift)",
+      "quant": "MLX 4bit",
+      "loads": true,
+      "decode_tps": 15.9,
+      "decode_trustworthy": true,
+      "decode_source": "server usage / decode window (probe)",
+      "prefill_cold_tps": 118.6,
+      "prefill_cached_tps": 925,
+      "prefill_cache_hit_pct": 89,
+      "notes": "prefix cache ~8x cold prefill"
+    },
+    {
+      "engine": "lmstudio",
+      "backend": "MLX (LM Studio)",
+      "quant": "MLX 4bit",
+      "loads": true,
+      "decode_tps": 15.62,
+      "decode_trustworthy": true,
+      "decode_source": "server usage / decode window (probe)",
+      "prefill_cold_tps": 120.1,
+      "prefill_cached_tps": null,
+      "prefill_cache_hit_pct": null,
+      "notes": ""
+    },
+    {
+      "engine": "omlx",
+      "backend": "MLX (oMLX)",
+      "quant": "MLX 4bit",
+      "loads": true,
+      "decode_tps": 15.31,
+      "decode_trustworthy": true,
+      "decode_source": "server usage / decode window (probe)",
+      "prefill_cold_tps": 120.0,
+      "prefill_cached_tps": null,
+      "prefill_cache_hit_pct": null,
+      "notes": ""
+    },
+    {
+      "engine": "rapid-mlx",
+      "backend": "MLX (vllm_mlx)",
+      "quant": "MLX 4bit",
+      "loads": true,
+      "decode_tps": 15.09,
+      "decode_trustworthy": true,
+      "decode_source": "server usage / decode window (probe)",
+      "prefill_cold_tps": 123.6,
+      "prefill_cached_tps": null,
+      "prefill_cache_hit_pct": null,
+      "notes": "vllm_mlx text-only (--no-mllm; hybrid VLM incompatible w/ its multimodal batching); strong prefix cache"
+    },
+    {
+      "engine": "mlx_vlm",
+      "backend": "MLX (Python mlx-vlm)",
+      "quant": "MLX 4bit",
+      "loads": true,
+      "decode_tps": 14.16,
+      "decode_trustworthy": true,
+      "decode_source": "server usage / decode window (probe)",
+      "prefill_cold_tps": 103.8,
+      "prefill_cached_tps": null,
+      "prefill_cache_hit_pct": null,
+      "notes": ""
+    },
+    {
+      "engine": "ollama",
+      "backend": "ollama (MLX backend)",
+      "quant": "NVFP4 4-bit (~19GB)",
+      "loads": true,
+      "decode_tps": 13.48,
+      "decode_trustworthy": true,
+      "decode_source": "server usage / decode window (probe)",
+      "prefill_cold_tps": 110.1,
+      "prefill_cached_tps": null,
+      "prefill_cache_hit_pct": null,
+      "notes": "ollama MLX backend, NVFP4 4-bit (~19GB, incl. vision); GGUF 'qwen35' fails on 0.24.0"
+    },
+    {
+      "engine": "llama.cpp",
+      "backend": "llama.cpp (Metal)",
+      "quant": "GGUF Q4_K_M",
+      "loads": true,
+      "decode_tps": 9.69,
+      "decode_trustworthy": true,
+      "decode_source": "server usage / decode window (probe) (server eval cross-check: 9.64)",
+      "prefill_cold_tps": 97.7,
+      "prefill_cached_tps": null,
+      "prefill_cache_hit_pct": null,
+      "notes": ""
+    }
+  ]
+}

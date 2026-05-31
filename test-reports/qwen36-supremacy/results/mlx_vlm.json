@@ -1,0 +1,8 @@
+| model                                                                      |           test |           t/s |     peak t/s |         ttfr (ms) |      est_ppt (ms) |     e2e_ttft (ms) |
+|:---------------------------------------------------------------------------|---------------:|--------------:|-------------:|------------------:|------------------:|------------------:|
+| /Volumes/Crucial4TB/models/vesta-test-cache/mlx-community/Qwen3.6-27B-4bit |          pp512 | 112.50 ± 0.28 |              |   4572.19 ± 11.38 |   4559.96 ± 11.38 |   4639.15 ± 15.86 |
+| /Volumes/Crucial4TB/models/vesta-test-cache/mlx-community/Qwen3.6-27B-4bit |          tg128 |  13.51 ± 0.08 | 14.50 ± 0.50 |                   |                   |                   |
+| /Volumes/Crucial4TB/models/vesta-test-cache/mlx-community/Qwen3.6-27B-4bit | ctx_pp @ d4096 | 120.12 ± 0.64 |              | 34120.37 ± 180.55 | 34108.14 ± 180.55 | 34183.66 ± 181.78 |
+| /Volumes/Crucial4TB/models/vesta-test-cache/mlx-community/Qwen3.6-27B-4bit | ctx_tg @ d4096 |  13.39 ± 0.03 | 15.00 ± 0.00 |                   |                   |                   |
+| /Volumes/Crucial4TB/models/vesta-test-cache/mlx-community/Qwen3.6-27B-4bit |  pp512 @ d4096 |  13.07 ± 0.06 |              | 39179.55 ± 167.69 | 39167.32 ± 167.69 | 39242.25 ± 167.55 |
+| /Volumes/Crucial4TB/models/vesta-test-cache/mlx-community/Qwen3.6-27B-4bit |  tg128 @ d4096 |  13.26 ± 0.05 | 14.50 ± 0.50 |                   |                   |                   |

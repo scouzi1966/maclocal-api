@@ -1,0 +1,10 @@
+{
+  "label": "lmstudio",
+  "ctx_tokens_req": 4000,
+  "prompt_tokens": 3985,
+  "cold_ttft_s": 33.202,
+  "prime_ttft_s": 33.197,
+  "hit_ttft_s": 1.759,
+  "speedup_cold_over_hit": 18.9,
+  "server_cached_tokens_on_hit": null
+}

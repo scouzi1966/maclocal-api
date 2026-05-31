@@ -1,0 +1,86 @@
+{
+  "label": "lmstudio",
+  "base": "http://127.0.0.1:1234/v1",
+  "model": "mlx-community/Qwen3.6-27B-4bit",
+  "latency": {
+    "ttft_ms": {
+      "mean": 632.1,
+      "p50": 569.591,
+      "p95": 783.757,
+      "n": 5
+    },
+    "decode_tps": 15.37,
+    "decode_tokens": 255,
+    "tpot_ms": 66.09,
+    "itl_ms": {
+      "p50": 65.461,
+      "p95": 199.523,
+      "p99": 333.162,
+      "mean": 66.09
+    },
+    "e2e_s": 17.47
+  },
+  "prefill_scaling": [
+    {
+      "target": 512,
+      "prompt_tokens": 535,
+      "ttft_s": null,
+      "prefill_tps": null
+    },
+    {
+      "target": 2048,
+      "prompt_tokens": 2055,
+      "ttft_s": null,
+      "prefill_tps": null
+    },
+    {
+      "target": 8192,
+      "prompt_tokens": 8134,
+      "ttft_s": null,
+      "prefill_tps": null
+    }
+  ],
+  "cache": {
+    "prompt_tokens": 2055,
+    "cold_ttft_s": null,
+    "warm_ttft_s": null,
+    "cold_prefill_tps": null,
+    "warm_prefill_tps": null,
+    "speedup": null
+  },
+  "depth_sweep": [
+    {
+      "depth": 0,
+      "prompt_tokens": 35,
+      "ttft_s": 0.878,
+      "decode_tps": 15.96,
+      "decode_tokens": 63
+    },
+    {
+      "depth": 4096,
+      "prompt_tokens": 4085,
+      "ttft_s": 33.984,
+      "decode_tps": 15.7,
+      "decode_tokens": 63
+    },
+    {
+      "depth": 8192,
+      "prompt_tokens": 8135,
+      "ttft_s": 68.198,
+      "decode_tps": 15.37,
+      "decode_tokens": 63
+    },
+    {
+      "depth": 16384,
+      "prompt_tokens": 16235,
+      "ttft_s": 142.193,
+      "decode_tps": 14.7,
+      "decode_tokens": 63
+    }
+  ],
+  "decode_tps_streamed": 15.37,
+  "decode_deltas": 252,
+  "server_completion_tokens": 255,
+  "prefill_tps": null,
+  "prefill_prompt_tokens": 535
+}

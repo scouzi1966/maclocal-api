@@ -1,0 +1,29 @@
+{
+  "id": "chatcmpl-ptujyiz8zwa5jpty7q0lr",
+  "object": "chat.completion",
+  "created": 1780233649,
+  "model": "qwen3.6-27b",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "reasoning_content": "Thinking Process:\n\n1.  **Analyze the Request:**\n    *   Goal: Say hello.\n    *   Constraint: One",
+        "tool_calls": []
+      },
+      "logprobs": null,
+      "finish_reason": "length"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 17,
+    "completion_tokens": 29,
+    "total_tokens": 46,
+    "completion_tokens_details": {
+      "reasoning_tokens": 29
+    }
+  },
+  "stats": {},
+  "system_fingerprint": "qwen3.6-27b"
+}

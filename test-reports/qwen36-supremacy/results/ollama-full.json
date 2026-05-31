@@ -1,0 +1,86 @@
+{
+  "label": "ollama",
+  "base": "http://127.0.0.1:11434/v1",
+  "model": "qwen3.6:27b-mlx",
+  "latency": {
+    "ttft_ms": {
+      "mean": 547.6,
+      "p50": 512.155,
+      "p95": 616.509,
+      "n": 5
+    },
+    "decode_tps": 13.64,
+    "decode_tokens": 256,
+    "tpot_ms": 82.33,
+    "itl_ms": {
+      "p50": 73.364,
+      "p95": 147.694,
+      "p99": 221.947,
+      "mean": 82.33
+    },
+    "e2e_s": 19.3
+  },
+  "prefill_scaling": [
+    {
+      "target": 512,
+      "prompt_tokens": 535,
+      "ttft_s": 4.702,
+      "prefill_tps": 113.8
+    },
+    {
+      "target": 2048,
+      "prompt_tokens": 2055,
+      "ttft_s": 17.354,
+      "prefill_tps": 118.4
+    },
+    {
+      "target": 8192,
+      "prompt_tokens": 8135,
+      "ttft_s": 70.145,
+      "prefill_tps": 116.0
+    }
+  ],
+  "cache": {
+    "prompt_tokens": 2055,
+    "cold_ttft_s": 17.725,
+    "warm_ttft_s": 0.252,
+    "cold_prefill_tps": 115.9,
+    "warm_prefill_tps": 8148.1,
+    "speedup": 70.3
+  },
+  "depth_sweep": [
+    {
+      "depth": 0,
+      "prompt_tokens": 35,
+      "ttft_s": 0.531,
+      "decode_tps": 13.58,
+      "decode_tokens": 64
+    },
+    {
+      "depth": 4096,
+      "prompt_tokens": 4085,
+      "ttft_s": 33.759,
+      "decode_tps": 13.58,
+      "decode_tokens": 64
+    },
+    {
+      "depth": 8192,
+      "prompt_tokens": 8135,
+      "ttft_s": 68.487,
+      "decode_tps": 12.98,
+      "decode_tokens": 64
+    },
+    {
+      "depth": 16384,
+      "prompt_tokens": 16235,
+      "ttft_s": 140.012,
+      "decode_tps": 12.93,
+      "decode_tokens": 64
+    }
+  ],
+  "decode_tps_streamed": 13.64,
+  "decode_deltas": 229,
+  "server_completion_tokens": 256,
+  "prefill_tps": 113.8,
+  "prefill_prompt_tokens": 535
+}

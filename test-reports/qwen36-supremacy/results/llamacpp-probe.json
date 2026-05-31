@@ -1,0 +1,10 @@
+{
+  "label": "llama.cpp-gguf-q4km",
+  "decode_tps_streamed": 8.58,
+  "decode_deltas": 178,
+  "server_completion_tokens": 200,
+  "decode_ttft_s": 0.396,
+  "prefill_ttft_s": 18.282,
+  "prefill_prompt_tokens": 1786,
+  "prefill_tps": 97.7
+}

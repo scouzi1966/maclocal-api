@@ -1,0 +1,10 @@
+{
+  "label": "rapidmlx-4bit",
+  "decode_tps_streamed": 15.01,
+  "decode_deltas": 200,
+  "server_completion_tokens": 200,
+  "decode_ttft_s": 0.546,
+  "prefill_ttft_s": 14.445,
+  "prefill_prompt_tokens": 1786,
+  "prefill_tps": 123.6
+}

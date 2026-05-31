@@ -1,0 +1,10 @@
+{
+  "label": "mlx_vlm-4bit",
+  "decode_tps_streamed": 10.34,
+  "decode_deltas": 147,
+  "server_completion_tokens": 200,
+  "decode_ttft_s": 0.43,
+  "prefill_ttft_s": 17.226,
+  "prefill_prompt_tokens": 1788,
+  "prefill_tps": 103.8
+}

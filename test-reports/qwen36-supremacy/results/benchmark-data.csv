@@ -1,0 +1,8 @@
+engine,backend,quant,loads,decode_tps,decode_trustworthy,prefill_cold_tps,prefill_cached_tps,prefill_cache_hit_pct,decode_source,notes
+afm,"MLX (Swift)",MLX 4bit,True,15.9,True,118.6,925,89,"server usage / decode window (probe)","prefix cache ~8x cold prefill"
+lmstudio,"MLX (LM Studio)",MLX 4bit,True,15.62,True,120.1,None,None,"server usage / decode window (probe)",""
+omlx,"MLX (oMLX)",MLX 4bit,True,15.31,True,120.0,None,None,"server usage / decode window (probe)",""
+rapid-mlx,"MLX (vllm_mlx)",MLX 4bit,True,15.09,True,123.6,None,None,"server usage / decode window (probe)","vllm_mlx text-only (--no-mllm; hybrid VLM incompatible w/ its multimodal batching); strong prefix cache"
+mlx_vlm,"MLX (Python mlx-vlm)",MLX 4bit,True,14.16,True,103.8,None,None,"server usage / decode window (probe)",""
+ollama,"ollama (MLX backend)",NVFP4 4-bit (~19GB),True,13.48,True,110.1,None,None,"server usage / decode window (probe)","ollama MLX backend, NVFP4 4-bit (~19GB, incl. vision); GGUF 'qwen35' fails on 0.24.0"
+llama.cpp,"llama.cpp (Metal)",GGUF Q4_K_M,True,9.69,True,97.7,None,None,"server usage / decode window (probe) (server eval cross-check: 9.64)",""

@@ -1,0 +1,8 @@
+engine,cold_ttft_s,hit_ttft_s,speedup,cached_tokens,prompt_tokens
+afm,35.845,0.599,59.8,3978,3996
+lmstudio,33.202,1.759,18.9,,3985
+llamacpp,36.246,5.08,7.1,,3985
+omlx,32.372,16.494,2.0,2048,3985
+mlx_vlm,34.866,33.936,1.0,0,3987
+ollama,32.463,32.785,1.0,,3985
+rapidmlx,33.505,33.541,1.0,,3985
