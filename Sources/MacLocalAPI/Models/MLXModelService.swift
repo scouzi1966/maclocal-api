@@ -14,6 +14,23 @@ import Tokenizers
 import Hub
 import HuggingFace
 
+/// Process-global holder for the active MTP self-speculative generator.
+///
+/// The MTP head + generator are tied to the loaded model and accessed only inside
+/// `ModelContainer.perform` (serialized), so a single-slot holder is sufficient and avoids
+/// threading the generator through every generation signature. Cleared on model unload.
+final class MTPRuntime: @unchecked Sendable {
+    static let shared = MTPRuntime()
+    private var generator: Qwen3_5MoEMTPGenerator?
+    private let lock = NSLock()
+
+    func install(model: Qwen3_5MoEModel, head: Qwen3_5MoEMTPHead, depth: Int) {
+        lock.withLock { generator = Qwen3_5MoEMTPGenerator(model: model, head: head, depth: depth) }
+    }
+    func clear() { lock.withLock { generator = nil } }
+    var active: Qwen3_5MoEMTPGenerator? { lock.withLock { generator } }
+}
+
 /// Resolved log probability entry with token strings (ready for API response).
 struct ResolvedLogprob: Sendable {
     let token: String
@@ -175,6 +192,10 @@ final class MLXModelService: @unchecked Sendable {
     var kvBits: Int?
     var kvEvictionPolicy: String = "none"  // "none" or "streaming"
     var enablePrefixCaching: Bool = false
+    /// MTP self-speculative decoding (--mtp). Activates only when the loaded model has an
+    /// mtp.safetensors sidecar (a Qwen3.6 MTP head); otherwise silently falls back to AR.
+    var mtpEnabled: Bool = false
+    var mtpDepth: Int = 3
     /// Server-level default JSON schema from `--guided-json` CLI flag.
     /// Applied to requests that don't specify their own response_format. (#97)
     var defaultGuidedJsonSchema: ResponseFormat?
@@ -1201,6 +1222,28 @@ final class MLXModelService: @unchecked Sendable {
                 currentModelID = modelID
                 currentToolCallFormat = detectedFormat
             }
+            // MTP: if requested and the model ships an mtp.safetensors sidecar, load the head
+            // into the container's model. Silently no-op otherwise (falls back to AR).
+            if mtpEnabled {
+                let sidecar = directory.appendingPathComponent("mtp.safetensors").path
+                if FileManager.default.fileExists(atPath: sidecar) {
+                    do {
+                        try await loaded.perform { context in
+                            if let qwen = context.model as? Qwen3_5MoEModel {
+                                let head = try qwen.loadMTPHead(sidecarPath: sidecar)
+                                MTPRuntime.shared.install(model: qwen, head: head, depth: mtpDepth)
+                                print("[\(ts())] [MTP] head loaded — self-speculative decoding enabled (depth \(mtpDepth))")
+                            } else {
+                                print("[\(ts())] [MTP] model is not Qwen3.6 text LLM (\(type(of: context.model))) — MTP disabled")
+                            }
+                        }
+                    } catch {
+                        print("[\(ts())] [MTP] head load failed (\(error)) — falling back to AR")
+                    }
+                } else {
+                    print("[\(ts())] [MTP] no mtp.safetensors at \(modelID) — MTP disabled (AR decode)")
+                }
+            }
             // Detect think start/end tags from tokenizer vocabulary
             // Run the tokenizer-vocabulary inspection inside `perform` so the
             // non-Sendable ModelContext never crosses the isolation boundary.
@@ -1513,6 +1556,41 @@ final class MLXModelService: @unchecked Sendable {
         let capturing = beginGPUCaptureIfNeeded()
         let tracing = beginGPUTraceIfNeeded()
         if gpuProfile { printGPUProfileHeader() }
+        // ---- MTP self-speculative fast path (greedy, text-only, no tools/grammar/logprobs) ----
+        // Eligible when an MTP head is installed and the request is plain greedy generation.
+        // Produces output identical to greedy AR (validated P2) but with fewer trunk forwards.
+        let mtpEligible = MTPRuntime.shared.active != nil
+            && (temperature ?? 0) <= 0.0
+            && (tools?.isEmpty ?? true)
+            && responseFormat == nil
+            && !wantLogprobs
+        if mtpEligible {
+            if let mtpResult = try await container.perform({ context -> (String, Int, Int)? in
+                guard let gen = MTPRuntime.shared.active else { return nil }
+                let lmInput = try await context.processor.prepare(input: scratch.userInput)
+                if self.isMultimodalInput(lmInput) { return nil }   // MTP is text-only
+                let promptIds = self.extractTokenArray(lmInput)
+                guard !promptIds.isEmpty else { return nil }
+                let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+                let t0 = Date.timeIntervalSinceReferenceDate
+                let outIds = gen.generate(promptIds: promptIds, maxTokens: effectiveMaxTokens, eosIds: eos)
+                let gt = Date.timeIntervalSinceReferenceDate - t0
+                // strip a trailing EOS for the returned text
+                let textIds = (outIds.last.map { eos.contains($0) } ?? false) ? Array(outIds.dropLast()) : outIds
+                let text = context.tokenizer.decode(tokens: textIds)
+                if debugLogging {
+                    let tps = gt > 0 ? Double(outIds.count) / gt : 0
+                    print("[\(ts())] [MTP] generated \(outIds.count) tok in \(String(format: "%.2f", gt))s (\(String(format: "%.1f", tps)) tok/s)")
+                }
+                return (text, promptIds.count, outIds.count)
+            }) {
+                serialRequestRecorded = true
+                StatsAggregator.shared.requestSucceeded(reason: "stop")
+                StatsAggregator.shared.requestCompleted()
+                return (modelID, mtpResult.0, mtpResult.1, mtpResult.2, nil, nil, 0, 0, 0, false)
+            }
+        }
+
         let generated: String = try await container.perform { context in
             var params = GenerateParameters(
                 maxTokens: effectiveMaxTokens,

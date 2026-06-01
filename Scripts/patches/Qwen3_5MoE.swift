@@ -862,6 +862,170 @@ class Qwen3_5TextModelInner: Module {
     }
 }
 
+// MARK: - MTP (Multi-Token Prediction) Head — text LLM variant
+//
+// Mirrors the VLM Qwen3_5MTPHead but built from the text-LLM blocks (Qwen3_5Attention,
+// Qwen3_5MLP). Predicts draft logits for token t+2 from the trunk's last hidden + the
+// just-decided token's embedding. Loaded from the model's mtp.safetensors sidecar.
+public final class Qwen3_5MoEMTPHead: Module {
+    @ModuleInfo(key: "pre_fc_norm_embedding") var preFcNormEmbedding: RMSNorm
+    @ModuleInfo(key: "pre_fc_norm_hidden") var preFcNormHidden: RMSNorm
+    @ModuleInfo(key: "fc") var fc: Linear
+    @ModuleInfo(key: "norm") var norm: RMSNorm
+
+    @ModuleInfo(key: "self_attn") fileprivate var selfAttn: Qwen3_5Attention
+    @ModuleInfo(key: "input_layernorm") var inputLayerNorm: RMSNorm
+    @ModuleInfo(key: "post_attention_layernorm") var postAttentionLayerNorm: RMSNorm
+    @ModuleInfo(key: "mlp") fileprivate var mlp: Qwen3_5MLP
+
+    public init(_ args: Qwen3_5MoETextConfiguration) {
+        _preFcNormEmbedding.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
+        _preFcNormHidden.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
+        _fc.wrappedValue = Linear(args.hiddenSize * 2, args.hiddenSize, bias: false)
+        _norm.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
+        _selfAttn.wrappedValue = Qwen3_5Attention(args)
+        _inputLayerNorm.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
+        _postAttentionLayerNorm.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
+        _mlp.wrappedValue = Qwen3_5MLP(dimensions: args.hiddenSize, hiddenDimensions: args.intermediateSize)
+    }
+
+    public func callAsFunction(
+        hiddenStates: MLXArray, tokenEmbeds: MLXArray, cache: KVCache?
+    ) -> MLXArray {
+        let e = preFcNormEmbedding(tokenEmbeds)
+        let h = preFcNormHidden(hiddenStates)
+        var x = fc(concatenated([e, h], axis: -1))
+        let r = selfAttn(inputLayerNorm(x), mask: .none, cache: cache)
+        x = x + r
+        x = x + mlp(postAttentionLayerNorm(x))
+        return norm(x)
+    }
+
+    /// Load from a `mtp.safetensors` sidecar (keys `mtp.` / `mtp.layers.0.` -> flattened).
+    public static func load(
+        sidecarPath: String, config: Qwen3_5MoETextConfiguration,
+        groupSize: Int = 32, bits: Int = 4
+    ) throws -> Qwen3_5MoEMTPHead {
+        let head = Qwen3_5MoEMTPHead(config)
+        let raw = try MLX.loadArrays(url: URL(fileURLWithPath: sidecarPath))
+        var weights: [String: MLXArray] = [:]
+        for (k, v) in raw {
+            var key = k.hasPrefix("mtp.") ? String(k.dropFirst(4)) : k
+            if key.hasPrefix("layers.0.") { key = String(key.dropFirst("layers.0.".count)) }
+            weights[key] = v
+        }
+        quantize(model: head, filter: { path, _ in
+            weights["\(path).scales"] != nil ? (groupSize: groupSize, bits: bits) : nil
+        })
+        try head.update(parameters: ModuleParameters.unflattened(weights), verify: [.all])
+        eval(head)
+        return head
+    }
+}
+
+// MARK: - MTP cache snapshot/restore (speculative rollback) — shared logic
+public enum Qwen3MTPCacheSnapshot {
+    public struct Layer { let arrays: [MLXArray]; let offset: Int; let isTrimmable: Bool }
+
+    public static func capture(_ cache: [any KVCache]) -> [Layer] {
+        cache.map { c in
+            let copied = c.state.map { ($0 + MLXArray(0)).asType($0.dtype) }
+            if !copied.isEmpty { eval(copied) }
+            return Layer(arrays: copied, offset: c.offset, isTrimmable: c.isTrimmable)
+        }
+    }
+    public static func restore(_ snapshot: [Layer], into cache: [any KVCache]) {
+        for (i, snap) in snapshot.enumerated() {
+            var c = cache[i]
+            if c.isTrimmable {
+                let extra = c.offset - snap.offset
+                if extra > 0 { _ = c.trim(extra) }
+            }
+            if !snap.arrays.isEmpty {
+                c.state = snap.arrays.map { ($0 + MLXArray(0)).asType($0.dtype) }
+            }
+        }
+    }
+}
+
+// MARK: - MTP self-speculative generator (greedy) — text LLM
+public final class Qwen3_5MoEMTPGenerator {
+    let model: Qwen3_5MoEModel
+    let head: Qwen3_5MoEMTPHead
+    public let depth: Int
+
+    public init(model: Qwen3_5MoEModel, head: Qwen3_5MoEMTPHead, depth: Int = 3) {
+        self.model = model; self.head = head; self.depth = depth
+    }
+    private static func argmax(_ l: MLXArray) -> Int { MLX.argMax(l, axis: -1).item(Int.self) }
+    private func tok(_ id: Int) -> MLXArray { MLXArray([Int32(id)]).reshaped([1, 1]) }
+    private func toks(_ ids: [Int]) -> MLXArray { MLXArray(ids.map(Int32.init)).reshaped([1, ids.count]) }
+
+    public func generate(
+        promptIds: [Int], maxTokens: Int, eosIds: Set<Int> = [], onToken: ((Int) -> Bool)? = nil
+    ) -> [Int] {
+        let cache = model.newCache(parameters: nil)
+        let (h0, l0) = model.forwardHidden(toks(promptIds), cache: cache)
+        var lastHidden = h0[0..., (h0.dim(1) - 1)..., 0...]
+        var nextLogits = l0[0..., (l0.dim(1) - 1)..., 0...]
+        eval(lastHidden, nextLogits)
+
+        var out: [Int] = []
+        func emit(_ t: Int) -> Bool {
+            out.append(t)
+            if let onToken, !onToken(t) { return false }
+            return out.count < maxTokens && !eosIds.contains(t)
+        }
+        while out.count < maxTokens {
+            let primary = Self.argmax(nextLogits[0, -1, 0...])
+            if !emit(primary) { break }
+            let k = Swift.min(depth, maxTokens - out.count)
+            if k <= 0 { break }
+
+            let headCache = KVCacheSimple()
+            var draftHidden = lastHidden
+            var seed = primary
+            var drafts: [Int] = []
+            for _ in 0..<k {
+                let post = head(hiddenStates: draftHidden, tokenEmbeds: model.embedTokens(tok(seed)), cache: headCache)
+                let dtok = Self.argmax(model.projectLMHead(post)[0, -1, 0...])
+                drafts.append(dtok)
+                draftHidden = post[0..., (post.dim(1) - 1)..., 0...]
+                seed = dtok
+            }
+
+            let snap = Qwen3MTPCacheSnapshot.capture(cache)
+            let (vh, vl) = model.forwardHidden(toks([primary] + drafts), cache: cache)
+            eval(vh, vl)
+
+            var accepted = 0
+            for i in 0..<drafts.count {
+                if Self.argmax(vl[0, i, 0...]) == drafts[i] { accepted += 1 } else { break }
+            }
+
+            if accepted == drafts.count {
+                var stop = false
+                for d in drafts { if !emit(d) { stop = true; break } }
+                if stop { break }
+                lastHidden = vh[0..., (vh.dim(1) - 1)..., 0...]
+                nextLogits = vl[0..., (vl.dim(1) - 1)..., 0...]
+                eval(lastHidden, nextLogits)
+            } else {
+                var stop = false
+                for j in 0..<accepted { if !emit(drafts[j]) { stop = true; break } }
+                if stop { break }
+                Qwen3MTPCacheSnapshot.restore(snap, into: cache)
+                let committed = [primary] + Array(drafts[0..<accepted])
+                let (rh, rl) = model.forwardHidden(toks(committed), cache: cache)
+                lastHidden = rh[0..., (rh.dim(1) - 1)..., 0...]
+                nextLogits = rl[0..., (rl.dim(1) - 1)..., 0...]
+                eval(lastHidden, nextLogits)
+            }
+        }
+        return out
+    }
+}
+
 // MARK: - Text Model (language_model level)
 
 class Qwen3_5TextModel: Module {
@@ -888,6 +1052,17 @@ class Qwen3_5TextModel: Module {
         }
         return out
     }
+
+    // MTP hooks
+    func projectLMHead(_ hidden: MLXArray) -> MLXArray {
+        if let lmHead { return lmHead(hidden) }
+        return model.embedTokens.asLinear(hidden)
+    }
+    func embed(_ ids: MLXArray) -> MLXArray { model.embedTokens(ids) }
+    func forwardHidden(_ inputIds: MLXArray, cache: [KVCache]?) -> (hidden: MLXArray, logits: MLXArray) {
+        let hidden = model(inputIds, cache: cache)
+        return (hidden, projectLMHead(hidden))
+    }
 }
 
 // MARK: - Top-Level Model
@@ -913,6 +1088,17 @@ public class Qwen3_5MoEModel: Module, LLMModel, KVCacheDimensionProvider {
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
         languageModel(inputs, cache: cache)
+    }
+
+    // MARK: MTP public hooks
+    public func forwardHidden(_ inputIds: MLXArray, cache: [KVCache]?)
+        -> (hidden: MLXArray, logits: MLXArray) {
+        languageModel.forwardHidden(inputIds, cache: cache)
+    }
+    public func embedTokens(_ ids: MLXArray) -> MLXArray { languageModel.embed(ids) }
+    public func projectLMHead(_ hidden: MLXArray) -> MLXArray { languageModel.projectLMHead(hidden) }
+    public func loadMTPHead(sidecarPath: String) throws -> Qwen3_5MoEMTPHead {
+        try Qwen3_5MoEMTPHead.load(sidecarPath: sidecarPath, config: configuration.textConfig)
     }
 
     public func newCache(parameters: GenerateParameters?) -> [any KVCache] {

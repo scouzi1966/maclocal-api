@@ -418,6 +418,12 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Enable radix tree prefix caching for KV cache reuse across requests")
     var enablePrefixCaching: Bool = false
 
+    @Flag(name: .long, help: "Enable MTP self-speculative decoding (Qwen3.6 models with an mtp.safetensors sidecar). Faster decode, identical greedy output. No-op if the model has no MTP head.")
+    var mtp: Bool = false
+
+    @Option(name: .long, help: "MTP draft depth — tokens drafted per cycle (default: 3). Only used with --mtp.")
+    var mtpDepth: Int = 3
+
     @Option(name: .long, help: "Write cache timing profile records as JSONL to this file")
     var cacheProfilePath: String?
 
@@ -494,6 +500,8 @@ struct MlxCommand: ParsableCommand {
         if let prefillStepSize { service.prefillStepSize = prefillStepSize }
         service.kvEvictionPolicy = kvEviction ?? "none"
         service.enablePrefixCaching = enablePrefixCaching
+        service.mtpEnabled = mtp
+        service.mtpDepth = mtpDepth
         service.cacheProfilePath = cacheProfilePath
         service.enableGrammarConstraints = enableGrammarConstraints
         // --concurrent N: 0 or 1 silently falls back to serial; nil = serial; 2+ = batch mode
