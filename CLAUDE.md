@@ -41,15 +41,56 @@ The patch script (`Scripts/apply-mlx-patches.sh`) copies complete Swift files fr
 
 Commands: `--check` (verify), `--revert` (restore originals), no flag (apply).
 
+### MLX C++ / Metal-kernel patches (separate from the Swift patch set)
+
+The Swift patches above target the `vendor/mlx-swift-lm` submodule. The low-level MLX **C++/Metal**
+code lives in a *different* tree — the `mlx-swift` remote SwiftPM dependency at
+`.build/checkouts/mlx-swift` (ephemeral; wiped by `swift package clean`/re-resolve). Two scripts
+patch it, applied by `build.sh` after `swift package resolve` and before the metallib rebuild:
+
+- `Scripts/apply-mlx-cpp-patches.sh` — `qmv_fast_wide` quantized matvec kernels.
+- `Scripts/apply-mlx-sdpa-backport.sh` — backports mlx-swift **0.31.3's adaptive-block 2-pass SDPA**
+  into the pinned 0.30.3 tree. 0.30.3 hardcodes the split-K count `blocks=32`; 0.31.3 makes it a
+  runtime function-constant scaled by sequence length (up to 1024), giving **decode@16k ~+10%
+  (≈13.0→14.4 tok/s on Qwen3.6-27B-4bit/M4 Pro), correct at all depths**. Source files live in
+  `Scripts/patches/mlx-cpp-sdpa/`; it also inserts the `check_kernel_threadgroup_size` helper into
+  `utils.h`. Both scripts support `--check`/`--revert`. **After applying, the metallib MUST be
+  rebuilt** (`Scripts/rebuild-metallib.sh`) so the kernel change takes effect — see the Build section.
+
 ## Build
 
-**IMPORTANT:** Always run the full build with ALL steps (submodules, patches, webui) unless the user explicitly asks to skip a step. Never add `--skip-webui`, `--skip-patches`, or `--skip-submodules` on your own.
+**IMPORTANT:** Always run the full build with ALL steps (submodules, patches, webui, metallib) unless the user explicitly asks to skip a step. Never add `--skip-webui`, `--skip-patches`, `--skip-submodules`, or `--skip-metallib` on your own.
 
 ```bash
 swift build                              # Debug build
 swift build -c release                   # Release build
-./Scripts/build-from-scratch.sh          # Full build (submodules + patches + webui + clean + build)
+./Scripts/build-from-scratch.sh          # Full build (submodules + patches + webui + clean + metallib + build)
 ```
+
+### MLX Metal shader library (`default.metallib`)
+
+`swift build` does **NOT** compile any Metal. The MLX kernels ship as a prebuilt
+`Sources/MacLocalAPI/Resources/default.metallib` (committed to git) that `swift build` only
+copies into the app bundle. The kernel *sources* live in the resolved `mlx-swift` dependency
+(`.build/checkouts/mlx-swift/.../kernels/*.metal`), so editing a kernel (e.g. `sdpa_vector.h`)
+has **zero effect** until the metallib is regenerated. (Editing the dispatch C++ in
+`scaled_dot_product_attention.cpp` *does* recompile — so a kernel/dispatch mismatch silently
+produces garbage at every context length.)
+
+`./build.sh` regenerates the metallib from source as step 4b via `Scripts/rebuild-metallib.sh`
+(compiles the pinned kernel set, links with `metal -o`, verifies kernel-symbol parity, installs).
+This needs the **Metal Toolchain**, which Xcode 26 ships as a separate downloadable component:
+
+```bash
+xcodebuild -showComponent MetalToolchain        # status (installed/uninstalled)
+xcodebuild -downloadComponent MetalToolchain    # one-time ~688 MB install
+./Scripts/rebuild-metallib.sh                    # rebuild + parity-check + install
+./Scripts/rebuild-metallib.sh --check            # just verify the toolchain is available
+./Scripts/rebuild-metallib.sh --no-install        # build to /tmp + parity check, don't replace committed
+```
+
+If the toolchain is absent, `build.sh` falls back to the committed prebuilt metallib (after
+offering to download). There is no separate `metallib` tool on Xcode 26 — link via `metal -o lib.metallib *.air`.
 
 ## Running the Server
 
