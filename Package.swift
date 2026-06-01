@@ -116,7 +116,9 @@ let package = Package(
                 "MacLocalAPI",
                 .product(name: "Jinja", package: "swift-jinja"),
                 .product(name: "XCTVapor", package: "vapor"),
-                .product(name: "VaporTesting", package: "vapor")
+                .product(name: "VaporTesting", package: "vapor"),
+                // MTP P0 validation needs the patched Qwen3.6 VLM model (Qwen3_5MTPHead).
+                .product(name: "MLXVLM", package: "mlx-swift-lm")
             ]
         )
     ],

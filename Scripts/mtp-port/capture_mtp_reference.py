@@ -56,6 +56,12 @@ def main():
     primary = int(mx.argmax(last_logits, axis=-1).item())
     print(f"[ref] primary (argmax next token) = {primary} -> {tok.decode([primary])!r}", file=sys.stderr)
 
+    # --- capture the trunk token embedding of `primary` (the head's other input) ---
+    inner = getattr(rt.model, "language_model", rt.model)
+    inner = getattr(inner, "model", inner)
+    primary_embed = inner.embed_tokens(mx.array([[primary]]))   # (1,1,H)
+    mx.eval(primary_embed)
+
     # --- one MTP draft step: head(last_hidden, primary) -> draft logits for t+2 ---
     mtp_cache = rt.make_mtp_cache()
     draft_logits, draft_hidden = rt.draft_mtp(
@@ -93,7 +99,18 @@ def main():
                                for i in np.argsort(-dl_np[0])[:5].tolist()],
     }
     (OUT / "mtp_ref_step.json").write_text(json.dumps(meta, indent=2))
-    print(f"[ref] wrote {OUT/'mtp_ref_step.npz'} and .json", file=sys.stderr)
+
+    # --- Swift-friendly safetensors fixture (mlx-swift loads these natively) ---
+    # Keep everything float32; the Swift test loads the head, runs on these inputs,
+    # and must reproduce draft_hidden (post_norm) and draft_logits / drafted token.
+    pe = to_np(primary_embed).astype(np.float32)
+    mx.save_safetensors(str(OUT / "mtp_ref_step.safetensors"), {
+        "last_hidden":  mx.array(h_np),       # (1,1,H)  head input: trunk hidden
+        "primary_embed": mx.array(np.atleast_3d(pe)),  # (1,1,H) head input: embed(primary)
+        "draft_logits": mx.array(dl_np),      # (1,vocab) expected
+        "draft_hidden": mx.array(dh_np),      # (1,1,H)  expected post_norm hidden
+    })
+    print(f"[ref] wrote {OUT/'mtp_ref_step.npz'}, .json, .safetensors", file=sys.stderr)
     print(json.dumps(meta, indent=2))
 
 if __name__ == "__main__":

@@ -915,6 +915,102 @@ private class Qwen3_5VLDecoderLayer: Module {
     }
 }
 
+// MARK: - MTP (Multi-Token Prediction) Head
+//
+// Self-speculative decoding head shipped with Qwen3.6 (mtp_num_hidden_layers=1). Given the
+// trunk's last hidden state h_t and the embedding of the just-decided token, it predicts the
+// draft logits for token t+2 (chained for higher depth). Mirrors mtplx's `_mtp_core`:
+//   e = pre_fc_norm_embedding(embed);  h = pre_fc_norm_hidden(hidden)
+//   x = fc(concat([e, h], -1))                    // fc is plain bf16: 10240 -> 5120
+//   x = decoder_block(x)                          // 1 full-attention block, DENSE mlp (q4 g32)
+//   post = norm(x);  logits = lm_head(post)       // lm_head reused from the trunk
+// Weights live in a separate `mtp.safetensors` sidecar (keys prefixed `mtp.`); a model without
+// it simply has no head and MTP stays disabled. Validated against the Python reference in P0.
+public final class Qwen3_5MTPHead: Module {
+    @ModuleInfo(key: "pre_fc_norm_embedding") var preFcNormEmbedding: RMSNorm
+    @ModuleInfo(key: "pre_fc_norm_hidden") var preFcNormHidden: RMSNorm
+    @ModuleInfo(key: "fc") var fc: Linear
+    @ModuleInfo(key: "norm") var norm: RMSNorm
+
+    // The single MTP transformer block: a full-attention layer with a DENSE MLP (not MoE).
+    @ModuleInfo(key: "self_attn") fileprivate var selfAttn: Qwen3_5VLAttention
+    @ModuleInfo(key: "input_layernorm") var inputLayerNorm: RMSNorm
+    @ModuleInfo(key: "post_attention_layernorm") var postAttentionLayerNorm: RMSNorm
+    @ModuleInfo(key: "mlp") fileprivate var mlp: Qwen3_5VLMLP
+
+    public init(_ args: Qwen3_5MoEVLTextConfiguration) {
+        _preFcNormEmbedding.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
+        _preFcNormHidden.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
+        // fc fuses [embedding ; hidden] (2*hidden) -> hidden. No bias (bf16 in the sidecar).
+        _fc.wrappedValue = Linear(args.hiddenSize * 2, args.hiddenSize, bias: false)
+        _norm.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
+
+        _selfAttn.wrappedValue = Qwen3_5VLAttention(args)
+        _inputLayerNorm.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
+        _postAttentionLayerNorm.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
+        _mlp.wrappedValue = Qwen3_5VLMLP(
+            dimensions: args.hiddenSize, hiddenDimensions: args.intermediateSize)
+    }
+
+    /// Run the MTP head for one draft step.
+    /// - hiddenStates: trunk last hidden `(B, L, H)`
+    /// - tokenEmbeds:  embedding of the seeding token `(B, L, H)` (= trunk embed_tokens(token))
+    /// - cache:        single-layer KV cache for the MTP block (owns the RoPE offset)
+    /// Returns the post-norm hidden `(B, L, H)`; project with the trunk lm_head to get logits.
+    public func callAsFunction(
+        hiddenStates: MLXArray,
+        tokenEmbeds: MLXArray,
+        mask: MLXArray?,
+        cache: KVCache?
+    ) -> MLXArray {
+        let e = preFcNormEmbedding(tokenEmbeds)
+        let h = preFcNormHidden(hiddenStates)
+        // concat order "embedding_hidden": [e, h]
+        var x = fc(concatenated([e, h], axis: -1))
+
+        // one decoder block: x = x + attn(input_ln(x)); x = x + mlp(post_attn_ln(x))
+        let r = selfAttn(inputLayerNorm(x), mask: mask, cache: cache, positionIds: nil)
+        x = x + r
+        x = x + mlp(postAttentionLayerNorm(x))
+
+        return norm(x)
+    }
+
+    /// Load an MTP head from a `mtp.safetensors` sidecar (keys prefixed `mtp.`).
+    /// Quantizes the projections that ship with `.scales` (q4 group_size 32) to match the
+    /// sidecar layout, then loads the weights. Used by P0 validation and the MTP runtime.
+    public static func load(
+        sidecarPath: String,
+        config: Qwen3_5MoEVLTextConfiguration,
+        groupSize: Int = 32,
+        bits: Int = 4
+    ) throws -> Qwen3_5MTPHead {
+        let head = Qwen3_5MTPHead(config)
+
+        // Load sidecar and map keys onto this module's structure:
+        //  - strip the `mtp.` prefix
+        //  - flatten the single block: `layers.0.X` -> `X` (the head holds the block inline,
+        //    not under a `layers` array, since mtp_num_hidden_layers == 1)
+        let raw = try MLX.loadArrays(url: URL(fileURLWithPath: sidecarPath))
+        var weights: [String: MLXArray] = [:]
+        for (k, v) in raw {
+            var key = k.hasPrefix("mtp.") ? String(k.dropFirst(4)) : k
+            if key.hasPrefix("layers.0.") { key = String(key.dropFirst("layers.0.".count)) }
+            weights[key] = v
+        }
+
+        // Quantize exactly the linears that have a matching `.scales` tensor (the projections);
+        // `fc` and the norms stay full-precision (no scales in the sidecar).
+        quantize(model: head, filter: { path, _ in
+            weights["\(path).scales"] != nil ? (groupSize: groupSize, bits: bits) : nil
+        })
+
+        try head.update(parameters: ModuleParameters.unflattened(weights), verify: [.all])
+        eval(head)
+        return head
+    }
+}
+
 // MARK: - Inner Model
 
 private class Qwen3_5VLTextModelInner: Module {
