@@ -178,3 +178,30 @@ place to verify any such change stays identical to AR.
 
 **Bottom line:** MTP self-speculative decoding is implemented, correct, and gives a real
 quality-preserving decode speedup in afm at depth 1.
+
+---
+
+## PERF UPDATE (2026-06-01, commit 9d86fea) — +52% vs AR, win secured
+
+The initial naive K-draft loop was correct but only +6% (depth 1) / slower at higher depths.
+Rewrote it after **mlx-lm PR #990** (AirRunner/feat/mtp-native) into the depth-2-bonus structure:
+
+  per cycle: draft 1 token (MTP head) → 1 backbone verify of [primary, draft]
+  → pos 0 = verdict on draft, pos 1 = FREE bonus next-token
+  accept → emit draft+bonus (2 tokens for 1 backbone forward); reject → emit backbone's correct
+  token + roll back GDN state to the post-primary snapshot (NO re-forward).
+
+Plus a zero-copy cache snapshot (afm's recurrent cache replaces arrays each forward, so rollback
+just holds references — dropped a ~150MB deep-copy + full GPU sync that ran every cycle).
+
+**Measured, M4 Pro, Qwen3.6-27B-MTPLX, 200-tok greedy, matched A/B:**
+
+| | tok/s | accept | tok/cycle |
+|---|---|---|---|
+| AR baseline | 14.7 | — | — |
+| **MTP (depth-2-bonus)** | **22.6** | **81%** | 1.82 |
+
+**+52% decode, quality-preserving** (P2 still 32/32 identical to greedy AR). Beats mtplx's
+published 1.47× and matches PR #990's 1.57×. `afm mlx -m <mtp-model> --mtp` now delivers a
+genuine, verified decode speedup. The old "depth>1 loses to projection cost" conclusion was an
+artifact of the naive loop's re-forwards — not fundamental.

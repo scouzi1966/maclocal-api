@@ -421,7 +421,7 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Enable MTP self-speculative decoding (Qwen3.6 models with an mtp.safetensors sidecar). Faster decode, identical greedy output. No-op if the model has no MTP head.")
     var mtp: Bool = false
 
-    @Option(name: .long, help: "MTP draft depth — tokens drafted per cycle (default: 1). Only used with --mtp. On M4 Pro depth 1 is the sweet spot (~+6% vs AR); higher depths currently lose to the full-vocab draft projection cost.")
+    @Option(name: .long, help: "MTP draft depth (accepted for compatibility; the loop currently uses the fixed depth-2-bonus structure from mlx-lm PR #990 — ~+50% decode vs AR on M4 Pro — so this value is not used).")
     var mtpDepth: Int = 1
 
     @Option(name: .long, help: "Write cache timing profile records as JSONL to this file")
