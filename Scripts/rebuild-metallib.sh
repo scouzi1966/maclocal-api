@@ -39,11 +39,17 @@ BUILD_DIR="$(mktemp -d /tmp/afm-metallib.XXXXXX)"
 
 # Exact translation-unit set found in the shipped metallib (the MLX JIT-on always-built
 # set + steel_attention). Paths are relative to $KDIR. Do NOT add JIT-only kernels here.
+# NOTE: `random` is REQUIRED — it provides the `rbitsc`/`rbits` RNG kernels used by any
+# temperature>0 (sampled) generation. Omitting it builds a metallib that loads fine and
+# works for greedy (temp=0) decode but FATAL-errors ("Unable to load kernel rbitsc") on the
+# first sampled request. It has no global ctor so it isn't detected by the _GLOBAL__sub_I
+# scan — it must be listed explicitly.
 METAL_TUS=(
   arg_reduce
   conv
   gemv
   layer_norm
+  random
   rms_norm
   rope
   scaled_dot_product_attention
@@ -106,6 +112,18 @@ info "Linking metallib ..."
 xcrun -sdk macosx metal "${AIR_FILES[@]}" -o "$NEW_METALLIB"
 [ -f "$NEW_METALLIB" ] || { err "metallib link produced no output"; exit 1; }
 info "Built: $(du -h "$NEW_METALLIB" | cut -f1) ($NEW_METALLIB)"
+
+# Required-kernel guard: catch whole-TU omissions that the name-pattern parity check below
+# can miss (e.g. the RNG kernels have no `*_float_NxN` symbol). A metallib missing `rbits`
+# loads fine and works for greedy decode but FATAL-errors on the first sampled (temp>0)
+# request — exactly the failure that motivated this guard. Refuse to install if absent.
+for req in rbits; do
+  if ! strings "$NEW_METALLIB" | grep -qi "$req"; then
+    err "Built metallib is MISSING required kernel '$req' — a translation unit is absent from METAL_TUS."
+    err "(Most likely 'random'.) This would FATAL on sampled generation. Refusing to install."
+    exit 1
+  fi
+done
 
 # Parity check: a kernel-internal change (e.g. BN/blocks constexpr) must NOT change the
 # set of exported kernel symbols. A mismatch means the TU set is wrong or the edit added/
