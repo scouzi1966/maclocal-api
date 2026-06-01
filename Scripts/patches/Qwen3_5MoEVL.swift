@@ -1011,6 +1011,50 @@ public final class Qwen3_5MTPHead: Module {
     }
 }
 
+// MARK: - MTP cache snapshot/restore (speculative rollback)
+//
+// For self-speculative decoding the trunk cache is advanced over K speculated tokens during
+// verify, then must be rolled back to the M<=K accepted tokens. Qwen3.6's hybrid cache makes
+// this clean: each layer is either a MambaCache/ArraysCache (linear-attn: conv + GDN recurrent
+// state arrays) or a KVCacheSimple (full-attn: trimmable KV). We snapshot ALL of it before
+// verify and, on partial/zero accept, restore the snapshot and re-forward only the accepted
+// prefix — which deterministically re-derives the exact M-token state for every layer (no
+// per-position capture kernel needed; the re-forward IS the ground truth).
+public enum MTPCacheSnapshot {
+    /// One layer's saved state: deep-copied arrays + the KV offset (0 for recurrent layers).
+    public struct Layer {
+        let arrays: [MLXArray]
+        let offset: Int
+        let isTrimmable: Bool
+    }
+
+    /// Deep-copy a layer cache's state, forcing distinct buffers so later in-place advances
+    /// (COW) don't alias the snapshot. `x + 0` materializes a fresh array.
+    public static func capture(_ cache: [any KVCache]) -> [Layer] {
+        cache.map { c in
+            let copied = c.state.map { ($0 + MLXArray(0)).asType($0.dtype) }
+            if !copied.isEmpty { eval(copied) }
+            return Layer(arrays: copied, offset: c.offset, isTrimmable: c.isTrimmable)
+        }
+    }
+
+    /// Restore a previously captured snapshot into the live cache (in place).
+    /// Trimmable KV caches are trimmed back to the captured offset before the state is reset,
+    /// so their internal buffers and `offset` match the snapshot exactly.
+    public static func restore(_ snapshot: [Layer], into cache: [any KVCache]) {
+        for (i, snap) in snapshot.enumerated() {
+            var c = cache[i]
+            if c.isTrimmable {
+                let extra = c.offset - snap.offset
+                if extra > 0 { _ = c.trim(extra) }
+            }
+            if !snap.arrays.isEmpty {
+                c.state = snap.arrays.map { ($0 + MLXArray(0)).asType($0.dtype) }
+            }
+        }
+    }
+}
+
 // MARK: - Inner Model
 
 private class Qwen3_5VLTextModelInner: Module {
@@ -1234,6 +1278,49 @@ private class Qwen3_5VLTextModel: Module, KVCacheDimensionProvider {
 
         return LMOutput(logits: output)
     }
+
+    // MARK: MTP support hooks (text-only fast paths for self-speculative decoding)
+
+    /// Project a hidden state to vocab logits using the trunk LM head (reused by the MTP head).
+    func projectLMHead(_ hidden: MLXArray) -> MLXArray {
+        if let lmHead { return lmHead(hidden) }
+        return model.embedTokens.asLinear(hidden)
+    }
+
+    /// Embed token ids with the trunk embedding (the MTP head's seed input).
+    func embed(_ ids: MLXArray) -> MLXArray { model.embedTokens(ids) }
+
+    /// Text-only forward over `inputIds` returning BOTH the pre-LM-head hidden states and the
+    /// vocab logits. Used for MTP verify (need hidden for the head + logits for acceptance).
+    func forwardHidden(_ inputIds: MLXArray, cache: [any KVCache]?) -> (hidden: MLXArray, logits: MLXArray) {
+        let faIdx = args.fullAttentionInterval - 1
+        let cacheOffset: Int = {
+            guard let cache, faIdx < cache.count else { return 0 }
+            return cache[faIdx].offset
+        }()
+        var positionIds: MLXArray? = nil
+        if cacheOffset == 0 || ropeDeltas == nil {
+            let (computed, deltas) = Qwen3VLLanguage.getRopeIndex(
+                inputIds: inputIds, imageGridTHW: nil, videoGridTHW: nil,
+                spatialMergeSize: config.visionConfig.spatialMergeSize,
+                imageTokenId: config.imageTokenIndex, videoTokenId: config.videoTokenIndex,
+                visionStartTokenId: config.visionStartTokenId, attentionMask: nil)
+            positionIds = computed
+            ropeDeltas = deltas
+        } else if let ropeDeltas {
+            let seqLength = inputIds.dim(1)
+            let delta = MLXArray(cacheOffset).asType(.int32) + ropeDeltas.asType(.int32)
+            var base = MLXArray(0 ..< seqLength).asType(.int32)[.newAxis, 0...]
+            base = broadcast(base, to: [inputIds.dim(0), seqLength]) + delta
+            positionIds = broadcast(base[.newAxis, 0..., 0...], to: [3, inputIds.dim(0), seqLength])
+        }
+        let faCache: [KVCache]? = cache != nil && faIdx < cache!.count ? [cache![faIdx]] : nil
+        let attentionMask: MLXArray? = createAttentionMask(h: inputIds, cache: faCache)
+        let hidden = model(
+            inputIds, cache: cache, inputEmbeddings: nil, mask: attentionMask,
+            positionIds: positionIds, visualMask: nil, deepstackEmbeds: nil)
+        return (hidden, projectLMHead(hidden))
+    }
 }
 
 // MARK: - Top-Level VLM
@@ -1436,6 +1523,25 @@ public final class Qwen3_5MoEVL: Module, VLMModel, KVCacheDimensionProvider {
             videoGridTHW: nil
         ).logits
         return result
+    }
+
+    // MARK: MTP public hooks
+
+    /// Text-only trunk forward returning (hidden, logits) — for MTP verify.
+    public func forwardHidden(_ inputIds: MLXArray, cache: [any KVCache]?)
+        -> (hidden: MLXArray, logits: MLXArray) {
+        languageModel.forwardHidden(inputIds, cache: cache)
+    }
+
+    /// Trunk token embedding (the MTP head's seed input).
+    public func embedTokens(_ ids: MLXArray) -> MLXArray { languageModel.embed(ids) }
+
+    /// Project a hidden state through the trunk LM head (MTP head's final projection).
+    public func projectLMHead(_ hidden: MLXArray) -> MLXArray { languageModel.projectLMHead(hidden) }
+
+    /// Build an MTP head matching this model's config from a `mtp.safetensors` sidecar.
+    public func loadMTPHead(sidecarPath: String) throws -> Qwen3_5MTPHead {
+        try Qwen3_5MTPHead.load(sidecarPath: sidecarPath, config: config.textConfig)
     }
 
     public func sanitize(weights: [String: MLXArray]) -> [String: MLXArray] {
