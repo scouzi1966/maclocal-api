@@ -147,3 +147,34 @@ P0–P2 (greedy, the bulk of the win): **multi-day**, dominated by P1 (GDN rollb
 per-position-state kernel. P3–P4: additional days. The validated 1.47× makes it the highest-value
 decode work available; the GDN bit-exactness harness (P1) is the make-or-break gate — if Swift can't
 reproduce the recurrent state exactly, stop there.
+
+---
+
+## IMPLEMENTATION RESULT (2026-06-01) — shipped, runnable
+
+All gates passed bit-exact and the feature is runnable as `afm mlx --mtp`:
+- **P0** Swift MTP head — `cos=1.000000` vs Python reference (commit d2ab0af)
+- **P1** GatedDeltaNet cache rollback — per-layer state `max|Δ|=0.000000` across all 64 layers
+  (commit 4474222). The feared GDN rollback needed NO custom kernel — afm's ArraysCache design
+  made snapshot/restore + re-forward bit-exact.
+- **P2** greedy speculative loop — output **identical** to greedy AR, 32/32 tokens (commit 11da477)
+- **Integration** — `--mtp` / `--mtp-depth` CLI flags; loads mtp.safetensors sidecar at startup;
+  routes eligible greedy/text/no-tool requests through the speculative generator (commit b628326)
+- **Perf** (commit 05e288f) — measured on M4 Pro, Qwen3.6-27B-MTPLX, 200-tok greedy, matched session:
+
+  | depth | tok/s | tok/cycle | accept | vs AR (15.4) |
+  |------:|------:|----------:|-------:|-------------:|
+  | **1** | **16.4** | 1.75 | 75% | **+6.5%** |
+  | 2     | 13.6  | 2.22 | 61% | −12% |
+  | 3     | 11.6  | 2.44 | 48% | −25% |
+
+**Default depth = 1** (the measured sweet spot on M4 Pro). Speculation works (2.44 tok/cycle at
+depth 3) but each extra draft depth adds a full **248,320-vocab lm_head projection** that, on the
+M4 Pro's 273 GB/s bandwidth, costs more than the extra accepted tokens save. mtplx's published
+2.24× was on an M5 Max (614 GB/s) where the trunk read dominates and that projection is relatively
+cheaper. Unlocking higher depths on lower-bandwidth hardware needs a cheaper draft projection
+(mtplx ships a 3-bit draft-only lm_head) — future work; the correctness scaffolding (P0–P2) is in
+place to verify any such change stays identical to AR.
+
+**Bottom line:** MTP self-speculative decoding is implemented, correct, and gives a real
+quality-preserving decode speedup in afm at depth 1.
