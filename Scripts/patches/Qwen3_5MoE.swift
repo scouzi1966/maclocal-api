@@ -924,14 +924,21 @@ public final class Qwen3_5MoEMTPHead: Module {
 }
 
 // MARK: - MTP cache snapshot/restore (speculative rollback) — shared logic
+//
+// Zero-copy: afm's recurrent (GDN/ArraysCache) layers REPLACE their state arrays each forward
+// (`cache[1] = newState`) rather than mutating in place, so we can simply hold references to the
+// pre-verify arrays — the verify swaps in fresh arrays, leaving ours intact. No `+0` deep-copy
+// and no `eval` barrier per cycle (those were ~150MB copied + a full GPU sync every cycle).
+// Trimmable (full-attn KV) layers don't need a state snapshot at all: `trim()` shrinks them back
+// to the accepted length on restore. So we only capture references for the recurrent layers.
 public enum Qwen3MTPCacheSnapshot {
-    public struct Layer { let arrays: [MLXArray]; let offset: Int; let isTrimmable: Bool }
+    public struct Layer { let arrays: [MLXArray]?; let offset: Int; let isTrimmable: Bool }
 
     public static func capture(_ cache: [any KVCache]) -> [Layer] {
         cache.map { c in
-            let copied = c.state.map { ($0 + MLXArray(0)).asType($0.dtype) }
-            if !copied.isEmpty { eval(copied) }
-            return Layer(arrays: copied, offset: c.offset, isTrimmable: c.isTrimmable)
+            // Recurrent layers: keep references to current state (no copy). Trimmable: offset only.
+            let arrays: [MLXArray]? = c.isTrimmable ? nil : c.state
+            return Layer(arrays: arrays, offset: c.offset, isTrimmable: c.isTrimmable)
         }
     }
     public static func restore(_ snapshot: [Layer], into cache: [any KVCache]) {
@@ -940,9 +947,8 @@ public enum Qwen3MTPCacheSnapshot {
             if c.isTrimmable {
                 let extra = c.offset - snap.offset
                 if extra > 0 { _ = c.trim(extra) }
-            }
-            if !snap.arrays.isEmpty {
-                c.state = snap.arrays.map { ($0 + MLXArray(0)).asType($0.dtype) }
+            } else if let arrays = snap.arrays {
+                c.state = arrays   // assign the held pre-verify references back (no copy)
             }
         }
     }
@@ -961,80 +967,75 @@ public final class Qwen3_5MoEMTPGenerator {
     private func tok(_ id: Int) -> MLXArray { MLXArray([Int32(id)]).reshaped([1, 1]) }
     private func toks(_ ids: [Int]) -> MLXArray { MLXArray(ids.map(Int32.init)).reshaped([1, ids.count]) }
 
+    /// Greedy self-speculative decode, structured after mlx-lm PR #990 (depth-2, n_confirmed=1):
+    /// each cycle drafts ONE token with the MTP head, then runs a single 2-token backbone verify
+    /// `[primary, draft]`. The verify yields the verdict for `draft` (position 0) AND a free bonus
+    /// next token (position 1). On accept emit draft+bonus (2 tokens / 1 backbone fwd); on reject
+    /// emit the backbone's own correct token and roll back the GDN recurrent state to the snapshot
+    /// taken after `primary` (no re-forward — the snapshot is zero-copy array references).
     public func generate(
         promptIds: [Int], maxTokens: Int, eosIds: Set<Int> = [], onToken: ((Int) -> Bool)? = nil
     ) -> [Int] {
         let cache = model.newCache(parameters: nil)
+        let mtpCache = KVCacheSimple()
         let (h0, l0) = model.forwardHidden(toks(promptIds), cache: cache)
-        var lastHidden = h0[0..., (h0.dim(1) - 1)..., 0...]
-        var nextLogits = l0[0..., (l0.dim(1) - 1)..., 0...]
-        eval(lastHidden, nextLogits)
+        // `primary` = the committed token whose backbone hidden seeds the draft; `primaryHidden`
+        // = backbone hidden AFTER consuming primary (input to the MTP head).
+        var primary = Self.argmax(l0[0, -1, 0...])
+        var primaryHidden = h0[0..., (h0.dim(1) - 1)..., 0...]
 
         var out: [Int] = []
-        var totalCycles = 0
-        var totalAccepted = 0
+        var totalCycles = 0, totalAccepted = 0
         func emit(_ t: Int) -> Bool {
             out.append(t)
             if let onToken, !onToken(t) { return false }
             return out.count < maxTokens && !eosIds.contains(t)
         }
-        while out.count < maxTokens {
-            totalCycles += 1
-            let primary = Self.argmax(nextLogits[0, -1, 0...])
+
+        while true {
             if !emit(primary) { break }
-            let k = Swift.min(depth, maxTokens - out.count)
-            if k <= 0 { break }
+            if out.count >= maxTokens { break }
+            totalCycles += 1
 
-            let headCache = KVCacheSimple()
-            var draftHidden = lastHidden
-            var seed = primary
-            var drafts: [Int] = []
-            for _ in 0..<k {
-                let post = head(hiddenStates: draftHidden, tokenEmbeds: model.embedTokens(tok(seed)), cache: headCache)
-                let dtok = Self.argmax(model.projectLMHead(post)[0, -1, 0...])
-                drafts.append(dtok)
-                draftHidden = post[0..., (post.dim(1) - 1)..., 0...]
-                seed = dtok
-            }
+            // --- DRAFT one token: MTP head on (primaryHidden, primary) ---
+            let post = head(hiddenStates: primaryHidden,
+                            tokenEmbeds: model.embedTokens(tok(primary)), cache: mtpCache)
+            let draft = Self.argmax(model.projectLMHead(post)[0, -1, 0...])
 
+            // --- VERIFY: backbone over [primary, draft]; snapshot GDN after primary ---
             let snap = Qwen3MTPCacheSnapshot.capture(cache)
-            let (vh, vl) = model.forwardHidden(toks([primary] + drafts), cache: cache)
+            let (vh, vl) = model.forwardHidden(toks([primary, draft]), cache: cache)
+            // toks[0] = backbone's correct token after `primary`; toks[1] = bonus after `draft`.
+            let verdict = MLX.argMax(vl[0, 0..<2, 0...], axis: -1).asArray(Int32.self)
+            let correct = Int(verdict[0])
+            let accept = (correct == draft)
+            if accept { totalAccepted += 1 }
 
-            // Vectorized acceptance: argmax over ALL verify positions in one op (1 sync, not K).
-            // vl[0, i] is the trunk's verdict for the token following position i; compare the
-            // first `drafts.count` against the drafted tokens.
-            let verdicts = MLX.argMax(vl[0, 0 ..< drafts.count, 0...], axis: -1)  // (K,)
-            let verdictArr = verdicts.asArray(Int32.self)                          // single sync
-            var accepted = 0
-            for i in 0..<drafts.count {
-                if Int(verdictArr[i]) == drafts[i] { accepted += 1 } else { break }
-            }
-            totalAccepted += accepted
-
-            if accepted == drafts.count {
-                var stop = false
-                for d in drafts { if !emit(d) { stop = true; break } }
-                if stop { break }
-                lastHidden = vh[0..., (vh.dim(1) - 1)..., 0...]
-                nextLogits = vl[0..., (vl.dim(1) - 1)..., 0...]
-                eval(lastHidden, nextLogits)
+            if accept {
+                // draft confirmed; emit it + the free bonus token (verdict[1]).
+                if !emit(draft) { break }
+                if out.count >= maxTokens { break }
+                let bonus = Int(verdict[1])
+                primary = bonus
+                primaryHidden = vh[0..., 1..<2, 0...]      // hidden after draft -> seeds next draft
+                // mtpCache: trim the rejected-draft KV? On accept the draft became real, so the
+                // MTP cache's single appended position is valid context — but the head only needs
+                // 1-step context, so reset is cheapest and correct.
+                mtpCache.state = []
             } else {
-                var stop = false
-                for j in 0..<accepted { if !emit(drafts[j]) { stop = true; break } }
-                if stop { break }
+                // draft wrong: roll the backbone cache back to just-after-primary, emit the
+                // backbone's correct token, seed next cycle from it.
                 Qwen3MTPCacheSnapshot.restore(snap, into: cache)
-                let committed = [primary] + Array(drafts[0..<accepted])
-                let (rh, rl) = model.forwardHidden(toks(committed), cache: cache)
-                lastHidden = rh[0..., (rh.dim(1) - 1)..., 0...]
-                nextLogits = rl[0..., (rl.dim(1) - 1)..., 0...]
-                eval(lastHidden, nextLogits)
+                primary = correct
+                primaryHidden = vh[0..., 0..<1, 0...]       // hidden after primary
+                mtpCache.state = []
             }
         }
         if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" {
-            let accRate = totalCycles > 0 ? Double(totalAccepted) / Double(totalCycles * depth) : 0
+            let accRate = totalCycles > 0 ? Double(totalAccepted) / Double(totalCycles) : 0
             let tokPerCycle = totalCycles > 0 ? Double(out.count) / Double(totalCycles) : 0
             FileHandle.standardError.write(Data(
-                "[MTP] \(out.count) tok in \(totalCycles) cycles — \(String(format: "%.2f", tokPerCycle)) tok/cycle, accept rate \(String(format: "%.0f%%", accRate * 100)) (depth \(depth))\n".utf8))
+                "[MTP] \(out.count) tok in \(totalCycles) cycles — \(String(format: "%.2f", tokPerCycle)) tok/cycle, accept \(String(format: "%.0f%%", accRate * 100))\n".utf8))
         }
         return out
     }
