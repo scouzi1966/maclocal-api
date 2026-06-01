@@ -971,12 +971,15 @@ public final class Qwen3_5MoEMTPGenerator {
         eval(lastHidden, nextLogits)
 
         var out: [Int] = []
+        var totalCycles = 0
+        var totalAccepted = 0
         func emit(_ t: Int) -> Bool {
             out.append(t)
             if let onToken, !onToken(t) { return false }
             return out.count < maxTokens && !eosIds.contains(t)
         }
         while out.count < maxTokens {
+            totalCycles += 1
             let primary = Self.argmax(nextLogits[0, -1, 0...])
             if !emit(primary) { break }
             let k = Swift.min(depth, maxTokens - out.count)
@@ -996,12 +999,17 @@ public final class Qwen3_5MoEMTPGenerator {
 
             let snap = Qwen3MTPCacheSnapshot.capture(cache)
             let (vh, vl) = model.forwardHidden(toks([primary] + drafts), cache: cache)
-            eval(vh, vl)
 
+            // Vectorized acceptance: argmax over ALL verify positions in one op (1 sync, not K).
+            // vl[0, i] is the trunk's verdict for the token following position i; compare the
+            // first `drafts.count` against the drafted tokens.
+            let verdicts = MLX.argMax(vl[0, 0 ..< drafts.count, 0...], axis: -1)  // (K,)
+            let verdictArr = verdicts.asArray(Int32.self)                          // single sync
             var accepted = 0
             for i in 0..<drafts.count {
-                if Self.argmax(vl[0, i, 0...]) == drafts[i] { accepted += 1 } else { break }
+                if Int(verdictArr[i]) == drafts[i] { accepted += 1 } else { break }
             }
+            totalAccepted += accepted
 
             if accepted == drafts.count {
                 var stop = false
@@ -1021,6 +1029,12 @@ public final class Qwen3_5MoEMTPGenerator {
                 nextLogits = rl[0..., (rl.dim(1) - 1)..., 0...]
                 eval(lastHidden, nextLogits)
             }
+        }
+        if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" {
+            let accRate = totalCycles > 0 ? Double(totalAccepted) / Double(totalCycles * depth) : 0
+            let tokPerCycle = totalCycles > 0 ? Double(out.count) / Double(totalCycles) : 0
+            FileHandle.standardError.write(Data(
+                "[MTP] \(out.count) tok in \(totalCycles) cycles — \(String(format: "%.2f", tokPerCycle)) tok/cycle, accept rate \(String(format: "%.0f%%", accRate * 100)) (depth \(depth))\n".utf8))
         }
         return out
     }
