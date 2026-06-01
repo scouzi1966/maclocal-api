@@ -19,8 +19,14 @@ import Testing
 ///
 /// Requires the MTP sidecar on disk; skips cleanly if absent so CI without the model passes.
 struct MTPHeadP0Tests {
-    static let sidecar =
-        "/Volumes/Crucial4TB/models/mtplx/Youssofal--Qwen3.6-27B-MTPLX-Optimized-Speed/mtp.safetensors"
+    // Model lives under the standard cache root in <org>/<model> layout, so afm can load it
+    // as `-m Youssofal/Qwen3.6-27B-MTPLX-Optimized-Speed`. Honor MACAFM_MLX_MODEL_CACHE.
+    static let modelDir: String = {
+        let root = ProcessInfo.processInfo.environment["MACAFM_MLX_MODEL_CACHE"]
+            ?? "/Volumes/Crucial4TB/models/vesta-test-cache"
+        return root + "/Youssofal/Qwen3.6-27B-MTPLX-Optimized-Speed"
+    }()
+    static var sidecar: String { modelDir + "/mtp.safetensors" }
     static let fixtureDir: String = {
         // Resolve from THIS source file's location (CWD is unreliable: MLXMetalLibrary
         // chdir's to the metallib dir during setup). #filePath =
@@ -37,8 +43,7 @@ struct MTPHeadP0Tests {
     /// Build the Qwen3.6-27B text config matching the model (only the fields the head needs).
     private func headConfig() -> Qwen3_5MoEVLTextConfiguration? {
         // Decode from the model's config.json text_config so we don't hand-maintain constants.
-        let cfgPath =
-            "/Volumes/Crucial4TB/models/mtplx/Youssofal--Qwen3.6-27B-MTPLX-Optimized-Speed/config.json"
+        let cfgPath = Self.modelDir + "/config.json"
         guard let data = FileManager.default.contents(atPath: cfgPath) else { return nil }
         let top = try? JSONDecoder().decode(Qwen3_5MoEVLConfiguration.self, from: data)
         return top?.textConfig

@@ -10,8 +10,8 @@ What it captures (to Scripts/mtp-port/fixtures/mtp_ref_step.npz + .json):
   - the MTP head's draft logits for t+2, and its argmax (the drafted token)
   - a small slice of the logits + key intermediate stats for quick eyeballing
 
-Run with the mtplx venv:
-  MTPLX_MODEL_DIR=/Volumes/Crucial4TB/models/mtplx \
+Run with the mtplx venv (model under the standard cache root):
+  MACAFM_MLX_MODEL_CACHE=/Volumes/Crucial4TB/models/vesta-test-cache \
   /Volumes/Crucial4TB/bench/mtplxenv/bin/python Scripts/mtp-port/capture_mtp_reference.py
 """
 import os, sys, json, pathlib
@@ -21,8 +21,10 @@ import mlx.core as mx
 OUT = pathlib.Path(__file__).resolve().parent / "fixtures"
 OUT.mkdir(parents=True, exist_ok=True)
 
-MODEL_DIR = os.environ.get("MTPLX_MODEL_DIR", "/Volumes/Crucial4TB/models/mtplx")
-MODEL = os.path.join(MODEL_DIR, "Youssofal--Qwen3.6-27B-MTPLX-Optimized-Speed")
+# Model lives under the standard afm cache root in <org>/<model> layout.
+CACHE = os.environ.get("MACAFM_MLX_MODEL_CACHE", "/Volumes/Crucial4TB/models/vesta-test-cache")
+MODEL = os.environ.get("MTPLX_MODEL",
+                       os.path.join(CACHE, "Youssofal", "Qwen3.6-27B-MTPLX-Optimized-Speed"))
 
 # Deterministic prompt — fixed, no sampling.
 PROMPT = "The capital of France is"
