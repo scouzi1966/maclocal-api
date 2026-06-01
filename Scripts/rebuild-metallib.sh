@@ -118,7 +118,11 @@ info "Built: $(du -h "$NEW_METALLIB" | cut -f1) ($NEW_METALLIB)"
 # loads fine and works for greedy decode but FATAL-errors on the first sampled (temp>0)
 # request — exactly the failure that motivated this guard. Refuse to install if absent.
 for req in rbits; do
-  if ! strings "$NEW_METALLIB" | grep -qi "$req"; then
+  # Count matches without `grep -q`: -q closes the pipe on first hit, which SIGPIPEs `strings`
+  # → non-zero → `set -o pipefail` would make this read as "missing" even when present.
+  # `grep -c` consumes all input, so the pipeline exits cleanly.
+  n=$(strings "$NEW_METALLIB" | grep -ci "$req" || true)
+  if [ "${n:-0}" -eq 0 ]; then
     err "Built metallib is MISSING required kernel '$req' — a translation unit is absent from METAL_TUS."
     err "(Most likely 'random'.) This would FATAL on sampled generation. Refusing to install."
     exit 1
