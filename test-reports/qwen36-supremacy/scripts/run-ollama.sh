@@ -1,12 +1,13 @@
 #!/bin/bash
-# Engine: ollama (OpenAI-compat :11434) on Qwen3.6-27B GGUF.
-# NOTE: ollama 0.24.0 (latest stable) FAILS: "unknown model architecture: 'qwen35'".
-# This runner documents that failure; it will benchmark only if a future ollama supports qwen35
-# (or an MLX-backed ollama build / mlx tag is used — set OLLAMA_MODEL_ID).
+# Engine: ollama (OpenAI-compat :11434) on Qwen3.6-27B.
+# DEFAULT MODEL = qwen3.6:27b-mlx (the MLX tag). The GGUF tag
+# (hf.co/unsloth/Qwen3.6-27B-GGUF:Q4_K_M) FAILS on this machine: ollama can't load the
+# qwen35 architecture ("unable to load model" / "unknown model architecture: 'qwen35'").
+# Always benchmark the MLX tag. Override with OLLAMA_MODEL_ID if needed.
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 BASE="${OLLAMA_BASE:-http://127.0.0.1:11434}"; E=ollama
-ID="${OLLAMA_MODEL_ID:-hf.co/unsloth/Qwen3.6-27B-GGUF:Q4_K_M}"
+ID="${OLLAMA_MODEL_ID:-qwen3.6:27b-mlx}"
 BENCH_OUT="$OUTDIR/$E.json"; BENCH_LOG="$OUTDIR/$E-bench.log"; PROBE_OUT="$OUTDIR/$E-probe.json"
 
 echo "### kill MLX/llama engines (ollama serve stays)"; pkill -f "afm.* mlx " 2>/dev/null; pkill -f "mlx_vlm.server" 2>/dev/null; pkill -f "llama-server" 2>/dev/null; pkill -f "omlx-cli" 2>/dev/null; sleep 2

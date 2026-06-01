@@ -1,10 +1,10 @@
 {
   "label": "ollama",
-  "decode_tps_streamed": 12.33,
+  "decode_tps_streamed": 12.31,
   "decode_deltas": 184,
   "server_completion_tokens": 200,
-  "decode_ttft_s": 0.524,
-  "prefill_ttft_s": 16.221,
+  "decode_ttft_s": 0.578,
+  "prefill_ttft_s": 15.279,
   "prefill_prompt_tokens": 1786,
-  "prefill_tps": 110.1
+  "prefill_tps": 116.9
 }

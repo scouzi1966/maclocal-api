@@ -76,10 +76,10 @@
       "backend": "ollama (MLX backend)",
       "quant": "NVFP4 4-bit (~19GB)",
       "loads": true,
-      "decode_tps": 13.48,
+      "decode_tps": 13.45,
       "decode_trustworthy": true,
       "decode_source": "server usage / decode window (probe)",
-      "prefill_cold_tps": 110.1,
+      "prefill_cold_tps": 116.9,
       "prefill_cached_tps": null,
       "prefill_cache_hit_pct": null,
       "notes": "ollama MLX backend, NVFP4 4-bit (~19GB, incl. vision); GGUF 'qwen35' fails on 0.24.0"
