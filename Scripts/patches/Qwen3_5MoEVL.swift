@@ -1055,6 +1055,121 @@ public enum MTPCacheSnapshot {
     }
 }
 
+// MARK: - MTP self-speculative generator (greedy)
+//
+// Drafts K tokens with the MTP head, verifies all K in one trunk forward, accepts the longest
+// correct prefix (greedy: a draft is accepted iff it equals the trunk's argmax at that position),
+// emits accepted tokens + a bonus on full-accept, and rolls the trunk cache back on partial
+// accept via re-forward of the committed prefix. Output is provably IDENTICAL to greedy AR
+// (every emitted token is one the trunk would have produced) — the speed comes from emitting
+// 1..K+1 tokens per trunk forward. temperature>0 (exact speculative sampling) is P3.
+public final class MTPGenerator {
+    public struct Step { public let tokens: [Int]; public let cycles: Int }
+
+    let model: Qwen3_5MoEVL
+    let head: Qwen3_5MTPHead
+    public let depth: Int
+
+    public init(model: Qwen3_5MoEVL, head: Qwen3_5MTPHead, depth: Int = 3) {
+        self.model = model
+        self.head = head
+        self.depth = depth
+    }
+
+    private static func argmax(_ logits: MLXArray) -> Int {
+        MLX.argMax(logits, axis: -1).item(Int.self)
+    }
+    private func tok(_ id: Int) -> MLXArray { MLXArray([Int32(id)]).reshaped([1, 1]) }
+    private func toks(_ ids: [Int]) -> MLXArray { MLXArray(ids.map(Int32.init)).reshaped([1, ids.count]) }
+
+    /// Greedy generate up to `maxTokens` continuation tokens from an already-tokenized prompt.
+    /// `onToken` is called for each emitted token (for streaming); return false to stop.
+    /// Returns all generated tokens. `eosIds` halts generation when emitted.
+    public func generate(
+        promptIds: [Int],
+        maxTokens: Int,
+        eosIds: Set<Int> = [],
+        onToken: ((Int) -> Bool)? = nil
+    ) -> [Int] {
+        let cache = model.newCache(parameters: nil)
+        // Prefill: last hidden + next-token logits.
+        let (h0, l0) = model.forwardHidden(toks(promptIds), cache: cache)
+        var lastHidden = h0[0..., (h0.dim(1) - 1)..., 0...]                 // (1,1,H)
+        var nextLogits = l0[0..., (l0.dim(1) - 1)..., 0...]                 // (1,1,V)
+        eval(lastHidden, nextLogits)
+
+        var out: [Int] = []
+        func emit(_ t: Int) -> Bool {
+            out.append(t)
+            if let onToken, !onToken(t) { return false }
+            return out.count < maxTokens && !eosIds.contains(t)
+        }
+
+        var cycles = 0
+        while out.count < maxTokens {
+            cycles += 1
+            // Primary = greedy next token from the trunk.
+            let primary = Self.argmax(nextLogits[0, -1, 0...])
+            if !emit(primary) { break }
+
+            let k = Swift.min(depth, maxTokens - out.count)
+            if k <= 0 { break }
+
+            // --- DRAFT k tokens with the MTP head (autoregressive; single-layer KV cache) ---
+            let headCache = KVCacheSimple()
+            var draftHidden = lastHidden
+            var seed = primary
+            var drafts: [Int] = []
+            for _ in 0..<k {
+                let post = head(hiddenStates: draftHidden, tokenEmbeds: model.embedTokens(tok(seed)),
+                                mask: nil, cache: headCache)
+                let dl = model.projectLMHead(post)
+                let dtok = Self.argmax(dl[0, -1, 0...])
+                drafts.append(dtok)
+                draftHidden = post[0..., (post.dim(1) - 1)..., 0...]
+                seed = dtok
+            }
+
+            // --- VERIFY: trunk over [primary] + drafts in one forward ---
+            let snap = MTPCacheSnapshot.capture(cache)
+            let verifyInput = [primary] + drafts
+            let (vh, vl) = model.forwardHidden(toks(verifyInput), cache: cache)
+            eval(vh, vl)
+
+            // --- ACCEPT (greedy): draft[i] correct iff == argmax(verify logits at position i) ---
+            var accepted = 0
+            for i in 0..<drafts.count {
+                let corr = Self.argmax(vl[0, i, 0...])   // trunk's verdict for token after position i
+                if corr == drafts[i] { accepted += 1 } else { break }
+            }
+
+            if accepted == drafts.count {
+                // All accepted: emit drafts, advance live state to the post-verify end.
+                var stop = false
+                for d in drafts { if !emit(d) { stop = true; break } }
+                if stop { break }
+                lastHidden = vh[0..., (vh.dim(1) - 1)..., 0...]
+                nextLogits = vl[0..., (vl.dim(1) - 1)..., 0...]
+                eval(lastHidden, nextLogits)
+                // (bonus token = next primary, taken at the top of the next cycle)
+            } else {
+                // Partial: emit accepted prefix, then roll back + re-forward committed prefix
+                // ([primary] + accepted drafts) so the cache + live state land exactly there.
+                var stop = false
+                for j in 0..<accepted { if !emit(drafts[j]) { stop = true; break } }
+                if stop { break }
+                MTPCacheSnapshot.restore(snap, into: cache)
+                let committed = [primary] + Array(drafts[0..<accepted])
+                let (rh, rl) = model.forwardHidden(toks(committed), cache: cache)
+                lastHidden = rh[0..., (rh.dim(1) - 1)..., 0...]
+                nextLogits = rl[0..., (rl.dim(1) - 1)..., 0...]
+                eval(lastHidden, nextLogits)
+            }
+        }
+        return out
+    }
+}
+
 // MARK: - Inner Model
 
 private class Qwen3_5VLTextModelInner: Module {
