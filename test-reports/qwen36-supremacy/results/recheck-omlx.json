@@ -1,0 +1,6 @@
+{
+  "label": "omlx",
+  "prefill_8k_tps": 119.2,
+  "prefill_prompt_tokens": 16229,
+  "decode_16k_tps": 13.41
+}

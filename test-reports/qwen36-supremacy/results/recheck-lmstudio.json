@@ -1,0 +1,6 @@
+{
+  "label": "lmstudio",
+  "prefill_8k_tps": null,
+  "prefill_prompt_tokens": 16229,
+  "decode_16k_tps": 14.73
+}

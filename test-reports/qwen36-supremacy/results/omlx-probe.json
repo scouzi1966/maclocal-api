@@ -1,10 +1,10 @@
 {
   "label": "omlx-mlx-4bit",
-  "decode_tps_streamed": 15.16,
+  "decode_tps_streamed": 15.36,
   "decode_deltas": 199,
   "server_completion_tokens": 200,
-  "decode_ttft_s": 0.654,
-  "prefill_ttft_s": 14.881,
+  "decode_ttft_s": 0.624,
+  "prefill_ttft_s": 14.46,
   "prefill_prompt_tokens": 1786,
-  "prefill_tps": 120.0
+  "prefill_tps": 123.5
 }
