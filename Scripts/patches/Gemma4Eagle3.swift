@@ -243,6 +243,9 @@ public final class Gemma4Eagle3Drafter: Module {
 
     public func newCache() -> [KVCache] { (0 ..< Swift.max(1, config.numHiddenLayers)).map { _ in KVCacheSimple() } }
 
+    /// Last-position slice [1,1,H] of a [1,L,H] hidden tensor.
+    fileprivate static func lastPos(_ a: MLXArray) -> MLXArray { a[0..., (a.dim(1) - 1)..., 0...] }
+
     // MARK: Loading
 
     /// Load the drafter from a directory of bf16 safetensors + config.json.
@@ -281,5 +284,108 @@ public final class Gemma4Eagle3Drafter: Module {
         }
         eval(drafter)
         return drafter
+    }
+}
+
+// MARK: - Greedy speculative generator (drafter-side state machine)
+
+/// Owns the EAGLE3 drafter's speculative state for a single greedy sequence: its KV cache, the
+/// next RoPE/cache position, and the carried "seed" (the drafter's predicted next token plus the
+/// hidden that produced it). Mirrors the drafter half of mlx-vlm's `Eagle3DraftModel`
+/// (`prefill_from_target_hidden` / `draft_block` / `accept_verified_tokens`). The verifier
+/// forward, the acceptance walk, and the verifier-cache rollback are owned by the driver (the P1
+/// test today, the service in P2).
+public final class Gemma4Eagle3Generator {
+    public let drafter: Gemma4Eagle3Drafter
+    private var cache: [KVCache]
+    private var nextPosition: Int = 1
+    private var seedToken: Int?
+    private var seedHidden: MLXArray?
+    /// In-block drafter forwards since the last accept — trimmed off before the accept re-forward.
+    private var roundAppended: Int = 0
+
+    public init(drafter: Gemma4Eagle3Drafter) {
+        self.drafter = drafter
+        self.cache = drafter.newCache()
+    }
+
+    public func reset() {
+        cache = drafter.newCache()
+        nextPosition = 1
+        seedToken = nil
+        seedHidden = nil
+        roundAppended = 0
+    }
+
+    /// Greedy argmax over the (hot) draft vocab at the last position, mapped to the full vocab.
+    private func draftArgmax(_ hiddenLast: MLXArray) -> Int {
+        let hot = MLX.argMax(drafter.logits(hiddenLast)[0, -1, 0...], axis: -1)
+        return drafter.draftToTarget(hot).item(Int.self)
+    }
+
+    private func setSeed(_ hiddenLast: MLXArray) {
+        seedToken = draftArgmax(hiddenLast)
+        seedHidden = hiddenLast
+    }
+
+    /// Prime the drafter KV with the prompt (shifted by one, `bonus` appended) using the verifier's
+    /// captured+concatenated hidden states, then compute the first seed. `verifierHidden3x` is
+    /// `[1, P, 3*targetHidden]` over the prompt positions; `bonus` is the verifier's first token.
+    public func prefill(promptTokens: [Int], verifierHidden3x: MLXArray, bonus: Int) {
+        guard promptTokens.count > 0 else { return }
+        var shifted = Array(promptTokens.dropFirst())
+        shifted.append(bonus)                       // length == promptTokens.count
+        let toks = MLXArray(shifted.map { Int32($0) }).reshaped([1, shifted.count])
+        nextPosition = 1
+        let hid = verifierHidden3x[0..., 0 ..< shifted.count, 0...]
+        let h = drafter.forwardTokens(toks, hidden: hid, cache: cache, positionOffset: nextPosition)
+        nextPosition += shifted.count
+        setSeed(Gemma4Eagle3Drafter.lastPos(h))
+    }
+
+    /// Produce `blockSize - 1` greedy draft tokens. The first is the carried seed; each subsequent
+    /// token is the drafter's own next-token prediction, feeding its own hidden forward.
+    public func draftBlock(blockSize: Int) -> [Int] {
+        roundAppended = 0
+        var tokens: [Int] = []
+        guard var tok = seedToken, var hPrev = seedHidden else { return tokens }
+        tokens.append(tok)
+        seedToken = nil
+        seedHidden = nil
+        while tokens.count < blockSize - 1 {
+            let tokArr = MLXArray([Int32(tok)]).reshaped([1, 1])
+            hPrev = drafter.forwardTokens(tokArr, hidden: hPrev, cache: cache, positionOffset: nextPosition)
+            nextPosition += 1
+            roundAppended += 1
+            tok = draftArgmax(Gemma4Eagle3Drafter.lastPos(hPrev))
+            tokens.append(tok)
+        }
+        return tokens
+    }
+
+    /// After verification: trim the in-block drafter forwards, then re-forward the accepted tokens
+    /// (plus the bonus) with the verifier's hidden to advance the drafter KV and compute the next
+    /// seed. `verifyHidden3x` is `[1, blockSize, 3*targetHidden]`; `accepted` is the number of
+    /// matched draft tokens; `newLastToken` is the bonus (verifier) token that follows them.
+    public func accept(verifyHidden3x: MLXArray, draftTokens: [Int], accepted: Int, newLastToken: Int) {
+        if roundAppended > 0 {
+            for c in cache { _ = c.trim(roundAppended) }
+            nextPosition -= roundAppended
+        }
+        var toks: [Int] = []
+        var hiddenSlices: [MLXArray] = []
+        if accepted > 0 {
+            toks.append(contentsOf: draftTokens[0 ..< accepted])
+            hiddenSlices.append(verifyHidden3x[0..., 0 ..< accepted, 0...])
+        }
+        toks.append(newLastToken)
+        hiddenSlices.append(verifyHidden3x[0..., accepted ..< (accepted + 1), 0...])
+
+        let tokArr = MLXArray(toks.map { Int32($0) }).reshaped([1, toks.count])
+        let hid = hiddenSlices.count == 1 ? hiddenSlices[0] : concatenated(hiddenSlices, axis: 1)
+        let h = drafter.forwardTokens(tokArr, hidden: hid, cache: cache, positionOffset: nextPosition)
+        nextPosition += toks.count
+        setSeed(Gemma4Eagle3Drafter.lastPos(h))
+        roundAppended = 0
     }
 }
