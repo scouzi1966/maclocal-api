@@ -149,6 +149,7 @@ afm is built for agentic clients — OpenCode, OpenClaw, Cline, Continue.dev, Ai
 | **`stream_options.include_usage` honored** | Suppress the final usage chunk when the client doesn't want it (matches OpenAI strict mode) | `Models/OpenAIRequest.swift:StreamOptions` |
 | **`parallel_tool_calls: false` honored** | Truncate to a single tool call per turn for agents that want serial execution | `Controllers/MLXChatCompletionsController.swift:finalizeAssistantTurn` |
 | **Speech (transcribe + TTS) and Vision OCR** | `/v1/audio/transcriptions`, `/v1/audio/speech`, `/v1/ocr` — agents can hand off audio/image inputs without a separate service | `Controllers/SpeechAPIController.swift`, `VisionAPIController.swift` |
+| **On-device embeddings for RAG** | `/v1/embeddings` from Apple's NaturalLanguage model — OpenAI-compatible vectors for retrieval/semantic search. Runs as a dedicated `afm embed` server (:9998), separate from the chat endpoint | `Controllers/EmbeddingsController.swift` |
 | **Per-client config generators** | `afm mlx -m <model> --openclaw-config` prints a paste-ready provider config; cookbook recipes in [`docs/clients/`](docs/clients/) cover OpenCode, OpenClaw, Cline, Continue.dev, Aider, Cursor, Hermes | `Sources/MacLocalAPI/main.swift:printOpenClawConfig` |
 
 See [`docs/clients/`](docs/clients/) for one-page recipes per agent.
@@ -218,6 +219,7 @@ afm mlx -m mlx-community/Qwen3-Coder-Next-4bit -t 1.0 --top-p 0.95 --max-tokens 
 - **⚡ LoRA adapter support** - Supports fine-tuning with LoRA adapters using Apple's tuning Toolkit
 - **📱 Apple Foundation Models** - Uses Apple's on-device 3B parameter language model
 - **👁️ Vision OCR** - Extract text from images and PDFs using Apple Vision via CLI and HTTP (`afm vision`, `/v1/vision/ocr`)
+- **🔢 Embeddings** - OpenAI-compatible embeddings from Apple's NaturalLanguage model, on-device, via a dedicated server (`afm embed`, `/v1/embeddings`)
 - **🖥️ Built-in WebUI** - Chat interface with model selection (`afm -w`)
 - **🔒 Privacy-First** - All processing happens locally on your device
 - **⚡ Fast & Lightweight** - No network calls, no API keys required
@@ -366,6 +368,24 @@ curl -X POST http://localhost:9999/v1/vision/ocr \
 ```
 
 The endpoint returns structured JSON with per-document text, per-page text, text blocks, detected tables, document hints, and a top-level `combined_text` field. See [docs/vision-ocr-api.md](docs/vision-ocr-api.md) for request formats, options, and response details.
+
+### Embeddings
+**POST** `/v1/embeddings`
+
+Serves OpenAI-compatible embeddings backed by Apple's NaturalLanguage contextual model, fully on-device. Started with `afm embed` (default port `9998`), separate from the chat server.
+
+```bash
+afm embed                       # start the embeddings server on port 9998
+
+curl -X POST http://localhost:9998/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "apple-nl-contextual-en",
+    "input": "The quick brown fox"
+  }'
+```
+
+Accepts a string, an array of strings, or pre-tokenized ids; supports `float`/`base64` output and Matryoshka-style `dimensions` truncation. See [docs/embeddings-api.md](docs/embeddings-api.md) for models, request fields, response shape, and error semantics.
 
 ### Health Check
 **GET** `/health`
