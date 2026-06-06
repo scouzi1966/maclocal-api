@@ -1,0 +1,24 @@
+### kill other engines + free port
+  freeRAM=43.5GB
+### start rapid-mlx serve (local path, prefix cache on)
+  loading t=10s freeRAM=41.1GB
+  loading t=20s freeRAM=35.5GB
+  loading t=30s freeRAM=29.8GB
+  ready t=34s gpu=95% freeRAM=27.9GB
+### warmup
+OK usage: {'prompt_tokens': 17, 'completion_tokens': 30, 'total_tokens': 47}
+### probe (canonical: server usage / decode window)
+{
+  "label": "rapidmlx-4bit",
+  "decode_tps_streamed": 15.3,
+  "decode_deltas": 200,
+  "server_completion_tokens": 200,
+  "decode_ttft_s": 0.264,
+  "prefill_ttft_s": 0.28,
+  "prefill_prompt_tokens": 1786,
+  "prefill_tps": 6382.0
+}
+### rapid-mlx prefix-cache reload probe (run probe twice; 2nd should hit cache)
+  warm:   "prefill_ttft_s": 0.277,
+  warm:   "prefill_tps": 6458.9
+### DONE
