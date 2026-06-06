@@ -1127,7 +1127,15 @@ struct MacLocalAPI: ParsableCommand {
             description: Extract text and tables from images/PDFs using Apple Vision OCR
             usage: afm vision -f <file> [--table]
             full_details: afm vision --help-json
-        api_endpoints: [/v1/chat/completions, /v1/models, /v1/vision/ocr, /health]
+          speech:
+            description: Transcribe audio to text and synthesize text to speech using Apple Speech/AVFoundation
+            usage: afm speech transcribe -f <file> | afm speech synthesize <text> -o <file>
+            full_details: afm speech --help-json
+          embed:
+            description: Serve OpenAI-compatible embeddings using Apple NaturalLanguage contextual embeddings
+            usage: afm embed -m <model> [--port 9998]
+            full_details: afm embed --list-models
+        api_endpoints: [/v1/chat/completions, /v1/models, /v1/vision/ocr, /v1/embeddings, /health]
         env_vars:
           MACAFM_MLX_MODEL_CACHE: Override model cache directory
           MACAFM_MLX_METALLIB: Override metallib path
@@ -1162,6 +1170,8 @@ struct MacLocalAPI: ParsableCommand {
             - "afm" — Apple Foundation Models (on-device, requires macOS 26+)
             - "afm mlx -m <model>" — MLX open-source models from Hugging Face
             - "afm vision -f <file>" — Vision OCR text/table extraction
+            - "afm speech transcribe -f <file>" — Speech transcription and synthesis
+            - "afm embed -m <model>" — OpenAI-compatible embeddings (Apple NaturalLanguage)
             - "afm -g" — API gateway proxying to local backends
         triggers:
           - start local LLM server
@@ -1170,12 +1180,16 @@ struct MacLocalAPI: ParsableCommand {
           - Apple Foundation Models API
           - local tool calling server
           - vision OCR text extraction
+          - speech transcription and synthesis
+          - local text embeddings for RAG / semantic search
           - API gateway for local LLM backends
         examples:
           - afm --port 9999
           - afm mlx -m Qwen/Qwen3-Coder-Next-4bit --port 9999
           - afm mlx -m mlx-community/Meta-Llama-3.1-8B-Instruct-4bit -s "Hello"
           - afm vision -f image.png
+          - afm speech transcribe -f recording.wav
+          - afm embed -m apple-nl-contextual-en --port 9998
           - afm -g --port 9999
         ---
 
@@ -1205,7 +1219,15 @@ struct RootCommand: ParsableCommand {
             description: Extract text and tables from images/PDFs using Apple Vision OCR
             usage: afm vision -f <file> [--table]
             full_details: afm vision --help-json
-        api_endpoints: [/v1/chat/completions, /v1/models, /v1/vision/ocr, /health]
+          speech:
+            description: Transcribe audio to text and synthesize text to speech using Apple Speech/AVFoundation
+            usage: afm speech transcribe -f <file> | afm speech synthesize <text> -o <file>
+            full_details: afm speech --help-json
+          embed:
+            description: Serve OpenAI-compatible embeddings using Apple NaturalLanguage contextual embeddings
+            usage: afm embed -m <model> [--port 9998]
+            full_details: afm embed --list-models
+        api_endpoints: [/v1/chat/completions, /v1/models, /v1/vision/ocr, /v1/embeddings, /health]
         env_vars:
           MACAFM_MLX_MODEL_CACHE: Override model cache directory
           MACAFM_MLX_METALLIB: Override metallib path
@@ -1240,6 +1262,8 @@ struct RootCommand: ParsableCommand {
             - "afm" — Apple Foundation Models (on-device, requires macOS 26+)
             - "afm mlx -m <model>" — MLX open-source models from Hugging Face
             - "afm vision -f <file>" — Vision OCR text/table extraction
+            - "afm speech transcribe -f <file>" — Speech transcription and synthesis
+            - "afm embed -m <model>" — OpenAI-compatible embeddings (Apple NaturalLanguage)
             - "afm -g" — API gateway proxying to local backends
         triggers:
           - start local LLM server
@@ -1248,12 +1272,16 @@ struct RootCommand: ParsableCommand {
           - Apple Foundation Models API
           - local tool calling server
           - vision OCR text extraction
+          - speech transcription and synthesis
+          - local text embeddings for RAG / semantic search
           - API gateway for local LLM backends
         examples:
           - afm --port 9999
           - afm mlx -m Qwen/Qwen3-Coder-Next-4bit --port 9999
           - afm mlx -m mlx-community/Meta-Llama-3.1-8B-Instruct-4bit -s "Hello"
           - afm vision -f image.png
+          - afm speech transcribe -f recording.wav
+          - afm embed -m apple-nl-contextual-en --port 9998
           - afm -g --port 9999
         ---
 
