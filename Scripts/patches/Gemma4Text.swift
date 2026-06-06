@@ -310,6 +310,89 @@ class Gemma4Experts: Module {
     }
 }
 
+// MARK: - RoPE
+
+/// Common interface so `Gemma4Attention` can hold either the stock `RoPE` (sliding /
+/// `rope_type == "default"`) or the proportional variant (full attention / `"proportional"`),
+/// each supporting the scalar- and array-offset call sites.
+protocol Gemma4RoPEApplying {
+    func callAsFunction(_ x: MLXArray, offset: Int) -> MLXArray
+    func callAsFunction(_ x: MLXArray, offset: MLXArray) -> MLXArray
+}
+
+extension RoPE: Gemma4RoPEApplying {}
+
+/// Proportional RoPE for Gemma 4 full-attention layers (`rope_type == "proportional"`).
+///
+/// Differs from stock `RoPE` in two ways that stock `RoPE` cannot express, so it must be a
+/// custom module (ported from mlx-vlm `gemma4/rope_utils.py:ProportionalRoPE`):
+///   1. Frequencies are computed against the FULL head dim as denominator
+///      (`base ** (arange(0, rotatedDims, 2) / dims)`), not the rotated portion. For the dense
+///      31B full-attention layers that is dims=512 (global_head_dim), rotatedDims=128 — the stock
+///      path used denominator 128, a ~26000x error on the top rotary frequency.
+///   2. Rotation uses HF rotate-half geometry: the head is split into left/right halves and the
+///      first `rotatedDims/2` elements of EACH half are rotated, not the contiguous first
+///      `rotatedDims` elements.
+///
+/// Both bugs compound per full-attention layer (stock path measured cos≈0.78 per layer), which is
+/// why hidden-state fidelity degraded with depth (and why normal generation quality on full layers
+/// was silently wrong before this fix).
+final class Gemma4ProportionalRoPE: Gemma4RoPEApplying {
+    let dims: Int
+    let traditional: Bool
+    let rotatedDims: Int
+    let half: Int
+    let freqs: MLXArray?
+
+    init(dims: Int, traditional: Bool, base: Float, partialRotaryFactor: Float, factor: Float = 1.0) {
+        self.dims = dims
+        self.traditional = traditional
+        // Python: rope_angles = int(partial_rotary_factor * dims // 2); rotated_dims = 2 * rope_angles
+        let ropeAngles = Int((partialRotaryFactor * Float(dims)) / 2.0)
+        self.rotatedDims = 2 * ropeAngles
+        self.half = dims / 2
+        if rotatedDims > 0 {
+            let exps = MLXArray(stride(from: 0, to: rotatedDims, by: 2).map { Float($0) })
+            self.freqs = factor * MLX.pow(MLXArray(base), exps / Float(dims))
+        } else {
+            self.freqs = nil
+        }
+    }
+
+    /// Apply rotate-half RoPE over the gathered rotated slice, then scatter it back into the head.
+    /// `ropeFn` performs the actual `MLXFast.RoPE` call (scalar- or array-offset overload).
+    private func rotate(_ x: MLXArray, _ ropeFn: (MLXArray) -> MLXArray) -> MLXArray {
+        if rotatedDims <= 0 { return x }
+        let head = x[.ellipsis, 0 ..< dims]
+        let tail: MLXArray? = x.dim(-1) > dims ? x[.ellipsis, dims...] : nil
+        let r2 = rotatedDims / 2
+        let left = head[.ellipsis, 0 ..< half]
+        let right = head[.ellipsis, half...]
+        var rotated = concatenated(
+            [left[.ellipsis, 0 ..< r2], right[.ellipsis, 0 ..< r2]], axis: -1)
+        rotated = ropeFn(rotated)
+        let newLeft = concatenated([rotated[.ellipsis, 0 ..< r2], left[.ellipsis, r2...]], axis: -1)
+        let newRight = concatenated([rotated[.ellipsis, r2...], right[.ellipsis, r2...]], axis: -1)
+        let newHead = concatenated([newLeft, newRight], axis: -1)
+        if let tail { return concatenated([newHead, tail], axis: -1) }
+        return newHead
+    }
+
+    func callAsFunction(_ x: MLXArray, offset: Int) -> MLXArray {
+        rotate(x) {
+            MLXFast.RoPE($0, dimensions: rotatedDims, traditional: traditional,
+                         base: nil, scale: 1.0, offset: offset, freqs: freqs)
+        }
+    }
+
+    func callAsFunction(_ x: MLXArray, offset: MLXArray) -> MLXArray {
+        rotate(x) {
+            MLXFast.RoPE($0, dimensions: rotatedDims, traditional: traditional,
+                         base: nil, scale: 1.0, offset: offset, freqs: freqs)
+        }
+    }
+}
+
 // MARK: - Attention
 
 class Gemma4Attention: Module {
@@ -334,7 +417,7 @@ class Gemma4Attention: Module {
     @ModuleInfo(key: "k_norm") var kNorm: RMSNorm
     let vNorm: Gemma4RMSNormNoScale
 
-    let rope: RoPE
+    let rope: Gemma4RoPEApplying
 
     /// Stored KV for sharing with later layers (set during forward pass)
     var lastKV: (MLXArray, MLXArray)?
@@ -391,18 +474,30 @@ class Gemma4Attention: Module {
         _kNorm.wrappedValue = RMSNorm(dimensions: headDim, eps: config.rmsNormEps)
         self.vNorm = Gemma4RMSNormNoScale(eps: config.rmsNormEps)
 
-        // RoPE configuration per layer type
+        // RoPE configuration per layer type. Full-attention layers on the dense/MoE Gemma4
+        // models use rope_type "proportional" (frequencies relative to the full head dim +
+        // HF rotate-half geometry) — stock RoPE cannot express that, so route those layers to
+        // Gemma4ProportionalRoPE. Sliding ("default") layers keep stock RoPE.
         let layerKey = isSliding ? "sliding_attention" : "full_attention"
         let ropeParams = config.ropeParameters[layerKey]
         let ropeTheta = ropeParams?.ropeTheta ?? 10000.0
         let partialRotaryFactor = ropeParams?.partialRotaryFactor ?? 1.0
-        let ropeDims = Int(Float(headDim) * partialRotaryFactor)
 
-        self.rope = RoPE(
-            dimensions: ropeDims,
-            traditional: config.ropeTraditional,
-            base: ropeTheta
-        )
+        if ropeParams?.ropeType == "proportional" {
+            self.rope = Gemma4ProportionalRoPE(
+                dims: headDim,
+                traditional: config.ropeTraditional,
+                base: ropeTheta,
+                partialRotaryFactor: partialRotaryFactor
+            )
+        } else {
+            let ropeDims = Int(Float(headDim) * partialRotaryFactor)
+            self.rope = RoPE(
+                dimensions: ropeDims,
+                traditional: config.ropeTraditional,
+                base: ropeTheta
+            )
+        }
 
         super.init()
     }
@@ -689,6 +784,20 @@ public class Gemma4TextModelInner: Module {
         return forward(h: h, perLayerInputs: perLayerInputs, cache: cache)
     }
 
+    /// Forward that also returns the residual-stream hidden states at `captureLayerIds`
+    /// (for EAGLE3 speculative decoding). Returns (finalHidden, capturedInLayerOrder).
+    func forwardCapture(_ inputs: MLXArray, cache: [KVCache]?, captureLayerIds: [Int])
+        -> (MLXArray, [MLXArray]) {
+        let h = embedTokens(inputs) * embedScale
+        let perLayerInputs = computePerLayerInputs(inputIds: inputs, embeddings: h)
+        eagle3CaptureIds = Set(captureLayerIds)
+        eagle3Sink = []
+        defer { eagle3CaptureIds = []; eagle3Sink = [] }
+        let out = forward(h: h, perLayerInputs: perLayerInputs, cache: cache)
+        // Return captures in ascending layer order (sink is appended in loop order = ascending).
+        return (out, eagle3Sink)
+    }
+
     /// VLM entry point: pre-computed embeddings (with image features scattered in).
     /// perLayerInputTokens: masked token IDs for PLE (image positions zeroed out).
     public func callWithEmbeddings(
@@ -718,6 +827,13 @@ public class Gemma4TextModelInner: Module {
 
         return (modelPLNormed + tokenPLReshaped) * perLayerInputScale
     }
+
+    /// EAGLE3 hidden-state capture sink: when `captureLayerIds` is non-empty, the residual-stream
+    /// output `h` of each listed decoder layer is appended here (in layer order), matching
+    /// mlx-vlm's gemma4 `hidden_sink` semantics (captured right after the layer, before final norm).
+    /// Read by `forwardCapture`. Not thread-safe; generation is serialized under the model lock.
+    var eagle3CaptureIds: Set<Int> = []
+    var eagle3Sink: [MLXArray] = []
 
     /// Core forward pass shared by both entry points.
     /// Known issue: Gemma 4 E4B crashes in MLX at B>=3 during batched prefill.
@@ -788,6 +904,9 @@ public class Gemma4TextModelInner: Module {
 
             h = layer(h, mask: mask, cache: c, perLayerInput: plInput, sharedKV: layerSharedKV)
 
+            // EAGLE3 capture: residual-stream output of this layer (pre final-norm).
+            if eagle3CaptureIds.contains(i) { eagle3Sink.append(h) }
+
             // Store KV for sharing if needed
             if attn.storeFullLengthKV, let kv = attn.lastKV {
                 sharedKVStore[i] = (kv, preOffset, preOffsetArray, preAllEqual)
@@ -833,6 +952,22 @@ public class Gemma4TextModel: Module {
 
         return out
     }
+
+    // MARK: EAGLE3 hooks
+
+    /// Project a final hidden state to logits (tied embeddings + optional softcap).
+    func projectLMHead(_ hidden: MLXArray) -> MLXArray {
+        var out = model.embedTokens.asLinear(hidden)
+        if let cap = finalLogitSoftcapping, cap > 0 { out = tanh(out / cap) * cap }
+        return out
+    }
+
+    /// Forward returning (logits, capturedHidden@captureLayerIds) for EAGLE3 verify.
+    func forwardCapture(_ inputs: MLXArray, cache: [KVCache]?, captureLayerIds: [Int])
+        -> (logits: MLXArray, captured: [MLXArray]) {
+        let (h, caps) = model.forwardCapture(inputs, cache: cache, captureLayerIds: captureLayerIds)
+        return (projectLMHead(h), caps)
+    }
 }
 
 // MARK: - Top-Level Model
@@ -865,6 +1000,17 @@ public class Gemma4Model: Module, LLMModel, KVCacheDimensionProvider {
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
         languageModel(inputs, cache: cache)
     }
+
+    // MARK: EAGLE3 public hooks
+
+    /// Forward returning (logits, captured hidden @ layers) for EAGLE3 verify.
+    public func forwardCapture(_ inputs: MLXArray, cache: [KVCache]?, captureLayerIds: [Int])
+        -> (logits: MLXArray, captured: [MLXArray]) {
+        languageModel.forwardCapture(inputs, cache: cache, captureLayerIds: captureLayerIds)
+    }
+    /// The trunk token embedding (shared with the EAGLE3 drafter via bind).
+    public var tokenEmbedding: Embedding { languageModel.model.embedTokens }
+    public func projectLMHead(_ hidden: MLXArray) -> MLXArray { languageModel.projectLMHead(hidden) }
 
     public func newCache(parameters: GenerateParameters?) -> [any KVCache] {
         let textConfig = configuration.textConfig
