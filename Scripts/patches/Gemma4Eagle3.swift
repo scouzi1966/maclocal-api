@@ -388,4 +388,78 @@ public final class Gemma4Eagle3Generator {
         setSeed(Gemma4Eagle3Drafter.lastPos(h))
         roundAppended = 0
     }
+
+    /// End-to-end greedy EAGLE3 speculative decode driving the dense `Gemma4Model` verifier.
+    /// Returns the generated token ids (excluding the prompt). Output is identical to greedy AR
+    /// (validated by Eagle3SpecLoopP1Tests) but with fewer verifier trunk forwards.
+    ///
+    /// Single sequence, all-`KVCacheSimple` verifier cache (correct rollback via uniform trim;
+    /// memory grows with context but generation here stays well under the sliding window for typical
+    /// requests). Must be called inside the model lock (`container.perform`).
+    public func generateSpeculative(model: Gemma4Model, promptIds: [Int],
+                                    maxTokens: Int, eosIds: Set<Int>, blockSize: Int = 2) -> [Int] {
+        guard !promptIds.isEmpty, maxTokens > 0 else { return [] }
+        let capIds = drafter.config.captureLayerIds
+        let nLayers = model.newCache(parameters: nil).count
+        let vCache: [KVCache] = (0 ..< nLayers).map { _ in KVCacheSimple() }
+        func argmaxLast(_ logits: MLXArray) -> Int {
+            MLX.argMax(logits[0, -1, 0...], axis: -1).item(Int.self)
+        }
+
+        reset()
+        let promptArr = MLXArray(promptIds.map { Int32($0) }).reshaped([1, promptIds.count])
+        let (pLogits, pCaps) = model.forwardCapture(promptArr, cache: vCache, captureLayerIds: capIds)
+        var b = argmaxLast(pLogits)
+        prefill(promptTokens: promptIds, verifierHidden3x: concatenated(pCaps, axis: -1), bonus: b)
+
+        var out: [Int] = [b]
+        if eosIds.contains(b) { return out }
+
+        var rounds = 0, acceptedTotal = 0, draftedTotal = 0
+        let t0 = Date.timeIntervalSinceReferenceDate
+        while out.count < maxTokens {
+            let draftTokens = draftBlock(blockSize: blockSize)
+            if draftTokens.isEmpty { break }
+
+            var verifyIds = [b]; verifyIds.append(contentsOf: draftTokens)
+            let vArr = MLXArray(verifyIds.map { Int32($0) }).reshaped([1, verifyIds.count])
+            let (vLogits, vCaps) = model.forwardCapture(vArr, cache: vCache, captureLayerIds: capIds)
+            let target = MLX.argMax(vLogits[0, 0..., 0...], axis: -1).asArray(Int32.self).map { Int($0) }
+
+            let nd = draftTokens.count
+            var accepted = nd
+            for i in 0 ..< nd where draftTokens[i] != target[i] { accepted = i; break }
+            let bonus = target[accepted]
+            var newTokens = Array(draftTokens[0 ..< accepted]); newTokens.append(bonus)
+            rounds += 1; acceptedTotal += accepted; draftedTotal += nd
+
+            // Truncate at maxTokens and at the first EOS.
+            let budget = maxTokens - out.count
+            if newTokens.count > budget { newTokens = Array(newTokens.prefix(budget)) }
+            var hitEos = false
+            if let eosIdx = newTokens.firstIndex(where: { eosIds.contains($0) }) {
+                newTokens = Array(newTokens.prefix(eosIdx + 1)); hitEos = true
+            }
+            out.append(contentsOf: newTokens)
+            if hitEos || out.count >= maxTokens { break }
+
+            // Verifier KV rollback: keep b + accepted drafts (= accepted+1 positions).
+            let trim = verifyIds.count - (accepted + 1)
+            if trim > 0 { for c in vCache { _ = c.trim(trim) } }
+
+            accept(verifyHidden3x: concatenated(vCaps, axis: -1),
+                   draftTokens: draftTokens, accepted: accepted, newLastToken: bonus)
+            b = bonus
+
+            if out.count % 256 == 0 { MLX.GPU.clearCache() }
+        }
+        if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" {
+            let dt = Date.timeIntervalSinceReferenceDate - t0
+            let acc = draftedTotal > 0 ? Double(acceptedTotal) / Double(draftedTotal) : 0
+            let tpr = rounds > 0 ? Double(out.count) / Double(rounds) : 0
+            print(String(format: "[EAGLE3] rounds=%d accept=%d/%d (%.1f%%) tok/round=%.2f decode=%.2fs",
+                         rounds, acceptedTotal, draftedTotal, acc * 100, tpr, dt))
+        }
+        return out
+    }
 }

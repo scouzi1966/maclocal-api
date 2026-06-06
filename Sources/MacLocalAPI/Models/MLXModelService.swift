@@ -31,6 +31,21 @@ final class MTPRuntime: @unchecked Sendable {
     var active: Qwen3_5MoEMTPGenerator? { lock.withLock { generator } }
 }
 
+/// Process-global holder for the active EAGLE3 speculative drafter (Gemma4 dense verifier).
+///
+/// Holds the loaded drafter (immutable weights); a fresh `Gemma4Eagle3Generator` is created per
+/// request (its KV cache + seed state are per-sequence). Accessed only inside
+/// `ModelContainer.perform` (serialized). Cleared on model unload.
+final class Eagle3Runtime: @unchecked Sendable {
+    static let shared = Eagle3Runtime()
+    private var drafter: Gemma4Eagle3Drafter?
+    private let lock = NSLock()
+
+    func install(drafter: Gemma4Eagle3Drafter) { lock.withLock { self.drafter = drafter } }
+    func clear() { lock.withLock { drafter = nil } }
+    var active: Gemma4Eagle3Drafter? { lock.withLock { drafter } }
+}
+
 /// Resolved log probability entry with token strings (ready for API response).
 struct ResolvedLogprob: Sendable {
     let token: String
@@ -196,6 +211,9 @@ final class MLXModelService: @unchecked Sendable {
     /// mtp.safetensors sidecar (a Qwen3.6 MTP head); otherwise silently falls back to AR.
     var mtpEnabled: Bool = false
     var mtpDepth: Int = 3
+    /// EAGLE3 speculative decoding (--eagle3 <drafter-path>). Activates only when the loaded model
+    /// is a dense Gemma4 verifier and a drafter loads from the given path; otherwise falls back to AR.
+    var eagle3DrafterPath: String?
     /// Server-level default JSON schema from `--guided-json` CLI flag.
     /// Applied to requests that don't specify their own response_format. (#97)
     var defaultGuidedJsonSchema: ResponseFormat?
@@ -1244,6 +1262,28 @@ final class MLXModelService: @unchecked Sendable {
                     print("[\(ts())] [MTP] no mtp.safetensors at \(modelID) — MTP disabled (AR decode)")
                 }
             }
+            // EAGLE3: if a drafter path was given and the verifier is a dense Gemma4 text model,
+            // load the drafter. Silently no-op otherwise (falls back to AR).
+            if let drafterPath = eagle3DrafterPath {
+                if FileManager.default.fileExists(atPath: drafterPath + "/config.json") {
+                    do {
+                        let drafter = try Gemma4Eagle3Drafter.load(directory: drafterPath)
+                        let isGemma4 = try await loaded.perform { context in
+                            context.model is Gemma4Model
+                        }
+                        if isGemma4 {
+                            Eagle3Runtime.shared.install(drafter: drafter)
+                            print("[\(ts())] [EAGLE3] drafter loaded from \(drafterPath) — speculative decoding enabled")
+                        } else {
+                            print("[\(ts())] [EAGLE3] verifier is not a dense Gemma4 text model — EAGLE3 disabled")
+                        }
+                    } catch {
+                        print("[\(ts())] [EAGLE3] drafter load failed (\(error)) — falling back to AR")
+                    }
+                } else {
+                    print("[\(ts())] [EAGLE3] no config.json at \(drafterPath) — EAGLE3 disabled (AR decode)")
+                }
+            }
             // Detect think start/end tags from tokenizer vocabulary
             // Run the tokenizer-vocabulary inspection inside `perform` so the
             // non-Sendable ModelContext never crosses the isolation boundary.
@@ -1588,6 +1628,48 @@ final class MLXModelService: @unchecked Sendable {
                 StatsAggregator.shared.requestSucceeded(reason: "stop")
                 StatsAggregator.shared.requestCompleted()
                 return (modelID, mtpResult.0, mtpResult.1, mtpResult.2, nil, nil, 0, 0, 0, false)
+            }
+        }
+
+        // ---- EAGLE3 speculative fast path (greedy, text-only, no tools/grammar/logprobs) ----
+        // Eligible when a drafter is installed and the request is plain greedy generation.
+        // Produces output identical to greedy AR (validated P1) with fewer verifier trunk forwards.
+        let eagle3Eligible = Eagle3Runtime.shared.active != nil
+            && (temperature ?? 0) <= 0.0
+            && (tools?.isEmpty ?? true)
+            && responseFormat == nil
+            && !wantLogprobs
+        if eagle3Eligible {
+            if let e3Result = try await container.perform({ context -> (String, Int, Int)? in
+                guard let drafter = Eagle3Runtime.shared.active,
+                      let model = context.model as? Gemma4Model else { return nil }
+                let lmInput = try await context.processor.prepare(input: scratch.userInput)
+                if self.isMultimodalInput(lmInput) { return nil }   // EAGLE3 is text-only
+                let promptIds = self.extractTokenArray(lmInput)
+                guard !promptIds.isEmpty else { return nil }
+                let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+                let t0 = Date.timeIntervalSinceReferenceDate
+                let gen = Gemma4Eagle3Generator(drafter: drafter)
+                // blockSize 2 is the sweet spot on the dense 31B (each round drafts only the carried
+                // seed — zero in-block drafter forwards — so the 2-wide verify amortizes best;
+                // larger blocks add sequential drafter forwards that erase the savings). Overridable.
+                let block = ProcessInfo.processInfo.environment["AFM_EAGLE3_BLOCK"].flatMap { Int($0) } ?? 2
+                let outIds = gen.generateSpeculative(
+                    model: model, promptIds: promptIds, maxTokens: effectiveMaxTokens,
+                    eosIds: eos, blockSize: block)
+                let gt = Date.timeIntervalSinceReferenceDate - t0
+                let textIds = (outIds.last.map { eos.contains($0) } ?? false) ? Array(outIds.dropLast()) : outIds
+                let text = context.tokenizer.decode(tokens: textIds)
+                if debugLogging {
+                    let tps = gt > 0 ? Double(outIds.count) / gt : 0
+                    print("[\(ts())] [EAGLE3] generated \(outIds.count) tok in \(String(format: "%.2f", gt))s (\(String(format: "%.1f", tps)) tok/s)")
+                }
+                return (text, promptIds.count, outIds.count)
+            }) {
+                serialRequestRecorded = true
+                StatsAggregator.shared.requestSucceeded(reason: "stop")
+                StatsAggregator.shared.requestCompleted()
+                return (modelID, e3Result.0, e3Result.1, e3Result.2, nil, nil, 0, 0, 0, false)
             }
         }
 

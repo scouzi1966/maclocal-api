@@ -424,6 +424,9 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "MTP draft depth (accepted for compatibility; the loop currently uses the fixed depth-2-bonus structure from mlx-lm PR #990 — ~+50% decode vs AR on M4 Pro — so this value is not used).")
     var mtpDepth: Int = 1
 
+    @Option(name: .long, help: "Enable EAGLE3 speculative decoding for a dense Gemma4 verifier. Pass the drafter directory (config.json + safetensors). Faster decode, identical greedy output. No-op if the verifier is not a dense Gemma4 text model.")
+    var eagle3: String?
+
     @Option(name: .long, help: "Write cache timing profile records as JSONL to this file")
     var cacheProfilePath: String?
 
@@ -502,6 +505,7 @@ struct MlxCommand: ParsableCommand {
         service.enablePrefixCaching = enablePrefixCaching
         service.mtpEnabled = mtp
         service.mtpDepth = mtpDepth
+        service.eagle3DrafterPath = eagle3
         service.cacheProfilePath = cacheProfilePath
         service.enableGrammarConstraints = enableGrammarConstraints
         // --concurrent N: 0 or 1 silently falls back to serial; nil = serial; 2+ = batch mode
