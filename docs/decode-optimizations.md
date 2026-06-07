@@ -36,7 +36,7 @@ curl -s http://127.0.0.1:9999/v1/chat/completions -H 'Content-Type: application/
 ```
 
 **When the fast path engages** (otherwise it silently falls back to plain AR):
-- greedy (`temperature: 0`), **non-streaming** (`stream: false`), text-only, no `tools` / `response_format` / `logprobs`.
+- greedy (`temperature: 0`), text-only, no `tools` / `response_format` / `logprobs` / `stop`. **Streaming (`stream: true`) is supported** — tokens are emitted per verify round.
 - verifier is a dense Gemma4 text model (else logs `verifier is not a dense Gemma4 text model` and uses AR).
 
 **Tuning:** block size (drafts per round) defaults to 2 (the sweet spot). Override:
@@ -76,8 +76,8 @@ curl -s http://127.0.0.1:9999/v1/chat/completions -H 'Content-Type: application/
 }'
 ```
 
-**When the fast path engages:** same eligibility as EAGLE3 (greedy, non-streaming, text-only, no
-tools/grammar/logprobs). No MTP head present → silently falls back to AR.
+**When the fast path engages:** same eligibility as EAGLE3 (greedy, text-only, streaming or
+non-streaming, no tools/grammar/logprobs/stop). No MTP head present → silently falls back to AR.
 
 `--mtp-depth N` is accepted for compatibility but **not used** (the loop uses the fixed
 depth-2-bonus structure from mlx-lm PR #990).
@@ -142,6 +142,8 @@ AFM_DEBUG=1 AFM_EAGLE3_PROFILE=1 afm mlx -m <gemma4-31b> --eagle3 <drafter> --po
 | `AFM_DEBUG` | off | decode tok/s, cache, timing logs |
 | `AFM_EAGLE3_PROFILE` | off | EAGLE3 per-round verify/draft timing |
 
-All fast paths require: **greedy** (`temperature: 0`), **non-streaming** (`stream: false`),
-text-only, no `tools` / `response_format` / `logprobs`. Anything else uses normal autoregressive decode.
+All fast paths require: **greedy** (`temperature: 0`), text-only, no `tools` / `response_format` /
+`logprobs` / `stop` sequences. **Streaming and non-streaming are both supported.** Concurrent mode
+(`--concurrent N≥2`) routes through the batch scheduler and does **not** use MTP/EAGLE3 (serial only).
+Anything else uses normal autoregressive decode.
 EOF

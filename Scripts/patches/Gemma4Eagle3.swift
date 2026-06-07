@@ -409,7 +409,8 @@ public final class Gemma4Eagle3Generator {
     /// per round) — the seed's host sync of the generic path is removed. Output is byte-identical to
     /// the generic path / greedy AR. Must run inside the model lock.
     private func generateFastBS2(model: Gemma4Model, promptIds: [Int],
-                                 maxTokens: Int, eosIds: Set<Int>) -> [Int] {
+                                 maxTokens: Int, eosIds: Set<Int>,
+                                 onToken: ((Int) -> Bool)? = nil) -> [Int] {
         let capIds = drafter.config.captureLayerIds
         let nLayers = model.newCache(parameters: nil).count
         let vCache: [KVCache] = (0 ..< nLayers).map { _ in KVCacheSimple() }
@@ -432,6 +433,7 @@ public final class Gemma4Eagle3Generator {
         let bInt = bArr.item(Int.self)   // single host sync for the first emitted token
         var out: [Int] = [bInt]
         if eosIds.contains(bInt) { return out }
+        if let onToken, !onToken(bInt) { return out }
 
         var rounds = 0, acceptedTotal = 0, draftedTotal = 0
         let prof = ProcessInfo.processInfo.environment["AFM_EAGLE3_PROFILE"] == "1"
@@ -461,8 +463,13 @@ public final class Gemma4Eagle3Generator {
             if let i = newTokens.firstIndex(where: { eosIds.contains($0) }) {
                 newTokens = Array(newTokens.prefix(i + 1)); hitEos = true
             }
-            out.append(contentsOf: newTokens)
-            if hitEos || out.count >= maxTokens { break }
+            var stoppedByCallback = false
+            for t in newTokens {
+                out.append(t)
+                if eosIds.contains(t) { break }       // EOS is counted but not streamed as text
+                if let onToken, !onToken(t) { stoppedByCallback = true; break }
+            }
+            if hitEos || stoppedByCallback || out.count >= maxTokens { break }
 
             // ---- verifier KV rollback: keep b + accepted (=accepted+1 positions) ----
             let trim = 1 - accepted
@@ -503,10 +510,12 @@ public final class Gemma4Eagle3Generator {
     }
 
     public func generateSpeculative(model: Gemma4Model, promptIds: [Int],
-                                    maxTokens: Int, eosIds: Set<Int>, blockSize: Int = 2) -> [Int] {
+                                    maxTokens: Int, eosIds: Set<Int>, blockSize: Int = 2,
+                                    onToken: ((Int) -> Bool)? = nil) -> [Int] {
         guard !promptIds.isEmpty, maxTokens > 0 else { return [] }
         if blockSize == 2 {
-            return generateFastBS2(model: model, promptIds: promptIds, maxTokens: maxTokens, eosIds: eosIds)
+            return generateFastBS2(model: model, promptIds: promptIds, maxTokens: maxTokens,
+                                   eosIds: eosIds, onToken: onToken)
         }
         let capIds = drafter.config.captureLayerIds
         let nLayers = model.newCache(parameters: nil).count
@@ -522,6 +531,7 @@ public final class Gemma4Eagle3Generator {
         prefill(promptTokens: promptIds, verifierHidden3x: concatenated(pCaps, axis: -1), bonus: b)
 
         var out: [Int] = [b]
+        if !eosIds.contains(b), let onToken, !onToken(b) { return out }
         if eosIds.contains(b) { return out }
 
         var rounds = 0, acceptedTotal = 0, draftedTotal = 0
@@ -555,8 +565,13 @@ public final class Gemma4Eagle3Generator {
             if let eosIdx = newTokens.firstIndex(where: { eosIds.contains($0) }) {
                 newTokens = Array(newTokens.prefix(eosIdx + 1)); hitEos = true
             }
-            out.append(contentsOf: newTokens)
-            if hitEos || out.count >= maxTokens { break }
+            var stoppedByCallback = false
+            for t in newTokens {
+                out.append(t)
+                if eosIds.contains(t) { break }
+                if let onToken, !onToken(t) { stoppedByCallback = true; break }
+            }
+            if hitEos || stoppedByCallback || out.count >= maxTokens { break }
 
             // Verifier KV rollback: keep b + accepted drafts (= accepted+1 positions).
             let trim = verifyIds.count - (accepted + 1)

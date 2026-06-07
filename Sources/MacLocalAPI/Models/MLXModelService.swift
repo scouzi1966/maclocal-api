@@ -2412,6 +2412,78 @@ final class MLXModelService: @unchecked Sendable {
             return (modelID, effectiveStream, preparedPromptTokens, toolTags?.0, toolTags?.1, self.thinkStartTag, self.thinkEndTag)
         }
 
+        // --- MTP / EAGLE3 speculative streaming fast path (serial, greedy, text-only) ---
+        // Same eligibility as the non-streaming fast paths, plus: no stop sequences (the
+        // speculative generators don't implement stop — fall back to AR when stop is requested).
+        // The generator's per-token `onToken` callback drives incremental detokenization, yielding
+        // an SSE text delta per emitted token; think-tag extraction is done by the controller from
+        // those deltas (we return the think tags). Output matches the non-streaming fast path.
+        let specGreedyStream = (temperature ?? 0) <= 0.0 && (tools?.isEmpty ?? true)
+            && responseFormat == nil && !wantLogprobs && (stop?.isEmpty ?? true)
+        let eagle3StreamEligible = specGreedyStream && Eagle3Runtime.shared.active != nil
+        let mtpStreamEligible = specGreedyStream && MTPRuntime.shared.active != nil
+        if eagle3StreamEligible || mtpStreamEligible {
+            // Prep prompt ids under the lock; nil => multimodal/empty/wrong-model => fall back to AR.
+            let prep: [Int]? = try await container.perform { context -> [Int]? in
+                let lmInput = try await context.processor.prepare(input: userInput)
+                if self.isMultimodalInput(lmInput) { return nil }
+                if eagle3StreamEligible && !(context.model is Gemma4Model) { return nil }
+                let ids = self.extractTokenArray(lmInput)
+                return ids.isEmpty ? nil : ids
+            }
+            if let promptIds = prep {
+                let useEagle3 = eagle3StreamEligible
+                let maxTok = effectiveMaxTokens
+                let dbg = debugLogging
+                let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
+                    Task {
+                        StatsAggregator.shared.requestStarted()
+                        let t0 = Date.timeIntervalSinceReferenceDate
+                        let outCount: Int = (try? await container.perform { context -> Int in
+                            let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+                            var allTokens: [Int] = []
+                            var prevText = ""
+                            let emit: (Int) -> Bool = { tok in
+                                if eos.contains(tok) { return false }   // stop; never stream EOS
+                                allTokens.append(tok)
+                                let full = context.tokenizer.decode(tokens: allTokens)
+                                if full.count > prevText.count {
+                                    continuation.yield(StreamChunk(text: String(full.dropFirst(prevText.count))))
+                                    prevText = full
+                                }
+                                return true
+                            }
+                            if useEagle3, let drafter = Eagle3Runtime.shared.active,
+                               let model = context.model as? Gemma4Model {
+                                let block = ProcessInfo.processInfo.environment["AFM_EAGLE3_BLOCK"].flatMap { Int($0) } ?? 2
+                                let g = Gemma4Eagle3Generator(drafter: drafter)
+                                _ = g.generateSpeculative(model: model, promptIds: promptIds,
+                                                          maxTokens: maxTok, eosIds: eos,
+                                                          blockSize: block, onToken: emit)
+                            } else if let gen = MTPRuntime.shared.active {
+                                _ = gen.generate(promptIds: promptIds, maxTokens: maxTok,
+                                                 eosIds: eos, onToken: emit)
+                            }
+                            return allTokens.count
+                        }) ?? 0
+                        let gt = Date.timeIntervalSinceReferenceDate - t0
+                        if dbg {
+                            let tps = gt > 0 ? Double(outCount) / gt : 0
+                            print("[\(ts())] [\(useEagle3 ? "EAGLE3" : "MTP")] streamed \(outCount) tok in \(String(format: "%.2f", gt))s (\(String(format: "%.1f", tps)) tok/s)")
+                        }
+                        continuation.yield(StreamChunk(text: "", promptTokens: promptIds.count,
+                                                       completionTokens: outCount, promptTime: 0, generateTime: gt))
+                        StatsAggregator.shared.requestSucceeded(reason: "stop")
+                        StatsAggregator.shared.requestCompleted()
+                        continuation.finish()
+                        self.endOperation()
+                    }
+                }
+                endOperationOnExit = false
+                return (modelID, stream, promptTokens, nil, nil, self.thinkStartTag, self.thinkEndTag)
+            }
+        }
+
         // --- Serial path: full-featured generation via container.perform lock ---
         // GPU capture/trace/profile: snapshot state before the async Task
         let streamCapturePath = gpuCapturePath
