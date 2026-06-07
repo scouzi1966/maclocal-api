@@ -396,9 +396,118 @@ public final class Gemma4Eagle3Generator {
     /// Single sequence, all-`KVCacheSimple` verifier cache (correct rollback via uniform trim;
     /// memory grows with context but generation here stays well under the sliding window for typical
     /// requests). Must be called inside the model lock (`container.perform`).
+    /// Drafter's next-token prediction as an on-GPU [1,1] int32 token (no host sync), from a
+    /// last-position hidden. Mirrors `draftArgmax` but keeps the result on the device.
+    private func draftSeedArr(_ hiddenLast: MLXArray) -> MLXArray {
+        let hot = MLX.argMax(drafter.logits(hiddenLast)[0, -1, 0...], axis: -1)
+        return drafter.draftToTarget(hot).reshaped([1, 1]).asType(.int32)
+    }
+
+    /// Optimized greedy EAGLE3 loop for blockSize == 2 (the production default): one verify token
+    /// (the carried seed) per round, with the seed and bonus kept as MLXArrays fed straight into the
+    /// next verify. Only the verifier's per-round argmax + accept flag cross to the host (one drain
+    /// per round) — the seed's host sync of the generic path is removed. Output is byte-identical to
+    /// the generic path / greedy AR. Must run inside the model lock.
+    private func generateFastBS2(model: Gemma4Model, promptIds: [Int],
+                                 maxTokens: Int, eosIds: Set<Int>) -> [Int] {
+        let capIds = drafter.config.captureLayerIds
+        let nLayers = model.newCache(parameters: nil).count
+        let vCache: [KVCache] = (0 ..< nLayers).map { _ in KVCacheSimple() }
+
+        reset()
+        // ---- prefill verifier + drafter ----
+        let promptArr = MLXArray(promptIds.map { Int32($0) }).reshaped([1, promptIds.count])
+        let (pLogits, pCaps) = model.forwardCapture(promptArr, cache: vCache, captureLayerIds: capIds)
+        var bArr = MLX.argMax(pLogits[0, -1, 0...], axis: -1).reshaped([1, 1]).asType(.int32)
+        let pHidden = concatenated(pCaps, axis: -1)
+        let p = promptIds.count
+        let shiftedHead = MLXArray(promptIds.dropFirst().map { Int32($0) }).reshaped([1, p - 1])
+        let shiftedArr = p > 1 ? concatenated([shiftedHead, bArr], axis: 1) : bArr
+        nextPosition = 1
+        var h = drafter.forwardTokens(shiftedArr, hidden: pHidden[0..., 0 ..< p, 0...],
+                                      cache: cache, positionOffset: nextPosition)
+        nextPosition += p
+        var seedArr = draftSeedArr(Gemma4Eagle3Drafter.lastPos(h))
+
+        let bInt = bArr.item(Int.self)   // single host sync for the first emitted token
+        var out: [Int] = [bInt]
+        if eosIds.contains(bInt) { return out }
+
+        var rounds = 0, acceptedTotal = 0, draftedTotal = 0
+        let prof = ProcessInfo.processInfo.environment["AFM_EAGLE3_PROFILE"] == "1"
+        var tVerify = 0.0, tDraft = 0.0
+        func now() -> Double { Date.timeIntervalSinceReferenceDate }
+        let t0 = now()
+
+        while out.count < maxTokens {
+            var ts = now()
+            // ---- verify [b, seed] ----
+            let vArr = concatenated([bArr, seedArr], axis: 1)            // [1,2], on GPU
+            let (vLogits, vCaps) = model.forwardCapture(vArr, cache: vCache, captureLayerIds: capIds)
+            let target = MLX.argMax(vLogits[0, 0..., 0...], axis: -1)    // [2] int32
+            let match = (seedArr.reshaped([1]) .== target[0 ..< 1]).asType(.int32)  // 1 if seed accepted
+            eval(target, match)                                          // one drain/round
+            let targetInts = target.asArray(Int32.self).map { Int($0) }
+            let accepted = match.item(Int.self)                         // 0 or 1
+            if prof { tVerify += now() - ts; ts = now() }
+
+            let bonus = targetInts[accepted]
+            var newTokens = accepted == 1 ? [targetInts[0], bonus] : [bonus]
+            rounds += 1; acceptedTotal += accepted; draftedTotal += 1
+
+            let budget = maxTokens - out.count
+            if newTokens.count > budget { newTokens = Array(newTokens.prefix(budget)) }
+            var hitEos = false
+            if let i = newTokens.firstIndex(where: { eosIds.contains($0) }) {
+                newTokens = Array(newTokens.prefix(i + 1)); hitEos = true
+            }
+            out.append(contentsOf: newTokens)
+            if hitEos || out.count >= maxTokens { break }
+
+            // ---- verifier KV rollback: keep b + accepted (=accepted+1 positions) ----
+            let trim = 1 - accepted
+            if trim > 0 { for c in vCache { _ = c.trim(trim) } }
+
+            // ---- drafter accept: re-forward accepted draft + bonus, keep next seed on GPU ----
+            let vHidden = concatenated(vCaps, axis: -1)                 // [1,2,3H]
+            let bonusArr = target[accepted ..< (accepted + 1)].reshaped([1, 1])
+            let tokArr: MLXArray
+            let hid: MLXArray
+            if accepted == 1 {
+                tokArr = concatenated([seedArr, bonusArr], axis: 1)     // [seed, bonus]
+                hid = vHidden[0..., 0 ..< 2, 0...]
+            } else {
+                tokArr = bonusArr
+                hid = vHidden[0..., 0 ..< 1, 0...]
+            }
+            h = drafter.forwardTokens(tokArr, hidden: hid, cache: cache, positionOffset: nextPosition)
+            nextPosition += (accepted + 1)
+            seedArr = draftSeedArr(Gemma4Eagle3Drafter.lastPos(h))      // stays on GPU
+            bArr = bonusArr                                             // stays on GPU
+            if prof { tDraft += now() - ts }
+
+            if out.count % 256 == 0 { MLX.GPU.clearCache() }
+        }
+        if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" {
+            let dt = now() - t0
+            let acc = draftedTotal > 0 ? Double(acceptedTotal) / Double(draftedTotal) : 0
+            let tpr = rounds > 0 ? Double(out.count) / Double(rounds) : 0
+            print(String(format: "[EAGLE3] rounds=%d accept=%d/%d (%.1f%%) tok/round=%.2f decode=%.2fs",
+                         rounds, acceptedTotal, draftedTotal, acc * 100, tpr, dt))
+            if prof {
+                print(String(format: "[EAGLE3-PROF] verify=%.2fs draft=%.2fs | per-round: verify=%.1fms draft=%.1fms",
+                             tVerify, tDraft, tVerify/Double(rounds)*1000, tDraft/Double(rounds)*1000))
+            }
+        }
+        return out
+    }
+
     public func generateSpeculative(model: Gemma4Model, promptIds: [Int],
                                     maxTokens: Int, eosIds: Set<Int>, blockSize: Int = 2) -> [Int] {
         guard !promptIds.isEmpty, maxTokens > 0 else { return [] }
+        if blockSize == 2 {
+            return generateFastBS2(model: model, promptIds: promptIds, maxTokens: maxTokens, eosIds: eosIds)
+        }
         let capIds = drafter.config.captureLayerIds
         let nLayers = model.newCache(parameters: nil).count
         let vCache: [KVCache] = (0 ..< nLayers).map { _ in KVCacheSimple() }
@@ -416,15 +525,21 @@ public final class Gemma4Eagle3Generator {
         if eosIds.contains(b) { return out }
 
         var rounds = 0, acceptedTotal = 0, draftedTotal = 0
-        let t0 = Date.timeIntervalSinceReferenceDate
+        let prof = ProcessInfo.processInfo.environment["AFM_EAGLE3_PROFILE"] == "1"
+        var tVerify = 0.0, tDraft = 0.0, tGlue = 0.0
+        func now() -> Double { Date.timeIntervalSinceReferenceDate }
+        let t0 = now()
         while out.count < maxTokens {
+            var ts = now()
             let draftTokens = draftBlock(blockSize: blockSize)
             if draftTokens.isEmpty { break }
+            if prof { tDraft += now() - ts; ts = now() }
 
             var verifyIds = [b]; verifyIds.append(contentsOf: draftTokens)
             let vArr = MLXArray(verifyIds.map { Int32($0) }).reshaped([1, verifyIds.count])
             let (vLogits, vCaps) = model.forwardCapture(vArr, cache: vCache, captureLayerIds: capIds)
             let target = MLX.argMax(vLogits[0, 0..., 0...], axis: -1).asArray(Int32.self).map { Int($0) }
+            if prof { tVerify += now() - ts; ts = now() }
 
             let nd = draftTokens.count
             var accepted = nd
@@ -447,9 +562,11 @@ public final class Gemma4Eagle3Generator {
             let trim = verifyIds.count - (accepted + 1)
             if trim > 0 { for c in vCache { _ = c.trim(trim) } }
 
+            if prof { tGlue += now() - ts; ts = now() }
             accept(verifyHidden3x: concatenated(vCaps, axis: -1),
                    draftTokens: draftTokens, accepted: accepted, newLastToken: bonus)
             b = bonus
+            if prof { tDraft += now() - ts }
 
             if out.count % 256 == 0 { MLX.GPU.clearCache() }
         }
@@ -459,6 +576,11 @@ public final class Gemma4Eagle3Generator {
             let tpr = rounds > 0 ? Double(out.count) / Double(rounds) : 0
             print(String(format: "[EAGLE3] rounds=%d accept=%d/%d (%.1f%%) tok/round=%.2f decode=%.2fs",
                          rounds, acceptedTotal, draftedTotal, acc * 100, tpr, dt))
+            if prof {
+                print(String(format: "[EAGLE3-PROF] verify=%.2fs draft=%.2fs glue=%.2fs  | per-round: verify=%.1fms draft=%.1fms glue=%.1fms",
+                             tVerify, tDraft, tGlue,
+                             tVerify/Double(rounds)*1000, tDraft/Double(rounds)*1000, tGlue/Double(rounds)*1000))
+            }
         }
         return out
     }
