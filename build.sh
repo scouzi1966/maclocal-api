@@ -404,16 +404,22 @@ else
   exit 1
 fi
 
-# Make metallib discoverable for `swift test` after a clean release build.
+# Make metallib discoverable for `swift test` after a build.
 # MLX framework searches CWD for "default.metallib" as its last resort.
 # A symlink at the project root ensures `swift test` (which runs from project root) finds it.
-ln -sf ".build/arm64-apple-macosx/release/MacLocalAPI_MacLocalAPI.bundle/default.metallib" \
-  "$ROOT_DIR/default.metallib"
-# Also copy to debug bundle for our own MLXMetalLibrary resolver.
-DEBUG_BUNDLE="$ROOT_DIR/.build/arm64-apple-macosx/debug/MacLocalAPI_MacLocalAPI.bundle"
-mkdir -p "$DEBUG_BUNDLE"
-cp "$METALLIB_BUNDLE" "$DEBUG_BUNDLE/default.metallib"
-log_info "Metallib available for swift test (symlink + debug bundle)"
+# Point at the bundle that was ACTUALLY built ($METALLIB_BUNDLE is config-aware via $FINAL_DIR),
+# not a hardcoded release path — a `--debug` build has no release bundle in a clean checkout.
+ln -sf "$METALLIB_BUNDLE" "$ROOT_DIR/default.metallib"
+# Also mirror into the OTHER config's bundle so `swift test` works regardless of which config
+# the tester uses (debug ↔ release), for our own MLXMetalLibrary resolver.
+if [ "$BUILD_CONFIG" = "release" ]; then
+  OTHER_BUNDLE="$ROOT_DIR/.build/arm64-apple-macosx/debug/MacLocalAPI_MacLocalAPI.bundle"
+else
+  OTHER_BUNDLE="$ROOT_DIR/.build/arm64-apple-macosx/release/MacLocalAPI_MacLocalAPI.bundle"
+fi
+mkdir -p "$OTHER_BUNDLE"
+cp "$METALLIB_BUNDLE" "$OTHER_BUNDLE/default.metallib"
+log_info "Metallib available for swift test (symlink -> $BUILD_CONFIG bundle + mirror)"
 
 # ---------------------------------------------------------------------------
 # Step 6 (optional): Install to /usr/local
