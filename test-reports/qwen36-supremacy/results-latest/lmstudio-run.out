@@ -5,7 +5,7 @@
   load returned t=19s freeRAM=29.5GB gpu=0%
 
 IDENTIFIER     MODEL          STATUS    SIZE        CONTEXT    PARALLEL    DEVICE    TTL
-qwen3.6-27b    qwen3.6-27b    IDLE      16.08 GB    4096       4           Local        
+qwen3.6-27b    qwen3.6-27b    IDLE      16.08 GB    4096       4           Local
 
 ### warmup (verify qwen3_5 actually runs)
 OK usage: {'prompt_tokens': 17, 'completion_tokens': 29, 'total_tokens': 46, 'completion_tokens_details': {'reasoning_tokens': 29}}

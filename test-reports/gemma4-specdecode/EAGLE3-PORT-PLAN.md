@@ -66,7 +66,7 @@ prefill verifier; capture hidden@[2,30,57] at last pos -> fused via drafter.fc -
 primary = argmax(prefill logits)
 loop:
   drafts = drafter.draft_block(primary, seed_hidden, block=4)      # 3 draft tokens (hot->full)
-  snapshot GDN/recurrent (here Gemma4 dense full-attn => KV trim only; NO GDN) 
+  snapshot GDN/recurrent (here Gemma4 dense full-attn => KV trim only; NO GDN)
   verify = verifier.forwardCapture([primary]+drafts, cache, [2,30,57])   # 1 forward, 4 positions
   target = argmax(verify.logits)         # per position
   accepted = first-mismatch walk(drafts, target[:-1])  (verifier_accept_k=1)

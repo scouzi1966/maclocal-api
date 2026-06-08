@@ -64,13 +64,22 @@ cleanup(){ rm -rf "$BUILD_DIR"; }
 trap cleanup EXIT
 
 check_toolchain(){
-  # Trivial compile probe: detects the "missing Metal Toolchain" condition on Xcode 26.
-  local out
-  out="$(echo 'kernel void _afm_probe(){}' | xcrun -sdk macosx metal -x metal -c - -o /dev/null 2>&1 || true)"
-  if echo "$out" | grep -qi "missing Metal Toolchain"; then
-    err "Metal Toolchain is NOT installed. Install it once with:"
-    err "    xcodebuild -downloadComponent MetalToolchain"
-    err "(then re-run this script). Status check: xcodebuild -showComponent MetalToolchain"
+  # Trivial compile probe. Must actually succeed — a non-zero status means the toolchain is
+  # unusable (missing Metal Toolchain on Xcode 26, xcrun can't find `metal`, wrong selected
+  # Xcode, etc.). Treat ANY failure as unavailable so build.sh takes its fallback path instead
+  # of skipping it and then failing in the real compile.
+  local out status
+  out="$(echo 'kernel void _afm_probe(){}' | xcrun -sdk macosx metal -x metal -c - -o /dev/null 2>&1)"
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    if echo "$out" | grep -qi "missing Metal Toolchain"; then
+      err "Metal Toolchain is NOT installed. Install it once with:"
+      err "    xcodebuild -downloadComponent MetalToolchain"
+      err "(then re-run this script). Status check: xcodebuild -showComponent MetalToolchain"
+    else
+      err "metal probe failed (exit $status) — Metal toolchain unusable:"
+      echo "$out" >&2
+    fi
     return 1
   fi
   if [ -n "$out" ]; then
@@ -84,12 +93,16 @@ check_toolchain(){
 kernel_symbols(){ strings "$1" | grep -oE '^[a-z_]+(_[a-z0-9]+)*_(float|float16_t|bfloat16_t)(_[0-9]+)+$' | sort -u; }
 
 MODE="build"
-case "${1:-}" in
-  --check) check_toolchain; exit $? ;;
-  --no-install) MODE="no-install" ;;
-  "") ;;
-  *) err "Unknown option: $1"; exit 1 ;;
-esac
+ALLOW_KERNEL_CHANGE=0
+for arg in "$@"; do
+  case "$arg" in
+    --check) check_toolchain; exit $? ;;
+    --no-install) MODE="no-install" ;;
+    --allow-kernel-change) ALLOW_KERNEL_CHANGE=1 ;;  # permit a changed kernel-symbol set
+    "") ;;
+    *) err "Unknown option: $arg"; exit 1 ;;
+  esac
+done
 
 [ -d "$MLXROOT" ] || { err "mlx-swift checkout not found at $MLXROOT (run: swift package resolve)"; exit 1; }
 check_toolchain || exit 1
@@ -141,8 +154,15 @@ if [ -f "$TARGET_METALLIB" ]; then
   else
     warn "Kernel-symbol set DIFFERS from the shipped metallib:"
     diff "$OLD_SYMS" "$NEW_SYMS" | sed 's/^/    /' >&2 || true
-    warn "If your patch intentionally adds/removes a kernel instantiation, this is expected."
-    warn "Otherwise the translation-unit set in METAL_TUS is wrong — do NOT install."
+    if [ "$ALLOW_KERNEL_CHANGE" -eq 1 ]; then
+      warn "--allow-kernel-change set: installing the changed kernel set anyway."
+    else
+      err "Refusing to replace the committed metallib with a different kernel-symbol set."
+      err "If the translation-unit set in METAL_TUS is wrong, fix it. If you INTENTIONALLY"
+      err "added/removed a kernel instantiation, re-run with --allow-kernel-change."
+      err "(Use --no-install to build to /tmp without touching the committed metallib.)"
+      exit 1
+    fi
   fi
 else
   warn "No existing metallib to compare against (parity check skipped)."
