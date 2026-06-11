@@ -11,6 +11,34 @@ export MACAFM_MLX_MODEL_CACHE=/Volumes/Crucial4TB/models/vesta-test-cache
 
 ---
 
+## Which flag for which model? (start here)
+
+afm has exactly **two** speculative-decoding options — one per model family. Both are lossless
+(output identical to greedy) and need a specific drafter/checkpoint.
+
+| Running… | Use | Speedup | Needs |
+|----------|-----|---------|-------|
+| **Qwen3.6-27B** | `--mtp` | **~+52%** | checkpoint with the MTP head: `Youssofal/Qwen3.6-27B-MTPLX-Optimized-Speed` (has `mtp.safetensors`) |
+| **Gemma4-31B (dense)** | `--eagle3 <drafter-dir>` | **~+30%** | the `RedHatAI/gemma-4-31B-it-speculator.eagle3` drafter |
+| anything else (incl. **Gemma4 MoE 26B-A4B**) | — | none | no speculative option — use normal decode |
+
+```bash
+# Qwen3.6  → MTP
+afm mlx -m Youssofal/Qwen3.6-27B-MTPLX-Optimized-Speed --mtp --port 9999
+# Gemma4-31B dense → EAGLE3
+afm mlx -m mlx-community/gemma-4-31b-it-4bit --eagle3 <eagle3-drafter-dir> --port 9999
+```
+
+Both engage only for greedy (`temperature: 0`), text-only requests (streaming or not); anything
+else silently uses normal autoregressive decode. Full details per feature below.
+
+**Evaluated but NOT shipped** (so you don't go looking): Gemma4 MoE spec-decode (all methods slower
+than AR), the Gemma4 "assistant"-MTP that llama.cpp uses (~+9% in MLX — not worth it; llama.cpp's
+GGUF/Metal version is a different engine, ~+39% on M4 Pro), DFlash (negative). On M4 Pro the practical
+spec-decode ceiling is ~+40% in any engine — afm's lossless EAGLE3/MTP are at or near it.
+
+---
+
 ## 1. EAGLE3 speculative decoding — dense Gemma4-31B
 
 **Flag:** `--eagle3 <drafter-dir>`
