@@ -101,7 +101,12 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 
 > [!IMPORTANT]
 > The nightly build is the future stable release. It includes everything in v0.9.12 plus:
-> - No new features yet — nightly is currently in sync with the stable release
+> - **⚡ Lossless speculative decoding** — up to **+52% faster decode** with bit-exact output. Two model-specific options:
+>   - **`--mtp`** for **Qwen3.6-27B** (self-speculative MTP head) → **~+52%**
+>   - **`--eagle3 <drafter>`** for **dense Gemma4-31B** (EAGLE3 drafter) → **~+30%**
+>   - Both work for streaming *and* non-streaming, and produce output **identical to greedy decode** (no quality trade-off). See [⚡ Speculative Decoding](#-speculative-decoding-lossless) below.
+> - **Faster long context** — backported adaptive-block SDPA (~+10% decode @16k), eager `<think>`-tag streaming (reasoning TTFT ~610ms→~346ms), and Metal-kernel prewarm for a faster cold first token.
+> - **Swift 6 language mode** migration.
 
 > [!TIP]
 > 🙏 **Huge thanks to [@jesserobbins](https://github.com/jesserobbins)** — first-time contributor, landed two substantial features in this cycle (Vision OCR + Speech transcription). Both PRs brought afm's Apple-native capabilities from the CLI into first-class HTTP APIs. Contributions of this size and quality from a new contributor are rare and appreciated.
@@ -124,6 +129,56 @@ MACAFM_MLX_MODEL_CACHE=/path/to/models afm mlx -w
 # Apple's on-device Foundation Model with WebUI
 afm -w
 ```
+
+## ⚡ Speculative Decoding (lossless)
+
+afm can decode **up to +52% faster** with **bit-exact, lossless output** — the generated text is *identical* to normal greedy decoding, there is no quality trade-off. There are **two** options, one per model family. Each needs a **specific checkpoint/drafter** (a plain 4-bit conversion won't work):
+
+| Running… | Flag | Speedup | Get the model (Hugging Face) |
+|----------|------|---------|------------------------------|
+| **Qwen3.6-27B** | `--mtp` | **~+52%** | [`Youssofal/Qwen3.6-27B-MTPLX-Optimized-Speed`](https://huggingface.co/Youssofal/Qwen3.6-27B-MTPLX-Optimized-Speed) — ships the `mtp.safetensors` head¹ |
+| **Gemma4-31B (dense)** | `--eagle3 <drafter-dir>` | **~+30%** | verifier [`mlx-community/gemma-4-31b-it-4bit`](https://huggingface.co/mlx-community/gemma-4-31b-it-4bit) + drafter [`RedHatAI/gemma-4-31B-it-speculator.eagle3`](https://huggingface.co/RedHatAI/gemma-4-31B-it-speculator.eagle3) |
+
+¹ The plain `mlx-community/Qwen3.6-27B-4bit` conversion **strips** the MTP head, so `--mtp` silently no-ops there — you must use the checkpoint above.
+
+> [!NOTE]
+> Both fast paths engage **only** for **greedy** (`temperature: 0`), **text-only** requests (streaming *or* non-streaming). Anything with `tools` / `response_format` / `logprobs` / `stop`, or `--concurrent N≥2`, silently falls back to normal autoregressive decode — output is always correct either way.
+
+### 1. Qwen3.6-27B — MTP (`--mtp`)
+
+Self-speculative decoding using Qwen3.6's **in-model MTP head** — no separate draft model needed.
+
+```bash
+# afm auto-downloads the model from Hugging Face on first run
+afm mlx -m Youssofal/Qwen3.6-27B-MTPLX-Optimized-Speed --mtp --port 9999
+```
+
+```bash
+# Then call it like any OpenAI endpoint (greedy → MTP fast path engages)
+curl -s http://127.0.0.1:9999/v1/chat/completions -H 'Content-Type: application/json' -d '{
+  "model": "Youssofal/Qwen3.6-27B-MTPLX-Optimized-Speed",
+  "messages": [{"role":"user","content":"Explain how a CPU cache works in 4 sentences."}],
+  "temperature": 0, "max_tokens": 200
+}'
+```
+
+### 2. Gemma4-31B dense — EAGLE3 (`--eagle3 <drafter-dir>`)
+
+Speculative decoding for the **dense Gemma4-31B** verifier using an EAGLE3 drafter. Pass the drafter as a **local directory** (download it first):
+
+```bash
+# 1) download the EAGLE3 drafter from Hugging Face
+huggingface-cli download RedHatAI/gemma-4-31B-it-speculator.eagle3 \
+  --local-dir ~/models/gemma-4-31B-eagle3
+
+# 2) run the dense verifier with the drafter
+afm mlx -m mlx-community/gemma-4-31b-it-4bit \
+  --eagle3 ~/models/gemma-4-31B-eagle3 --port 9999
+```
+
+Tuning: drafts-per-round defaults to 2 (the sweet spot); override with `AFM_EAGLE3_BLOCK=3`. The **MoE** Gemma4 (26B-A4B) is *not* accelerated by spec-decode — `--eagle3` only helps the **dense 31B**.
+
+> 📖 Full usage, tuning, debugging/profiling flags, and benchmarks: **[`docs/decode-optimizations.md`](docs/decode-optimizations.md)**
 
 ## Why AFM for agents
 
