@@ -5,7 +5,7 @@ import MLXNN
 import Testing
 @testable import MLXVLM
 
-@testable import MacLocalAPI
+@testable import AFMKit
 
 /// P0 gate for the MTP Swift port: the Swift `Qwen3_5MTPHead` must reproduce the Python
 /// (mtplx) reference for one draft step.

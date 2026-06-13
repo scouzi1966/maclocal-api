@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import MacLocalAPI
+@testable import AFMKit
 
 /// Regression tests for fixed issues. Each case names the issue it covers.
 struct IssueRegressionTests {

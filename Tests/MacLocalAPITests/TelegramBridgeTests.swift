@@ -1,5 +1,5 @@
 import XCTest
-@testable import MacLocalAPI
+@testable import AFMKit
 
 final class TelegramBridgeTests: XCTestCase {
 // dimensions: entry_mode=server

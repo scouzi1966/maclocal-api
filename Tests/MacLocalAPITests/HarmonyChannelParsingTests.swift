@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import MacLocalAPI
+@testable import AFMKit
 
 /// Unit tests for harmony channel parsing (gpt-oss). (#121)
 ///

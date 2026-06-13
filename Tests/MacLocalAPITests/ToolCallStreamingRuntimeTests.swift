@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import MacLocalAPI
+@testable import AFMKit
 
 struct ToolCallStreamingRuntimeTests {
 // dimensions: tool_call_format=xmlFunction/json, streaming=true

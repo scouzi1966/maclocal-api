@@ -90,7 +90,7 @@ DATE=$(date -u +%Y%m%d)
 if [ -n "$USER_VERSION" ]; then
   BASE_VERSION="$USER_VERSION"
 else
-  BUILDINFO="$ROOT_DIR/Sources/MacLocalAPI/BuildInfo.swift"
+  BUILDINFO="$ROOT_DIR/Sources/AFMKit/BuildInfo.swift"
   if [ -f "$BUILDINFO" ]; then
     BASE_VERSION=$(grep 'static let version' "$BUILDINFO" | sed 's/.*"\(.*\)".*/\1/' | sed 's/^v//')
   fi
@@ -131,7 +131,7 @@ mkdir -p "$STAGING"
 cp "$BIN" "$STAGING/"
 
 # Metallib resource bundle
-BUNDLE_DIR="$(dirname "$BIN")/MacLocalAPI_MacLocalAPI.bundle"
+BUNDLE_DIR="$(dirname "$BIN")/MacLocalAPI_AFMKit.bundle"
 if [ -d "$BUNDLE_DIR" ]; then
   cp -r "$BUNDLE_DIR" "$STAGING/"
   log_info "Included metallib bundle"

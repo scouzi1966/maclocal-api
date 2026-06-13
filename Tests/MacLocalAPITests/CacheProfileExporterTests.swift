@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-@testable import MacLocalAPI
+@testable import AFMKit
 
 final class CacheProfileExporterTests: XCTestCase {
 // dimensions: prefix_caching=on

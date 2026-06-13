@@ -2,7 +2,7 @@ import Foundation
 import Testing
 import MLX
 
-@testable import MacLocalAPI
+@testable import AFMKit
 @testable import MLXLMCommon
 
 /// Unit tests for logit processors in batch mode (1D and 2D logit tensors).

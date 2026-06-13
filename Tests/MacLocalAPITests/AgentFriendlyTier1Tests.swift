@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import MacLocalAPI
+@testable import AFMKit
 
 /// Unit tests for the Tier-1 agent-friendly changes (PR-1).
 struct AgentFriendlyTier1Tests {
