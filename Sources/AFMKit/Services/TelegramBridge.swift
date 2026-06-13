@@ -2,7 +2,7 @@ import ArgumentParser
 import CryptoKit
 import Foundation
 
-enum TelegramReplyFormat: String, Codable, CaseIterable, ExpressibleByArgument, Sendable {
+public enum TelegramReplyFormat: String, Codable, CaseIterable, ExpressibleByArgument, Sendable {
     case markdown
     case plain
     case html
@@ -30,7 +30,7 @@ enum TelegramReplyFormat: String, Codable, CaseIterable, ExpressibleByArgument, 
     }
 }
 
-struct TelegramConfiguration: Sendable {
+public struct TelegramConfiguration: Sendable {
     let botToken: String
     let allowedUserIDs: Set<Int64>
     let localBaseURL: String
@@ -41,7 +41,19 @@ struct TelegramConfiguration: Sendable {
     let replyFormat: TelegramReplyFormat
     let requiredPrefix: String?
 
-    static func parseAllowedUserIDs(_ raw: String) throws -> Set<Int64> {
+    public init(botToken: String, allowedUserIDs: Set<Int64>, localBaseURL: String, modelID: String, instructions: String, verbose: Bool, pollIntervalSeconds: TimeInterval, replyFormat: TelegramReplyFormat, requiredPrefix: String?) {
+        self.botToken = botToken
+        self.allowedUserIDs = allowedUserIDs
+        self.localBaseURL = localBaseURL
+        self.modelID = modelID
+        self.instructions = instructions
+        self.verbose = verbose
+        self.pollIntervalSeconds = pollIntervalSeconds
+        self.replyFormat = replyFormat
+        self.requiredPrefix = requiredPrefix
+    }
+
+    public static func parseAllowedUserIDs(_ raw: String) throws -> Set<Int64> {
         let values = raw
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

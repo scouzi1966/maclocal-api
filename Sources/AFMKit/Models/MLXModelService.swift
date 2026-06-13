@@ -47,27 +47,27 @@ final class Eagle3Runtime: @unchecked Sendable {
 }
 
 /// Resolved log probability entry with token strings (ready for API response).
-struct ResolvedLogprob: Sendable {
-    let token: String
-    let tokenId: Int
-    let logprob: Float
-    let topTokens: [(token: String, tokenId: Int, logprob: Float)]
+public struct ResolvedLogprob: Sendable {
+    public let token: String
+    public let tokenId: Int
+    public let logprob: Float
+    public let topTokens: [(token: String, tokenId: Int, logprob: Float)]
 }
 
 /// A chunk of streaming output, optionally carrying per-token log probabilities or tool calls.
-struct StreamChunk: Sendable {
-    let text: String
-    let logprobs: [ResolvedLogprob]?
-    let toolCalls: [ResponseToolCall]?
-    let toolCallDeltas: [StreamDeltaToolCall]?
-    let promptTokens: Int?
-    let completionTokens: Int?
-    let cachedTokens: Int?
-    let promptTime: Double?
-    let generateTime: Double?
-    let stoppedBySequence: Bool?
+public struct StreamChunk: Sendable {
+    public let text: String
+    public let logprobs: [ResolvedLogprob]?
+    public let toolCalls: [ResponseToolCall]?
+    public let toolCallDeltas: [StreamDeltaToolCall]?
+    public let promptTokens: Int?
+    public let completionTokens: Int?
+    public let cachedTokens: Int?
+    public let promptTime: Double?
+    public let generateTime: Double?
+    public let stoppedBySequence: Bool?
 
-    init(text: String, logprobs: [ResolvedLogprob]? = nil, toolCalls: [ResponseToolCall]? = nil, toolCallDeltas: [StreamDeltaToolCall]? = nil, promptTokens: Int? = nil, completionTokens: Int? = nil, cachedTokens: Int? = nil, promptTime: Double? = nil, generateTime: Double? = nil, stoppedBySequence: Bool? = nil) {
+    public init(text: String, logprobs: [ResolvedLogprob]? = nil, toolCalls: [ResponseToolCall]? = nil, toolCallDeltas: [StreamDeltaToolCall]? = nil, promptTokens: Int? = nil, completionTokens: Int? = nil, cachedTokens: Int? = nil, promptTime: Double? = nil, generateTime: Double? = nil, stoppedBySequence: Bool? = nil) {
         self.text = text
         self.logprobs = logprobs
         self.toolCalls = toolCalls
@@ -81,7 +81,7 @@ struct StreamChunk: Sendable {
     }
 }
 
-enum MLXLoadStage: String {
+public enum MLXLoadStage: String {
     case checkingCache = "checking cache"
     case downloading = "downloading"
     case resuming = "resuming download"
@@ -178,7 +178,7 @@ private final class StreamingScratch: @unchecked Sendable {
     var streamStatStoppedBySequence = false
 }
 
-final class MLXModelService: @unchecked Sendable {
+public final class MLXModelService: @unchecked Sendable {
     private struct ConstrainedDecodingSetup {
         let processor: GrammarLogitProcessor
         let mode: String
@@ -200,23 +200,23 @@ final class MLXModelService: @unchecked Sendable {
     private var gpuInitialized = false
     private var radixCache: RadixTreeCache?
     private var currentToolCallFormat: ToolCallFormat?
-    var prefillStepSize: Int = 1024
-    var toolCallParser: String?
-    var fixToolArgs: Bool = false
-    var forceVLM: Bool = false
-    var kvBits: Int?
-    var kvEvictionPolicy: String = "none"  // "none" or "streaming"
-    var enablePrefixCaching: Bool = false
+    public var prefillStepSize: Int = 1024
+    public var toolCallParser: String?
+    public var fixToolArgs: Bool = false
+    public var forceVLM: Bool = false
+    public var kvBits: Int?
+    public var kvEvictionPolicy: String = "none"  // "none" or "streaming"
+    public var enablePrefixCaching: Bool = false
     /// MTP self-speculative decoding (--mtp). Activates only when the loaded model has an
     /// mtp.safetensors sidecar (a Qwen3.6 MTP head); otherwise silently falls back to AR.
-    var mtpEnabled: Bool = false
-    var mtpDepth: Int = 3
+    public var mtpEnabled: Bool = false
+    public var mtpDepth: Int = 3
     /// EAGLE3 speculative decoding (--eagle3 <drafter-path>). Activates only when the loaded model
     /// is a dense Gemma4 verifier and a drafter loads from the given path; otherwise falls back to AR.
-    var eagle3DrafterPath: String?
+    public var eagle3DrafterPath: String?
     /// Server-level default JSON schema from `--guided-json` CLI flag.
     /// Applied to requests that don't specify their own response_format. (#97)
-    var defaultGuidedJsonSchema: ResponseFormat?
+    public var defaultGuidedJsonSchema: ResponseFormat?
 
     /// Resolve the effective response format for an incoming request.
     /// Per-request `response_format` takes precedence over the server-level
@@ -225,8 +225,8 @@ final class MLXModelService: @unchecked Sendable {
         requestFormat ?? defaultGuidedJsonSchema
     }
 
-    var enableGrammarConstraints: Bool = false { didSet { grammarConstraintsActive = enableGrammarConstraints } }
-    var trace: Bool = false { didSet { traceLogging = trace } }
+    public var enableGrammarConstraints: Bool = false { didSet { grammarConstraintsActive = enableGrammarConstraints } }
+    public var trace: Bool = false { didSet { traceLogging = trace } }
     var supportsStrictToolGrammar: Bool {
         if let parser = resolvedToolCallParser(logBypass: false) {
             switch parser {
@@ -279,19 +279,19 @@ final class MLXModelService: @unchecked Sendable {
     }
     /// Path to write a Metal GPU trace (.gputrace) — captures the first request only, then resets to nil.
     /// Auto-limits max tokens to 5 to keep trace size manageable.
-    var gpuCapturePath: String?
+    public var gpuCapturePath: String?
     /// Duration in seconds for xctrace Metal System Trace recording. nil = disabled.
-    var gpuTraceDuration: Int?
+    public var gpuTraceDuration: Int?
     /// Print per-request GPU profiling stats (device info, memory snapshots, bandwidth estimates).
-    var gpuProfile: Bool = false
+    public var gpuProfile: Bool = false
     /// Also sample DRAM bandwidth via mactop (adds ~5s). Requires `brew install mactop`.
-    var gpuProfileBandwidth: Bool = false
-    var defaultChatTemplateKwargs: [String: Any]?
-    var cacheProfilePath: String?
+    public var gpuProfileBandwidth: Bool = false
+    public var defaultChatTemplateKwargs: [String: Any]?
+    public var cacheProfilePath: String?
     /// Detected think start/end tags from the tokenizer vocabulary (e.g., "<think>"/"</think>").
     /// Set after model load. nil if the model doesn't have think tokens.
-    private(set) var thinkStartTag: String?
-    private(set) var thinkEndTag: String?
+    public private(set) var thinkStartTag: String?
+    public private(set) var thinkEndTag: String?
     /// True when the loaded model uses OpenAI Harmony channel tokens
     /// (`<|channel|>analysis|message|>...<|end|>`) instead of `<think>` tags.
     /// Detected from `model_type == "gpt_oss"` in config.json. (#121)
@@ -300,7 +300,7 @@ final class MLXModelService: @unchecked Sendable {
     /// Concurrent generation scheduler (nil = serial mode via container.perform).
     private var scheduler: BatchScheduler?
     /// Maximum concurrent generations (0 = serial mode, 2+ = batch mode).
-    var maxConcurrent: Int = 0
+    public var maxConcurrent: Int = 0
 
     /// Whether the server was started with --concurrent (persistent batch mode).
     private var startedInBatchMode = false
@@ -323,7 +323,7 @@ final class MLXModelService: @unchecked Sendable {
     }
     /// Release a reserved slot (call if request fails before generation starts).
     func releaseSlot() { scheduler?.releaseReservation() }
-    init(resolver: MLXCacheResolver) {
+    public init(resolver: MLXCacheResolver) {
         _ = Self.registerModelFactoriesOnce
         self.resolver = resolver
         self.resolver.applyEnvironment()
@@ -1111,15 +1111,15 @@ final class MLXModelService: @unchecked Sendable {
         }
     }
 
-    func normalizeModel(_ raw: String) -> String {
+    public func normalizeModel(_ raw: String) -> String {
         resolver.normalizedModelID(raw)
     }
 
-    func revalidateRegistry() throws -> [String] {
+    public func revalidateRegistry() throws -> [String] {
         try registry.revalidate(using: resolver)
     }
 
-    func ensureLoaded(
+    public func ensureLoaded(
         model rawModel: String,
         progress: (@Sendable (Progress) -> Void)? = nil,
         stage: (@Sendable (MLXLoadStage) -> Void)? = nil,
@@ -1403,7 +1403,7 @@ final class MLXModelService: @unchecked Sendable {
 
     /// Initialize the concurrent BatchScheduler by extracting model/tokenizer/processor
     /// from the container. Must be called after ensureLoaded() and only when maxConcurrent >= 2.
-    func initScheduler() async throws {
+    public func initScheduler() async throws {
         guard maxConcurrent >= 2 else { return }
         startedInBatchMode = true
         guard let container = withStateLock({ currentContainer }) else {
@@ -1535,7 +1535,7 @@ final class MLXModelService: @unchecked Sendable {
         await sched.cancelSlots(ids: ids)
     }
 
-    func generate(
+    public func generate(
         model: String,
         messages: [Message],
         temperature: Double?,
@@ -3030,7 +3030,7 @@ final class MLXModelService: @unchecked Sendable {
         return (modelID, stream, promptTokens, toolTags?.start, toolTags?.end, self.thinkStartTag, self.thinkEndTag)
     }
 
-    func shutdownAndReleaseResources(verbose: Bool = false, timeoutSeconds: TimeInterval = 30) async {
+    public func shutdownAndReleaseResources(verbose: Bool = false, timeoutSeconds: TimeInterval = 30) async {
         // Shut down concurrent scheduler first (cancels pending + active)
         if let scheduler = self.scheduler {
             await scheduler.shutdown()

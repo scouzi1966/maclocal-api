@@ -1,18 +1,18 @@
 import Foundation
 import NaturalLanguage
 
-actor NLContextualEmbeddingBackend: EmbeddingBackend {
+public actor NLContextualEmbeddingBackend: EmbeddingBackend {
     private static let multilingualScript = NLScript.latin
 
-    let modelID: String
-    let nativeDimension: Int
-    let maxInputTokens: Int
+    public let modelID: String
+    public let nativeDimension: Int
+    public let maxInputTokens: Int
 
     private let embedding: NLContextualEmbedding
     private let language: NLLanguage?
     private var isLoaded = false
 
-    init(modelID: String) throws {
+    public init(modelID: String) throws {
         guard let selection = Self.selection(for: modelID) else {
             throw EmbeddingError.modelNotFound(modelID)
         }
@@ -24,7 +24,7 @@ actor NLContextualEmbeddingBackend: EmbeddingBackend {
         self.maxInputTokens = Int(selection.embedding.maximumSequenceLength)
     }
 
-    func prepare() async throws {
+    public func prepare() async throws {
         if isLoaded {
             return
         }
@@ -32,7 +32,7 @@ actor NLContextualEmbeddingBackend: EmbeddingBackend {
         try loadIfNeeded()
     }
 
-    func embed(_ inputs: [String]) async throws -> EmbedResult {
+    public func embed(_ inputs: [String]) async throws -> EmbedResult {
         guard !inputs.isEmpty else {
             throw EmbeddingError.invalidInput("At least one input is required")
         }
@@ -81,7 +81,7 @@ actor NLContextualEmbeddingBackend: EmbeddingBackend {
         )
     }
 
-    func embedTokenIDs(_ inputs: [[Int]]) async throws -> EmbedResult {
+    public func embedTokenIDs(_ inputs: [[Int]]) async throws -> EmbedResult {
         guard !inputs.isEmpty else {
             throw EmbeddingError.invalidInput("At least one token-id input is required")
         }

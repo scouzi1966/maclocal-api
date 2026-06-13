@@ -1,7 +1,7 @@
 import Vapor
 import Foundation
 
-struct EmbeddingsController: RouteCollection {
+public struct EmbeddingsController: RouteCollection {
     private static let maxRequestBodySize: ByteCount = "1mb"
 
     private let resolver: any EmbeddingBackendResolver
@@ -10,12 +10,12 @@ struct EmbeddingsController: RouteCollection {
     /// `afm embed` server has no other `/v1/models`, so it does register it.
     private let registersModelsRoute: Bool
 
-    init(resolver: any EmbeddingBackendResolver, registersModelsRoute: Bool = true) {
+    public init(resolver: any EmbeddingBackendResolver, registersModelsRoute: Bool = true) {
         self.resolver = resolver
         self.registersModelsRoute = registersModelsRoute
     }
 
-    func boot(routes: RoutesBuilder) throws {
+    public func boot(routes: RoutesBuilder) throws {
         let v1 = routes.grouped("v1")
         v1.on(.POST, "embeddings", body: .collect(maxSize: Self.maxRequestBodySize), use: createEmbeddings)
         v1.on(.OPTIONS, "embeddings", use: handleOptions)

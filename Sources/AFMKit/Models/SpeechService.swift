@@ -2,7 +2,7 @@ import Foundation
 import os
 import Speech
 
-enum SpeechError: Error, LocalizedError {
+public enum SpeechError: Error, LocalizedError {
     case platformUnavailable
     case fileNotFound
     case unsupportedFormat
@@ -11,7 +11,7 @@ enum SpeechError: Error, LocalizedError {
     case onDeviceNotAvailable
     case authorizationDenied
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .platformUnavailable:
             return "Apple Speech framework requires macOS 10.15 or later"
@@ -31,40 +31,40 @@ enum SpeechError: Error, LocalizedError {
     }
 }
 
-struct SpeechRequestOptions: Sendable {
+public struct SpeechRequestOptions: Sendable {
     static let recognitionTimeoutNs: UInt64 = 120_000_000_000  // 120 seconds
     static let defaultMaxFileBytes = 50 * 1024 * 1024  // 50MB matches Vapor body limit
     static let supportedExtensions: Set<String> = ["wav", "mp3", "m4a", "caf", "aiff", "aif"]
 
     let locale: String
 
-    init(locale: String = "en-US") {
+    public init(locale: String = "en-US") {
         self.locale = locale
     }
 }
 
-struct TranscriptionWord: Sendable, Codable {
-    let word: String
-    let start: Double
-    let end: Double
+public struct TranscriptionWord: Sendable, Codable {
+    public let word: String
+    public let start: Double
+    public let end: Double
 }
 
-struct TranscriptionSegment: Sendable, Codable {
-    let id: Int
-    let start: Double
-    let end: Double
-    let text: String
-    let confidence: Float
+public struct TranscriptionSegment: Sendable, Codable {
+    public let id: Int
+    public let start: Double
+    public let end: Double
+    public let text: String
+    public let confidence: Float
 }
 
-struct TranscriptionResult: Sendable, Codable {
-    let text: String
-    let language: String
-    let duration: Double
-    let words: [TranscriptionWord]
-    let segments: [TranscriptionSegment]
+public struct TranscriptionResult: Sendable, Codable {
+    public let text: String
+    public let language: String
+    public let duration: Double
+    public let words: [TranscriptionWord]
+    public let segments: [TranscriptionSegment]
 
-    func formatAsSRT() -> String {
+    public func formatAsSRT() -> String {
         segments.enumerated().map { index, seg in
             let startTS = Self.srtTimestamp(seg.start)
             let endTS = Self.srtTimestamp(seg.end)
@@ -72,7 +72,7 @@ struct TranscriptionResult: Sendable, Codable {
         }.joined(separator: "\n\n")
     }
 
-    func formatAsVTT() -> String {
+    public func formatAsVTT() -> String {
         var lines = ["WEBVTT", ""]
         lines += segments.map { seg in
             let startTS = Self.vttTimestamp(seg.start)
@@ -100,22 +100,23 @@ struct TranscriptionResult: Sendable, Codable {
 }
 
 @available(macOS 13.0, *)
-final class SpeechService: Sendable {
+public final class SpeechService: Sendable {
+    public init() {}
 
-    func transcribe(from filePath: String) async throws -> String {
+    public func transcribe(from filePath: String) async throws -> String {
         try await transcribe(from: filePath, options: SpeechRequestOptions())
     }
 
-    func transcribe(from filePath: String, options: SpeechRequestOptions) async throws -> String {
+    public func transcribe(from filePath: String, options: SpeechRequestOptions) async throws -> String {
         let result = try await transcribeWithDetails(from: filePath, options: options)
         return result.text
     }
 
-    func transcribeWithDetails(from filePath: String) async throws -> TranscriptionResult {
+    public func transcribeWithDetails(from filePath: String) async throws -> TranscriptionResult {
         try await transcribeWithDetails(from: filePath, options: SpeechRequestOptions())
     }
 
-    func transcribeWithDetails(from filePath: String, options: SpeechRequestOptions) async throws -> TranscriptionResult {
+    public func transcribeWithDetails(from filePath: String, options: SpeechRequestOptions) async throws -> TranscriptionResult {
         let fileURL = URL(fileURLWithPath: filePath)
 
         // Validate file exists

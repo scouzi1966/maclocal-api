@@ -1,8 +1,8 @@
 import Foundation
-struct MLXCacheResolver {
-    let cacheRoot: URL?
+public struct MLXCacheResolver {
+    public let cacheRoot: URL?
 
-    init() {
+    public init() {
         if let raw = ProcessInfo.processInfo.environment["MACAFM_MLX_MODEL_CACHE"]?
             .trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
             cacheRoot = URL(fileURLWithPath: NSString(string: raw).expandingTildeInPath)
@@ -51,7 +51,7 @@ struct MLXCacheResolver {
         return "mlx-community/\(trimmed)"
     }
 
-    func localModelDirectory(repoId: String) -> URL? {
+    public func localModelDirectory(repoId: String) -> URL? {
         // Absolute path: check directly (no HF cache resolution)
         if repoId.hasPrefix("/") {
             let url = URL(fileURLWithPath: repoId)

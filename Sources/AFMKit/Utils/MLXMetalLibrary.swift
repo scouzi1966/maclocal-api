@@ -2,7 +2,7 @@ import Foundation
 import ArgumentParser
 import Darwin
 
-enum MLXMetalLibrary {
+public enum MLXMetalLibrary {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var initialized = false
 
@@ -107,7 +107,7 @@ enum MLXMetalLibrary {
         return nil
     }
 
-    static func ensureAvailable(verbose: Bool) throws {
+    public static func ensureAvailable(verbose: Bool) throws {
         try lock.withLock {
             if initialized {
                 return

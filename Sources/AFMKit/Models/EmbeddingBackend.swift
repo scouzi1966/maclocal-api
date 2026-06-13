@@ -7,7 +7,7 @@ import Foundation
 /// loading required to know the dimension has already run during setup).
 /// The controller relies on this when validating the `dimensions` request
 /// parameter before calling `embed` / `embedTokenIDs`.
-protocol EmbeddingBackend: Actor {
+public protocol EmbeddingBackend: Actor {
     var modelID: String { get }
     var nativeDimension: Int { get }
     var maxInputTokens: Int { get }
@@ -16,20 +16,20 @@ protocol EmbeddingBackend: Actor {
     func embedTokenIDs(_ inputs: [[Int]]) async throws -> EmbedResult
 }
 
-struct EmbedResult: Sendable {
-    let vectors: [[Float]]
-    let tokenCounts: [Int]
-    let truncatedInputCount: Int
+public struct EmbedResult: Sendable {
+    public let vectors: [[Float]]
+    public let tokenCounts: [Int]
+    public let truncatedInputCount: Int
 
-    init(vectors: [[Float]], tokenCounts: [Int], truncatedInputCount: Int = 0) {
+    public init(vectors: [[Float]], tokenCounts: [Int], truncatedInputCount: Int = 0) {
         self.vectors = vectors
         self.tokenCounts = tokenCounts
         self.truncatedInputCount = truncatedInputCount
     }
 }
 
-struct EmbeddingModelEntry: Sendable {
-    let id: String
+public struct EmbeddingModelEntry: Sendable {
+    public let id: String
     let backend: EmbeddingBackendKind
     let nativeDimension: Int
     let supportsMatryoshka: Bool

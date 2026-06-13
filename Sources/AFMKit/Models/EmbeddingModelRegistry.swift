@@ -1,7 +1,8 @@
 import Foundation
 
-struct EmbeddingModelRegistry {
-    static let defaultModelID = "apple-nl-contextual-en"
+public struct EmbeddingModelRegistry {
+    public init() {}
+    public static let defaultModelID = "apple-nl-contextual-en"
     static let multilingualModelID = "apple-nl-contextual-multi"
 
     // Apple NL metadata is finalized at backend-load time. These sentinel values
@@ -9,7 +10,7 @@ struct EmbeddingModelRegistry {
     private static let runtimeResolvedDimension = 0
     private static let runtimeResolvedMaxInputTokens = 0
 
-    func shippedModels() -> [EmbeddingModelEntry] {
+    public func shippedModels() -> [EmbeddingModelEntry] {
         [
             Self.makeAppleEntry(
                 id: Self.defaultModelID,
@@ -22,11 +23,11 @@ struct EmbeddingModelRegistry {
         ]
     }
 
-    func listModelIDs() -> [String] {
+    public func listModelIDs() -> [String] {
         shippedModels().map(\.id).sorted()
     }
 
-    func resolve(modelID: String) -> EmbeddingModelEntry? {
+    public func resolve(modelID: String) -> EmbeddingModelEntry? {
         let trimmedModelID = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedModelID.isEmpty else {
             return nil
@@ -35,7 +36,7 @@ struct EmbeddingModelRegistry {
         return shippedModels().first(where: { $0.id == trimmedModelID })
     }
 
-    func makeResolvedAppleEntry(modelID: String, nativeDimension: Int, maxInputTokens: Int) -> EmbeddingModelEntry? {
+    public func makeResolvedAppleEntry(modelID: String, nativeDimension: Int, maxInputTokens: Int) -> EmbeddingModelEntry? {
         let trimmedModelID = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let shippedEntry = shippedModels().first(where: { $0.id == trimmedModelID }) else {
             return nil

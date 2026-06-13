@@ -25,7 +25,7 @@ import FoundationModels
 //
 // Invalid Combinations:
 // - "random:top-p=0.9:top-k=50" - REJECTED: Cannot mix sampling methods
-struct RandomnessConfig {
+public struct RandomnessConfig {
     enum SamplingMode {
         case greedy
         case random
@@ -36,7 +36,7 @@ struct RandomnessConfig {
     let mode: SamplingMode
     let seed: UInt64?
 
-    static func parse(_ randomnessString: String) throws -> RandomnessConfig {
+    public static func parse(_ randomnessString: String) throws -> RandomnessConfig {
         let trimmed = randomnessString.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Handle simple cases (backward compatibility)
@@ -100,7 +100,7 @@ struct RandomnessConfig {
     }
 }
 
-enum FoundationModelError: Error, LocalizedError {
+public enum FoundationModelError: Error, LocalizedError {
     private static let structuredTruncationMarker = "Failed to deserialize a Generable type from model output"
 
     case notAvailable
@@ -113,7 +113,7 @@ enum FoundationModelError: Error, LocalizedError {
     case guardrailViolation(String)
     case schemaConversionFailed(String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .notAvailable:
             return "Foundation Models framework is not available. Requires macOS 26+ with Apple Intelligence enabled."
@@ -194,7 +194,7 @@ enum FoundationModelError: Error, LocalizedError {
 }
 
 @available(macOS 26.0, *)
-class FoundationModelService: @unchecked Sendable {
+public class FoundationModelService: @unchecked Sendable {
     
     #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
     private var session: LanguageModelSession?
@@ -211,7 +211,7 @@ class FoundationModelService: @unchecked Sendable {
     #endif
     nonisolated(unsafe) static var sharedAdapterPath: String?
     
-    init(instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) async throws {
+    public init(instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) async throws {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS && !DISABLE_FOUNDATION_MODELS
         // Check if adapter path is provided
         if let adapterPath = adapter {
@@ -298,7 +298,7 @@ class FoundationModelService: @unchecked Sendable {
         #endif
     }
     
-    func generateResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil, maxTokens: Int? = nil, stop: [String]? = nil) async throws -> String {
+    public func generateResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil, maxTokens: Int? = nil, stop: [String]? = nil) async throws -> String {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
@@ -347,7 +347,7 @@ class FoundationModelService: @unchecked Sendable {
     }
 
     /// Pre-warm the session for faster first response
-    func prewarm() async throws {
+    public func prewarm() async throws {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
         guard let session = session else {
             throw FoundationModelError.sessionCreationFailed
@@ -357,7 +357,7 @@ class FoundationModelService: @unchecked Sendable {
     }
 
     /// Generate response with native streaming (real token-by-token output)
-    func generateNativeStreamingResponse(
+    public func generateNativeStreamingResponse(
         for messages: [Message],
         temperature: Double? = nil,
         randomness: String? = nil,
@@ -427,7 +427,7 @@ class FoundationModelService: @unchecked Sendable {
     
     /// Generate a guided (structured) response using constrained decoding.
     /// Converts the OpenAI JSON Schema to Apple's GenerationSchema internally.
-    func generateGuidedResponse(
+    public func generateGuidedResponse(
         for messages: [Message],
         jsonSchema: ResponseJsonSchema,
         temperature: Double? = nil,
@@ -476,7 +476,7 @@ class FoundationModelService: @unchecked Sendable {
     /// Note: Apple's guided generation streams partial JSON *snapshots* (the entire
     /// structure mutates, not just appends). We diff successive snapshots to emit
     /// append-only deltas that are compatible with SSE streaming consumers.
-    func generateGuidedStreamingResponse(
+    public func generateGuidedStreamingResponse(
         for messages: [Message],
         jsonSchema: ResponseJsonSchema,
         temperature: Double? = nil,

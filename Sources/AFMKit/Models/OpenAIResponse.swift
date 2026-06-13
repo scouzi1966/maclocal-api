@@ -229,16 +229,16 @@ struct ResponseMessage: Content {
 
 // MARK: - Tool call response types
 
-struct ResponseToolCall: Content {
-    let index: Int?
-    let id: String           // "call_<random>"
-    let type: String         // "function"
-    let function: ResponseToolCallFunction
+public struct ResponseToolCall: Content {
+    public let index: Int?
+    public let id: String           // "call_<random>"
+    public let type: String         // "function"
+    public let function: ResponseToolCallFunction
 }
 
-struct ResponseToolCallFunction: Content {
-    let name: String
-    let arguments: String    // JSON string
+public struct ResponseToolCallFunction: Content {
+    public let name: String
+    public let arguments: String    // JSON string
 }
 
 struct PromptTokensDetails: Content {
@@ -470,16 +470,16 @@ struct StreamDelta: Content {
     }
 }
 
-struct StreamDeltaToolCall: Content {
-    let index: Int
-    let id: String?
-    let type: String?
-    let function: StreamDeltaFunction?
+public struct StreamDeltaToolCall: Content {
+    public let index: Int
+    public let id: String?
+    public let type: String?
+    public let function: StreamDeltaFunction?
 }
 
-struct StreamDeltaFunction: Content {
-    let name: String?
-    let arguments: String?
+public struct StreamDeltaFunction: Content {
+    public let name: String?
+    public let arguments: String?
 }
 
 struct StreamUsage: Content {
@@ -530,7 +530,7 @@ struct StreamUsage: Content {
     }
 }
 
-struct OpenAIError: Content, Error {
+public struct OpenAIError: Content, Error {
     let error: ErrorDetail
 
     struct ErrorDetail: Content {
@@ -546,7 +546,7 @@ struct OpenAIError: Content, Error {
         }
     }
 
-    init(message: String, type: String = "invalid_request_error", code: String? = nil, requestId: String? = nil) {
+    public init(message: String, type: String = "invalid_request_error", code: String? = nil, requestId: String? = nil) {
         self.error = ErrorDetail(message: message, type: type, code: code, requestId: requestId)
     }
 }
