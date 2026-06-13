@@ -5,7 +5,7 @@ If you find this useful, please ⭐ the repo! &nbsp; Also check out [Vesta AI Ex
 |  | Stable (v0.9.12) | Nightly (afm-next) |
 |---|---|---|
 | **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
-| **pip** | `pip install macafm` | `pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next` |
+| **pip** | `pip install macafm` | `pip install --extra-index-url https://maclocal-ai.pages.dev/afm/wheels/simple/ macafm-next` |
 | **Release notes** | [v0.9.12](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.12) | [v0.9.13-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260613-5aad36d) |
 
 ### 🔨 Build from source — one command
@@ -57,8 +57,8 @@ brew install scouzi1966/afm/afm-next@0.9.11-next.9c3225e.20260418
 
 ```bash
 pip install macafm==0.9.10                  # previous stable
-pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ \
-  macafm-next==0.9.11.dev20260418           # pinned nightly
+pip install --extra-index-url https://maclocal-ai.pages.dev/afm/wheels/simple/ \
+  macafm-next==0.9.13.dev20260613           # pinned nightly
 ```
 
 > [!NOTE]
