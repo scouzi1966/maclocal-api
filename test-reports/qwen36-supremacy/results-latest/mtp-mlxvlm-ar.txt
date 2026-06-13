@@ -1,0 +1,3 @@
+Prompt: <|im_start|>user
+Prompt: 36 tokens, 44.069 tokens-per-sec
+Generation: 200 tokens, 15.473 tokens-per-sec

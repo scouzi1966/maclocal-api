@@ -371,6 +371,8 @@ struct MlxCommand: ParsableCommand {
     var kvBits: Int?
     @Option(name: .long, help: "Prefill step size — number of prompt tokens processed per GPU pass (default: 2048)")
     var prefillStepSize: Int?
+    @Option(name: .long, help: "Pre-warm MLX kernels on startup for faster first response/TTFT (y/n, default: y)")
+    var prewarm: String = "y"
     @Flag(name: .long, help: "Trust remote code (compatibility)")
     var trustRemoteCode: Bool = false
     @Option(name: .long, help: "Chat template (compatibility)")
@@ -415,6 +417,15 @@ struct MlxCommand: ParsableCommand {
 
     @Flag(name: .long, help: "Enable radix tree prefix caching for KV cache reuse across requests")
     var enablePrefixCaching: Bool = false
+
+    @Flag(name: .long, help: "Enable MTP self-speculative decoding (Qwen3.6 models with an mtp.safetensors sidecar). Faster decode, identical greedy output. No-op if the model has no MTP head.")
+    var mtp: Bool = false
+
+    @Option(name: .long, help: "MTP draft depth (accepted for compatibility; the loop currently uses the fixed depth-2-bonus structure from mlx-lm PR #990 — ~+50% decode vs AR on M4 Pro — so this value is not used).")
+    var mtpDepth: Int = 1
+
+    @Option(name: .long, help: "Enable EAGLE3 speculative decoding for a dense Gemma4 verifier. Pass the drafter directory (config.json + safetensors). Faster decode, identical greedy output. No-op if the verifier is not a dense Gemma4 text model.")
+    var eagle3: String?
 
     @Option(name: .long, help: "Write cache timing profile records as JSONL to this file")
     var cacheProfilePath: String?
@@ -492,6 +503,9 @@ struct MlxCommand: ParsableCommand {
         if let prefillStepSize { service.prefillStepSize = prefillStepSize }
         service.kvEvictionPolicy = kvEviction ?? "none"
         service.enablePrefixCaching = enablePrefixCaching
+        service.mtpEnabled = mtp
+        service.mtpDepth = mtpDepth
+        service.eagle3DrafterPath = eagle3
         service.cacheProfilePath = cacheProfilePath
         service.enableGrammarConstraints = enableGrammarConstraints
         // --concurrent N: 0 or 1 silently falls back to serial; nil = serial; 2+ = batch mode
@@ -652,6 +666,8 @@ struct MlxCommand: ParsableCommand {
             print("Loading MLX model (download if needed): \(selectedModel)")
         }
 
+        let prewarmEnabled = prewarm.lowercased() != "n" && prewarm.lowercased() != "no" && prewarm != "0"
+
         _ = Task {
             do {
                 let loadReporter = MLXLoadReporter(modelID: selectedModel)
@@ -664,6 +680,23 @@ struct MlxCommand: ParsableCommand {
                 loadReporter.finish(success: true)
                 // Initialize concurrent scheduler after model is loaded
                 try await service.initScheduler()
+                // Prewarm MLX Metal kernels (prefill + decode + gated-delta step) so the FIRST
+                // real request doesn't pay the one-time ~0.35s graph/kernel compilation that
+                // otherwise inflates time-to-first-token. Best-effort; never blocks serving.
+                if prewarmEnabled {
+                    let prewarmStart = Date()
+                    do {
+                        _ = try await service.generate(
+                            model: selectedModel,
+                            messages: [Message(role: "user", content: "warmup")],
+                            temperature: 0, maxTokens: 4, topP: nil, repetitionPenalty: nil)
+                        if verbose {
+                            print("MLX prewarm complete in \(String(format: "%.2f", Date().timeIntervalSince(prewarmStart)))s")
+                        }
+                    } catch {
+                        if verbose { print("MLX prewarm skipped: \(error)") }
+                    }
+                }
                 let server = try await Server(
                     port: chosenPort,
                     hostname: hostname,

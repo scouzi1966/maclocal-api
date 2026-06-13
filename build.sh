@@ -12,6 +12,7 @@
 #   2) Apply the MLX + xgrammar patch sets (Scripts/patches)
 #   3) Build the llama.cpp webui assets and embed them
 #   4) Clean + resolve Swift packages
+#   4b) Rebuild the MLX Metal shader library (default.metallib) from the kernel sources
 #   5) Build the `afm` binary (release by default) and verify the artifact
 #
 # Usage:
@@ -33,6 +34,7 @@ DO_CLEAN=true
 DO_SUBMODULES=true
 DO_PATCHES=true
 DO_WEBUI=true
+DO_METALLIB=true
 ASSUME_YES=false
 DO_INSTALL=false
 INSTALL_PREFIX="/usr/local"
@@ -58,12 +60,13 @@ Options:
   --skip-submodules    Skip git submodule init/update
   --skip-patches       Skip MLX + xgrammar patch application
   --skip-webui         Skip llama.cpp webui build
+  --skip-metallib      Skip rebuilding default.metallib (use the committed prebuilt one)
   --yes, -y            Assume "yes" for dependency-install prompts (non-interactive)
   --install            After building, install afm to $INSTALL_PREFIX/bin (uses sudo if needed)
   -h, --help           Show help
 
 Default behavior:
-  check deps + submodules + patches + webui + clean + release build
+  check deps + submodules + patches + webui + clean + metallib + release build
 USAGE
 }
 
@@ -74,6 +77,7 @@ for arg in "$@"; do
     --skip-submodules) DO_SUBMODULES=false ;;
     --skip-patches) DO_PATCHES=false ;;
     --skip-webui) DO_WEBUI=false ;;
+    --skip-metallib) DO_METALLIB=false ;;
     --yes|-y) ASSUME_YES=true ;;
     --install) DO_INSTALL=true ;;
     -h|--help) usage; exit 0 ;;
@@ -268,6 +272,58 @@ fi
 log_step "Resolving Swift packages"
 swift package resolve
 
+# ---------------------------------------------------------------------------
+# Step 4a: Apply MLX C++ / Metal-kernel patches to the resolved mlx-swift checkout
+# ---------------------------------------------------------------------------
+# These patch the EPHEMERAL .build/checkouts/mlx-swift C++ tree (wiped by clean/re-resolve),
+# so they must run AFTER `swift package resolve` and BEFORE the metallib rebuild (which compiles
+# the patched kernels) and `swift build` (which compiles the patched dispatch C++).
+#   - apply-mlx-cpp-patches.sh    : qmv_fast_wide quantized matvec kernels
+#   - apply-mlx-sdpa-backport.sh  : 0.31.3 adaptive-block SDPA (decode@16k ~+10%, correct)
+if $DO_PATCHES; then
+  if [ -x "$SCRIPTS_DIR/apply-mlx-cpp-patches.sh" ]; then
+    log_step "Applying MLX C++ kernel patches (qmv_fast_wide)"
+    "$SCRIPTS_DIR/apply-mlx-cpp-patches.sh"
+  fi
+  if [ -x "$SCRIPTS_DIR/apply-mlx-sdpa-backport.sh" ]; then
+    log_step "Applying MLX SDPA 0.31.3 adaptive-block backport"
+    "$SCRIPTS_DIR/apply-mlx-sdpa-backport.sh"
+  fi
+else
+  log_warn "Skipping MLX C++ / SDPA patches (--skip-patches)"
+fi
+
+# ---------------------------------------------------------------------------
+# Step 4b: Rebuild the MLX Metal shader library (default.metallib) from source
+# ---------------------------------------------------------------------------
+# IMPORTANT: `swift build` does NOT compile any Metal — it only copies the committed
+# Sources/MacLocalAPI/Resources/default.metallib into the app bundle. The kernel *sources*
+# live in the resolved mlx-swift dependency (.build/checkouts/mlx-swift), so this step
+# regenerates that binary from source — ensuring the shipped kernels actually match the
+# (possibly patched) kernel tree rather than a stale prebuilt blob.
+#
+# Requires the Metal Toolchain, which Xcode 26 ships as a SEPARATE downloadable component.
+# If it isn't installed we fall back to the committed prebuilt metallib (offering to
+# download the toolchain first). Must run AFTER `swift package resolve` (needs the sources)
+# and BEFORE `swift build` (which copies the result into the bundle).
+if $DO_METALLIB; then
+  log_step "Rebuilding MLX metallib from kernel sources"
+  if "$SCRIPTS_DIR/rebuild-metallib.sh" --check >/dev/null 2>&1; then
+    "$SCRIPTS_DIR/rebuild-metallib.sh"
+  else
+    log_warn "Metal Toolchain not installed — cannot compile the metallib from source."
+    if confirm "Download the Metal Toolchain now? (~688 MB one-time: xcodebuild -downloadComponent MetalToolchain)"; then
+      xcodebuild -downloadComponent MetalToolchain
+      "$SCRIPTS_DIR/rebuild-metallib.sh"
+    else
+      log_warn "Falling back to the committed prebuilt metallib (Sources/MacLocalAPI/Resources/default.metallib)."
+      log_warn "To build it from source later: xcodebuild -downloadComponent MetalToolchain && ./Scripts/rebuild-metallib.sh"
+    fi
+  fi
+else
+  log_warn "Skipping metallib rebuild (--skip-metallib): using committed prebuilt metallib"
+fi
+
 log_step "Injecting build commit into BuildInfo.swift"
 BUILD_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILDINFO="$ROOT_DIR/Sources/MacLocalAPI/BuildInfo.swift"
@@ -348,16 +404,22 @@ else
   exit 1
 fi
 
-# Make metallib discoverable for `swift test` after a clean release build.
+# Make metallib discoverable for `swift test` after a build.
 # MLX framework searches CWD for "default.metallib" as its last resort.
 # A symlink at the project root ensures `swift test` (which runs from project root) finds it.
-ln -sf ".build/arm64-apple-macosx/release/MacLocalAPI_MacLocalAPI.bundle/default.metallib" \
-  "$ROOT_DIR/default.metallib"
-# Also copy to debug bundle for our own MLXMetalLibrary resolver.
-DEBUG_BUNDLE="$ROOT_DIR/.build/arm64-apple-macosx/debug/MacLocalAPI_MacLocalAPI.bundle"
-mkdir -p "$DEBUG_BUNDLE"
-cp "$METALLIB_BUNDLE" "$DEBUG_BUNDLE/default.metallib"
-log_info "Metallib available for swift test (symlink + debug bundle)"
+# Point at the bundle that was ACTUALLY built ($METALLIB_BUNDLE is config-aware via $FINAL_DIR),
+# not a hardcoded release path — a `--debug` build has no release bundle in a clean checkout.
+ln -sf "$METALLIB_BUNDLE" "$ROOT_DIR/default.metallib"
+# Also mirror into the OTHER config's bundle so `swift test` works regardless of which config
+# the tester uses (debug ↔ release), for our own MLXMetalLibrary resolver.
+if [ "$BUILD_CONFIG" = "release" ]; then
+  OTHER_BUNDLE="$ROOT_DIR/.build/arm64-apple-macosx/debug/MacLocalAPI_MacLocalAPI.bundle"
+else
+  OTHER_BUNDLE="$ROOT_DIR/.build/arm64-apple-macosx/release/MacLocalAPI_MacLocalAPI.bundle"
+fi
+mkdir -p "$OTHER_BUNDLE"
+cp "$METALLIB_BUNDLE" "$OTHER_BUNDLE/default.metallib"
+log_info "Metallib available for swift test (symlink -> $BUILD_CONFIG bundle + mirror)"
 
 # ---------------------------------------------------------------------------
 # Step 6 (optional): Install to /usr/local

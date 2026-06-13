@@ -1,0 +1,33 @@
+### kill other engines + free port
+  freeRAM=41.0GB
+### omlx serve --model-dir /Volumes/Crucial4TB/models/vesta-test-cache/mlx-community (model_id=Qwen3.6-27B-4bit)
+  ready t=2s gpu=0% freeRAM=40.9GB
+### warmup (lazy-loads model on first request)
+OK usage: {'prompt_tokens': 17, 'completion_tokens': 30, 'total_tokens': 47, 'input_tokens': 17, 'output_tokens': 30, 'prompt_tokens_details': {'cached_tokens': 0}, 'model_load_duration': 5.29, 'total_time': 3.16}
+### probe
+{
+  "label": "omlx-mlx-4bit",
+  "decode_tps_streamed": 15.35,
+  "decode_deltas": 201,
+  "server_completion_tokens": 200,
+  "decode_ttft_s": 0.411,
+  "prefill_ttft_s": 14.282,
+  "prefill_prompt_tokens": 1786,
+  "prefill_tps": 125.1
+}
+### llama-benchy (note: oMLX tg t/s is inflated in llama-benchy — use probe)
+### benchmark exit=0
+| model            |            test |                     t/s |      peak t/s |    ttfr (ms) |   est_ppt (ms) |       e2e_ttft (ms) |
+|:-----------------|----------------:|------------------------:|--------------:|-------------:|---------------:|--------------------:|
+| Qwen3.6-27B-4bit |           tg128 |            33.22 ± 0.51 | 154.00 ± 2.00 |              |                |                     |
+| Qwen3.6-27B-4bit |  ctx_tg @ d4096 |            32.77 ± 0.68 | 156.50 ± 2.50 |              |                |                     |
+| Qwen3.6-27B-4bit |   pp512 @ d4096 |       1415888.72 ± 0.00 |               |  8.45 ± 0.42 |    0.18 ± 0.18 |   18323.69 ± 599.63 |
+| Qwen3.6-27B-4bit |   tg128 @ d4096 |            32.54 ± 1.20 | 159.50 ± 7.50 |              |                |                     |
+| Qwen3.6-27B-4bit |  ctx_pp @ d8192 | 2976369.87 ± 1197428.38 |               | 11.50 ± 1.21 |    2.98 ± 1.21 |   62406.41 ± 467.08 |
+| Qwen3.6-27B-4bit |  ctx_tg @ d8192 |            31.63 ± 0.17 | 156.00 ± 3.00 |              |                |                     |
+| Qwen3.6-27B-4bit |   pp512 @ d8192 |    195197.42 ± 47472.55 |               | 11.30 ± 0.68 |    2.79 ± 0.68 |   14968.47 ± 132.44 |
+| Qwen3.6-27B-4bit |   tg128 @ d8192 |            31.55 ± 0.71 | 154.50 ± 2.50 |              |                |                     |
+| Qwen3.6-27B-4bit | ctx_pp @ d16384 |   1692155.31 ± 39291.18 |               | 17.32 ± 0.28 |    8.81 ± 0.28 | 128248.94 ± 1290.46 |
+| Qwen3.6-27B-4bit | ctx_tg @ d16384 |            29.95 ± 0.11 | 153.00 ± 1.00 |              |                |                     |
+| Qwen3.6-27B-4bit |  pp512 @ d16384 |      45829.46 ± 2815.34 |               | 19.73 ± 0.69 |   11.21 ± 0.69 |   9519.30 ± 1274.25 |
+| Qwen3.6-27B-4bit |  tg128 @ d16384 |            29.73 ± 0.09 | 151.50 ± 1.50 |              |                |                     |### DONE

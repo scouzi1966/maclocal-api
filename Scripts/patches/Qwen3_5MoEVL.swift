@@ -915,6 +915,261 @@ private class Qwen3_5VLDecoderLayer: Module {
     }
 }
 
+// MARK: - MTP (Multi-Token Prediction) Head
+//
+// Self-speculative decoding head shipped with Qwen3.6 (mtp_num_hidden_layers=1). Given the
+// trunk's last hidden state h_t and the embedding of the just-decided token, it predicts the
+// draft logits for token t+2 (chained for higher depth). Mirrors mtplx's `_mtp_core`:
+//   e = pre_fc_norm_embedding(embed);  h = pre_fc_norm_hidden(hidden)
+//   x = fc(concat([e, h], -1))                    // fc is plain bf16: 10240 -> 5120
+//   x = decoder_block(x)                          // 1 full-attention block, DENSE mlp (q4 g32)
+//   post = norm(x);  logits = lm_head(post)       // lm_head reused from the trunk
+// Weights live in a separate `mtp.safetensors` sidecar (keys prefixed `mtp.`); a model without
+// it simply has no head and MTP stays disabled. Validated against the Python reference in P0.
+public final class Qwen3_5MTPHead: Module {
+    @ModuleInfo(key: "pre_fc_norm_embedding") var preFcNormEmbedding: RMSNorm
+    @ModuleInfo(key: "pre_fc_norm_hidden") var preFcNormHidden: RMSNorm
+    @ModuleInfo(key: "fc") var fc: Linear
+    @ModuleInfo(key: "norm") var norm: RMSNorm
+
+    // The single MTP transformer block: a full-attention layer with a DENSE MLP (not MoE).
+    @ModuleInfo(key: "self_attn") fileprivate var selfAttn: Qwen3_5VLAttention
+    @ModuleInfo(key: "input_layernorm") var inputLayerNorm: RMSNorm
+    @ModuleInfo(key: "post_attention_layernorm") var postAttentionLayerNorm: RMSNorm
+    @ModuleInfo(key: "mlp") fileprivate var mlp: Qwen3_5VLMLP
+
+    public init(_ args: Qwen3_5MoEVLTextConfiguration) {
+        _preFcNormEmbedding.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
+        _preFcNormHidden.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
+        // fc fuses [embedding ; hidden] (2*hidden) -> hidden. No bias (bf16 in the sidecar).
+        _fc.wrappedValue = Linear(args.hiddenSize * 2, args.hiddenSize, bias: false)
+        _norm.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
+
+        _selfAttn.wrappedValue = Qwen3_5VLAttention(args)
+        _inputLayerNorm.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
+        _postAttentionLayerNorm.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
+        _mlp.wrappedValue = Qwen3_5VLMLP(
+            dimensions: args.hiddenSize, hiddenDimensions: args.intermediateSize)
+    }
+
+    /// Run the MTP head for one draft step.
+    /// - hiddenStates: trunk last hidden `(B, L, H)`
+    /// - tokenEmbeds:  embedding of the seeding token `(B, L, H)` (= trunk embed_tokens(token))
+    /// - cache:        single-layer KV cache for the MTP block (owns the RoPE offset)
+    /// Returns the post-norm hidden `(B, L, H)`; project with the trunk lm_head to get logits.
+    public func callAsFunction(
+        hiddenStates: MLXArray,
+        tokenEmbeds: MLXArray,
+        mask: MLXArray?,
+        cache: KVCache?
+    ) -> MLXArray {
+        let e = preFcNormEmbedding(tokenEmbeds)
+        let h = preFcNormHidden(hiddenStates)
+        // concat order "embedding_hidden": [e, h]
+        var x = fc(concatenated([e, h], axis: -1))
+
+        // one decoder block: x = x + attn(input_ln(x)); x = x + mlp(post_attn_ln(x))
+        let r = selfAttn(inputLayerNorm(x), mask: mask, cache: cache, positionIds: nil)
+        x = x + r
+        x = x + mlp(postAttentionLayerNorm(x))
+
+        return norm(x)
+    }
+
+    /// Load an MTP head from a `mtp.safetensors` sidecar (keys prefixed `mtp.`).
+    /// Quantizes the projections that ship with `.scales` (q4 group_size 32) to match the
+    /// sidecar layout, then loads the weights. Used by P0 validation and the MTP runtime.
+    public static func load(
+        sidecarPath: String,
+        config: Qwen3_5MoEVLTextConfiguration,
+        groupSize: Int = 32,
+        bits: Int = 4
+    ) throws -> Qwen3_5MTPHead {
+        let head = Qwen3_5MTPHead(config)
+
+        // Load sidecar and map keys onto this module's structure:
+        //  - strip the `mtp.` prefix
+        //  - flatten the single block: `layers.0.X` -> `X` (the head holds the block inline,
+        //    not under a `layers` array, since mtp_num_hidden_layers == 1)
+        let raw = try MLX.loadArrays(url: URL(fileURLWithPath: sidecarPath))
+        var weights: [String: MLXArray] = [:]
+        for (k, v) in raw {
+            var key = k.hasPrefix("mtp.") ? String(k.dropFirst(4)) : k
+            if key.hasPrefix("layers.0.") { key = String(key.dropFirst("layers.0.".count)) }
+            weights[key] = v
+        }
+
+        // Quantize exactly the linears that have a matching `.scales` tensor (the projections);
+        // `fc` and the norms stay full-precision (no scales in the sidecar).
+        quantize(model: head, filter: { path, _ in
+            weights["\(path).scales"] != nil ? (groupSize: groupSize, bits: bits) : nil
+        })
+
+        try head.update(parameters: ModuleParameters.unflattened(weights), verify: [.all])
+        eval(head)
+        return head
+    }
+}
+
+// MARK: - MTP cache snapshot/restore (speculative rollback)
+//
+// For self-speculative decoding the trunk cache is advanced over K speculated tokens during
+// verify, then must be rolled back to the M<=K accepted tokens. Qwen3.6's hybrid cache makes
+// this clean: each layer is either a MambaCache/ArraysCache (linear-attn: conv + GDN recurrent
+// state arrays) or a KVCacheSimple (full-attn: trimmable KV). We snapshot ALL of it before
+// verify and, on partial/zero accept, restore the snapshot and re-forward only the accepted
+// prefix — which deterministically re-derives the exact M-token state for every layer (no
+// per-position capture kernel needed; the re-forward IS the ground truth).
+public enum MTPCacheSnapshot {
+    /// One layer's saved state: deep-copied arrays + the KV offset (0 for recurrent layers).
+    public struct Layer {
+        let arrays: [MLXArray]
+        let offset: Int
+        let isTrimmable: Bool
+    }
+
+    /// Deep-copy a layer cache's state, forcing distinct buffers so later in-place advances
+    /// (COW) don't alias the snapshot. `x + 0` materializes a fresh array.
+    public static func capture(_ cache: [any KVCache]) -> [Layer] {
+        cache.map { c in
+            let copied = c.state.map { ($0 + MLXArray(0)).asType($0.dtype) }
+            if !copied.isEmpty { eval(copied) }
+            return Layer(arrays: copied, offset: c.offset, isTrimmable: c.isTrimmable)
+        }
+    }
+
+    /// Restore a previously captured snapshot into the live cache (in place).
+    /// Trimmable KV caches are trimmed back to the captured offset before the state is reset,
+    /// so their internal buffers and `offset` match the snapshot exactly.
+    public static func restore(_ snapshot: [Layer], into cache: [any KVCache]) {
+        for (i, snap) in snapshot.enumerated() {
+            var c = cache[i]
+            if c.isTrimmable {
+                let extra = c.offset - snap.offset
+                if extra > 0 { _ = c.trim(extra) }
+            }
+            if !snap.arrays.isEmpty {
+                c.state = snap.arrays.map { ($0 + MLXArray(0)).asType($0.dtype) }
+            }
+        }
+    }
+}
+
+// MARK: - MTP self-speculative generator (greedy)
+//
+// Drafts K tokens with the MTP head, verifies all K in one trunk forward, accepts the longest
+// correct prefix (greedy: a draft is accepted iff it equals the trunk's argmax at that position),
+// emits accepted tokens + a bonus on full-accept, and rolls the trunk cache back on partial
+// accept via re-forward of the committed prefix. Output is provably IDENTICAL to greedy AR
+// (every emitted token is one the trunk would have produced) — the speed comes from emitting
+// 1..K+1 tokens per trunk forward. temperature>0 (exact speculative sampling) is P3.
+public final class MTPGenerator {
+    public struct Step { public let tokens: [Int]; public let cycles: Int }
+
+    let model: Qwen3_5MoEVL
+    let head: Qwen3_5MTPHead
+    public let depth: Int
+
+    public init(model: Qwen3_5MoEVL, head: Qwen3_5MTPHead, depth: Int = 3) {
+        self.model = model
+        self.head = head
+        self.depth = depth
+    }
+
+    private static func argmax(_ logits: MLXArray) -> Int {
+        MLX.argMax(logits, axis: -1).item(Int.self)
+    }
+    private func tok(_ id: Int) -> MLXArray { MLXArray([Int32(id)]).reshaped([1, 1]) }
+    private func toks(_ ids: [Int]) -> MLXArray { MLXArray(ids.map(Int32.init)).reshaped([1, ids.count]) }
+
+    /// Greedy generate up to `maxTokens` continuation tokens from an already-tokenized prompt.
+    /// `onToken` is called for each emitted token (for streaming); return false to stop.
+    /// Returns all generated tokens. `eosIds` halts generation when emitted.
+    public func generate(
+        promptIds: [Int],
+        maxTokens: Int,
+        eosIds: Set<Int> = [],
+        onToken: ((Int) -> Bool)? = nil
+    ) -> [Int] {
+        let cache = model.newCache(parameters: nil)
+        // Prefill: last hidden + next-token logits.
+        let (h0, l0) = model.forwardHidden(toks(promptIds), cache: cache)
+        var lastHidden = h0[0..., (h0.dim(1) - 1)..., 0...]                 // (1,1,H)
+        var nextLogits = l0[0..., (l0.dim(1) - 1)..., 0...]                 // (1,1,V)
+        eval(lastHidden, nextLogits)
+
+        var out: [Int] = []
+        func emit(_ t: Int) -> Bool {
+            out.append(t)
+            if let onToken, !onToken(t) { return false }
+            return out.count < maxTokens && !eosIds.contains(t)
+        }
+
+        var cycles = 0
+        while out.count < maxTokens {
+            cycles += 1
+            // Primary = greedy next token from the trunk.
+            let primary = Self.argmax(nextLogits[0, -1, 0...])
+            if !emit(primary) { break }
+
+            let k = Swift.min(depth, maxTokens - out.count)
+            if k <= 0 { break }
+
+            // --- DRAFT k tokens with the MTP head (autoregressive; single-layer KV cache) ---
+            let headCache = KVCacheSimple()
+            var draftHidden = lastHidden
+            var seed = primary
+            var drafts: [Int] = []
+            for _ in 0..<k {
+                let post = head(hiddenStates: draftHidden, tokenEmbeds: model.embedTokens(tok(seed)),
+                                mask: nil, cache: headCache)
+                let dl = model.projectLMHead(post)
+                let dtok = Self.argmax(dl[0, -1, 0...])
+                drafts.append(dtok)
+                draftHidden = post[0..., (post.dim(1) - 1)..., 0...]
+                seed = dtok
+            }
+
+            // --- VERIFY: trunk over [primary] + drafts in one forward ---
+            let snap = MTPCacheSnapshot.capture(cache)
+            let verifyInput = [primary] + drafts
+            let (vh, vl) = model.forwardHidden(toks(verifyInput), cache: cache)
+            eval(vh, vl)
+
+            // --- ACCEPT (greedy): draft[i] correct iff == argmax(verify logits at position i) ---
+            var accepted = 0
+            for i in 0..<drafts.count {
+                let corr = Self.argmax(vl[0, i, 0...])   // trunk's verdict for token after position i
+                if corr == drafts[i] { accepted += 1 } else { break }
+            }
+
+            if accepted == drafts.count {
+                // All accepted: emit drafts, advance live state to the post-verify end.
+                var stop = false
+                for d in drafts { if !emit(d) { stop = true; break } }
+                if stop { break }
+                lastHidden = vh[0..., (vh.dim(1) - 1)..., 0...]
+                nextLogits = vl[0..., (vl.dim(1) - 1)..., 0...]
+                eval(lastHidden, nextLogits)
+                // (bonus token = next primary, taken at the top of the next cycle)
+            } else {
+                // Partial: emit accepted prefix, then roll back + re-forward committed prefix
+                // ([primary] + accepted drafts) so the cache + live state land exactly there.
+                var stop = false
+                for j in 0..<accepted { if !emit(drafts[j]) { stop = true; break } }
+                if stop { break }
+                MTPCacheSnapshot.restore(snap, into: cache)
+                let committed = [primary] + Array(drafts[0..<accepted])
+                let (rh, rl) = model.forwardHidden(toks(committed), cache: cache)
+                lastHidden = rh[0..., (rh.dim(1) - 1)..., 0...]
+                nextLogits = rl[0..., (rl.dim(1) - 1)..., 0...]
+                eval(lastHidden, nextLogits)
+            }
+        }
+        return out
+    }
+}
+
 // MARK: - Inner Model
 
 private class Qwen3_5VLTextModelInner: Module {
@@ -1138,6 +1393,49 @@ private class Qwen3_5VLTextModel: Module, KVCacheDimensionProvider {
 
         return LMOutput(logits: output)
     }
+
+    // MARK: MTP support hooks (text-only fast paths for self-speculative decoding)
+
+    /// Project a hidden state to vocab logits using the trunk LM head (reused by the MTP head).
+    func projectLMHead(_ hidden: MLXArray) -> MLXArray {
+        if let lmHead { return lmHead(hidden) }
+        return model.embedTokens.asLinear(hidden)
+    }
+
+    /// Embed token ids with the trunk embedding (the MTP head's seed input).
+    func embed(_ ids: MLXArray) -> MLXArray { model.embedTokens(ids) }
+
+    /// Text-only forward over `inputIds` returning BOTH the pre-LM-head hidden states and the
+    /// vocab logits. Used for MTP verify (need hidden for the head + logits for acceptance).
+    func forwardHidden(_ inputIds: MLXArray, cache: [any KVCache]?) -> (hidden: MLXArray, logits: MLXArray) {
+        let faIdx = args.fullAttentionInterval - 1
+        let cacheOffset: Int = {
+            guard let cache, faIdx < cache.count else { return 0 }
+            return cache[faIdx].offset
+        }()
+        var positionIds: MLXArray? = nil
+        if cacheOffset == 0 || ropeDeltas == nil {
+            let (computed, deltas) = Qwen3VLLanguage.getRopeIndex(
+                inputIds: inputIds, imageGridTHW: nil, videoGridTHW: nil,
+                spatialMergeSize: config.visionConfig.spatialMergeSize,
+                imageTokenId: config.imageTokenIndex, videoTokenId: config.videoTokenIndex,
+                visionStartTokenId: config.visionStartTokenId, attentionMask: nil)
+            positionIds = computed
+            ropeDeltas = deltas
+        } else if let ropeDeltas {
+            let seqLength = inputIds.dim(1)
+            let delta = MLXArray(cacheOffset).asType(.int32) + ropeDeltas.asType(.int32)
+            var base = MLXArray(0 ..< seqLength).asType(.int32)[.newAxis, 0...]
+            base = broadcast(base, to: [inputIds.dim(0), seqLength]) + delta
+            positionIds = broadcast(base[.newAxis, 0..., 0...], to: [3, inputIds.dim(0), seqLength])
+        }
+        let faCache: [KVCache]? = cache != nil && faIdx < cache!.count ? [cache![faIdx]] : nil
+        let attentionMask: MLXArray? = createAttentionMask(h: inputIds, cache: faCache)
+        let hidden = model(
+            inputIds, cache: cache, inputEmbeddings: nil, mask: attentionMask,
+            positionIds: positionIds, visualMask: nil, deepstackEmbeds: nil)
+        return (hidden, projectLMHead(hidden))
+    }
 }
 
 // MARK: - Top-Level VLM
@@ -1340,6 +1638,25 @@ public final class Qwen3_5MoEVL: Module, VLMModel, KVCacheDimensionProvider {
             videoGridTHW: nil
         ).logits
         return result
+    }
+
+    // MARK: MTP public hooks
+
+    /// Text-only trunk forward returning (hidden, logits) — for MTP verify.
+    public func forwardHidden(_ inputIds: MLXArray, cache: [any KVCache]?)
+        -> (hidden: MLXArray, logits: MLXArray) {
+        languageModel.forwardHidden(inputIds, cache: cache)
+    }
+
+    /// Trunk token embedding (the MTP head's seed input).
+    public func embedTokens(_ ids: MLXArray) -> MLXArray { languageModel.embed(ids) }
+
+    /// Project a hidden state through the trunk LM head (MTP head's final projection).
+    public func projectLMHead(_ hidden: MLXArray) -> MLXArray { languageModel.projectLMHead(hidden) }
+
+    /// Build an MTP head matching this model's config from a `mtp.safetensors` sidecar.
+    public func loadMTPHead(sidecarPath: String) throws -> Qwen3_5MTPHead {
+        try Qwen3_5MTPHead.load(sidecarPath: sidecarPath, config: config.textConfig)
     }
 
     public func sanitize(weights: [String: MLXArray]) -> [String: MLXArray] {

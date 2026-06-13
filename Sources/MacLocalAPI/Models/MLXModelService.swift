@@ -14,6 +14,38 @@ import Tokenizers
 import Hub
 import HuggingFace
 
+/// Process-global holder for the active MTP self-speculative generator.
+///
+/// The MTP head + generator are tied to the loaded model and accessed only inside
+/// `ModelContainer.perform` (serialized), so a single-slot holder is sufficient and avoids
+/// threading the generator through every generation signature. Cleared on model unload.
+final class MTPRuntime: @unchecked Sendable {
+    static let shared = MTPRuntime()
+    private var generator: Qwen3_5MoEMTPGenerator?
+    private let lock = NSLock()
+
+    func install(model: Qwen3_5MoEModel, head: Qwen3_5MoEMTPHead, depth: Int) {
+        lock.withLock { generator = Qwen3_5MoEMTPGenerator(model: model, head: head, depth: depth) }
+    }
+    func clear() { lock.withLock { generator = nil } }
+    var active: Qwen3_5MoEMTPGenerator? { lock.withLock { generator } }
+}
+
+/// Process-global holder for the active EAGLE3 speculative drafter (Gemma4 dense verifier).
+///
+/// Holds the loaded drafter (immutable weights); a fresh `Gemma4Eagle3Generator` is created per
+/// request (its KV cache + seed state are per-sequence). Accessed only inside
+/// `ModelContainer.perform` (serialized). Cleared on model unload.
+final class Eagle3Runtime: @unchecked Sendable {
+    static let shared = Eagle3Runtime()
+    private var drafter: Gemma4Eagle3Drafter?
+    private let lock = NSLock()
+
+    func install(drafter: Gemma4Eagle3Drafter) { lock.withLock { self.drafter = drafter } }
+    func clear() { lock.withLock { drafter = nil } }
+    var active: Gemma4Eagle3Drafter? { lock.withLock { drafter } }
+}
+
 /// Resolved log probability entry with token strings (ready for API response).
 struct ResolvedLogprob: Sendable {
     let token: String
@@ -175,6 +207,13 @@ final class MLXModelService: @unchecked Sendable {
     var kvBits: Int?
     var kvEvictionPolicy: String = "none"  // "none" or "streaming"
     var enablePrefixCaching: Bool = false
+    /// MTP self-speculative decoding (--mtp). Activates only when the loaded model has an
+    /// mtp.safetensors sidecar (a Qwen3.6 MTP head); otherwise silently falls back to AR.
+    var mtpEnabled: Bool = false
+    var mtpDepth: Int = 3
+    /// EAGLE3 speculative decoding (--eagle3 <drafter-path>). Activates only when the loaded model
+    /// is a dense Gemma4 verifier and a drafter loads from the given path; otherwise falls back to AR.
+    var eagle3DrafterPath: String?
     /// Server-level default JSON schema from `--guided-json` CLI flag.
     /// Applied to requests that don't specify their own response_format. (#97)
     var defaultGuidedJsonSchema: ResponseFormat?
@@ -1201,6 +1240,50 @@ final class MLXModelService: @unchecked Sendable {
                 currentModelID = modelID
                 currentToolCallFormat = detectedFormat
             }
+            // MTP: if requested and the model ships an mtp.safetensors sidecar, load the head
+            // into the container's model. Silently no-op otherwise (falls back to AR).
+            if mtpEnabled {
+                let sidecar = directory.appendingPathComponent("mtp.safetensors").path
+                if FileManager.default.fileExists(atPath: sidecar) {
+                    do {
+                        try await loaded.perform { context in
+                            if let qwen = context.model as? Qwen3_5MoEModel {
+                                let head = try qwen.loadMTPHead(sidecarPath: sidecar)
+                                MTPRuntime.shared.install(model: qwen, head: head, depth: mtpDepth)
+                                print("[\(ts())] [MTP] head loaded — self-speculative decoding enabled (depth \(mtpDepth))")
+                            } else {
+                                print("[\(ts())] [MTP] model is not Qwen3.6 text LLM (\(type(of: context.model))) — MTP disabled")
+                            }
+                        }
+                    } catch {
+                        print("[\(ts())] [MTP] head load failed (\(error)) — falling back to AR")
+                    }
+                } else {
+                    print("[\(ts())] [MTP] no mtp.safetensors at \(modelID) — MTP disabled (AR decode)")
+                }
+            }
+            // EAGLE3: if a drafter path was given and the verifier is a dense Gemma4 text model,
+            // load the drafter. Silently no-op otherwise (falls back to AR).
+            if let drafterPath = eagle3DrafterPath {
+                if FileManager.default.fileExists(atPath: drafterPath + "/config.json") {
+                    do {
+                        let drafter = try Gemma4Eagle3Drafter.load(directory: drafterPath)
+                        let isGemma4 = try await loaded.perform { context in
+                            context.model is Gemma4Model
+                        }
+                        if isGemma4 {
+                            Eagle3Runtime.shared.install(drafter: drafter)
+                            print("[\(ts())] [EAGLE3] drafter loaded from \(drafterPath) — speculative decoding enabled")
+                        } else {
+                            print("[\(ts())] [EAGLE3] verifier is not a dense Gemma4 text model — EAGLE3 disabled")
+                        }
+                    } catch {
+                        print("[\(ts())] [EAGLE3] drafter load failed (\(error)) — falling back to AR")
+                    }
+                } else {
+                    print("[\(ts())] [EAGLE3] no config.json at \(drafterPath) — EAGLE3 disabled (AR decode)")
+                }
+            }
             // Detect think start/end tags from tokenizer vocabulary
             // Run the tokenizer-vocabulary inspection inside `perform` so the
             // non-Sendable ModelContext never crosses the isolation boundary.
@@ -1513,6 +1596,83 @@ final class MLXModelService: @unchecked Sendable {
         let capturing = beginGPUCaptureIfNeeded()
         let tracing = beginGPUTraceIfNeeded()
         if gpuProfile { printGPUProfileHeader() }
+        // ---- MTP self-speculative fast path (greedy, text-only, no tools/grammar/logprobs) ----
+        // Eligible when an MTP head is installed and the request is plain greedy generation.
+        // Produces output identical to greedy AR (validated P2) but with fewer trunk forwards.
+        let mtpEligible = MTPRuntime.shared.active != nil
+            && (temperature ?? 0) <= 0.0
+            && (tools?.isEmpty ?? true)
+            && responseFormat == nil
+            && !wantLogprobs
+        if mtpEligible {
+            if let mtpResult = try await container.perform({ context -> (String, Int, Int)? in
+                guard let gen = MTPRuntime.shared.active else { return nil }
+                let lmInput = try await context.processor.prepare(input: scratch.userInput)
+                if self.isMultimodalInput(lmInput) { return nil }   // MTP is text-only
+                let promptIds = self.extractTokenArray(lmInput)
+                guard !promptIds.isEmpty else { return nil }
+                let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+                let t0 = Date.timeIntervalSinceReferenceDate
+                let outIds = gen.generate(promptIds: promptIds, maxTokens: effectiveMaxTokens, eosIds: eos)
+                let gt = Date.timeIntervalSinceReferenceDate - t0
+                // strip a trailing EOS for the returned text
+                let textIds = (outIds.last.map { eos.contains($0) } ?? false) ? Array(outIds.dropLast()) : outIds
+                let text = context.tokenizer.decode(tokens: textIds)
+                if debugLogging {
+                    let tps = gt > 0 ? Double(outIds.count) / gt : 0
+                    print("[\(ts())] [MTP] generated \(outIds.count) tok in \(String(format: "%.2f", gt))s (\(String(format: "%.1f", tps)) tok/s)")
+                }
+                return (text, promptIds.count, outIds.count)
+            }) {
+                serialRequestRecorded = true
+                StatsAggregator.shared.requestSucceeded(reason: "stop")
+                StatsAggregator.shared.requestCompleted()
+                return (modelID, mtpResult.0, mtpResult.1, mtpResult.2, nil, nil, 0, 0, 0, false)
+            }
+        }
+
+        // ---- EAGLE3 speculative fast path (greedy, text-only, no tools/grammar/logprobs) ----
+        // Eligible when a drafter is installed and the request is plain greedy generation.
+        // Produces output identical to greedy AR (validated P1) with fewer verifier trunk forwards.
+        let eagle3Eligible = Eagle3Runtime.shared.active != nil
+            && (temperature ?? 0) <= 0.0
+            && (tools?.isEmpty ?? true)
+            && responseFormat == nil
+            && !wantLogprobs
+        if eagle3Eligible {
+            if let e3Result = try await container.perform({ context -> (String, Int, Int)? in
+                guard let drafter = Eagle3Runtime.shared.active,
+                      let model = context.model as? Gemma4Model else { return nil }
+                let lmInput = try await context.processor.prepare(input: scratch.userInput)
+                if self.isMultimodalInput(lmInput) { return nil }   // EAGLE3 is text-only
+                let promptIds = self.extractTokenArray(lmInput)
+                guard !promptIds.isEmpty else { return nil }
+                let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+                let t0 = Date.timeIntervalSinceReferenceDate
+                let gen = Gemma4Eagle3Generator(drafter: drafter)
+                // blockSize 2 is the sweet spot on the dense 31B (each round drafts only the carried
+                // seed — zero in-block drafter forwards — so the 2-wide verify amortizes best;
+                // larger blocks add sequential drafter forwards that erase the savings). Overridable.
+                let block = ProcessInfo.processInfo.environment["AFM_EAGLE3_BLOCK"].flatMap { Int($0) } ?? 2
+                let outIds = gen.generateSpeculative(
+                    model: model, promptIds: promptIds, maxTokens: effectiveMaxTokens,
+                    eosIds: eos, blockSize: block)
+                let gt = Date.timeIntervalSinceReferenceDate - t0
+                let textIds = (outIds.last.map { eos.contains($0) } ?? false) ? Array(outIds.dropLast()) : outIds
+                let text = context.tokenizer.decode(tokens: textIds)
+                if debugLogging {
+                    let tps = gt > 0 ? Double(outIds.count) / gt : 0
+                    print("[\(ts())] [EAGLE3] generated \(outIds.count) tok in \(String(format: "%.2f", gt))s (\(String(format: "%.1f", tps)) tok/s)")
+                }
+                return (text, promptIds.count, outIds.count)
+            }) {
+                serialRequestRecorded = true
+                StatsAggregator.shared.requestSucceeded(reason: "stop")
+                StatsAggregator.shared.requestCompleted()
+                return (modelID, e3Result.0, e3Result.1, e3Result.2, nil, nil, 0, 0, 0, false)
+            }
+        }
+
         let generated: String = try await container.perform { context in
             var params = GenerateParameters(
                 maxTokens: effectiveMaxTokens,
@@ -2250,6 +2410,104 @@ final class MLXModelService: @unchecked Sendable {
 
             endOperationOnExit = false
             return (modelID, effectiveStream, preparedPromptTokens, toolTags?.0, toolTags?.1, self.thinkStartTag, self.thinkEndTag)
+        }
+
+        // --- MTP / EAGLE3 speculative streaming fast path (serial, greedy, text-only) ---
+        // Same eligibility as the non-streaming fast paths, plus: no stop sequences (the
+        // speculative generators don't implement stop — fall back to AR when stop is requested).
+        // The generator's per-token `onToken` callback drives incremental detokenization, yielding
+        // an SSE text delta per emitted token; think-tag extraction is done by the controller from
+        // those deltas (we return the think tags). Output matches the non-streaming fast path.
+        let specGreedyStream = (temperature ?? 0) <= 0.0 && (tools?.isEmpty ?? true)
+            && responseFormat == nil && !wantLogprobs && (stop?.isEmpty ?? true)
+        let eagle3StreamEligible = specGreedyStream && Eagle3Runtime.shared.active != nil
+        let mtpStreamEligible = specGreedyStream && MTPRuntime.shared.active != nil
+        if eagle3StreamEligible || mtpStreamEligible {
+            // Prep prompt ids under the lock; nil => multimodal/empty/wrong-model => fall back to AR.
+            // Also detect a template-opened think block (last prompt tokens contain thinkStart): for
+            // thinking models whose chat template begins reasoning in the prompt, the generated
+            // stream never contains the opening tag, so we must synthesize a leading thinkStart chunk
+            // (mirrors the scheduler/serial paths) or the controller classifies reasoning as content.
+            let prep: (ids: [Int], openedThink: Bool)? = try await container.perform { context -> (ids: [Int], openedThink: Bool)? in
+                let lmInput = try await context.processor.prepare(input: userInput)
+                if self.isMultimodalInput(lmInput) { return nil }
+                if eagle3StreamEligible && !(context.model is Gemma4Model) { return nil }
+                let ids = self.extractTokenArray(lmInput)
+                if ids.isEmpty { return nil }
+                var opened = false
+                if let ts = self.thinkStartTag, ids.count >= 2 {
+                    opened = context.tokenizer.decode(tokens: Array(ids.suffix(2))).contains(ts)
+                }
+                return (ids, opened)
+            }
+            if let prep {
+                let promptIds = prep.ids
+                let openedThink = prep.openedThink
+                let useEagle3 = eagle3StreamEligible
+                let maxTok = effectiveMaxTokens
+                let dbg = debugLogging
+                let thinkStartTag = self.thinkStartTag
+                let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
+                    let task = Task {
+                        StatsAggregator.shared.requestStarted()
+                        if openedThink, let thinkStartTag {
+                            continuation.yield(StreamChunk(text: thinkStartTag))
+                        }
+                        let t0 = Date.timeIntervalSinceReferenceDate
+                        do {
+                            let outCount = try await container.perform { context -> Int in
+                                let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+                                var allTokens: [Int] = []
+                                var prevText = ""
+                                let emit: (Int) -> Bool = { tok in
+                                    if Task.isCancelled { return false }    // client disconnected
+                                    if eos.contains(tok) { return false }   // stop; never stream EOS
+                                    allTokens.append(tok)
+                                    let full = context.tokenizer.decode(tokens: allTokens)
+                                    if full.count > prevText.count {
+                                        continuation.yield(StreamChunk(text: String(full.dropFirst(prevText.count))))
+                                        prevText = full
+                                    }
+                                    return true
+                                }
+                                if useEagle3, let drafter = Eagle3Runtime.shared.active,
+                                   let model = context.model as? Gemma4Model {
+                                    let block = ProcessInfo.processInfo.environment["AFM_EAGLE3_BLOCK"].flatMap { Int($0) } ?? 2
+                                    let g = Gemma4Eagle3Generator(drafter: drafter)
+                                    _ = g.generateSpeculative(model: model, promptIds: promptIds,
+                                                              maxTokens: maxTok, eosIds: eos,
+                                                              blockSize: block, onToken: emit)
+                                } else if let gen = MTPRuntime.shared.active {
+                                    _ = gen.generate(promptIds: promptIds, maxTokens: maxTok,
+                                                     eosIds: eos, onToken: emit)
+                                }
+                                return allTokens.count
+                            }
+                            let gt = Date.timeIntervalSinceReferenceDate - t0
+                            if dbg {
+                                let tps = gt > 0 ? Double(outCount) / gt : 0
+                                print("[\(ts())] [\(useEagle3 ? "EAGLE3" : "MTP")] streamed \(outCount) tok in \(String(format: "%.2f", gt))s (\(String(format: "%.1f", tps)) tok/s)")
+                            }
+                            continuation.yield(StreamChunk(text: "", promptTokens: promptIds.count,
+                                                           completionTokens: outCount, promptTime: 0, generateTime: gt))
+                            StatsAggregator.shared.requestSucceeded(reason: "stop")
+                            StatsAggregator.shared.requestCompleted()
+                            continuation.finish()
+                        } catch {
+                            // Surface model/tokenizer/generator failures instead of masking them as
+                            // an empty success (don't emit a final usage chunk; fail the stream).
+                            StatsAggregator.shared.requestSucceeded(reason: "error")
+                            StatsAggregator.shared.requestCompleted()
+                            continuation.finish(throwing: error)
+                        }
+                        self.endOperation()
+                    }
+                    // Cancel the decode if the SSE client disconnects (frees the serial lock + GPU).
+                    continuation.onTermination = { _ in task.cancel() }
+                }
+                endOperationOnExit = false
+                return (modelID, stream, promptTokens, nil, nil, self.thinkStartTag, self.thinkEndTag)
+            }
         }
 
         // --- Serial path: full-featured generation via container.perform lock ---

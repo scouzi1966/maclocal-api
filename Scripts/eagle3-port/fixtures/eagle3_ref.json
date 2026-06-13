@@ -1,0 +1,46 @@
+{
+  "verifier": "/Volumes/Crucial4TB/models/vesta-test-cache/mlx-community/gemma-4-31b-it-4bit",
+  "drafter": "RedHatAI/gemma-4-31B-it-speculator.eagle3",
+  "prompt": "The capital of France is",
+  "prompt_ids": [
+    818,
+    5279,
+    529,
+    7001,
+    563
+  ],
+  "capture_layer_ids": [
+    2,
+    30,
+    57
+  ],
+  "primary": 7001,
+  "primary_text": " France",
+  "draft_hot": 15298,
+  "draft_full": 32649,
+  "draft_text": " Norway",
+  "hidden_size": 5376,
+  "draft_vocab": 32000,
+  "draft_logits_top5": [
+    [
+      15298,
+      12.375
+    ],
+    [
+      10106,
+      12.3125
+    ],
+    [
+      186,
+      12.0
+    ],
+    [
+      40,
+      11.5
+    ],
+    [
+      4359,
+      11.4375
+    ]
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "label": "afm-mlx-4bit",
+  "decode_tps_streamed": 15.6,
+  "decode_deltas": 200,
+  "server_completion_tokens": 200,
+  "decode_ttft_s": 0.599,
+  "prefill_ttft_s": 15.011,
+  "prefill_prompt_tokens": 1797,
+  "prefill_tps": 119.7
+}

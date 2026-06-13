@@ -1,0 +1,10 @@
+{
+  "label": "afm",
+  "ctx_tokens_req": 4000,
+  "prompt_tokens": 3996,
+  "cold_ttft_s": 35.845,
+  "prime_ttft_s": 36.032,
+  "hit_ttft_s": 0.599,
+  "speedup_cold_over_hit": 59.8,
+  "server_cached_tokens_on_hit": 3978
+}

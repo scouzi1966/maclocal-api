@@ -1,0 +1,2 @@
+Prompt: 44 tokens, 43.112 tokens-per-sec
+Generation: 200 tokens, 13.179 tokens-per-sec

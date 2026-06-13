@@ -1,0 +1,6 @@
+{
+  "label": "afm-B",
+  "prefill_8k_tps": 116.7,
+  "prefill_prompt_tokens": 16240,
+  "decode_16k_tps": 12.76
+}

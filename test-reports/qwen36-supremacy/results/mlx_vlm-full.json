@@ -1,0 +1,86 @@
+{
+  "label": "mlx_vlm",
+  "base": "http://127.0.0.1:9999/v1",
+  "model": "/Volumes/Crucial4TB/models/vesta-test-cache/mlx-community/Qwen3.6-27B-4bit",
+  "latency": {
+    "ttft_ms": {
+      "mean": 480.3,
+      "p50": 446.686,
+      "p95": 577.505,
+      "n": 5
+    },
+    "decode_tps": 14.09,
+    "decode_tokens": 218,
+    "tpot_ms": 90.47,
+    "itl_ms": {
+      "p50": 71.4,
+      "p95": 146.354,
+      "p99": 246.629,
+      "mean": 90.47
+    },
+    "e2e_s": 16.18
+  },
+  "prefill_scaling": [
+    {
+      "target": 512,
+      "prompt_tokens": 537,
+      "ttft_s": 4.632,
+      "prefill_tps": 115.9
+    },
+    {
+      "target": 2048,
+      "prompt_tokens": 2056,
+      "ttft_s": 16.929,
+      "prefill_tps": 121.5
+    },
+    {
+      "target": 8192,
+      "prompt_tokens": 8137,
+      "ttft_s": 70.59,
+      "prefill_tps": 115.3
+    }
+  ],
+  "cache": {
+    "prompt_tokens": 2057,
+    "cold_ttft_s": 17.437,
+    "warm_ttft_s": 17.288,
+    "cold_prefill_tps": 118.0,
+    "warm_prefill_tps": 119.0,
+    "speedup": 1.0
+  },
+  "depth_sweep": [
+    {
+      "depth": 0,
+      "prompt_tokens": 37,
+      "ttft_s": 0.711,
+      "decode_tps": 14.36,
+      "decode_tokens": 64
+    },
+    {
+      "depth": 4096,
+      "prompt_tokens": 4087,
+      "ttft_s": 35.371,
+      "decode_tps": 14.94,
+      "decode_tokens": 22
+    },
+    {
+      "depth": 8192,
+      "prompt_tokens": 8137,
+      "ttft_s": 70.383,
+      "decode_tps": 14.13,
+      "decode_tokens": 22
+    },
+    {
+      "depth": 16384,
+      "prompt_tokens": 16237,
+      "ttft_s": 143.749,
+      "decode_tps": 13.91,
+      "decode_tokens": 22
+    }
+  ],
+  "decode_tps_streamed": 14.09,
+  "decode_deltas": 172,
+  "server_completion_tokens": 218,
+  "prefill_tps": 115.9,
+  "prefill_prompt_tokens": 537
+}

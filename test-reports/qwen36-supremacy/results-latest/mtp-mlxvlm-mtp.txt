@@ -1,0 +1,4 @@
+Prompt: <|im_start|>user
+Prompt: 36 tokens, 65.067 tokens-per-sec
+Generation: 200 tokens, 23.036 tokens-per-sec
+Speculative decoding: 2.44 accepted tokens/round (1.44 accepted drafts/round, 72.4% of drafted, avg draft 1.99) over 82 rounds

@@ -1,0 +1,45 @@
+{
+  "model": "/Volumes/Crucial4TB/models/mtplx/Youssofal--Qwen3.6-27B-MTPLX-Optimized-Speed",
+  "prompt": "The capital of France is",
+  "prompt_ids": [
+    760,
+    6511,
+    314,
+    9338,
+    369
+  ],
+  "primary_token": 11751,
+  "primary_text": " Paris",
+  "drafted_token": 13,
+  "drafted_text": ".",
+  "hidden_size": 5120,
+  "vocab_size": 248320,
+  "last_hidden_stats": {
+    "mean": -0.030709123238921165,
+    "std": 1.9863592386245728,
+    "min": -34.75,
+    "max": 31.375
+  },
+  "draft_logits_top5": [
+    [
+      13,
+      16.125
+    ],
+    [
+      11,
+      16.0
+    ],
+    [
+      321,
+      14.0625
+    ],
+    [
+      271,
+      13.8125
+    ],
+    [
+      30,
+      13.625
+    ]
+  ]
+}

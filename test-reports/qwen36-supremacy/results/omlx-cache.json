@@ -1,0 +1,10 @@
+{
+  "label": "omlx",
+  "ctx_tokens_req": 4000,
+  "prompt_tokens": 3985,
+  "cold_ttft_s": 32.372,
+  "prime_ttft_s": 33.051,
+  "hit_ttft_s": 16.494,
+  "speedup_cold_over_hit": 2.0,
+  "server_cached_tokens_on_hit": 2048
+}

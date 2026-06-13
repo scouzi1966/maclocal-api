@@ -1,0 +1,10 @@
+{
+  "label": "mlx_vlm",
+  "ctx_tokens_req": 4000,
+  "prompt_tokens": 3987,
+  "cold_ttft_s": 34.866,
+  "prime_ttft_s": 33.807,
+  "hit_ttft_s": 33.936,
+  "speedup_cold_over_hit": 1.0,
+  "server_cached_tokens_on_hit": 0
+}
