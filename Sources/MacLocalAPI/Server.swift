@@ -295,6 +295,17 @@ class Server: @unchecked Sendable {
         }
 
         app.get("v1", "models") { req async -> ModelsResponse in
+            // Apple NL embedding models are served on the unified endpoint (lazily
+            // loaded on first /v1/embeddings). Advertise them so clients discover
+            // embedding capability on the main server, not just on `afm embed`. (#132/#133)
+            let embeddingCatalog = EmbeddingModelRegistry().shippedModels()
+            let embeddingModelInfos = embeddingCatalog.map { m in
+                ModelInfo(id: m.id, object: "model", created: m.createdEpoch, owned_by: "apple", loaded: false)
+            }
+            let embeddingDetails = embeddingCatalog.map { m in
+                ModelDetails(name: "\(m.id) (Apple NL)", model: m.id, capabilities: ["embeddings"])
+            }
+
             if let mlxModelID = self.mlxModelID {
                 return ModelsResponse(
                     object: "list",
@@ -307,14 +318,14 @@ class Server: @unchecked Sendable {
                             loaded: true,
                             max_context_length: self.contextWindow
                         )
-                    ],
+                    ] + embeddingModelInfos,
                     models: [
                         ModelDetails(
                             name: mlxModelID,
                             model: mlxModelID,
                             capabilities: ["chat", "completion", "vision"]
                         )
-                    ]
+                    ] + embeddingDetails
                 )
             }
 
@@ -353,6 +364,8 @@ class Server: @unchecked Sendable {
                 }
             }
 
+            models += embeddingModelInfos
+            details += embeddingDetails
             return ModelsResponse(object: "list", data: models, models: details)
         }
 
@@ -394,6 +407,15 @@ class Server: @unchecked Sendable {
 
         try app.register(collection: VisionAPIController())
         try app.register(collection: SpeechAPIController())
+        // POST /v1/embeddings on the main server (#132). The Apple NL embedding
+        // model is loaded lazily on first request (a chat-only server pays
+        // nothing until used) and this path never triggers MLX init. It does NOT
+        // register /v1/models — the main server owns that route. `afm embed`
+        // remains a standalone option.
+        try app.register(collection: EmbeddingsController(
+            resolver: LazyAppleEmbeddingResolver(),
+            registersModelsRoute: false
+        ))
         // POST /v1/chat/completions/{id}/cancel — agent cancel endpoint (T1.5).
         try app.register(collection: CancelController())
         // POST /v1/tokenize, /v1/count_tokens — agent token-budgeting endpoints (T1.6).

@@ -4,20 +4,25 @@ import Foundation
 struct EmbeddingsController: RouteCollection {
     private static let maxRequestBodySize: ByteCount = "1mb"
 
-    private let modelEntry: EmbeddingModelEntry
-    private let backend: any EmbeddingBackend
+    private let resolver: any EmbeddingBackendResolver
+    /// The unified main server (#132) owns `/v1/models`, so the embeddings
+    /// controller must not register it there (it would collide). The standalone
+    /// `afm embed` server has no other `/v1/models`, so it does register it.
+    private let registersModelsRoute: Bool
 
-    init(modelEntry: EmbeddingModelEntry, backend: any EmbeddingBackend) {
-        self.modelEntry = modelEntry
-        self.backend = backend
+    init(resolver: any EmbeddingBackendResolver, registersModelsRoute: Bool = true) {
+        self.resolver = resolver
+        self.registersModelsRoute = registersModelsRoute
     }
 
     func boot(routes: RoutesBuilder) throws {
         let v1 = routes.grouped("v1")
         v1.on(.POST, "embeddings", body: .collect(maxSize: Self.maxRequestBodySize), use: createEmbeddings)
         v1.on(.OPTIONS, "embeddings", use: handleOptions)
-        v1.get("models", use: listModels)
-        v1.on(.OPTIONS, "models", use: handleOptions)
+        if registersModelsRoute {
+            v1.get("models", use: listModels)
+            v1.on(.OPTIONS, "models", use: handleOptions)
+        }
     }
 
     private func handleOptions(req: Request) async throws -> Response {
@@ -27,26 +32,19 @@ struct EmbeddingsController: RouteCollection {
     }
 
     private func listModels(req: Request) async throws -> Response {
-        // Advertise only the model this server actually loaded. Advertising the
-        // full shipped-model list would cause 404s when clients discovered and
-        // then requested an ID the running backend can't serve.
-        let model = EmbeddingModelInfo(
-            id: modelEntry.id,
-            created: modelEntry.createdEpoch,
-            ownedBy: "apple"
-        )
-        let response = EmbeddingModelsResponse(data: [model])
+        let models = await resolver.advertisedModels().map {
+            EmbeddingModelInfo(id: $0.id, created: $0.createdEpoch, ownedBy: "apple")
+        }
+        let response = EmbeddingModelsResponse(data: models)
         return try jsonResponse(for: response, request: req)
     }
 
     private func createEmbeddings(req: Request) async throws -> Response {
         do {
             let request = try req.content.decode(EmbeddingsRequest.self)
-            let requestedModelID = (request.model ?? modelEntry.id)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard requestedModelID == modelEntry.id else {
-                throw EmbeddingError.modelNotFound(requestedModelID)
-            }
+            // Resolve (and, on the unified server, lazily load) the backend for the
+            // requested model. Unknown ids throw EmbeddingError.modelNotFound.
+            let (modelEntry, backend) = try await resolver.resolve(requestedModelID: request.model)
 
             if request.input.isEmpty {
                 throw EmbeddingError.invalidInput("Input must not be empty")

@@ -230,6 +230,9 @@ final class EmbeddingHTTPServer: @unchecked Sendable {
             )
         }
 
-        try app.register(collection: EmbeddingsController(modelEntry: modelEntry, backend: backend))
+        try app.register(collection: EmbeddingsController(
+            resolver: PreloadedEmbeddingResolver(entry: modelEntry, backend: backend),
+            registersModelsRoute: true
+        ))
     }
 }
