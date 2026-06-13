@@ -5,7 +5,7 @@ import VaporTesting
 import Foundation
 import Testing
 
-@testable import MacLocalAPI
+@testable import AFMKit
 
 // MARK: - Fake Service for Batch Tests
 

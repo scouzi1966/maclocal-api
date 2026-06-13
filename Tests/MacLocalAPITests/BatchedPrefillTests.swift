@@ -4,7 +4,7 @@ import MLXFast
 import MLXLMCommon
 import Testing
 
-@testable import MacLocalAPI
+@testable import AFMKit
 
 /// Unit tests for batched prefill infrastructure:
 /// - BatchKVCacheSimple mask creation with leftPadding

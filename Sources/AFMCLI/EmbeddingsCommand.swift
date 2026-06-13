@@ -4,24 +4,6 @@ import Foundation
 import Logging
 import Vapor
 
-struct EmbeddingsPayloadTooLargeMiddleware: AsyncMiddleware {
-    func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
-        do {
-            return try await next.respond(to: request)
-        } catch let abort as Abort where abort.status == .payloadTooLarge {
-            let errorResponse = OpenAIError(
-                message: "Embeddings request body exceeds the configured size limit.",
-                type: "payload_too_large"
-            )
-            let response = Response(status: .payloadTooLarge)
-            response.headers.add(name: .contentType, value: "application/json")
-            response.headers.add(name: .accessControlAllowOrigin, value: "*")
-            try response.content.encode(errorResponse)
-            return response
-        }
-    }
-}
-
 private struct EmbeddingShutdownRequestedKey: StorageKey {
     typealias Value = Bool
 }

@@ -5,7 +5,7 @@ import MLXNN
 import Testing
 @testable import MLXVLM
 
-@testable import MacLocalAPI
+@testable import AFMKit
 
 /// P2 gate: the MTP self-speculative generator must produce output IDENTICAL to greedy
 /// autoregressive decoding (every emitted token is one the trunk would have produced), while

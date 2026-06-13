@@ -48,8 +48,8 @@ If the version shows only a base version without a SHA suffix (e.g., `v0.9.8` in
 BIN_DIR="$(dirname "$BIN_ABS")"
 
 # Check for metallib in either location (SPM bundle or loose file)
-if [ -f "$BIN_DIR/MacLocalAPI_MacLocalAPI.bundle/default.metallib" ]; then
-  echo "PASS: Metallib in SPM bundle ($(du -h "$BIN_DIR/MacLocalAPI_MacLocalAPI.bundle/default.metallib" | cut -f1))"
+if [ -f "$BIN_DIR/MacLocalAPI_AFMKit.bundle/default.metallib" ]; then
+  echo "PASS: Metallib in SPM bundle ($(du -h "$BIN_DIR/MacLocalAPI_AFMKit.bundle/default.metallib" | cut -f1))"
 elif [ -f "$BIN_DIR/default.metallib" ]; then
   echo "PASS: Loose metallib ($(du -h "$BIN_DIR/default.metallib" | cut -f1))"
 else
@@ -65,8 +65,8 @@ TMPDIR=$(mktemp -d)
 cp "$BIN_ABS" "$TMPDIR/"
 
 # Copy metallib as loose file (pip wheel layout)
-if [ -f "$BIN_DIR/MacLocalAPI_MacLocalAPI.bundle/default.metallib" ]; then
-  cp "$BIN_DIR/MacLocalAPI_MacLocalAPI.bundle/default.metallib" "$TMPDIR/"
+if [ -f "$BIN_DIR/MacLocalAPI_AFMKit.bundle/default.metallib" ]; then
+  cp "$BIN_DIR/MacLocalAPI_AFMKit.bundle/default.metallib" "$TMPDIR/"
 elif [ -f "$BIN_DIR/default.metallib" ]; then
   cp "$BIN_DIR/default.metallib" "$TMPDIR/"
 fi
@@ -110,7 +110,7 @@ if otool -l "$BIN_ABS" | grep -q '__info_plist'; then
   echo "PASS: __info_plist section present"
 else
   echo "FAIL: Missing __TEXT,__info_plist section"
-  echo "Check Package.swift linker flags and Sources/MacLocalAPI/Info.plist"
+  echo "Check Package.swift linker flags and Sources/AFMCLI/Info.plist"
 fi
 
 # Verify NSSpeechRecognitionUsageDescription key is in the embedded plist
