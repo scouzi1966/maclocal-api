@@ -52,20 +52,6 @@ extension AFMEngine: AFMLanguageModel {
     }
 
     public nonisolated func streamResponse(to messages: [Message], options: GenerationConfig) -> AsyncThrowingStream<String, Error> {
-        // `streamRespond` is non-mutating on the actor's stored state; the stream task
-        // re-enters the actor for the actual generation call.
-        AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    for try await delta in await self.streamRespond(to: messages, options) {
-                        continuation.yield(delta)
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
+        streamRespond(to: messages, options)
     }
 }

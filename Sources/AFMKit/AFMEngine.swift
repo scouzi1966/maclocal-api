@@ -217,16 +217,21 @@ public actor AFMEngine {
         }
     }
 
-    /// Stream a response token-by-token (text deltas).
-    public func streamRespond(to messages: [Message], _ config: GenerationConfig = GenerationConfig()) -> AsyncThrowingStream<String, Error> {
+    /// The canonical model id once loaded, else the requested id (actor-isolated read).
+    private func currentModelID(_ fallback: String) -> String { resolvedModelID ?? fallback }
+
+    /// Stream a response token-by-token (text deltas). `nonisolated` so external
+    /// callers can start a stream without `await`; the work re-enters the actor.
+    public nonisolated func streamRespond(to messages: [Message], _ config: GenerationConfig = GenerationConfig()) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     switch backend {
                     case .mlx(let modelID):
                         guard let mlx else { throw AFMEngineError.backendUnavailable }
+                        let resolved = await currentModelID(modelID)
                         let (_, stream, _, _, _, _, _) = try await mlx.generateStreaming(
-                            model: resolvedModelID ?? modelID,
+                            model: resolved,
                             messages: messages,
                             temperature: config.temperature,
                             maxTokens: config.maxTokens,

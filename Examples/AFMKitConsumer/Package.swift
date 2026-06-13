@@ -16,7 +16,7 @@ let package = Package(
         .executableTarget(
             name: "AFMKitConsumer",
             dependencies: [
-                .product(name: "AFMKit", package: "MacLocalAPI")
+                .product(name: "AFMKit", package: "maclocal-api")
             ]
         )
     ]
