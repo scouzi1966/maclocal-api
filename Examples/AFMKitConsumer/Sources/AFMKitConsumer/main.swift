@@ -16,7 +16,7 @@ struct AFMKitConsumer {
         do {
             // 1. Create an engine over the MLX backend with engine-level config.
             let engine = AFMEngine(
-                backend: .mlx(modelID: "mlx-community/Qwen3-4B-MLX-4bit"),
+                backend: .mlx(modelID: "mlx-community/Llama-3.2-3B-Instruct-4bit"),
                 config: EngineConfig(enablePrefixCaching: true)
             )
 

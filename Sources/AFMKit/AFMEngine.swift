@@ -170,6 +170,9 @@ public actor AFMEngine {
         switch backend {
         case .mlx(let modelID):
             guard let mlx else { throw AFMEngineError.backendUnavailable }
+            // Point MLX at the bundled default.metallib (the CLI does this at startup;
+            // library consumers must too, else MLX reports "Failed to load the default metallib").
+            try MLXMetalLibrary.ensureAvailable(verbose: false)
             let resolved = try await mlx.ensureLoaded(model: modelID, progress: { p in
                 progress?(p.fractionCompleted)
             })
