@@ -36,7 +36,7 @@ enum MLXMetalLibrary {
     /// Search order:
     /// 1. `MACAFM_MLX_METALLIB` env var — explicit override
     /// 2. `default.metallib` next to the executable (pip wheel layout: bin/default.metallib)
-    /// 3. `MacLocalAPI_MacLocalAPI.bundle/default.metallib` next to the executable (SPM build layout)
+    /// 3. `MacLocalAPI_AFMKit.bundle/default.metallib` next to the executable (SPM build layout)
     /// 4. SPM Bundle.module (only if the bundle actually exists — never fatalError)
     private static func resolveMetallib() -> URL? {
         let fileManager = FileManager.default
@@ -57,9 +57,9 @@ enum MLXMetalLibrary {
         let loose = executableDir.appendingPathComponent("default.metallib")
         if fileManager.fileExists(atPath: loose.path) { return loose }
 
-        // 3. SPM bundle next to the binary (direct build: .build/release/MacLocalAPI_MacLocalAPI.bundle/)
+        // 3. SPM bundle next to the binary (direct build: .build/release/MacLocalAPI_AFMKit.bundle/)
         let bundled = executableDir
-            .appendingPathComponent("MacLocalAPI_MacLocalAPI.bundle")
+            .appendingPathComponent("MacLocalAPI_AFMKit.bundle")
             .appendingPathComponent("default.metallib")
         if fileManager.fileExists(atPath: bundled.path) { return bundled }
 
@@ -68,7 +68,7 @@ enum MLXMetalLibrary {
         var searchDir = executableDir
         for _ in 0..<5 {
             let candidate = searchDir
-                .appendingPathComponent("MacLocalAPI_MacLocalAPI.bundle")
+                .appendingPathComponent("MacLocalAPI_AFMKit.bundle")
                 .appendingPathComponent("default.metallib")
             if fileManager.fileExists(atPath: candidate.path) { return candidate }
             searchDir.deleteLastPathComponent()
@@ -77,9 +77,9 @@ enum MLXMetalLibrary {
         // 3aa. Current working directory and common SwiftPM build layouts.
         let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let cwdCandidates = [
-            cwd.appendingPathComponent("MacLocalAPI_MacLocalAPI.bundle/default.metallib"),
-            cwd.appendingPathComponent(".build/debug/MacLocalAPI_MacLocalAPI.bundle/default.metallib"),
-            cwd.appendingPathComponent(".build/arm64-apple-macosx/debug/MacLocalAPI_MacLocalAPI.bundle/default.metallib"),
+            cwd.appendingPathComponent("MacLocalAPI_AFMKit.bundle/default.metallib"),
+            cwd.appendingPathComponent(".build/debug/MacLocalAPI_AFMKit.bundle/default.metallib"),
+            cwd.appendingPathComponent(".build/arm64-apple-macosx/debug/MacLocalAPI_AFMKit.bundle/default.metallib"),
         ]
         for candidate in cwdCandidates where fileManager.fileExists(atPath: candidate.path) {
             return candidate
@@ -89,7 +89,7 @@ enum MLXMetalLibrary {
         let homebrew = executableDir
             .deletingLastPathComponent()
             .appendingPathComponent("libexec")
-            .appendingPathComponent("MacLocalAPI_MacLocalAPI.bundle")
+            .appendingPathComponent("MacLocalAPI_AFMKit.bundle")
             .appendingPathComponent("default.metallib")
         if fileManager.fileExists(atPath: homebrew.path) { return homebrew }
 
@@ -97,7 +97,7 @@ enum MLXMetalLibrary {
         //    We probe the path before calling Bundle(path:) to avoid the auto-generated
         //    fatalError when the bundle can't be found (happens on any relocated binary).
         let mainBundlePath = Bundle.main.bundleURL
-            .appendingPathComponent("MacLocalAPI_MacLocalAPI.bundle").path
+            .appendingPathComponent("MacLocalAPI_AFMKit.bundle").path
         if let b = Bundle(path: mainBundlePath),
            let url = b.url(forResource: "default", withExtension: "metallib"),
            fileManager.fileExists(atPath: url.path) {
@@ -115,7 +115,7 @@ enum MLXMetalLibrary {
 
             guard let source = resolveMetallib() else {
                 throw ValidationError(
-                    "MLX metallib not found. Searched next to binary and in MacLocalAPI_MacLocalAPI.bundle. "
+                    "MLX metallib not found. Searched next to binary and in MacLocalAPI_AFMKit.bundle. "
                     + "Set MACAFM_MLX_METALLIB=/path/to/default.metallib to override."
                 )
             }

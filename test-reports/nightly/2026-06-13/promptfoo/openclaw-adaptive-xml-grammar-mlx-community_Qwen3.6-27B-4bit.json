@@ -1,0 +1,4936 @@
+{
+  "evalId": "eval-CwM-2026-06-13T06:24:23",
+  "results": {
+    "version": 3,
+    "timestamp": "2026-06-13T06:24:23.133Z",
+    "prompts": [
+      {
+        "id": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "raw": "{{prompt}}",
+        "label": "{{prompt}}",
+        "provider": "afm-adaptive-xml-grammar-openclaw",
+        "metrics": {
+          "score": 11,
+          "testPassCount": 11,
+          "testFailCount": 1,
+          "testErrorCount": 0,
+          "assertPassCount": 11,
+          "assertFailCount": 1,
+          "totalLatencyMs": 76762,
+          "tokenUsage": {
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "total": 0,
+            "numRequests": 12,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            },
+            "assertions": {
+              "total": 0,
+              "prompt": 0,
+              "completion": 0,
+              "cached": 0,
+              "numRequests": 0,
+              "completionDetails": {
+                "reasoning": 0,
+                "acceptedPrediction": 0,
+                "rejectedPrediction": 0,
+                "cacheReadInputTokens": 0,
+                "cacheCreationInputTokens": 0
+              }
+            }
+          },
+          "namedScores": {},
+          "namedScoresCount": {},
+          "namedScoreWeights": {},
+          "cost": 0
+        }
+      }
+    ],
+    "results": [
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /git status/.test(String(args.command || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "616401ff-14ae-49b6-a47f-5e3e812f8cf7",
+        "latencyMs": 7073,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Check whether the repository has uncommitted changes.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"name\":\"exec\",\"arguments\":{\"command\":\"git status\"}},\"id\":\"call_ggh8r7eRzO8ymiIcEjoDDJNl\",\"index\":0,\"type\":\"function\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 7073,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are an OpenClaw-style coding agent using only documented OpenClaw tools."
+                },
+                {
+                  "role": "user",
+                  "content": "Check whether the repository has uncommitted changes."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "exec",
+                    "description": "Run shell commands in the workspace",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "command": {
+                          "type": "string"
+                        },
+                        "workdir": {
+                          "type": "string"
+                        },
+                        "timeout": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "command"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": null,
+                    "role": "assistant",
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "name": "exec",
+                          "arguments": "{\"command\":\"git status\"}"
+                        },
+                        "id": "call_ggh8r7eRzO8ymiIcEjoDDJNl",
+                        "index": 0,
+                        "type": "function"
+                      }
+                    ]
+                  },
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "object": "chat.completion",
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "created": 1781331870,
+              "id": "chatcmpl-9E293699",
+              "usage": {
+                "completion_tokens_per_second": 15.91,
+                "prompt_time": 3.26,
+                "completion_tokens": 60,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_tokens": 416,
+                "prompt_tokens": 356,
+                "total_time": 7.03,
+                "completion_time": 3.77,
+                "peak_memory_gib": 21.3,
+                "prompt_tokens_per_second": 109.22
+              },
+              "timings": {
+                "predicted_n": 60,
+                "prompt_ms": 3259.4739198684692,
+                "predicted_ms": 3772.1920013427734,
+                "prompt_n": 356
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "810",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 13 Jun 2026 06:24:30 GMT",
+              "openai-request-id": "req_b47bfb4ab1a9",
+              "x-request-id": "req_b47bfb4ab1a9"
+            },
+            "usage": {
+              "completion_tokens_per_second": 15.91,
+              "prompt_time": 3.26,
+              "completion_tokens": 60,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 416,
+              "prompt_tokens": 356,
+              "total_time": 7.03,
+              "completion_time": 3.77,
+              "peak_memory_gib": 21.3,
+              "prompt_tokens_per_second": 109.22
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "openclaw/exec run git status",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Check whether the repository has uncommitted changes.",
+            "system_prompt": "You are an OpenClaw-style coding agent using only documented OpenClaw tools.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "exec",
+                  "description": "Run shell commands in the workspace",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      },
+                      "workdir": {
+                        "type": "string"
+                      },
+                      "timeout": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /git status/.test(String(args.command || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 0,
+        "vars": {
+          "prompt": "Check whether the repository has uncommitted changes.",
+          "system_prompt": "You are an OpenClaw-style coding agent using only documented OpenClaw tools.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "exec",
+                "description": "Run shell commands in the workspace",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "workdir": {
+                      "type": "string"
+                    },
+                    "timeout": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an OpenClaw-style coding agent using only documented OpenClaw tools."
+              },
+              {
+                "role": "user",
+                "content": "Check whether the repository has uncommitted changes."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "exec",
+                  "description": "Run shell commands in the workspace",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      },
+                      "workdir": {
+                        "type": "string"
+                      },
+                      "timeout": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": null,
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "function": {
+                        "name": "exec",
+                        "arguments": "{\"command\":\"git status\"}"
+                      },
+                      "id": "call_ggh8r7eRzO8ymiIcEjoDDJNl",
+                      "index": 0,
+                      "type": "function"
+                    }
+                  ]
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "object": "chat.completion",
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "created": 1781331870,
+            "id": "chatcmpl-9E293699",
+            "usage": {
+              "completion_tokens_per_second": 15.91,
+              "prompt_time": 3.26,
+              "completion_tokens": 60,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 416,
+              "prompt_tokens": 356,
+              "total_time": 7.03,
+              "completion_time": 3.77,
+              "peak_memory_gib": 21.3,
+              "prompt_tokens_per_second": 109.22
+            },
+            "timings": {
+              "predicted_n": 60,
+              "prompt_ms": 3259.4739198684692,
+              "predicted_ms": 3772.1920013427734,
+              "prompt_n": 356
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "810",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 13 Jun 2026 06:24:30 GMT",
+            "openai-request-id": "req_b47bfb4ab1a9",
+            "x-request-id": "req_b47bfb4ab1a9"
+          },
+          "usage": {
+            "completion_tokens_per_second": 15.91,
+            "prompt_time": 3.26,
+            "completion_tokens": 60,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_tokens": 416,
+            "prompt_tokens": 356,
+            "total_time": 7.03,
+            "completion_time": 3.77,
+            "peak_memory_gib": 21.3,
+            "prompt_tokens_per_second": 109.22
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst command = String(parsed.tool_calls[0]?.function?.arguments?.command || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /(swift build -c release|make build)/.test(command);\n"
+              }
+            }
+          ]
+        },
+        "id": "6e2a98fb-bd07-4951-ac34-2860a3d2a503",
+        "latencyMs": 6000,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Build the Swift package in release mode from the repository root.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"arguments\":{\"command\":\"swift build -c release\",\"workdir\":\"/testbed\"},\"name\":\"exec\"},\"index\":0,\"type\":\"function\",\"id\":\"call_XfwUMFcx0uhj9beqmBW0KFUA\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 6000,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Build the Swift package in release mode from the repository root."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "exec",
+                    "description": "Run shell commands in the workspace",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "command": {
+                          "type": "string"
+                        },
+                        "workdir": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "command"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "arguments": "{\"command\":\"swift build -c release\",\"workdir\":\"\\/testbed\"}",
+                          "name": "exec"
+                        },
+                        "index": 0,
+                        "type": "function",
+                        "id": "call_XfwUMFcx0uhj9beqmBW0KFUA"
+                      }
+                    ],
+                    "role": "assistant"
+                  },
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "object": "chat.completion",
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "created": 1781331876,
+              "id": "chatcmpl-BB21020E",
+              "usage": {
+                "completion_tokens_per_second": 16.09,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_time": 2.99,
+                "completion_tokens": 48,
+                "total_tokens": 372,
+                "prompt_tokens": 324,
+                "total_time": 5.97,
+                "completion_time": 2.98,
+                "peak_memory_gib": 21.2,
+                "prompt_tokens_per_second": 108.46
+              },
+              "timings": {
+                "predicted_n": 48,
+                "prompt_ms": 2987.344980239868,
+                "prompt_n": 324,
+                "predicted_ms": 2983.404040336609
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "848",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 13 Jun 2026 06:24:36 GMT",
+              "openai-request-id": "req_cd3b6a9ea662",
+              "x-request-id": "req_cd3b6a9ea662"
+            },
+            "usage": {
+              "completion_tokens_per_second": 16.09,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_time": 2.99,
+              "completion_tokens": 48,
+              "total_tokens": 372,
+              "prompt_tokens": 324,
+              "total_time": 5.97,
+              "completion_time": 2.98,
+              "peak_memory_gib": 21.2,
+              "prompt_tokens_per_second": 108.46
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "openclaw/exec targeted release build",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Build the Swift package in release mode from the repository root.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "exec",
+                  "description": "Run shell commands in the workspace",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      },
+                      "workdir": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst command = String(parsed.tool_calls[0]?.function?.arguments?.command || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /(swift build -c release|make build)/.test(command);\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 1,
+        "vars": {
+          "prompt": "Build the Swift package in release mode from the repository root.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "exec",
+                "description": "Run shell commands in the workspace",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "workdir": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Build the Swift package in release mode from the repository root."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "exec",
+                  "description": "Run shell commands in the workspace",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      },
+                      "workdir": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "function": {
+                        "arguments": "{\"command\":\"swift build -c release\",\"workdir\":\"\\/testbed\"}",
+                        "name": "exec"
+                      },
+                      "index": 0,
+                      "type": "function",
+                      "id": "call_XfwUMFcx0uhj9beqmBW0KFUA"
+                    }
+                  ],
+                  "role": "assistant"
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "object": "chat.completion",
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "created": 1781331876,
+            "id": "chatcmpl-BB21020E",
+            "usage": {
+              "completion_tokens_per_second": 16.09,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_time": 2.99,
+              "completion_tokens": 48,
+              "total_tokens": 372,
+              "prompt_tokens": 324,
+              "total_time": 5.97,
+              "completion_time": 2.98,
+              "peak_memory_gib": 21.2,
+              "prompt_tokens_per_second": 108.46
+            },
+            "timings": {
+              "predicted_n": 48,
+              "prompt_ms": 2987.344980239868,
+              "prompt_n": 324,
+              "predicted_ms": 2983.404040336609
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "848",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 13 Jun 2026 06:24:36 GMT",
+            "openai-request-id": "req_cd3b6a9ea662",
+            "x-request-id": "req_cd3b6a9ea662"
+          },
+          "usage": {
+            "completion_tokens_per_second": 16.09,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "prompt_time": 2.99,
+            "completion_tokens": 48,
+            "total_tokens": 372,
+            "prompt_tokens": 324,
+            "total_time": 5.97,
+            "completion_time": 2.98,
+            "peak_memory_gib": 21.2,
+            "prompt_tokens_per_second": 108.46
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /npm run build/.test(String(args.command || '')) &&\n  (args.background === true || args.yieldMs !== undefined);\n"
+              }
+            }
+          ]
+        },
+        "id": "62f78e7a-87fc-4a5d-975a-f5367545ff81",
+        "latencyMs": 6958,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Kick off npm run build, let it run briefly, and keep the session around so we can poll it later.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"name\":\"exec\",\"arguments\":{\"background\":true,\"command\":\"npm run build\",\"yieldMs\":5000}},\"id\":\"call_iN87OZSSEZd9pHhr0ak2uWBT\",\"index\":0,\"type\":\"function\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 6958,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Kick off npm run build, let it run briefly, and keep the session around so we can poll it later."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "exec",
+                    "description": "Run shell commands in the workspace",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "command": {
+                          "type": "string"
+                        },
+                        "yieldMs": {
+                          "type": "integer"
+                        },
+                        "background": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "command"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": null,
+                    "role": "assistant",
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "name": "exec",
+                          "arguments": "{\"background\":true,\"command\":\"npm run build\",\"yieldMs\":5000}"
+                        },
+                        "id": "call_iN87OZSSEZd9pHhr0ak2uWBT",
+                        "index": 0,
+                        "type": "function"
+                      }
+                    ]
+                  },
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "object": "chat.completion",
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "created": 1781331883,
+              "id": "chatcmpl-30CF4DA9",
+              "usage": {
+                "completion_tokens_per_second": 16.12,
+                "prompt_time": 3.27,
+                "completion_tokens": 59,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_tokens": 418,
+                "prompt_tokens": 359,
+                "total_time": 6.93,
+                "completion_time": 3.66,
+                "peak_memory_gib": 21.3,
+                "prompt_tokens_per_second": 109.9
+              },
+              "timings": {
+                "predicted_n": 59,
+                "prompt_ms": 3266.4769887924194,
+                "predicted_ms": 3659.3979597091675,
+                "prompt_n": 359
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "849",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 13 Jun 2026 06:24:43 GMT",
+              "openai-request-id": "req_547e2005d462",
+              "x-request-id": "req_547e2005d462"
+            },
+            "usage": {
+              "completion_tokens_per_second": 16.12,
+              "prompt_time": 3.27,
+              "completion_tokens": 59,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 418,
+              "prompt_tokens": 359,
+              "total_time": 6.93,
+              "completion_time": 3.66,
+              "peak_memory_gib": 21.3,
+              "prompt_tokens_per_second": 109.9
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "openclaw/exec background build with yield",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Kick off npm run build, let it run briefly, and keep the session around so we can poll it later.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "exec",
+                  "description": "Run shell commands in the workspace",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      },
+                      "yieldMs": {
+                        "type": "integer"
+                      },
+                      "background": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /npm run build/.test(String(args.command || '')) &&\n  (args.background === true || args.yieldMs !== undefined);\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 2,
+        "vars": {
+          "prompt": "Kick off npm run build, let it run briefly, and keep the session around so we can poll it later.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "exec",
+                "description": "Run shell commands in the workspace",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "yieldMs": {
+                      "type": "integer"
+                    },
+                    "background": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Kick off npm run build, let it run briefly, and keep the session around so we can poll it later."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "exec",
+                  "description": "Run shell commands in the workspace",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      },
+                      "yieldMs": {
+                        "type": "integer"
+                      },
+                      "background": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": null,
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "function": {
+                        "name": "exec",
+                        "arguments": "{\"background\":true,\"command\":\"npm run build\",\"yieldMs\":5000}"
+                      },
+                      "id": "call_iN87OZSSEZd9pHhr0ak2uWBT",
+                      "index": 0,
+                      "type": "function"
+                    }
+                  ]
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "object": "chat.completion",
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "created": 1781331883,
+            "id": "chatcmpl-30CF4DA9",
+            "usage": {
+              "completion_tokens_per_second": 16.12,
+              "prompt_time": 3.27,
+              "completion_tokens": 59,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 418,
+              "prompt_tokens": 359,
+              "total_time": 6.93,
+              "completion_time": 3.66,
+              "peak_memory_gib": 21.3,
+              "prompt_tokens_per_second": 109.9
+            },
+            "timings": {
+              "predicted_n": 59,
+              "prompt_ms": 3266.4769887924194,
+              "predicted_ms": 3659.3979597091675,
+              "prompt_n": 359
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "849",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 13 Jun 2026 06:24:43 GMT",
+            "openai-request-id": "req_547e2005d462",
+            "x-request-id": "req_547e2005d462"
+          },
+          "usage": {
+            "completion_tokens_per_second": 16.12,
+            "prompt_time": 3.27,
+            "completion_tokens": 59,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_tokens": 418,
+            "prompt_tokens": 359,
+            "total_time": 6.93,
+            "completion_time": 3.66,
+            "peak_memory_gib": 21.3,
+            "prompt_tokens_per_second": 109.9
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    (/\\*\\*\\* Begin Patch/.test(input) && /\\*\\*\\* Add File: docs\\/cache-notes\\.md/.test(input)) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/docs\\/cache-notes\\.md|new file mode)/.test(input))\n  );\n"
+              }
+            }
+          ]
+        },
+        "id": "f7de3c3d-4afa-4922-b397-f3b1e777fcb8",
+        "latencyMs": 8957,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Create docs/cache-notes.md with two short markdown lines using the OpenClaw patch tool.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"arguments\":{\"input\":\"diff --git a/docs/cache-notes.md b/docs/cache-notes.md\\nnew file mode 100644\\nindex 0000000..a1b2c3d\\n--- /dev/null\\n+++ b/docs/cache-notes.md\\n@@ -0,0 +1,2 @@\\n+# Cache Notes\\n+\"},\"name\":\"apply_patch\"},\"index\":0,\"type\":\"function\",\"id\":\"call_OaEp1fVxwNQeVJH05J8YDMa3\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 8957,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Create docs/cache-notes.md with two short markdown lines using the OpenClaw patch tool."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "apply_patch",
+                    "description": "Apply structured multi-file patches",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "input": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "input"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "arguments": "{\"input\":\"diff --git a\\/docs\\/cache-notes.md b\\/docs\\/cache-notes.md\\nnew file mode 100644\\nindex 0000000..a1b2c3d\\n--- \\/dev\\/null\\n+++ b\\/docs\\/cache-notes.md\\n@@ -0,0 +1,2 @@\\n+# Cache Notes\\n+\"}",
+                          "name": "apply_patch"
+                        },
+                        "index": 0,
+                        "type": "function",
+                        "id": "call_OaEp1fVxwNQeVJH05J8YDMa3"
+                      }
+                    ],
+                    "role": "assistant"
+                  },
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "object": "chat.completion",
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "created": 1781331892,
+              "id": "chatcmpl-5D658E36",
+              "usage": {
+                "completion_tokens_per_second": 16.02,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_time": 2.75,
+                "completion_tokens": 99,
+                "total_tokens": 404,
+                "prompt_tokens": 305,
+                "total_time": 8.93,
+                "completion_time": 6.18,
+                "peak_memory_gib": 21.1,
+                "prompt_tokens_per_second": 110.96
+              },
+              "timings": {
+                "predicted_n": 99,
+                "prompt_ms": 2748.68106842041,
+                "prompt_n": 305,
+                "predicted_ms": 6178.193926811218
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1011",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 13 Jun 2026 06:24:52 GMT",
+              "openai-request-id": "req_fec97299e322",
+              "x-request-id": "req_fec97299e322"
+            },
+            "usage": {
+              "completion_tokens_per_second": 16.02,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_time": 2.75,
+              "completion_tokens": 99,
+              "total_tokens": 404,
+              "prompt_tokens": 305,
+              "total_time": 8.93,
+              "completion_time": 6.18,
+              "peak_memory_gib": 21.1,
+              "prompt_tokens_per_second": 110.96
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "openclaw/apply_patch add file",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Create docs/cache-notes.md with two short markdown lines using the OpenClaw patch tool.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply structured multi-file patches",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "input": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "input"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    (/\\*\\*\\* Begin Patch/.test(input) && /\\*\\*\\* Add File: docs\\/cache-notes\\.md/.test(input)) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/docs\\/cache-notes\\.md|new file mode)/.test(input))\n  );\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 3,
+        "vars": {
+          "prompt": "Create docs/cache-notes.md with two short markdown lines using the OpenClaw patch tool.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply structured multi-file patches",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "input": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "input"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Create docs/cache-notes.md with two short markdown lines using the OpenClaw patch tool."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply structured multi-file patches",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "input": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "input"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "function": {
+                        "arguments": "{\"input\":\"diff --git a\\/docs\\/cache-notes.md b\\/docs\\/cache-notes.md\\nnew file mode 100644\\nindex 0000000..a1b2c3d\\n--- \\/dev\\/null\\n+++ b\\/docs\\/cache-notes.md\\n@@ -0,0 +1,2 @@\\n+# Cache Notes\\n+\"}",
+                        "name": "apply_patch"
+                      },
+                      "index": 0,
+                      "type": "function",
+                      "id": "call_OaEp1fVxwNQeVJH05J8YDMa3"
+                    }
+                  ],
+                  "role": "assistant"
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "object": "chat.completion",
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "created": 1781331892,
+            "id": "chatcmpl-5D658E36",
+            "usage": {
+              "completion_tokens_per_second": 16.02,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_time": 2.75,
+              "completion_tokens": 99,
+              "total_tokens": 404,
+              "prompt_tokens": 305,
+              "total_time": 8.93,
+              "completion_time": 6.18,
+              "peak_memory_gib": 21.1,
+              "prompt_tokens_per_second": 110.96
+            },
+            "timings": {
+              "predicted_n": 99,
+              "prompt_ms": 2748.68106842041,
+              "prompt_n": 305,
+              "predicted_ms": 6178.193926811218
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1011",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 13 Jun 2026 06:24:52 GMT",
+            "openai-request-id": "req_fec97299e322",
+            "x-request-id": "req_fec97299e322"
+          },
+          "usage": {
+            "completion_tokens_per_second": 16.02,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "prompt_time": 2.75,
+            "completion_tokens": 99,
+            "total_tokens": 404,
+            "prompt_tokens": 305,
+            "total_time": 8.93,
+            "completion_time": 6.18,
+            "peak_memory_gib": 21.1,
+            "prompt_tokens_per_second": 110.96
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "error": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    /\\*\\*\\* Update File: README\\.md/.test(input) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/README\\.md|--- a\\/README\\.md)/.test(input))\n  );",
+        "gradingResult": {
+          "pass": false,
+          "score": 0,
+          "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    /\\*\\*\\* Update File: README\\.md/.test(input) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/README\\.md|--- a\\/README\\.md)/.test(input))\n  );",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": false,
+              "score": 0,
+              "reason": "Custom function returned false\nconst parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    /\\*\\*\\* Update File: README\\.md/.test(input) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/README\\.md|--- a\\/README\\.md)/.test(input))\n  );",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    /\\*\\*\\* Update File: README\\.md/.test(input) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/README\\.md|--- a\\/README\\.md)/.test(input))\n  );\n"
+              }
+            }
+          ]
+        },
+        "id": "3aab6b76-2d90-474b-b0da-9c6cbc757dc9",
+        "latencyMs": 8515,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Update README.md so it mentions the promptfoo harness.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"<tool_call>\\n<function=apply_patch>\\n<parameter=input>\\n--- a/README.md\\n+++ b/README.md\\n@@ -1,5 +1,5 @@\\n # Promptfoo\\n \\n-Promptfoo is a CLI tool and platform for testing LLM applications.\\n+Promptfoo is a CLI tool and platform for testing LLM applications. It includes a harness for running tests against LLMs.\\n \\n ## Features\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"refusal\":null}",
+          "latencyMs": 8515,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Update README.md so it mentions the promptfoo harness."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "apply_patch",
+                    "description": "Apply structured multi-file patches",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "input": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "input"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": "<tool_call>\n<function=apply_patch>\n<parameter=input>\n--- a/README.md\n+++ b/README.md\n@@ -1,5 +1,5 @@\n # Promptfoo\n \n-Promptfoo is a CLI tool and platform for testing LLM applications.\n+Promptfoo is a CLI tool and platform for testing LLM applications. It includes a harness for running tests against LLMs.\n \n ## Features",
+                    "reasoning_content": "",
+                    "role": "assistant"
+                  },
+                  "finish_reason": "stop"
+                }
+              ],
+              "object": "chat.completion",
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "created": 1781331900,
+              "id": "chatcmpl-F2B1AF54",
+              "usage": {
+                "completion_tokens_per_second": 15.99,
+                "prompt_time": 2.74,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "completion_tokens": 92,
+                "total_tokens": 390,
+                "prompt_tokens": 298,
+                "total_time": 8.49,
+                "completion_time": 5.75,
+                "peak_memory_gib": 21.1,
+                "prompt_tokens_per_second": 108.85
+              },
+              "timings": {
+                "predicted_n": 92,
+                "predicted_ms": 5752.524018287659,
+                "prompt_ms": 2737.6309633255005,
+                "prompt_n": 298
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "1005",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 13 Jun 2026 06:25:00 GMT",
+              "openai-request-id": "req_3baed019e34c",
+              "x-request-id": "req_3baed019e34c"
+            },
+            "usage": {
+              "completion_tokens_per_second": 15.99,
+              "prompt_time": 2.74,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens": 92,
+              "total_tokens": 390,
+              "prompt_tokens": 298,
+              "total_time": 8.49,
+              "completion_time": 5.75,
+              "peak_memory_gib": 21.1,
+              "prompt_tokens_per_second": 108.85
+            }
+          }
+        },
+        "score": 0,
+        "success": false,
+        "testCase": {
+          "description": "openclaw/apply_patch update existing file",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Update README.md so it mentions the promptfoo harness.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply structured multi-file patches",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "input": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "input"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    /\\*\\*\\* Update File: README\\.md/.test(input) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/README\\.md|--- a\\/README\\.md)/.test(input))\n  );\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 4,
+        "vars": {
+          "prompt": "Update README.md so it mentions the promptfoo harness.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply structured multi-file patches",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "input": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "input"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Update README.md so it mentions the promptfoo harness."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply structured multi-file patches",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "input": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "input"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": "<tool_call>\n<function=apply_patch>\n<parameter=input>\n--- a/README.md\n+++ b/README.md\n@@ -1,5 +1,5 @@\n # Promptfoo\n \n-Promptfoo is a CLI tool and platform for testing LLM applications.\n+Promptfoo is a CLI tool and platform for testing LLM applications. It includes a harness for running tests against LLMs.\n \n ## Features",
+                  "reasoning_content": "",
+                  "role": "assistant"
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "object": "chat.completion",
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "created": 1781331900,
+            "id": "chatcmpl-F2B1AF54",
+            "usage": {
+              "completion_tokens_per_second": 15.99,
+              "prompt_time": 2.74,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens": 92,
+              "total_tokens": 390,
+              "prompt_tokens": 298,
+              "total_time": 8.49,
+              "completion_time": 5.75,
+              "peak_memory_gib": 21.1,
+              "prompt_tokens_per_second": 108.85
+            },
+            "timings": {
+              "predicted_n": 92,
+              "predicted_ms": 5752.524018287659,
+              "prompt_ms": 2737.6309633255005,
+              "prompt_n": 298
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "1005",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 13 Jun 2026 06:25:00 GMT",
+            "openai-request-id": "req_3baed019e34c",
+            "x-request-id": "req_3baed019e34c"
+          },
+          "usage": {
+            "completion_tokens_per_second": 15.99,
+            "prompt_time": 2.74,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 92,
+            "total_tokens": 390,
+            "prompt_tokens": 298,
+            "total_time": 8.49,
+            "completion_time": 5.75,
+            "peak_memory_gib": 21.1,
+            "prompt_tokens_per_second": 108.85
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 1
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_search' &&\n  /Qwen|prefix cache/i.test(String(args.query || '')) &&\n  (args.freshness !== undefined || args.count !== undefined);\n"
+              }
+            }
+          ]
+        },
+        "id": "00eeb9da-82be-4eb0-bc7e-e651791d81a0",
+        "latencyMs": 6728,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Search the web for recent Qwen prefix cache bugs from the last month.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"name\":\"web_search\",\"arguments\":{\"count\":10,\"freshness\":\"1m\",\"query\":\"Qwen prefix cache bug\"}},\"id\":\"call_mWYlpBXqA7Rs4QEWvNwYZoz1\",\"index\":0,\"type\":\"function\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 6728,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Search the web for recent Qwen prefix cache bugs from the last month."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "web_search",
+                    "description": "Search the web",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "query": {
+                          "type": "string"
+                        },
+                        "freshness": {
+                          "type": "string"
+                        },
+                        "count": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "query"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": null,
+                    "role": "assistant",
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "name": "web_search",
+                          "arguments": "{\"count\":10,\"freshness\":\"1m\",\"query\":\"Qwen prefix cache bug\"}"
+                        },
+                        "id": "call_mWYlpBXqA7Rs4QEWvNwYZoz1",
+                        "index": 0,
+                        "type": "function"
+                      }
+                    ]
+                  },
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "object": "chat.completion",
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "created": 1781331907,
+              "id": "chatcmpl-513D6EAC",
+              "usage": {
+                "completion_tokens_per_second": 16.1,
+                "prompt_time": 3.04,
+                "completion_tokens": 59,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_tokens": 408,
+                "prompt_tokens": 349,
+                "total_time": 6.7,
+                "completion_time": 3.67,
+                "peak_memory_gib": 21.3,
+                "prompt_tokens_per_second": 114.98
+              },
+              "timings": {
+                "predicted_n": 59,
+                "prompt_ms": 3035.238027572632,
+                "predicted_ms": 3665.66801071167,
+                "prompt_n": 349
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "854",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 13 Jun 2026 06:25:07 GMT",
+              "openai-request-id": "req_24fd2e01ffe3",
+              "x-request-id": "req_24fd2e01ffe3"
+            },
+            "usage": {
+              "completion_tokens_per_second": 16.1,
+              "prompt_time": 3.04,
+              "completion_tokens": 59,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 408,
+              "prompt_tokens": 349,
+              "total_time": 6.7,
+              "completion_time": 3.67,
+              "peak_memory_gib": 21.3,
+              "prompt_tokens_per_second": 114.98
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "openclaw/web_search search recent cache bug reports",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/brave-search.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Search the web for recent Qwen prefix cache bugs from the last month.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "web_search",
+                  "description": "Search the web",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      },
+                      "freshness": {
+                        "type": "string"
+                      },
+                      "count": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_search' &&\n  /Qwen|prefix cache/i.test(String(args.query || '')) &&\n  (args.freshness !== undefined || args.count !== undefined);\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 5,
+        "vars": {
+          "prompt": "Search the web for recent Qwen prefix cache bugs from the last month.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "web_search",
+                "description": "Search the web",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    },
+                    "freshness": {
+                      "type": "string"
+                    },
+                    "count": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/brave-search.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Search the web for recent Qwen prefix cache bugs from the last month."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "web_search",
+                  "description": "Search the web",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      },
+                      "freshness": {
+                        "type": "string"
+                      },
+                      "count": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": null,
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "function": {
+                        "name": "web_search",
+                        "arguments": "{\"count\":10,\"freshness\":\"1m\",\"query\":\"Qwen prefix cache bug\"}"
+                      },
+                      "id": "call_mWYlpBXqA7Rs4QEWvNwYZoz1",
+                      "index": 0,
+                      "type": "function"
+                    }
+                  ]
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "object": "chat.completion",
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "created": 1781331907,
+            "id": "chatcmpl-513D6EAC",
+            "usage": {
+              "completion_tokens_per_second": 16.1,
+              "prompt_time": 3.04,
+              "completion_tokens": 59,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 408,
+              "prompt_tokens": 349,
+              "total_time": 6.7,
+              "completion_time": 3.67,
+              "peak_memory_gib": 21.3,
+              "prompt_tokens_per_second": 114.98
+            },
+            "timings": {
+              "predicted_n": 59,
+              "prompt_ms": 3035.238027572632,
+              "predicted_ms": 3665.66801071167,
+              "prompt_n": 349
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "854",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 13 Jun 2026 06:25:07 GMT",
+            "openai-request-id": "req_24fd2e01ffe3",
+            "x-request-id": "req_24fd2e01ffe3"
+          },
+          "usage": {
+            "completion_tokens_per_second": 16.1,
+            "prompt_time": 3.04,
+            "completion_tokens": 59,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_tokens": 408,
+            "prompt_tokens": 349,
+            "total_time": 6.7,
+            "completion_time": 3.67,
+            "peak_memory_gib": 21.3,
+            "prompt_tokens_per_second": 114.98
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst url = String(parsed.tool_calls[0]?.function?.arguments?.url || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_fetch' &&\n  /https:\\/\\/opencode\\.ai\\/docs\\/tools\\/?/.test(url);\n"
+              }
+            }
+          ]
+        },
+        "id": "d5d3ae25-4e36-4703-ab34-b633f82d3bf3",
+        "latencyMs": 5960,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Fetch and extract the readable content from https://opencode.ai/docs/tools/.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"arguments\":{\"format\":\"text\",\"url\":\"https://opencode.ai/docs/tools/\"},\"name\":\"web_fetch\"},\"index\":0,\"type\":\"function\",\"id\":\"call_djt7tyrz7f3FrvXMfsadw1bc\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 5960,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Fetch and extract the readable content from https://opencode.ai/docs/tools/."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "web_fetch",
+                    "description": "Fetch a URL and extract readable text",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "url": {
+                          "type": "string"
+                        },
+                        "format": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "url"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "arguments": "{\"format\":\"text\",\"url\":\"https:\\/\\/opencode.ai\\/docs\\/tools\\/\"}",
+                          "name": "web_fetch"
+                        },
+                        "index": 0,
+                        "type": "function",
+                        "id": "call_djt7tyrz7f3FrvXMfsadw1bc"
+                      }
+                    ],
+                    "role": "assistant"
+                  },
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "object": "chat.completion",
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "created": 1781331913,
+              "id": "chatcmpl-B3A9D5A3",
+              "usage": {
+                "completion_tokens_per_second": 16.12,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_time": 3.02,
+                "completion_tokens": 47,
+                "total_tokens": 375,
+                "prompt_tokens": 328,
+                "total_time": 5.93,
+                "completion_time": 2.92,
+                "peak_memory_gib": 21.2,
+                "prompt_tokens_per_second": 108.73
+              },
+              "timings": {
+                "predicted_n": 47,
+                "prompt_ms": 3016.592025756836,
+                "prompt_n": 328,
+                "predicted_ms": 2915.276050567627
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "865",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 13 Jun 2026 06:25:13 GMT",
+              "openai-request-id": "req_4ed53ee93048",
+              "x-request-id": "req_4ed53ee93048"
+            },
+            "usage": {
+              "completion_tokens_per_second": 16.12,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_time": 3.02,
+              "completion_tokens": 47,
+              "total_tokens": 375,
+              "prompt_tokens": 328,
+              "total_time": 5.93,
+              "completion_time": 2.92,
+              "peak_memory_gib": 21.2,
+              "prompt_tokens_per_second": 108.73
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "openclaw/web_fetch fetch docs page",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Fetch and extract the readable content from https://opencode.ai/docs/tools/.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "web_fetch",
+                  "description": "Fetch a URL and extract readable text",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "type": "string"
+                      },
+                      "format": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst url = String(parsed.tool_calls[0]?.function?.arguments?.url || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_fetch' &&\n  /https:\\/\\/opencode\\.ai\\/docs\\/tools\\/?/.test(url);\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 6,
+        "vars": {
+          "prompt": "Fetch and extract the readable content from https://opencode.ai/docs/tools/.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "web_fetch",
+                "description": "Fetch a URL and extract readable text",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Fetch and extract the readable content from https://opencode.ai/docs/tools/."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "web_fetch",
+                  "description": "Fetch a URL and extract readable text",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "type": "string"
+                      },
+                      "format": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "function": {
+                        "arguments": "{\"format\":\"text\",\"url\":\"https:\\/\\/opencode.ai\\/docs\\/tools\\/\"}",
+                        "name": "web_fetch"
+                      },
+                      "index": 0,
+                      "type": "function",
+                      "id": "call_djt7tyrz7f3FrvXMfsadw1bc"
+                    }
+                  ],
+                  "role": "assistant"
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "object": "chat.completion",
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "created": 1781331913,
+            "id": "chatcmpl-B3A9D5A3",
+            "usage": {
+              "completion_tokens_per_second": 16.12,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_time": 3.02,
+              "completion_tokens": 47,
+              "total_tokens": 375,
+              "prompt_tokens": 328,
+              "total_time": 5.93,
+              "completion_time": 2.92,
+              "peak_memory_gib": 21.2,
+              "prompt_tokens_per_second": 108.73
+            },
+            "timings": {
+              "predicted_n": 47,
+              "prompt_ms": 3016.592025756836,
+              "prompt_n": 328,
+              "predicted_ms": 2915.276050567627
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "865",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 13 Jun 2026 06:25:13 GMT",
+            "openai-request-id": "req_4ed53ee93048",
+            "x-request-id": "req_4ed53ee93048"
+          },
+          "usage": {
+            "completion_tokens_per_second": 16.12,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "prompt_time": 3.02,
+            "completion_tokens": 47,
+            "total_tokens": 375,
+            "prompt_tokens": 328,
+            "total_time": 5.93,
+            "completion_time": 2.92,
+            "peak_memory_gib": 21.2,
+            "prompt_tokens_per_second": 108.73
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_navigate' &&\n  /https:\\/\\/example\\.com/.test(String(parsed.tool_calls[0].function.arguments.url || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "54b5742f-bfdf-4f1f-a008-c7558b09807e",
+        "latencyMs": 5080,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Open https://example.com in the managed browser.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"name\":\"browser_navigate\",\"arguments\":{\"url\":\"https://example.com\"}},\"id\":\"call_9MZ83F89w7tXSLfZ8hkBUUnW\",\"index\":0,\"type\":\"function\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 5080,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Open https://example.com in the managed browser."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "browser_navigate",
+                    "description": "Navigate the managed browser to a URL",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "url": {
+                          "type": "string"
+                        },
+                        "profile": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "url"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": null,
+                    "role": "assistant",
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "name": "browser_navigate",
+                          "arguments": "{\"url\":\"https:\\/\\/example.com\"}"
+                        },
+                        "id": "call_9MZ83F89w7tXSLfZ8hkBUUnW",
+                        "index": 0,
+                        "type": "function"
+                      }
+                    ]
+                  },
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "object": "chat.completion",
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "created": 1781331918,
+              "id": "chatcmpl-8AE0C3AC",
+              "usage": {
+                "completion_tokens_per_second": 16.15,
+                "prompt_time": 3.01,
+                "completion_tokens": 33,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_tokens": 357,
+                "prompt_tokens": 324,
+                "total_time": 5.05,
+                "completion_time": 2.04,
+                "peak_memory_gib": 21.2,
+                "prompt_tokens_per_second": 107.71
+              },
+              "timings": {
+                "predicted_n": 33,
+                "prompt_ms": 3007.9489946365356,
+                "predicted_ms": 2043.8159704208374,
+                "prompt_n": 324
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "833",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 13 Jun 2026 06:25:18 GMT",
+              "openai-request-id": "req_3bd7ee362fba",
+              "x-request-id": "req_3bd7ee362fba"
+            },
+            "usage": {
+              "completion_tokens_per_second": 16.15,
+              "prompt_time": 3.01,
+              "completion_tokens": 33,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 357,
+              "prompt_tokens": 324,
+              "total_time": 5.05,
+              "completion_time": 2.04,
+              "peak_memory_gib": 21.2,
+              "prompt_tokens_per_second": 107.71
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "openclaw/browser navigate to docs",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Open https://example.com in the managed browser.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_navigate",
+                  "description": "Navigate the managed browser to a URL",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "type": "string"
+                      },
+                      "profile": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_navigate' &&\n  /https:\\/\\/example\\.com/.test(String(parsed.tool_calls[0].function.arguments.url || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 7,
+        "vars": {
+          "prompt": "Open https://example.com in the managed browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_navigate",
+                "description": "Navigate the managed browser to a URL",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "profile": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Open https://example.com in the managed browser."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_navigate",
+                  "description": "Navigate the managed browser to a URL",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "type": "string"
+                      },
+                      "profile": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": null,
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "function": {
+                        "name": "browser_navigate",
+                        "arguments": "{\"url\":\"https:\\/\\/example.com\"}"
+                      },
+                      "id": "call_9MZ83F89w7tXSLfZ8hkBUUnW",
+                      "index": 0,
+                      "type": "function"
+                    }
+                  ]
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "object": "chat.completion",
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "created": 1781331918,
+            "id": "chatcmpl-8AE0C3AC",
+            "usage": {
+              "completion_tokens_per_second": 16.15,
+              "prompt_time": 3.01,
+              "completion_tokens": 33,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 357,
+              "prompt_tokens": 324,
+              "total_time": 5.05,
+              "completion_time": 2.04,
+              "peak_memory_gib": 21.2,
+              "prompt_tokens_per_second": 107.71
+            },
+            "timings": {
+              "predicted_n": 33,
+              "prompt_ms": 3007.9489946365356,
+              "predicted_ms": 2043.8159704208374,
+              "prompt_n": 324
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "833",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 13 Jun 2026 06:25:18 GMT",
+            "openai-request-id": "req_3bd7ee362fba",
+            "x-request-id": "req_3bd7ee362fba"
+          },
+          "usage": {
+            "completion_tokens_per_second": 16.15,
+            "prompt_time": 3.01,
+            "completion_tokens": 33,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_tokens": 357,
+            "prompt_tokens": 324,
+            "total_time": 5.05,
+            "completion_time": 2.04,
+            "peak_memory_gib": 21.2,
+            "prompt_tokens_per_second": 107.71
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_snapshot';\n"
+              }
+            }
+          ]
+        },
+        "id": "93786c55-449f-4cec-8576-409d5ec58526",
+        "latencyMs": 5265,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Get a snapshot of the current browser page.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"arguments\":{\"profile\":\"default\"},\"name\":\"browser_snapshot\"},\"index\":0,\"type\":\"function\",\"id\":\"call_NPtBBQJ3OmOw0iMapTJvhTZP\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 5265,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Get a snapshot of the current browser page."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "browser_snapshot",
+                    "description": "Capture a browser snapshot",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "profile": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "arguments": "{\"profile\":\"default\"}",
+                          "name": "browser_snapshot"
+                        },
+                        "index": 0,
+                        "type": "function",
+                        "id": "call_NPtBBQJ3OmOw0iMapTJvhTZP"
+                      }
+                    ],
+                    "role": "assistant"
+                  },
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "object": "chat.completion",
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "created": 1781331923,
+              "id": "chatcmpl-D0C32C74",
+              "usage": {
+                "completion_tokens_per_second": 16.04,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_time": 2.5,
+                "completion_tokens": 44,
+                "total_tokens": 329,
+                "prompt_tokens": 285,
+                "total_time": 5.24,
+                "completion_time": 2.74,
+                "peak_memory_gib": 21.1,
+                "prompt_tokens_per_second": 114.01
+              },
+              "timings": {
+                "predicted_n": 44,
+                "prompt_ms": 2499.717950820923,
+                "prompt_n": 285,
+                "predicted_ms": 2742.6769733428955
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "817",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 13 Jun 2026 06:25:23 GMT",
+              "openai-request-id": "req_595fe92c6ccb",
+              "x-request-id": "req_595fe92c6ccb"
+            },
+            "usage": {
+              "completion_tokens_per_second": 16.04,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_time": 2.5,
+              "completion_tokens": 44,
+              "total_tokens": 329,
+              "prompt_tokens": 285,
+              "total_time": 5.24,
+              "completion_time": 2.74,
+              "peak_memory_gib": 21.1,
+              "prompt_tokens_per_second": 114.01
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "openclaw/browser snapshot current page",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Get a snapshot of the current browser page.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_snapshot",
+                  "description": "Capture a browser snapshot",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "profile": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_snapshot';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 8,
+        "vars": {
+          "prompt": "Get a snapshot of the current browser page.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_snapshot",
+                "description": "Capture a browser snapshot",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "profile": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Get a snapshot of the current browser page."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_snapshot",
+                  "description": "Capture a browser snapshot",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "profile": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "function": {
+                        "arguments": "{\"profile\":\"default\"}",
+                        "name": "browser_snapshot"
+                      },
+                      "index": 0,
+                      "type": "function",
+                      "id": "call_NPtBBQJ3OmOw0iMapTJvhTZP"
+                    }
+                  ],
+                  "role": "assistant"
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "object": "chat.completion",
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "created": 1781331923,
+            "id": "chatcmpl-D0C32C74",
+            "usage": {
+              "completion_tokens_per_second": 16.04,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_time": 2.5,
+              "completion_tokens": 44,
+              "total_tokens": 329,
+              "prompt_tokens": 285,
+              "total_time": 5.24,
+              "completion_time": 2.74,
+              "peak_memory_gib": 21.1,
+              "prompt_tokens_per_second": 114.01
+            },
+            "timings": {
+              "predicted_n": 44,
+              "prompt_ms": 2499.717950820923,
+              "prompt_n": 285,
+              "predicted_ms": 2742.6769733428955
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "817",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 13 Jun 2026 06:25:23 GMT",
+            "openai-request-id": "req_595fe92c6ccb",
+            "x-request-id": "req_595fe92c6ccb"
+          },
+          "usage": {
+            "completion_tokens_per_second": 16.04,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "prompt_time": 2.5,
+            "completion_tokens": 44,
+            "total_tokens": 329,
+            "prompt_tokens": 285,
+            "total_time": 5.24,
+            "completion_time": 2.74,
+            "peak_memory_gib": 21.1,
+            "prompt_tokens_per_second": 114.01
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst selector = String(parsed.tool_calls[0]?.function?.arguments?.selector || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_click' &&\n  selector.length > 0;\n"
+              }
+            }
+          ]
+        },
+        "id": "900ec754-97c4-40ce-b124-02628eb2168f",
+        "latencyMs": 5903,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Click the Sign in button in the managed browser.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"name\":\"browser_click\",\"arguments\":{\"profile\":\"minimal\",\"selector\":\"button[type=\\\"submit\\\"]\"}},\"id\":\"call_g7w1JOqhmtX2nPAQZQuh18kE\",\"index\":0,\"type\":\"function\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 5903,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Click the Sign in button in the managed browser."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "browser_click",
+                    "description": "Click an element in the browser",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "selector": {
+                          "type": "string"
+                        },
+                        "profile": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "selector"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": null,
+                    "role": "assistant",
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "name": "browser_click",
+                          "arguments": "{\"profile\":\"minimal\",\"selector\":\"button[type=\\\"submit\\\"]\"}"
+                        },
+                        "id": "call_g7w1JOqhmtX2nPAQZQuh18kE",
+                        "index": 0,
+                        "type": "function"
+                      }
+                    ]
+                  },
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "object": "chat.completion",
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "created": 1781331929,
+              "id": "chatcmpl-4C79937C",
+              "usage": {
+                "completion_tokens_per_second": 16.02,
+                "prompt_time": 3.01,
+                "completion_tokens": 46,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_tokens": 368,
+                "prompt_tokens": 322,
+                "total_time": 5.88,
+                "completion_time": 2.87,
+                "peak_memory_gib": 21.2,
+                "prompt_tokens_per_second": 106.91
+              },
+              "timings": {
+                "predicted_n": 46,
+                "prompt_ms": 3011.7709636688232,
+                "predicted_ms": 2871.2629079818726,
+                "prompt_n": 322
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "861",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 13 Jun 2026 06:25:29 GMT",
+              "openai-request-id": "req_51c06672acfe",
+              "x-request-id": "req_51c06672acfe"
+            },
+            "usage": {
+              "completion_tokens_per_second": 16.02,
+              "prompt_time": 3.01,
+              "completion_tokens": 46,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 368,
+              "prompt_tokens": 322,
+              "total_time": 5.88,
+              "completion_time": 2.87,
+              "peak_memory_gib": 21.2,
+              "prompt_tokens_per_second": 106.91
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "openclaw/browser click by selector",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Click the Sign in button in the managed browser.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_click",
+                  "description": "Click an element in the browser",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "selector": {
+                        "type": "string"
+                      },
+                      "profile": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "selector"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst selector = String(parsed.tool_calls[0]?.function?.arguments?.selector || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_click' &&\n  selector.length > 0;\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 9,
+        "vars": {
+          "prompt": "Click the Sign in button in the managed browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_click",
+                "description": "Click an element in the browser",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "selector": {
+                      "type": "string"
+                    },
+                    "profile": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "selector"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Click the Sign in button in the managed browser."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_click",
+                  "description": "Click an element in the browser",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "selector": {
+                        "type": "string"
+                      },
+                      "profile": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "selector"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": null,
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "function": {
+                        "name": "browser_click",
+                        "arguments": "{\"profile\":\"minimal\",\"selector\":\"button[type=\\\"submit\\\"]\"}"
+                      },
+                      "id": "call_g7w1JOqhmtX2nPAQZQuh18kE",
+                      "index": 0,
+                      "type": "function"
+                    }
+                  ]
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "object": "chat.completion",
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "created": 1781331929,
+            "id": "chatcmpl-4C79937C",
+            "usage": {
+              "completion_tokens_per_second": 16.02,
+              "prompt_time": 3.01,
+              "completion_tokens": 46,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 368,
+              "prompt_tokens": 322,
+              "total_time": 5.88,
+              "completion_time": 2.87,
+              "peak_memory_gib": 21.2,
+              "prompt_tokens_per_second": 106.91
+            },
+            "timings": {
+              "predicted_n": 46,
+              "prompt_ms": 3011.7709636688232,
+              "predicted_ms": 2871.2629079818726,
+              "prompt_n": 322
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "861",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 13 Jun 2026 06:25:29 GMT",
+            "openai-request-id": "req_51c06672acfe",
+            "x-request-id": "req_51c06672acfe"
+          },
+          "usage": {
+            "completion_tokens_per_second": 16.02,
+            "prompt_time": 3.01,
+            "completion_tokens": 46,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_tokens": 368,
+            "prompt_tokens": 322,
+            "total_time": 5.88,
+            "completion_time": 2.87,
+            "peak_memory_gib": 21.2,
+            "prompt_tokens_per_second": 106.91
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_type' &&\n  /@/.test(String(args.text || '')) &&\n  String(args.selector || '').length > 0;\n"
+              }
+            }
+          ]
+        },
+        "id": "32741253-9505-45d0-ab68-b994bf3c8f93",
+        "latencyMs": 5985,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Type syl@example.com into the email field in the managed browser.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"arguments\":{\"selector\":\"input[type=\\\"email\\\"]\",\"text\":\"syl@example.com\"},\"name\":\"browser_type\"},\"index\":0,\"type\":\"function\",\"id\":\"call_kkKugpIZcbaNd2pszRXfDxkH\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 5985,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Type syl@example.com into the email field in the managed browser."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "browser_type",
+                    "description": "Type into a browser field",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "selector": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "profile": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "selector",
+                        "text"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "arguments": "{\"selector\":\"input[type=\\\"email\\\"]\",\"text\":\"syl@example.com\"}",
+                          "name": "browser_type"
+                        },
+                        "index": 0,
+                        "type": "function",
+                        "id": "call_kkKugpIZcbaNd2pszRXfDxkH"
+                      }
+                    ],
+                    "role": "assistant"
+                  },
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "object": "chat.completion",
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "created": 1781331935,
+              "id": "chatcmpl-2A9E8437",
+              "usage": {
+                "completion_tokens_per_second": 16.12,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_time": 3.05,
+                "completion_tokens": 47,
+                "total_tokens": 396,
+                "prompt_tokens": 349,
+                "total_time": 5.96,
+                "completion_time": 2.92,
+                "peak_memory_gib": 21.3,
+                "prompt_tokens_per_second": 114.54
+              },
+              "timings": {
+                "predicted_n": 47,
+                "prompt_ms": 3047.049880027771,
+                "prompt_n": 349,
+                "predicted_ms": 2915.328025817871
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "861",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 13 Jun 2026 06:25:35 GMT",
+              "openai-request-id": "req_b7fa49f88052",
+              "x-request-id": "req_b7fa49f88052"
+            },
+            "usage": {
+              "completion_tokens_per_second": 16.12,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_time": 3.05,
+              "completion_tokens": 47,
+              "total_tokens": 396,
+              "prompt_tokens": 349,
+              "total_time": 5.96,
+              "completion_time": 2.92,
+              "peak_memory_gib": 21.3,
+              "prompt_tokens_per_second": 114.54
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "openclaw/browser type credentials",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Type syl@example.com into the email field in the managed browser.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_type",
+                  "description": "Type into a browser field",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "selector": {
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "profile": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "selector",
+                      "text"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_type' &&\n  /@/.test(String(args.text || '')) &&\n  String(args.selector || '').length > 0;\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 10,
+        "vars": {
+          "prompt": "Type syl@example.com into the email field in the managed browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_type",
+                "description": "Type into a browser field",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "selector": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "profile": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "selector",
+                    "text"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Type syl@example.com into the email field in the managed browser."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_type",
+                  "description": "Type into a browser field",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "selector": {
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "profile": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "selector",
+                      "text"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "function": {
+                        "arguments": "{\"selector\":\"input[type=\\\"email\\\"]\",\"text\":\"syl@example.com\"}",
+                        "name": "browser_type"
+                      },
+                      "index": 0,
+                      "type": "function",
+                      "id": "call_kkKugpIZcbaNd2pszRXfDxkH"
+                    }
+                  ],
+                  "role": "assistant"
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "object": "chat.completion",
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "created": 1781331935,
+            "id": "chatcmpl-2A9E8437",
+            "usage": {
+              "completion_tokens_per_second": 16.12,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_time": 3.05,
+              "completion_tokens": 47,
+              "total_tokens": 396,
+              "prompt_tokens": 349,
+              "total_time": 5.96,
+              "completion_time": 2.92,
+              "peak_memory_gib": 21.3,
+              "prompt_tokens_per_second": 114.54
+            },
+            "timings": {
+              "predicted_n": 47,
+              "prompt_ms": 3047.049880027771,
+              "prompt_n": 349,
+              "predicted_ms": 2915.328025817871
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "861",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 13 Jun 2026 06:25:35 GMT",
+            "openai-request-id": "req_b7fa49f88052",
+            "x-request-id": "req_b7fa49f88052"
+          },
+          "usage": {
+            "completion_tokens_per_second": 16.12,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "prompt_time": 3.05,
+            "completion_tokens": 47,
+            "total_tokens": 396,
+            "prompt_tokens": 349,
+            "total_time": 5.96,
+            "completion_time": 2.92,
+            "peak_memory_gib": 21.3,
+            "prompt_tokens_per_second": 114.54
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_press' &&\n  /enter/i.test(String(parsed.tool_calls[0].function.arguments.key || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "dec36461-e1e5-43df-81fa-389b63469aed",
+        "latencyMs": 4338,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Press Enter in the managed browser.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-grammar-openclaw"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"name\":\"browser_press\",\"arguments\":{\"key\":\"enter\"}},\"id\":\"call_gP4vmjRoZTQfLsfRfGGZgAS0\",\"index\":0,\"type\":\"function\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 4338,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Press Enter in the managed browser."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "browser_press",
+                    "description": "Press a keyboard key in the browser",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "profile": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "key"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "content": null,
+                    "role": "assistant",
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "name": "browser_press",
+                          "arguments": "{\"key\":\"enter\"}"
+                        },
+                        "id": "call_gP4vmjRoZTQfLsfRfGGZgAS0",
+                        "index": 0,
+                        "type": "function"
+                      }
+                    ]
+                  },
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "object": "chat.completion",
+              "model": "mlx-community/Qwen3.6-27B-4bit",
+              "created": 1781331940,
+              "id": "chatcmpl-D6A63D68",
+              "usage": {
+                "completion_tokens_per_second": 16.14,
+                "prompt_time": 2.77,
+                "completion_tokens": 25,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_tokens": 345,
+                "prompt_tokens": 320,
+                "total_time": 4.31,
+                "completion_time": 1.55,
+                "peak_memory_gib": 21.2,
+                "prompt_tokens_per_second": 115.69
+              },
+              "timings": {
+                "predicted_n": 25,
+                "prompt_ms": 2765.937089920044,
+                "predicted_ms": 1548.8049983978271,
+                "prompt_n": 320
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "809",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Sat, 13 Jun 2026 06:25:39 GMT",
+              "openai-request-id": "req_446bd5900a82",
+              "x-request-id": "req_446bd5900a82"
+            },
+            "usage": {
+              "completion_tokens_per_second": 16.14,
+              "prompt_time": 2.77,
+              "completion_tokens": 25,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 345,
+              "prompt_tokens": 320,
+              "total_time": 4.31,
+              "completion_time": 1.55,
+              "peak_memory_gib": 21.2,
+              "prompt_tokens_per_second": 115.69
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "openclaw/browser press enter",
+          "metadata": {
+            "suite": "openclaw_primary",
+            "source_type": "primary_source",
+            "source_urls": [
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+            ],
+            "framework": "OpenClaw",
+            "classification": "not_yet_classified"
+          },
+          "vars": {
+            "prompt": "Press Enter in the managed browser.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_press",
+                  "description": "Press a keyboard key in the browser",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "profile": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_press' &&\n  /enter/i.test(String(parsed.tool_calls[0].function.arguments.key || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 11,
+        "vars": {
+          "prompt": "Press Enter in the managed browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_press",
+                "description": "Press a keyboard key in the browser",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "profile": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Press Enter in the managed browser."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "browser_press",
+                  "description": "Press a keyboard key in the browser",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "profile": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "content": null,
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "function": {
+                        "name": "browser_press",
+                        "arguments": "{\"key\":\"enter\"}"
+                      },
+                      "id": "call_gP4vmjRoZTQfLsfRfGGZgAS0",
+                      "index": 0,
+                      "type": "function"
+                    }
+                  ]
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "object": "chat.completion",
+            "model": "mlx-community/Qwen3.6-27B-4bit",
+            "created": 1781331940,
+            "id": "chatcmpl-D6A63D68",
+            "usage": {
+              "completion_tokens_per_second": 16.14,
+              "prompt_time": 2.77,
+              "completion_tokens": 25,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 345,
+              "prompt_tokens": 320,
+              "total_time": 4.31,
+              "completion_time": 1.55,
+              "peak_memory_gib": 21.2,
+              "prompt_tokens_per_second": 115.69
+            },
+            "timings": {
+              "predicted_n": 25,
+              "prompt_ms": 2765.937089920044,
+              "predicted_ms": 1548.8049983978271,
+              "prompt_n": 320
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-27B-4bit"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "809",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Sat, 13 Jun 2026 06:25:39 GMT",
+            "openai-request-id": "req_446bd5900a82",
+            "x-request-id": "req_446bd5900a82"
+          },
+          "usage": {
+            "completion_tokens_per_second": 16.14,
+            "prompt_time": 2.77,
+            "completion_tokens": 25,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_tokens": 345,
+            "prompt_tokens": 320,
+            "total_time": 4.31,
+            "completion_time": 1.55,
+            "peak_memory_gib": 21.2,
+            "prompt_tokens_per_second": 115.69
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      }
+    ],
+    "stats": {
+      "successes": 11,
+      "failures": 1,
+      "errors": 0,
+      "tokenUsage": {
+        "prompt": 0,
+        "completion": 0,
+        "cached": 0,
+        "total": 0,
+        "numRequests": 12,
+        "completionDetails": {
+          "reasoning": 0,
+          "acceptedPrediction": 0,
+          "rejectedPrediction": 0,
+          "cacheReadInputTokens": 0,
+          "cacheCreationInputTokens": 0
+        },
+        "assertions": {
+          "total": 0,
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "numRequests": 0,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          }
+        }
+      },
+      "durationMs": 76877,
+      "evaluationDurationMs": 76877
+    }
+  },
+  "config": {
+    "tags": {},
+    "description": "AFM OpenClaw primary-source tool suite",
+    "prompts": [
+      "{{prompt}}"
+    ],
+    "providers": [
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-default-openclaw",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_DEFAULT",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-adaptive-xml-openclaw",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_ADAPTIVE_XML",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-adaptive-xml-grammar-openclaw",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      }
+    ],
+    "tests": [
+      {
+        "description": "openclaw/exec run git status",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Check whether the repository has uncommitted changes.",
+          "system_prompt": "You are an OpenClaw-style coding agent using only documented OpenClaw tools.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "exec",
+                "description": "Run shell commands in the workspace",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "workdir": {
+                      "type": "string"
+                    },
+                    "timeout": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /git status/.test(String(args.command || ''));\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/exec targeted release build",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Build the Swift package in release mode from the repository root.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "exec",
+                "description": "Run shell commands in the workspace",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "workdir": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst command = String(parsed.tool_calls[0]?.function?.arguments?.command || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /(swift build -c release|make build)/.test(command);\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/exec background build with yield",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Kick off npm run build, let it run briefly, and keep the session around so we can poll it later.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "exec",
+                "description": "Run shell commands in the workspace",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "yieldMs": {
+                      "type": "integer"
+                    },
+                    "background": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'exec' &&\n  /npm run build/.test(String(args.command || '')) &&\n  (args.background === true || args.yieldMs !== undefined);\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/apply_patch add file",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Create docs/cache-notes.md with two short markdown lines using the OpenClaw patch tool.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply structured multi-file patches",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "input": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "input"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    (/\\*\\*\\* Begin Patch/.test(input) && /\\*\\*\\* Add File: docs\\/cache-notes\\.md/.test(input)) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/docs\\/cache-notes\\.md|new file mode)/.test(input))\n  );\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/apply_patch update existing file",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Update README.md so it mentions the promptfoo harness.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply structured multi-file patches",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "input": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "input"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst input = String(parsed.tool_calls[0]?.function?.arguments?.input || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'apply_patch' &&\n  (\n    /\\*\\*\\* Update File: README\\.md/.test(input) ||\n    (/^diff --git /m.test(input) && /(\\+\\+\\+ b\\/README\\.md|--- a\\/README\\.md)/.test(input))\n  );\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/web_search search recent cache bug reports",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/brave-search.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Search the web for recent Qwen prefix cache bugs from the last month.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "web_search",
+                "description": "Search the web",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    },
+                    "freshness": {
+                      "type": "string"
+                    },
+                    "count": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_search' &&\n  /Qwen|prefix cache/i.test(String(args.query || '')) &&\n  (args.freshness !== undefined || args.count !== undefined);\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/web_fetch fetch docs page",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Fetch and extract the readable content from https://opencode.ai/docs/tools/.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "web_fetch",
+                "description": "Fetch a URL and extract readable text",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst url = String(parsed.tool_calls[0]?.function?.arguments?.url || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'web_fetch' &&\n  /https:\\/\\/opencode\\.ai\\/docs\\/tools\\/?/.test(url);\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/browser navigate to docs",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Open https://example.com in the managed browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_navigate",
+                "description": "Navigate the managed browser to a URL",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "profile": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_navigate' &&\n  /https:\\/\\/example\\.com/.test(String(parsed.tool_calls[0].function.arguments.url || ''));\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/browser snapshot current page",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Get a snapshot of the current browser page.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_snapshot",
+                "description": "Capture a browser snapshot",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "profile": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_snapshot';\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/browser click by selector",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Click the Sign in button in the managed browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_click",
+                "description": "Click an element in the browser",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "selector": {
+                      "type": "string"
+                    },
+                    "profile": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "selector"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst selector = String(parsed.tool_calls[0]?.function?.arguments?.selector || '');\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_click' &&\n  selector.length > 0;\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/browser type credentials",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Type syl@example.com into the email field in the managed browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_type",
+                "description": "Type into a browser field",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "selector": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "profile": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "selector",
+                    "text"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst args = parsed.tool_calls[0]?.function?.arguments || {};\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_type' &&\n  /@/.test(String(args.text || '')) &&\n  String(args.selector || '').length > 0;\n"
+          }
+        ]
+      },
+      {
+        "description": "openclaw/browser press enter",
+        "metadata": {
+          "suite": "openclaw_primary",
+          "source_type": "primary_source",
+          "source_urls": [
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/exec.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/apply-patch.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/web.md",
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/tools/browser.md"
+          ],
+          "framework": "OpenClaw",
+          "classification": "not_yet_classified"
+        },
+        "vars": {
+          "prompt": "Press Enter in the managed browser.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "browser_press",
+                "description": "Press a keyboard key in the browser",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "profile": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'browser_press' &&\n  /enter/i.test(String(parsed.tool_calls[0].function.arguments.key || ''));\n"
+          }
+        ]
+      }
+    ],
+    "scenarios": [],
+    "env": {},
+    "outputPath": [
+      "/Volumes/Crucial4TB/promptfoo/data/maclocal-api/current/openclaw-adaptive-xml-grammar-mlx-community_Qwen3.6-27B-4bit.json"
+    ],
+    "extensions": [],
+    "metadata": {},
+    "evaluateOptions": {}
+  },
+  "shareableUrl": null,
+  "metadata": {
+    "promptfooVersion": "0.121.9",
+    "nodeVersion": "v24.0.1",
+    "platform": "darwin",
+    "arch": "arm64",
+    "exportedAt": "2026-06-13T06:25:40.205Z",
+    "evaluationCreatedAt": "2026-06-13T06:24:23.133Z"
+  }
+}
