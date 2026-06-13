@@ -7,8 +7,8 @@ import AppKit
 #endif
 import Logging
 // Storage key for the continuation
-struct ContinuationKey: StorageKey {
-    typealias Value = CheckedContinuation<Void, Error>
+public struct ContinuationKey: StorageKey {
+    public typealias Value = CheckedContinuation<Void, Error>
 }
 
 /// Storage key for the per-request correlation ID (T1.1).
@@ -166,7 +166,7 @@ struct ActiveConnectionsMiddleware: AsyncMiddleware {
 // references that aren't Sendable-audited. Lifecycle (start/shutdown) is driven
 // from a single controlling flow and the closures it spawns only read immutable
 // configuration or hop to @MainActor, so cross-task sharing is safe in practice.
-class Server: @unchecked Sendable {
+public class Server: @unchecked Sendable {
     private let app: Application
     private let port: Int
     private let hostname: String
@@ -205,7 +205,7 @@ class Server: @unchecked Sendable {
         return false
     }()
 
-    init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, telegramConfiguration: TelegramConfiguration? = nil, defaultGuidedJsonSchema: ResponseFormat? = nil, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil) async throws {
+    public init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, telegramConfiguration: TelegramConfiguration? = nil, defaultGuidedJsonSchema: ResponseFormat? = nil, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -1596,7 +1596,7 @@ class Server: @unchecked Sendable {
         return Response(status: .ok, headers: headers, body: .init(string: htmlString))
     }
     
-    func start() async throws {
+    public func start() async throws {
         // Print ASCII art splash screen
         let version = BuildInfo.version ?? "dev-build"
 
@@ -1759,7 +1759,7 @@ class Server: @unchecked Sendable {
         }
     }
     
-    func shutdown() {
+    public func shutdown() {
         print("🛑 Shutting down server...")
         telegramBridge?.stop()
         telegramBridge = nil
@@ -2002,10 +2002,13 @@ struct ModelStatus: Content {
     let value: String
 }
 
-struct HealthResponse: Content {
-    let status: String
-    let timestamp: Double
-    let version: String
+public struct HealthResponse: Content {
+    public let status: String
+    public let timestamp: Double
+    public let version: String
+    public init(status: String, timestamp: Double, version: String) {
+        self.status = status; self.timestamp = timestamp; self.version = version
+    }
 }
 
 // MARK: - Props Response (llama.cpp webui compatibility)
@@ -2044,16 +2047,16 @@ struct Modalities: Content {
 }
 
 // Compact log handler that prints "[INFO]" instead of Vapor's padded "[ INFO ]"
-struct CompactLogHandler: LogHandler {
-    var metadata: Logger.Metadata = [:]
-    var logLevel: Logger.Level = .info
+public struct CompactLogHandler: LogHandler {
+    public var metadata: Logger.Metadata = [:]
+    public var logLevel: Logger.Level = .info
     let label: String
 
-    init(label: String) {
+    public init(label: String) {
         self.label = label
     }
 
-    subscript(metadataKey key: String) -> Logger.Metadata.Value? {
+    public subscript(metadataKey key: String) -> Logger.Metadata.Value? {
         get { metadata[key] }
         set { metadata[key] = newValue }
     }
@@ -2065,7 +2068,7 @@ struct CompactLogHandler: LogHandler {
         return f
     }()
 
-    func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?,
+    public func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?,
              source: String, file: String, function: String, line: UInt) {
         let ts = Self.timestampFormatter.string(from: Date())
         let levelStr = level.rawValue.uppercased()

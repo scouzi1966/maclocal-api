@@ -2,7 +2,7 @@ import Vapor
 import Foundation
 
 extension SpeechError: AbortError {
-    var status: HTTPResponseStatus {
+    public var status: HTTPResponseStatus {
         switch self {
         case .platformUnavailable: return .serviceUnavailable
         case .fileNotFound: return .notFound
@@ -14,7 +14,7 @@ extension SpeechError: AbortError {
         }
     }
 
-    var reason: String { errorDescription ?? "Speech error" }
+    public var reason: String { errorDescription ?? "Speech error" }
 }
 
 struct SpeechTranscriptionResponse: Content {
@@ -39,12 +39,15 @@ struct TTSSpeechRequest: Content {
     }
 }
 
-struct VerboseTranscriptionResponse: Content {
-    let text: String
-    let language: String
-    let duration: Double
-    let words: [TranscriptionWord]?
-    let segments: [TranscriptionSegment]?
+public struct VerboseTranscriptionResponse: Content {
+    public let text: String
+    public let language: String
+    public let duration: Double
+    public let words: [TranscriptionWord]?
+    public let segments: [TranscriptionSegment]?
+    public init(text: String, language: String, duration: Double, words: [TranscriptionWord]?, segments: [TranscriptionSegment]?) {
+        self.text = text; self.language = language; self.duration = duration; self.words = words; self.segments = segments
+    }
 }
 
 struct SpeechAPIController: RouteCollection {
