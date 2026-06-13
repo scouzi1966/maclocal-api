@@ -125,7 +125,7 @@ mkdir -p "$STAGING"
 cp "$BIN" "$STAGING/"
 
 # Metallib resource bundle
-BUNDLE_DIR="$(dirname "$BIN")/MacLocalAPI_MacLocalAPI.bundle"
+BUNDLE_DIR="$(dirname "$BIN")/MacLocalAPI_AFMKit.bundle"
 if [ -d "$BUNDLE_DIR" ]; then
   cp -r "$BUNDLE_DIR" "$STAGING/"
   log_info "Included metallib bundle"
@@ -234,7 +234,7 @@ mkdir -p "$ROOT_DIR/macafm/bin"
 cp "$BIN" "$ROOT_DIR/macafm/bin/"
 
 # Metallib
-METALLIB="$(dirname "$BIN")/MacLocalAPI_MacLocalAPI.bundle/default.metallib"
+METALLIB="$(dirname "$BIN")/MacLocalAPI_AFMKit.bundle/default.metallib"
 if [ -f "$METALLIB" ]; then
   cp "$METALLIB" "$ROOT_DIR/macafm/bin/"
   log_info "  Staged default.metallib"

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import MacLocalAPI
+@testable import AFMKit
 
 /// Unit tests for Phase 1 concurrent batching internals:
 /// RequestSlot, StreamChunk, and BatchScheduler queuing logic.

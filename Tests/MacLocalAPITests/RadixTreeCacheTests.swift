@@ -2,7 +2,7 @@ import Foundation
 import MLX
 import Testing
 
-@testable import MacLocalAPI
+@testable import AFMKit
 
 struct RadixTreeCacheTests {
 // dimensions: prefix_caching=on

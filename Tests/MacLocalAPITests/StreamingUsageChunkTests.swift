@@ -1,5 +1,5 @@
 import XCTest
-@testable import MacLocalAPI
+@testable import AFMKit
 
 final class StreamingUsageChunkTests: XCTestCase {
 // dimensions: streaming=true, execution=serial
