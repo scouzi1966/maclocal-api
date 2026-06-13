@@ -80,9 +80,13 @@ struct StreamOptions: Content {
 
 // MARK: - Response format
 
-struct ResponseFormat: Content {
-    let type: String                    // "text", "json_object", "json_schema"
-    let jsonSchema: ResponseJsonSchema? // only for type="json_schema"
+public struct ResponseFormat: Content {
+    public let type: String                    // "text", "json_object", "json_schema"
+    public let jsonSchema: ResponseJsonSchema? // only for type="json_schema"
+
+    public init(type: String, jsonSchema: ResponseJsonSchema? = nil) {
+        self.type = type; self.jsonSchema = jsonSchema
+    }
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -90,25 +94,28 @@ struct ResponseFormat: Content {
     }
 }
 
-struct ResponseJsonSchema: Content {
-    let name: String?
-    let description: String?
-    let schema: AnyCodable?
-    let strict: Bool?
+public struct ResponseJsonSchema: Content {
+    public let name: String?
+    public let description: String?
+    public let schema: AnyCodable?
+    public let strict: Bool?
+    public init(name: String?, description: String?, schema: AnyCodable?, strict: Bool?) {
+        self.name = name; self.description = description; self.schema = schema; self.strict = strict
+    }
 }
 
 // MARK: - Tool definitions
 
-struct RequestTool: Content {
-    let type: String          // "function"
-    let function: RequestToolFunction
+public struct RequestTool: Content {
+    public let type: String          // "function"
+    public let function: RequestToolFunction
 }
 
-struct RequestToolFunction: Content {
-    let name: String
-    let description: String?
-    let parameters: AnyCodable?
-    let strict: Bool?
+public struct RequestToolFunction: Content {
+    public let name: String
+    public let description: String?
+    public let parameters: AnyCodable?
+    public let strict: Bool?
 }
 
 enum ToolChoice: Codable {
@@ -138,7 +145,7 @@ enum ToolChoice: Codable {
         }
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
         case .mode(let str):
@@ -152,11 +159,11 @@ enum ToolChoice: Codable {
 // MARK: - Message content
 
 /// Content can be a simple string or an array of content parts (multimodal)
-enum MessageContent: Codable {
+public enum MessageContent: Codable, Sendable {
     case text(String)
     case parts([ContentPart])
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if let string = try? container.decode(String.self) {
             self = .text(string)
@@ -170,7 +177,7 @@ enum MessageContent: Codable {
         }
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
         case .text(let string):
@@ -181,13 +188,13 @@ enum MessageContent: Codable {
     }
 }
 
-struct ContentPart: Codable {
-    let type: String        // "text", "image_url", or "input_audio"
-    let text: String?       // For type="text"
-    let image_url: ImageURL? // For type="image_url"
-    let input_audio: InputAudio? // For type="input_audio"
+public struct ContentPart: Codable, Sendable {
+    public let type: String        // "text", "image_url", or "input_audio"
+    public let text: String?       // For type="text"
+    public let image_url: ImageURL? // For type="image_url"
+    public let input_audio: InputAudio? // For type="input_audio"
 
-    init(type: String, text: String? = nil, image_url: ImageURL? = nil, input_audio: InputAudio? = nil) {
+    public init(type: String, text: String? = nil, image_url: ImageURL? = nil, input_audio: InputAudio? = nil) {
         self.type = type
         self.text = text
         self.image_url = image_url
@@ -195,18 +202,19 @@ struct ContentPart: Codable {
     }
 }
 
-struct ImageURL: Codable {
-    let url: String  // "data:image/png;base64,..." or URL
-    let detail: String?  // "auto", "low", "high" (optional)
+public struct ImageURL: Codable, Sendable {
+    public let url: String  // "data:image/png;base64,..." or URL
+    public let detail: String?  // "auto", "low", "high" (optional)
+    public init(url: String, detail: String?) { self.url = url; self.detail = detail }
 }
 
-struct InputAudio: Codable {
-    let data: String   // base64-encoded audio
-    let format: String // "wav", "mp3", etc.
-    let language: String? // locale for transcription (e.g. "en-US", "ja-JP")
+public struct InputAudio: Codable, Sendable {
+    public let data: String   // base64-encoded audio
+    public let format: String // "wav", "mp3", etc.
+    public let language: String? // locale for transcription (e.g. "en-US", "ja-JP")
 }
 
-struct Message: Content {
+public struct Message: Content {
     let role: String
     let content: MessageContent?    // optional — null for tool-call assistant messages
     let toolCalls: [MessageToolCall]?
@@ -222,7 +230,7 @@ struct Message: Content {
     }
 
     /// Convenience initializer for simple text messages
-    init(role: String, content: String) {
+    public init(role: String, content: String) {
         self.role = role
         self.content = .text(content)
         self.toolCalls = nil
@@ -230,7 +238,7 @@ struct Message: Content {
         self.name = nil
     }
 
-    init(role: String, content: MessageContent?) {
+    public init(role: String, content: MessageContent?) {
         self.role = role
         self.content = content
         self.toolCalls = nil
@@ -284,20 +292,20 @@ struct MessageToolCallFunction: Content {
 // MARK: - AnyCodable
 
 /// Wraps arbitrary JSON values for decoding/encoding tool parameter schemas.
-struct AnyCodable: Codable, Sendable {
+public struct AnyCodable: Codable, Sendable {
     let value: AnyCodableValue
 
-    init(_ value: Any) {
+    public init(_ value: Any) {
         self.value = AnyCodableValue.from(value)
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         self.value = try AnyCodableValue(from: decoder)
         _ = container  // suppress warning
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         try value.encode(to: encoder)
     }
 

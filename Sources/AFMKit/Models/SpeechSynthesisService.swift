@@ -3,7 +3,7 @@ import Foundation
 @preconcurrency import AVFoundation
 import os
 
-enum SpeechSynthesisError: Error, LocalizedError {
+public enum SpeechSynthesisError: Error, LocalizedError {
     case platformUnavailable
     case inputTooLong(actualChars: Int, maxChars: Int)
     case emptyInput
@@ -12,7 +12,7 @@ enum SpeechSynthesisError: Error, LocalizedError {
     case synthesisFailed(String)
     case unsupportedFormat(String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .platformUnavailable:
             return "Text-to-speech requires macOS 13.0 or later"
@@ -32,7 +32,7 @@ enum SpeechSynthesisError: Error, LocalizedError {
     }
 }
 
-enum TTSAudioFormat: String, Sendable, CaseIterable {
+public enum TTSAudioFormat: String, Sendable, CaseIterable {
     case aac
     case wav
     case caf
@@ -72,7 +72,7 @@ enum OpenAIVoiceName: String, CaseIterable {
     }
 }
 
-struct TTSRequestOptions: Sendable {
+public struct TTSRequestOptions: Sendable {
     static let maxInputCharacters = 4096
     static let synthesisTimeoutNs: UInt64 = 120_000_000_000
     static let encodeTimeoutNs: UInt64 = 30_000_000_000  // 30s for afconvert
@@ -83,7 +83,7 @@ struct TTSRequestOptions: Sendable {
     let speed: Float
     let format: TTSAudioFormat
 
-    init(
+    public init(
         voice: String? = "alloy",
         appleVoice: String? = nil,
         locale: String = "en-US",
@@ -98,21 +98,24 @@ struct TTSRequestOptions: Sendable {
     }
 }
 
-struct VoiceInfo: Sendable, Codable {
-    let id: String
-    let name: String
-    let locale: String
-    let gender: String
-    let quality: String
+public struct VoiceInfo: Sendable, Codable {
+    public let id: String
+    public let name: String
+    public let locale: String
+    public let gender: String
+    public let quality: String
+    public init(id: String, name: String, locale: String, gender: String, quality: String) {
+        self.id = id; self.name = name; self.locale = locale; self.gender = gender; self.quality = quality
+    }
 }
 
 @available(macOS 13.0, *)
-final class SpeechSynthesisService: NSObject, @unchecked Sendable {
+public final class SpeechSynthesisService: NSObject, @unchecked Sendable {
 
     static let speedMinimum: Float = 0.25
     static let speedMaximum: Float = 4.0
 
-    static func listVoices(locale: String? = nil) -> [VoiceInfo] {
+    public static func listVoices(locale: String? = nil) -> [VoiceInfo] {
         let voices = AVSpeechSynthesisVoice.speechVoices()
         let filtered: [AVSpeechSynthesisVoice]
         if let locale = locale {
@@ -141,7 +144,7 @@ final class SpeechSynthesisService: NSObject, @unchecked Sendable {
         }
     }
 
-    func synthesize(text: String, options: TTSRequestOptions) async throws -> Data {
+    public func synthesize(text: String, options: TTSRequestOptions) async throws -> Data {
         guard !text.isEmpty else {
             throw SpeechSynthesisError.emptyInput
         }

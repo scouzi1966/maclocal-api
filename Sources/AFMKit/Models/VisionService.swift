@@ -5,7 +5,7 @@ import ImageIO
 import PDFKit
 import Quartz
 
-enum VisionError: Error, LocalizedError {
+public enum VisionError: Error, LocalizedError {
     case platformUnavailable
     case missingInput
     case fileNotFound
@@ -23,7 +23,7 @@ enum VisionError: Error, LocalizedError {
     case fileTooLarge(bytes: Int, maxBytes: Int)
     case modeRequiresMacOS26(String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .platformUnavailable:
             return "Apple Vision OCR requires macOS 26.0 or later"
@@ -65,11 +65,11 @@ enum VisionError: Error, LocalizedError {
     }
 }
 
-enum VisionRecognitionLevel: String, Sendable {
+public enum VisionRecognitionLevel: String, Sendable {
     case accurate
     case fast
 
-    var requestLevel: VNRequestTextRecognitionLevel {
+    public var requestLevel: VNRequestTextRecognitionLevel {
         switch self {
         case .accurate:
             return .accurate
@@ -79,10 +79,10 @@ enum VisionRecognitionLevel: String, Sendable {
     }
 }
 
-struct VisionRequestOptions: Sendable {
-    static let defaultMaxPages = 50
-    static let defaultMaxImageDimension = 4096
-    static let defaultMaxFileBytes: Int = 25 * 1024 * 1024  // 25 MB
+public struct VisionRequestOptions: Sendable {
+    public static let defaultMaxPages = 50
+    public static let defaultMaxImageDimension = 4096
+    public static let defaultMaxFileBytes: Int = 25 * 1024 * 1024  // 25 MB
 
     /// Single source of truth for file extensions accepted by the Vision OCR
     /// pipeline.  CGImageSource handles the image formats natively; PDF is
@@ -99,7 +99,7 @@ struct VisionRequestOptions: Sendable {
     let maxPages: Int
     let maxImageDimension: Int
 
-    init(
+    public init(
         recognitionLevel: VisionRecognitionLevel = .accurate,
         usesLanguageCorrection: Bool = true,
         recognitionLanguages: [String] = [],
@@ -116,59 +116,60 @@ struct VisionRequestOptions: Sendable {
 
 // MARK: - New vision mode result types
 
-struct BarcodeResult: Sendable {
-    let type: String
-    let payload: String
-    let boundingBox: CGRect
-    let confidence: Float
+public struct BarcodeResult: Sendable {
+    public let type: String
+    public let payload: String
+    public let boundingBox: CGRect
+    public let confidence: Float
 }
 
-struct ClassificationLabel: Sendable {
-    let label: String
-    let confidence: Float
+public struct ClassificationLabel: Sendable {
+    public let label: String
+    public let confidence: Float
 }
 
-struct ClassifyResult: Sendable {
-    let labels: [ClassificationLabel]
-    let salientRegions: [CGRect]
+public struct ClassifyResult: Sendable {
+    public let labels: [ClassificationLabel]
+    public let salientRegions: [CGRect]
 }
 
-struct SaliencyRegion: Sendable {
-    let type: String
-    let boundingBox: CGRect
+public struct SaliencyRegion: Sendable {
+    public let type: String
+    public let boundingBox: CGRect
 }
 
-struct SaliencyResult: Sendable {
-    let regions: [SaliencyRegion]
-    let heatMapPNG: Data?
+public struct SaliencyResult: Sendable {
+    public let regions: [SaliencyRegion]
+    public let heatMapPNG: Data?
 }
 
 // MARK: - VisionService (no class-level macOS restriction)
 
-final class VisionService {
-    static let imageOnlyExtensions: Set<String> = ["png", "jpg", "jpeg", "heic"]
+public final class VisionService {
+    public init() {}
+    public static let imageOnlyExtensions: Set<String> = ["png", "jpg", "jpeg", "heic"]
     private static let pdfRenderScale: CGFloat = 2.0
 
     // MARK: - Text extraction (macOS 26+)
 
     @available(macOS 26.0, *)
-    func extractText(from filePath: String) async throws -> String {
+    public func extractText(from filePath: String) async throws -> String {
         try await extractText(from: filePath, options: VisionRequestOptions())
     }
 
     @available(macOS 26.0, *)
-    func extractText(from filePath: String, options: VisionRequestOptions) async throws -> String {
+    public func extractText(from filePath: String, options: VisionRequestOptions) async throws -> String {
         let result = try await extractTextWithDetails(from: filePath, options: options)
         return result.fullText
     }
 
     @available(macOS 26.0, *)
-    func extractTextWithDetails(from filePath: String) async throws -> VisionResult {
+    public func extractTextWithDetails(from filePath: String) async throws -> VisionResult {
         try await extractTextWithDetails(from: filePath, options: VisionRequestOptions())
     }
 
     @available(macOS 26.0, *)
-    func extractTextWithDetails(from filePath: String, options: VisionRequestOptions) async throws -> VisionResult {
+    public func extractTextWithDetails(from filePath: String, options: VisionRequestOptions) async throws -> VisionResult {
         let document = try analyzeDocument(at: filePath, options: options)
         let textBlocks = document.pages.flatMap(\.textBlocks)
         guard !textBlocks.isEmpty else {
@@ -184,12 +185,12 @@ final class VisionService {
     }
 
     @available(macOS 26.0, *)
-    func extractTables(from filePath: String) async throws -> [TableResult] {
+    public func extractTables(from filePath: String) async throws -> [TableResult] {
         try await extractTables(from: filePath, options: VisionRequestOptions())
     }
 
     @available(macOS 26.0, *)
-    func extractTables(from filePath: String, options: VisionRequestOptions) async throws -> [TableResult] {
+    public func extractTables(from filePath: String, options: VisionRequestOptions) async throws -> [TableResult] {
         let document = try analyzeDocument(at: filePath, options: options)
         let tables = document.pages.flatMap(\.tables)
         guard !tables.isEmpty else {
@@ -199,12 +200,12 @@ final class VisionService {
     }
 
     @available(macOS 26.0, *)
-    func debugRawDetection(from filePath: String) async throws -> String {
+    public func debugRawDetection(from filePath: String) async throws -> String {
         try await debugRawDetection(from: filePath, options: VisionRequestOptions())
     }
 
     @available(macOS 26.0, *)
-    func debugRawDetection(from filePath: String, options: VisionRequestOptions) async throws -> String {
+    public func debugRawDetection(from filePath: String, options: VisionRequestOptions) async throws -> String {
         let (url, fileExtension) = try validateFile(at: filePath)
         let pageSources = try createPageSources(from: url, fileExtension: fileExtension, options: options)
         var sections: [String] = []
@@ -246,7 +247,7 @@ final class VisionService {
 
     // MARK: - Barcode detection (macOS 13+)
 
-    func detectBarcodes(from filePath: String, options: VisionRequestOptions = VisionRequestOptions()) throws -> [BarcodeResult] {
+    public func detectBarcodes(from filePath: String, options: VisionRequestOptions = VisionRequestOptions()) throws -> [BarcodeResult] {
         let (url, _) = try validateFile(at: filePath, allowedExtensions: Self.imageOnlyExtensions)
         guard let imageData = try? Data(contentsOf: url) else {
             throw VisionError.imageLoadingFailed
@@ -270,7 +271,7 @@ final class VisionService {
 
     // MARK: - Image classification (macOS 13+)
 
-    func classifyImage(from filePath: String, maxLabels: Int = 5) throws -> ClassifyResult {
+    public func classifyImage(from filePath: String, maxLabels: Int = 5) throws -> ClassifyResult {
         let clampedMaxLabels = max(maxLabels, 0)
         let (url, _) = try validateFile(at: filePath, allowedExtensions: Self.imageOnlyExtensions)
         guard let imageData = try? Data(contentsOf: url) else {
@@ -306,7 +307,7 @@ final class VisionService {
 
     // MARK: - Saliency detection (macOS 13+)
 
-    func detectSaliency(from filePath: String, type: String = "attention", includeHeatMap: Bool = false) throws -> SaliencyResult {
+    public func detectSaliency(from filePath: String, type: String = "attention", includeHeatMap: Bool = false) throws -> SaliencyResult {
         let (url, _) = try validateFile(at: filePath, allowedExtensions: Self.imageOnlyExtensions)
         guard let imageData = try? Data(contentsOf: url) else {
             throw VisionError.imageLoadingFailed
@@ -343,7 +344,7 @@ final class VisionService {
 
     // MARK: - Auto-crop via document segmentation (macOS 13+)
 
-    func autoCrop(imageData: Data) throws -> Data {
+    public func autoCrop(imageData: Data) throws -> Data {
         let handler = VNImageRequestHandler(data: imageData)
         let request = VNDetectDocumentSegmentationRequest()
 
@@ -387,7 +388,7 @@ final class VisionService {
 
     // MARK: - Internal helpers
 
-    func validateFile(at filePath: String, maxBytes: Int = VisionRequestOptions.defaultMaxFileBytes, allowedExtensions: Set<String>? = nil) throws -> (URL, String) {
+    public func validateFile(at filePath: String, maxBytes: Int = VisionRequestOptions.defaultMaxFileBytes, allowedExtensions: Set<String>? = nil) throws -> (URL, String) {
         let url = URL(fileURLWithPath: filePath)
         guard FileManager.default.fileExists(atPath: filePath) else {
             throw VisionError.fileNotFound
@@ -638,27 +639,27 @@ private struct VisionPageSource {
     let size: CGSize
 }
 
-struct VisionDocumentResult {
-    let filePath: String
-    let fullText: String
-    let pages: [VisionPageResult]
-    let documentHints: [String]
+public struct VisionDocumentResult {
+    public let filePath: String
+    public let fullText: String
+    public let pages: [VisionPageResult]
+    public let documentHints: [String]
 }
 
-struct VisionPageResult {
-    let pageNumber: Int
-    let fullText: String
-    let textBlocks: [TextBlock]
-    let tables: [TableResult]
-    let width: Double
-    let height: Double
+public struct VisionPageResult {
+    public let pageNumber: Int
+    public let fullText: String
+    public let textBlocks: [TextBlock]
+    public let tables: [TableResult]
+    public let width: Double
+    public let height: Double
 }
 
-struct TextBlock {
-    let text: String
-    let confidence: Float
-    let boundingBox: CGRect
-    let pageNumber: Int
+public struct TextBlock {
+    public let text: String
+    public let confidence: Float
+    public let boundingBox: CGRect
+    public let pageNumber: Int
 
     init(text: String, confidence: Float, boundingBox: CGRect, pageNumber: Int = 1) {
         self.text = text
@@ -668,12 +669,12 @@ struct TextBlock {
     }
 }
 
-struct VisionResult {
-    let fullText: String
-    let textBlocks: [TextBlock]
-    let filePath: String
-    let pages: [VisionPageResult]
-    let documentHints: [String]
+public struct VisionResult {
+    public let fullText: String
+    public let textBlocks: [TextBlock]
+    public let filePath: String
+    public let pages: [VisionPageResult]
+    public let documentHints: [String]
 
     init(
         fullText: String,
@@ -690,11 +691,11 @@ struct VisionResult {
     }
 }
 
-struct PositionedTextBlock {
-    let text: String
-    let confidence: Float
-    let boundingBox: CGRect
-    let pageNumber: Int
+public struct PositionedTextBlock {
+    public let text: String
+    public let confidence: Float
+    public let boundingBox: CGRect
+    public let pageNumber: Int
 
     init(text: String, confidence: Float, boundingBox: CGRect, pageNumber: Int = 1) {
         self.text = text
@@ -704,15 +705,15 @@ struct PositionedTextBlock {
     }
 }
 
-struct TableResult {
-    let rows: [[String]]
-    let columnCount: Int
-    let averageConfidence: Float
-    let boundingBox: CGRect
-    let pageNumber: Int
-    let headers: [String]
-    let rowObjects: [[String: String]]
-    let mergedCellHints: [String]
+public struct TableResult {
+    public let rows: [[String]]
+    public let columnCount: Int
+    public let averageConfidence: Float
+    public let boundingBox: CGRect
+    public let pageNumber: Int
+    public let headers: [String]
+    public let rowObjects: [[String: String]]
+    public let mergedCellHints: [String]
 
     init(
         rows: [[String]],
@@ -734,7 +735,7 @@ struct TableResult {
         self.mergedCellHints = mergedCellHints
     }
 
-    var csvData: String {
+    public var csvData: String {
         let cleanedRows = rows.compactMap { row -> String? in
             var cleanRow = row
             while cleanRow.last?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
@@ -758,7 +759,7 @@ struct TableResult {
 }
 
 final class TableAnalyzer {
-    func detectTables(from textBlocks: [PositionedTextBlock], pageNumber: Int) -> [TableResult] {
+    public func detectTables(from textBlocks: [PositionedTextBlock], pageNumber: Int) -> [TableResult] {
         let sortedBlocks = textBlocks.sorted { first, second in
             if abs(first.boundingBox.origin.y - second.boundingBox.origin.y) < 0.01 {
                 return first.boundingBox.origin.x < second.boundingBox.origin.x

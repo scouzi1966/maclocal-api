@@ -94,8 +94,8 @@ struct EmbeddingsCommand: ParsableCommand {
         try await nlBackend.prepare()
         guard let resolvedEntry = registry.makeResolvedAppleEntry(
             modelID: requestedEntry.id,
-            nativeDimension: nlBackend.nativeDimension,
-            maxInputTokens: nlBackend.maxInputTokens
+            nativeDimension: await nlBackend.nativeDimension,
+            maxInputTokens: await nlBackend.maxInputTokens
         ) else {
             throw ValidationError("Failed to resolve Apple embedding metadata for \(requestedEntry.id)")
         }
