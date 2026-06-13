@@ -11,9 +11,16 @@ let package = Package(
         .macOS("26.0")
     ],
     products: [
+        // Headless, SPM-importable library: model loading + inference + OpenAI-compatible
+        // services + the HTTP server. `import AFMKit` from another package/app.
+        .library(
+            name: "AFMKit",
+            targets: ["AFMKit"]
+        ),
+        // The `afm` CLI executable (thin wrapper over AFMKit).
         .executable(
             name: "afm",
-            targets: ["MacLocalAPI"]
+            targets: ["AFMCLI"]
         )
     ],
     dependencies: [
@@ -61,8 +68,9 @@ let package = Package(
                 .unsafeFlags(["-ffile-prefix-map=\(packageDir)/Sources/CXGrammar/="])
             ]
         ),
-        .executableTarget(
-            name: "MacLocalAPI",
+        // Core library — all reusable inference/service/server code. Importable via SPM.
+        .target(
+            name: "AFMKit",
             dependencies: [
                 "CXGrammar",
                 .product(name: "Vapor", package: "vapor"),
@@ -72,11 +80,6 @@ let package = Package(
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
                 .product(name: "Hub", package: "swift-transformers"),
                 .product(name: "HuggingFace", package: "swift-huggingface")
-            ],
-            exclude: [
-                // Embedded into the binary's __TEXT,__info_plist section via linker flags below.
-                // Excluded from SPM resource processing so it isn't also copied into the bundle.
-                "Info.plist"
             ],
             resources: [
                 .copy("Resources/default.metallib")
@@ -89,6 +92,33 @@ let package = Package(
                 .unsafeFlags(["-file-prefix-map", "\(packageDir)/="], .when(configuration: .release))
             ],
             linkerSettings: [
+                .linkedFramework("Security"),
+                .linkedFramework("IOKit"),
+                .linkedLibrary("IOReport"),
+                .linkedLibrary("sqlite3")
+            ]
+        ),
+        // Thin CLI executable over AFMKit.
+        .executableTarget(
+            name: "AFMCLI",
+            dependencies: [
+                "AFMKit",
+                .product(name: "Vapor", package: "vapor"),
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "MLXLLM", package: "mlx-swift-lm"),
+                .product(name: "MLXVLM", package: "mlx-swift-lm"),
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm")
+            ],
+            exclude: [
+                // Embedded into the binary's __TEXT,__info_plist section via linker flags below.
+                "Info.plist"
+            ],
+            swiftSettings: [
+                .unsafeFlags(["-cross-module-optimization"], .when(configuration: .release)),
+                .unsafeFlags(["-O"], .when(configuration: .release)),
+                .unsafeFlags(["-file-prefix-map", "\(packageDir)/="], .when(configuration: .release))
+            ],
+            linkerSettings: [
                 // Embed Info.plist with NSSpeechRecognitionUsageDescription into the binary's
                 // __TEXT,__info_plist section. macOS 26 SIGABRTs any process that requests
                 // privacy-sensitive APIs (Speech Recognition, microphone, camera, etc.) without
@@ -98,22 +128,18 @@ let package = Package(
                     "-Xlinker", "-sectcreate",
                     "-Xlinker", "__TEXT",
                     "-Xlinker", "__info_plist",
-                    "-Xlinker", "\(packageDir)/Sources/MacLocalAPI/Info.plist"
+                    "-Xlinker", "\(packageDir)/Sources/AFMCLI/Info.plist"
                 ]),
                 // Create a more portable executable
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path"], .when(configuration: .release)),
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "/usr/lib/swift"], .when(configuration: .release)),
-                .unsafeFlags(["-Xlinker", "-dead_strip"], .when(configuration: .release)),
-                .linkedFramework("Security"),
-                .linkedFramework("IOKit"),
-                .linkedLibrary("IOReport"),
-                .linkedLibrary("sqlite3")
+                .unsafeFlags(["-Xlinker", "-dead_strip"], .when(configuration: .release))
             ]
         ),
         .testTarget(
             name: "MacLocalAPITests",
             dependencies: [
-                "MacLocalAPI",
+                "AFMKit",
                 .product(name: "Jinja", package: "swift-jinja"),
                 .product(name: "XCTVapor", package: "vapor"),
                 .product(name: "VaporTesting", package: "vapor"),

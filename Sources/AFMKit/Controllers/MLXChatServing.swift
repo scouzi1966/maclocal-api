@@ -1,0 +1,144 @@
+import Foundation
+
+typealias ChatGenerationResult = (
+    modelID: String,
+    content: String,
+    promptTokens: Int,
+    completionTokens: Int,
+    tokenLogprobs: [ResolvedLogprob]?,
+    toolCalls: [ResponseToolCall]?,
+    cachedTokens: Int,
+    promptTime: Double,
+    generateTime: Double,
+    stoppedBySequence: Bool
+)
+
+typealias ChatStreamingResult = (
+    modelID: String,
+    stream: AsyncThrowingStream<StreamChunk, Error>,
+    promptTokens: Int,
+    toolCallStartTag: String?,
+    toolCallEndTag: String?,
+    thinkStartTag: String?,
+    thinkEndTag: String?
+)
+
+protocol MLXChatServing: Sendable {
+    var maxConcurrent: Int { get }
+    var toolCallParser: String? { get }
+    var supportsStrictToolGrammar: Bool { get }
+    var thinkStartTag: String? { get }
+    var thinkEndTag: String? { get }
+    var harmonyChannels: Bool { get }
+    var fixToolArgs: Bool { get }
+    var enableGrammarConstraints: Bool { get }
+    var defaultGuidedJsonSchema: ResponseFormat? { get }
+
+    /// Resolve effective response format: per-request format wins, falls back to server default.
+    func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat?
+
+    func normalizeModel(_ raw: String) -> String
+    func resolvedToolCallParser(logBypass: Bool) -> String?
+    func tryReserveSlot() -> Bool
+    func waitForSlot(timeout: TimeInterval) async -> Bool
+    func releaseSlot()
+
+    func ensureBatchMode(concurrency: Int) async throws
+    func releaseBatchReference()
+    func cancelBatchSlots(ids: Set<UUID>) async
+
+    func startAPIProfile()
+    func stopAPIProfile(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) -> AFMProfile
+    func stopAPIProfileExtended(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) -> AFMProfileExtended
+
+    func generate(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?
+    ) async throws -> ChatGenerationResult
+
+    func generateStreaming(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        requestId: String?
+    ) async throws -> ChatStreamingResult
+}
+
+extension MLXChatServing {
+    var defaultGuidedJsonSchema: ResponseFormat? { nil }
+    var harmonyChannels: Bool { false }
+
+    func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? {
+        requestFormat ?? defaultGuidedJsonSchema
+    }
+
+    func waitForSlot(timeout: TimeInterval) async -> Bool {
+        if Task.isCancelled { return false }
+        if timeout <= 0 {
+            return tryReserveSlot()
+        }
+
+        if tryReserveSlot() { return true }
+
+        // Exponential backoff matching BatchScheduler pattern
+        let initialPollNs: UInt64 = 10_000_000   // 10ms
+        let maxPollNs: UInt64     = 500_000_000   // 500ms
+        let deadline = ContinuousClock.now + .seconds(timeout)
+        var delay = initialPollNs
+
+        while ContinuousClock.now < deadline {
+            if Task.isCancelled { return false }
+            try? await Task.sleep(nanoseconds: delay)
+            if Task.isCancelled { return false }
+            if tryReserveSlot() { return true }
+            delay = min(delay * 2, maxPollNs)
+        }
+        return false
+    }
+
+    /// Convenience overload without requestId for batch/internal callers.
+    func generateStreaming(
+        model: String, messages: [Message], temperature: Double?, maxTokens: Int?,
+        topP: Double?, repetitionPenalty: Double?, topK: Int?, minP: Double?,
+        presencePenalty: Double?, seed: Int?, logprobs: Bool?, topLogprobs: Int?,
+        tools: [RequestTool]?, stop: [String]?, responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?
+    ) async throws -> ChatStreamingResult {
+        try await generateStreaming(
+            model: model, messages: messages, temperature: temperature, maxTokens: maxTokens,
+            topP: topP, repetitionPenalty: repetitionPenalty, topK: topK, minP: minP,
+            presencePenalty: presencePenalty, seed: seed, logprobs: logprobs, topLogprobs: topLogprobs,
+            tools: tools, stop: stop, responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs, requestId: nil
+        )
+    }
+}
+
+extension MLXModelService: MLXChatServing {}

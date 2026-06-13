@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.scouzi1966.afm</string>
+    <key>CFBundleName</key>
+    <string>afm</string>
+    <key>CFBundleExecutable</key>
+    <string>afm</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>afm uses on-device Apple Speech Recognition to transcribe audio you provide via the `afm speech` CLI, the `/v1/audio/transcriptions` API, and chat completions that include `input_audio` content parts.</string>
+</dict>
+</plist>
