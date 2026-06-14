@@ -58,7 +58,7 @@ brew install scouzi1966/afm/afm-next@0.9.11-next.9c3225e.20260418
 ```bash
 pip install macafm==0.9.10                  # previous stable
 pip install --extra-index-url https://maclocal-ai.pages.dev/afm/wheels/simple/ \
-  macafm-next==0.9.13.dev20260613           # pinned nightly
+  macafm-next==0.9.13.dev20260614           # pinned nightly
 ```
 
 > [!NOTE]
