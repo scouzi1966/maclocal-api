@@ -10,7 +10,7 @@ import Foundation
 ///   loaded lazily on first use (`LazyAppleEmbeddingResolver`), so a chat-only
 ///   server pays nothing for embeddings until the first request. The lazy path
 ///   only ever touches Apple NL — it never triggers `MLXMetalLibrary` init.
-protocol EmbeddingBackendResolver: Sendable {
+public protocol EmbeddingBackendResolver: Sendable {
     /// Resolve the backend for the requested model id (`nil` → the default model).
     /// Throws `EmbeddingError.modelNotFound` for an unknown id.
     func resolve(requestedModelID: String?) async throws -> (entry: EmbeddingModelEntry, backend: any EmbeddingBackend)
@@ -20,26 +20,33 @@ protocol EmbeddingBackendResolver: Sendable {
 }
 
 /// Serves a single, already-loaded backend (the `afm embed` standalone server).
-struct PreloadedEmbeddingResolver: EmbeddingBackendResolver {
-    let entry: EmbeddingModelEntry
-    let backend: any EmbeddingBackend
+public struct PreloadedEmbeddingResolver: EmbeddingBackendResolver {
+    public let entry: EmbeddingModelEntry
+    public let backend: any EmbeddingBackend
 
-    func resolve(requestedModelID: String?) async throws -> (entry: EmbeddingModelEntry, backend: any EmbeddingBackend) {
+    public init(entry: EmbeddingModelEntry, backend: any EmbeddingBackend) {
+        self.entry = entry
+        self.backend = backend
+    }
+
+    public func resolve(requestedModelID: String?) async throws -> (entry: EmbeddingModelEntry, backend: any EmbeddingBackend) {
         let requested = (requestedModelID ?? entry.id).trimmingCharacters(in: .whitespacesAndNewlines)
         guard requested == entry.id else { throw EmbeddingError.modelNotFound(requested) }
         return (entry, backend)
     }
 
-    func advertisedModels() async -> [EmbeddingModelEntry] { [entry] }
+    public func advertisedModels() async -> [EmbeddingModelEntry] { [entry] }
 }
 
 /// Lazily loads + caches Apple NaturalLanguage contextual embedding backends on
 /// first use. Apple-only; never initializes MLX. Used by the unified main server.
-actor LazyAppleEmbeddingResolver: EmbeddingBackendResolver {
+public actor LazyAppleEmbeddingResolver: EmbeddingBackendResolver {
     private let registry = EmbeddingModelRegistry()
     private var cache: [String: (entry: EmbeddingModelEntry, backend: any EmbeddingBackend)] = [:]
 
-    func resolve(requestedModelID: String?) async throws -> (entry: EmbeddingModelEntry, backend: any EmbeddingBackend) {
+    public init() {}
+
+    public func resolve(requestedModelID: String?) async throws -> (entry: EmbeddingModelEntry, backend: any EmbeddingBackend) {
         let requested = (requestedModelID ?? EmbeddingModelRegistry.defaultModelID)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let shipped = registry.resolve(modelID: requested) else {
@@ -62,5 +69,5 @@ actor LazyAppleEmbeddingResolver: EmbeddingBackendResolver {
         return pair
     }
 
-    func advertisedModels() async -> [EmbeddingModelEntry] { registry.shippedModels() }
+    public func advertisedModels() async -> [EmbeddingModelEntry] { registry.shippedModels() }
 }
