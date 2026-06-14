@@ -5,7 +5,7 @@ import MLXNN
 import Testing
 @testable import MLXLLM
 
-@testable import MacLocalAPI
+@testable import AFMKit
 
 /// P0b gate for the EAGLE3 port: the dense Gemma4-31B verifier's hidden-state capture hook
 /// (`forwardCapture` @ layers [2,30,57]) must reproduce the mlx-vlm reference captures, and the

@@ -220,7 +220,7 @@ nm -a .build/arm64-apple-macosx/release/afm 2>/dev/null | grep -c 'xgrammar'
 #### Check 5: Metallib bundle present
 
 ```bash
-METALLIB=".build/arm64-apple-macosx/release/MacLocalAPI_MacLocalAPI.bundle/default.metallib"
+METALLIB=".build/arm64-apple-macosx/release/MacLocalAPI_AFMKit.bundle/default.metallib"
 test -f "$METALLIB" && echo "OK: metallib $(du -h "$METALLIB" | cut -f1)" || echo "FAIL: metallib missing"
 # Must exist and be > 1MB (typically ~3.7MB)
 ```
@@ -238,10 +238,10 @@ test -f "Resources/webui/index.html.gz" && echo "OK: webui assets" || echo "FAIL
 #### Check 7: BuildInfo.swift is clean (not left with injected SHA)
 
 ```bash
-grep 'static let version' Sources/MacLocalAPI/BuildInfo.swift
+grep 'static let version' Sources/AFMKit/BuildInfo.swift
 # Must show the base version like: static let version: String? = "v0.9.7"
 # Must NOT show a commit SHA like: static let version: String? = "v0.9.7-3d71b40"
-git diff Sources/MacLocalAPI/BuildInfo.swift
+git diff Sources/AFMKit/BuildInfo.swift
 # Must show no diff (file restored to committed state)
 ```
 
@@ -266,7 +266,7 @@ This is the most critical distribution check. SPM auto-generates `resource_bundl
 # Simulate pip install: copy binary + loose metallib to a temp dir (NO SPM bundle directory)
 TMPDIR=$(mktemp -d)
 cp .build/arm64-apple-macosx/release/afm "$TMPDIR/"
-cp .build/arm64-apple-macosx/release/MacLocalAPI_MacLocalAPI.bundle/default.metallib "$TMPDIR/"
+cp .build/arm64-apple-macosx/release/MacLocalAPI_AFMKit.bundle/default.metallib "$TMPDIR/"
 
 # Must NOT crash with "could not load resource bundle" fatalError
 MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache \
@@ -321,7 +321,7 @@ if otool -l "$BIN" | grep -q '__info_plist'; then
   echo "PASS: __info_plist section present ($PLIST_SIZE bytes)"
 else
   echo "FAIL: Missing __TEXT,__info_plist section"
-  echo "Check Package.swift linker flags (-Xlinker -sectcreate ...) and Sources/MacLocalAPI/Info.plist"
+  echo "Check Package.swift linker flags (-Xlinker -sectcreate ...) and Sources/AFMCLI/Info.plist"
 fi
 
 # Verify NSSpeechRecognitionUsageDescription key is present
@@ -333,13 +333,13 @@ else
 fi
 
 # Verify plist structure is parseable (not corrupted during build)
-plutil -lint Sources/MacLocalAPI/Info.plist
+plutil -lint Sources/AFMCLI/Info.plist
 ```
 
 **Why this matters:** Without the embedded plist, running `afm speech -f foo.wav` (or any endpoint that calls SFSpeechRecognizer) crashes before returning any output. The build script `Scripts/build-from-scratch.sh` already enforces this — but also check here so the publish flow fails loudly if someone bypasses the build script or if Package.swift's linker flags get reverted in a merge.
 
 **Root cause if it fails:**
-1. `Sources/MacLocalAPI/Info.plist` was deleted or renamed
+1. `Sources/AFMCLI/Info.plist` was deleted or renamed
 2. Package.swift's `linkerSettings` lost the `-Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker …` flags
 3. Someone added a new privacy-API usage (microphone, camera) without adding the corresponding `*UsageDescription` key to Info.plist
 
@@ -544,7 +544,7 @@ This loop repeats until the user selects "Publish" or "Cancel". Each iteration i
 
 Before publishing, ask the user **two questions** via AskUserQuestion:
 
-**Question 1 — Version:** Determine the suggested version by reading `Sources/MacLocalAPI/BuildInfo.swift` and extracting the version (strip leading `v`). Present it to the user:
+**Question 1 — Version:** Determine the suggested version by reading `Sources/AFMKit/BuildInfo.swift` and extracting the version (strip leading `v`). Present it to the user:
 
 "Release version? The base version from BuildInfo.swift is `X.Y.Z`. The full nightly version will be `X.Y.Z-next.<sha>.<date>`."
 

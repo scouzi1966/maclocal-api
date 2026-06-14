@@ -84,7 +84,7 @@ echo "Commit message: $(git log -1 --format='%s' $BUILD_SHA)"
 If version was provided as argument, use it. Otherwise derive from `BuildInfo.swift`:
 
 ```bash
-BASE_VERSION=$(grep 'static let version' Sources/MacLocalAPI/BuildInfo.swift \
+BASE_VERSION=$(grep 'static let version' Sources/AFMKit/BuildInfo.swift \
   | sed 's/.*"\(.*\)".*/\1/' | sed 's/^v//')
 ```
 
@@ -119,7 +119,7 @@ PREV_STABLE_URL=$(grep 'url "' "$TAP_DIR/afm.rb" | head -1 | sed 's/.*"\(.*\)".*
 PREV_STABLE_SHA256=$(grep 'sha256 "' "$TAP_DIR/afm.rb" | head -1 | sed 's/.*"\(.*\)".*/\1/')
 
 # Previous version file values
-PREV_BUILDINFO_VERSION=$(grep 'static let version' Sources/MacLocalAPI/BuildInfo.swift | sed 's/.*"\(.*\)".*/\1/')
+PREV_BUILDINFO_VERSION=$(grep 'static let version' Sources/AFMKit/BuildInfo.swift | sed 's/.*"\(.*\)".*/\1/')
 PREV_PYPROJECT_VERSION=$(grep '^version = ' pyproject.toml | sed 's/.*"\(.*\)".*/\1/')
 PREV_INIT_VERSION=$(grep '^__version__' macafm/__init__.py | sed 's/.*"\(.*\)".*/\1/')
 
@@ -167,10 +167,10 @@ git checkout "$BUILD_SHA"
 
 # Update ONLY BuildInfo.swift with stable version
 sed -i '' "s/static let version: String? = \".*\"/static let version: String? = \"v${VERSION}\"/" \
-  Sources/MacLocalAPI/BuildInfo.swift
+  Sources/AFMKit/BuildInfo.swift
 
 # Verify the change
-grep 'static let version' Sources/MacLocalAPI/BuildInfo.swift
+grep 'static let version' Sources/AFMKit/BuildInfo.swift
 # Must show: static let version: String? = "vX.Y.Z"
 ```
 
@@ -315,7 +315,7 @@ echo "PASS: No Bundle.module calls in source"
 # 2. Runtime simulation — copy binary + loose metallib to temp dir (NO SPM bundle)
 TMPDIR=$(mktemp -d)
 cp "$BIN" "$TMPDIR/"
-cp "$(dirname "$BIN")/MacLocalAPI_MacLocalAPI.bundle/default.metallib" "$TMPDIR/"
+cp "$(dirname "$BIN")/MacLocalAPI_AFMKit.bundle/default.metallib" "$TMPDIR/"
 
 MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache \
   "$TMPDIR/afm" mlx -m mlx-community/Qwen3.5-35B-A3B-4bit -s "hello" --max-tokens 5 2>&1 | head -3
@@ -341,7 +341,7 @@ macOS 26 SIGABRTs any process that requests privacy-sensitive APIs (Speech Recog
 # 1. Verify __TEXT,__info_plist section is present in the binary
 if ! otool -l "$BIN" | grep -q '__info_plist'; then
   echo "FATAL: Missing __TEXT,__info_plist section in binary"
-  echo "Check Package.swift linker flags (-Xlinker -sectcreate ...) and Sources/MacLocalAPI/Info.plist"
+  echo "Check Package.swift linker flags (-Xlinker -sectcreate ...) and Sources/AFMCLI/Info.plist"
   exit 1
 fi
 
@@ -353,7 +353,7 @@ if ! strings "$BIN" | grep -q 'NSSpeechRecognitionUsageDescription'; then
 fi
 
 # 3. Verify Info.plist source file is well-formed
-plutil -lint Sources/MacLocalAPI/Info.plist || { echo "FATAL: Info.plist is malformed"; exit 1; }
+plutil -lint Sources/AFMCLI/Info.plist || { echo "FATAL: Info.plist is malformed"; exit 1; }
 
 # 4. Verify Apple frameworks that require the embedded plist are actually linked.
 #    PR #104 (Vision OCR) and PR #107 (Speech transcription) depend on these — if they
@@ -402,7 +402,7 @@ mkdir -p "$STAGING"
 cp "$BIN" "$STAGING/"
 
 # Metallib resource bundle
-BUNDLE_DIR="$(dirname "$BIN")/MacLocalAPI_MacLocalAPI.bundle"
+BUNDLE_DIR="$(dirname "$BIN")/MacLocalAPI_AFMKit.bundle"
 if [ -d "$BUNDLE_DIR" ]; then
   cp -r "$BUNDLE_DIR" "$STAGING/"
 fi
@@ -532,7 +532,7 @@ class Afm < Formula
   def install
     bin.install "afm"
 
-    bundle_dir = "MacLocalAPI_MacLocalAPI.bundle"
+    bundle_dir = "MacLocalAPI_AFMKit.bundle"
     if Dir.exist?(bundle_dir)
       (libexec/bundle_dir).mkpath
       (libexec/bundle_dir).install Dir["#{bundle_dir}/*"]
@@ -629,7 +629,7 @@ cd "$(git rev-parse --show-toplevel)"
 
 # BuildInfo.swift
 sed -i '' "s/static let version: String? = \".*\"/static let version: String? = \"v${VERSION}\"/" \
-  Sources/MacLocalAPI/BuildInfo.swift
+  Sources/AFMKit/BuildInfo.swift
 
 # pyproject.toml
 sed -i '' "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
@@ -673,7 +673,7 @@ mkdir -p macafm/bin macafm/share/webui
 cp "$BIN" macafm/bin/
 
 # Metallib
-METALLIB="$(dirname "$BIN")/MacLocalAPI_MacLocalAPI.bundle/default.metallib"
+METALLIB="$(dirname "$BIN")/MacLocalAPI_AFMKit.bundle/default.metallib"
 if [ -f "$METALLIB" ]; then
   cp "$METALLIB" macafm/bin/
 fi
@@ -813,7 +813,7 @@ Report PASS/FAIL for each (version check + smoke test). If either fails, investi
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-git add Sources/MacLocalAPI/BuildInfo.swift pyproject.toml macafm/__init__.py README.md
+git add Sources/AFMKit/BuildInfo.swift pyproject.toml macafm/__init__.py README.md
 git commit -m "Release v${VERSION}: promote nightly to stable"
 ```
 
@@ -887,7 +887,7 @@ cd "$(git rev-parse --show-toplevel)"
 
 # Restore previous values
 sed -i '' "s/static let version: String? = \".*\"/static let version: String? = \"${PREV_BUILDINFO_VERSION}\"/" \
-  Sources/MacLocalAPI/BuildInfo.swift
+  Sources/AFMKit/BuildInfo.swift
 sed -i '' "s/^version = \".*\"/version = \"${PREV_PYPROJECT_VERSION}\"/" pyproject.toml
 sed -i '' "s/^__version__ = \".*\"/__version__ = \"${PREV_INIT_VERSION}\"/" macafm/__init__.py
 
@@ -895,7 +895,7 @@ sed -i '' "s/^__version__ = \".*\"/__version__ = \"${PREV_INIT_VERSION}\"/" maca
 sed -i '' "s/Stable (v[0-9][^)]*)/Stable (v${PREV_PYPROJECT_VERSION})/" README.md
 sed -i '' "s|\[v${VERSION}\](https://github.com/scouzi1966/maclocal-api/releases/tag/v${VERSION})|[v${PREV_PYPROJECT_VERSION}](https://github.com/scouzi1966/maclocal-api/releases/tag/v${PREV_PYPROJECT_VERSION})|" README.md
 
-git add Sources/MacLocalAPI/BuildInfo.swift pyproject.toml macafm/__init__.py README.md
+git add Sources/AFMKit/BuildInfo.swift pyproject.toml macafm/__init__.py README.md
 git commit -m "Rollback: revert v${VERSION} promotion"
 ```
 

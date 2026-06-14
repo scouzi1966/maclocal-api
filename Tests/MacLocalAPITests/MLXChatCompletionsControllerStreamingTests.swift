@@ -2,7 +2,7 @@ import XCTest
 import Vapor
 import XCTVapor
 
-@testable import MacLocalAPI
+@testable import AFMKit
 
 final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
 // dimensions: streaming=true, execution=serial

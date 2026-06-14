@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: macafm-next
-Version: 0.9.11.dev20260418
+Version: 0.9.13.dev20260613
 Summary: Nightly build of AFM — local LLM inference on Apple Silicon via OpenAI-compatible API
 Author: Sylvain Cousineau
 License-Expression: MIT
@@ -31,6 +31,67 @@ Requires-Dist: twine; extra == "dev"
 Dynamic: license-file
 
 If you find this useful, please ⭐ the repo! &nbsp; Also check out [Vesta AI Explorer](https://kruks.ai/)! — my full-featured native macOS AI app.
+
+## Install
+
+|  | Stable (v0.9.12) | Nightly (afm-next) |
+|---|---|---|
+| **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
+| **pip** | `pip install macafm` | `pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next` |
+| **Release notes** | [v0.9.12](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.12) | [v0.9.12-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260502-a589c50) |
+
+### 🔨 Build from source — one command
+
+Clone and build everything (submodules, patches, WebUI, release binary) with a single script. It checks your toolchain, auto-installs what it can (Node via Homebrew), and tells you what to install manually (Xcode Command Line Tools) — no AI agent or project knowledge required. The script initializes submodules for you, so a plain `git clone` is all you need.
+
+```bash
+git clone https://github.com/scouzi1966/maclocal-api.git
+cd maclocal-api
+./build.sh
+```
+
+That's it. The `afm` binary lands in `.build/release/afm`. Add `--install` to also install it to `/usr/local/bin` (on your `PATH` by default; uses `sudo` if needed):
+
+```bash
+./build.sh --install
+```
+
+Run `./build.sh --help` for all options (`--debug`, `--skip-webui`, `--yes` for non-interactive/CI).
+
+> [!TIP]
+> **Switching between stable and nightly:**
+> ```bash
+> brew unlink afm && brew install scouzi1966/afm/afm-next   # switch to nightly
+> brew unlink afm-next && brew link afm                      # switch back to stable
+> ASSUMES you did a brew install scouzi1966/afm/afm previously
+> ```
+
+### Install a previous version
+
+Older stable releases are kept as pinned formulae in the Homebrew tap and as version-pinned wheels on PyPI. Useful for reproducing an issue against a specific build or rolling back without waiting for a new release.
+
+**Homebrew (pinned stable formulae):** `afm@<version>` — available for `0.9.0`, `0.9.1`, `0.9.3`–`0.9.10`.
+
+```bash
+brew install scouzi1966/afm/afm@0.9.10      # install v0.9.10
+brew uninstall afm                          # if current afm is already installed
+brew link afm@0.9.10                        # expose `afm` on PATH
+afm --version                               # → v0.9.10
+```
+
+**Homebrew (pinned nightly formulae):** `afm-next@<full-version>` — e.g. `afm-next@0.9.11-next.9c3225e.20260418`. Lists of available pinned nightlies are at [github.com/scouzi1966/homebrew-afm](https://github.com/scouzi1966/homebrew-afm).
+
+```bash
+brew install scouzi1966/afm/afm-next@0.9.11-next.9c3225e.20260418
+```
+
+**pip (version-pinned wheels):** any published release.
+
+```bash
+pip install macafm==0.9.10                  # previous stable
+pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ \
+  macafm-next==0.9.11.dev20260418           # pinned nightly
+```
 
 > [!NOTE]
 >
@@ -68,30 +129,14 @@ Extensive testing of Qwen3.5-35B-A3B with afm. Uses an experimental technique wi
 
 Run open-source MLX models **or** Apple's on-device Foundation Model through an OpenAI-compatible API. Built entirely in Swift for maximum Metal GPU performance. No Python runtime, no cloud, no API keys.
 
-## Install
-
-|  | Stable (v0.9.10) | Nightly (afm-next) |
-|---|---|---|
-| **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
-| **pip** | `pip install macafm` | `pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next` |
-| **Release notes** | [v0.9.10](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.10) | [v0.9.10-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260408-628c2bb) |
-
-> [!NOTE]
-> The stable release (v0.9.10) and the latest nightly are currently at the same level. Either one will give you the same experience.
-
-> [!TIP]
-> **Switching between stable and nightly:**
-> ```bash
-> brew unlink afm && brew install scouzi1966/afm/afm-next   # switch to nightly
-> brew unlink afm-next && brew link afm                      # switch back to stable
-> ASSUMES you did a brew install scouzi1966/afm/afm previously
-> ```
-
 ## What's new in afm-next
 
 > [!IMPORTANT]
-> The nightly build is the future stable release. It includes everything in v0.9.10 plus:
+> The nightly build is the future stable release. It includes everything in v0.9.12 plus:
 > - No new features yet — nightly is currently in sync with the stable release
+
+> [!TIP]
+> 🙏 **Huge thanks to [@jesserobbins](https://github.com/jesserobbins)** — first-time contributor, landed two substantial features in this cycle (Vision OCR + Speech transcription). Both PRs brought afm's Apple-native capabilities from the CLI into first-class HTTP APIs. Contributions of this size and quality from a new contributor are rare and appreciated.
 
 ## Quick Start
 
@@ -111,6 +156,35 @@ MACAFM_MLX_MODEL_CACHE=/path/to/models afm mlx -w
 # Apple's on-device Foundation Model with WebUI
 afm -w
 ```
+
+## Why AFM for agents
+
+afm is built for agentic clients — OpenCode, OpenClaw, Cline, Continue.dev, Aider, Cursor, Hermes — that drive multi-turn tool-using LLM loops against a local OpenAI-compatible endpoint. The capabilities below are already in the box:
+
+| Capability | What it gets you | Where it lives |
+|---|---|---|
+| **7+ tool-call formats, auto-detected** | json, lfm2, xmlFunction (Qwen3-Coder), glm4, gemma, kimiK2, minimaxM2 picked from `model_type` in `config.json` — no per-model tuning | `MLXModelService.swift:inferToolCallFormat` |
+| **`afm_adaptive_xml` parser** | JSON-in-XML fallback, type coercion, nullable schema flatten, fuzzy tool-name match — survives the malformed XML real models emit | `Models/ToolCallStreamingRuntime.swift` |
+| **`tool_choice`: auto / none / required / named function** | Standard OpenAI semantics; named-function forcing routed end-to-end | `Models/OpenAIRequest.swift:ToolChoice` |
+| **Streaming tool-call deltas** | Token-level start/end tag detection; content outside tool calls streams normally | `Controllers/MLXChatCompletionsController.swift` |
+| **`<think>` + harmony channel reasoning extraction** | Routes Qwen/DeepSeek `<think>…</think>` and gpt-oss `<\|channel\|>analysis…` into `reasoning_content` so the WebUI/agent can show it separately | `Controllers/MLXChatCompletionsController.swift:extractThinkTags / extractHarmonyChannels` |
+| **Strict `json_schema` + xgrammar EBNF** | Guaranteed-valid JSON via token-level grammar enforcement when `--enable-grammar-constraints` is on | `Models/XGrammarService.swift` |
+| **`--guided-json` server default** | One CLI flag pins a schema across every chat request that omits its own `response_format` (Foundation + MLX backends) | `Sources/MacLocalAPI/main.swift` |
+| **Deterministic `seed`, `logprobs`, `top_logprobs`** | All sampling controls (temperature, top_p, top_k, min_p, repetition_penalty, presence_penalty, seed, logprobs+top_logprobs up to 20) plumbed end-to-end | `Models/OpenAIRequest.swift` + `Scripts/patches/Evaluate.swift` |
+| **Radix-tree prefix KV cache** | `--enable-prefix-caching` reuses KV across turns — agent loops with stable system prompts get prefill for free | `Models/RadixTreeCache.swift` |
+| **4/8-bit KV quantization** | `--kv-bits 4|8` cuts memory ~2-4× on long-context turns | `Sources/MacLocalAPI/main.swift` |
+| **Concurrent batch decode** | `--concurrent N` runs N requests through one model with fair queueing; vLLM-style metrics expose queue depth | `Models/BatchScheduler.swift` |
+| **vLLM-namespaced Prometheus `/metrics`** | `afm:max_concurrent_slots`, `afm:num_requests_running`, `afm:num_requests_waiting`, plus per-request token/timing histograms | `Controllers/MetricsController.swift` |
+| **`Retry-After: 2` on 503** | Tells well-behaved agents (LangChain, OpenAI SDK) when to retry — no thundering herd | `Controllers/MLXChatCompletionsController.swift` |
+| **Multi-backend gateway mode** | `--gateway` discovers Ollama / LM Studio / Jan on the same machine and proxies them under one OpenAI surface, normalizing `reasoning` → `reasoning_content` | `Models/BackendDiscoveryService.swift` + `BackendProxyService.swift` |
+| **`X-Request-ID` / `OpenAI-Request-ID` echo** | Inbound IDs are honored; otherwise minted as `req_<uuid12>`. Echoed on every response and inside `error.request_id` for retry correlation | `Server.swift:RequestIDMiddleware` |
+| **`stream_options.include_usage` honored** | Suppress the final usage chunk when the client doesn't want it (matches OpenAI strict mode) | `Models/OpenAIRequest.swift:StreamOptions` |
+| **`parallel_tool_calls: false` honored** | Truncate to a single tool call per turn for agents that want serial execution | `Controllers/MLXChatCompletionsController.swift:finalizeAssistantTurn` |
+| **Speech (transcribe + TTS) and Vision OCR** | `/v1/audio/transcriptions`, `/v1/audio/speech`, `/v1/ocr` — agents can hand off audio/image inputs without a separate service | `Controllers/SpeechAPIController.swift`, `VisionAPIController.swift` |
+| **On-device embeddings for RAG** | `/v1/embeddings` from Apple's NaturalLanguage model — OpenAI-compatible vectors for retrieval/semantic search. Runs as a dedicated `afm embed` server (:9998), separate from the chat endpoint | `Controllers/EmbeddingsController.swift` |
+| **Per-client config generators** | `afm mlx -m <model> --openclaw-config` prints a paste-ready provider config; cookbook recipes in [`docs/clients/`](docs/clients/) cover OpenCode, OpenClaw, Cline, Continue.dev, Aider, Cursor, Hermes | `Sources/MacLocalAPI/main.swift:printOpenClawConfig` |
+
+See [`docs/clients/`](docs/clients/) for one-page recipes per agent.
 
 ## Use with OpenCode
 
@@ -177,6 +251,7 @@ afm mlx -m mlx-community/Qwen3-Coder-Next-4bit -t 1.0 --top-p 0.95 --max-tokens 
 - **⚡ LoRA adapter support** - Supports fine-tuning with LoRA adapters using Apple's tuning Toolkit
 - **📱 Apple Foundation Models** - Uses Apple's on-device 3B parameter language model
 - **👁️ Vision OCR** - Extract text from images and PDFs using Apple Vision via CLI and HTTP (`afm vision`, `/v1/vision/ocr`)
+- **🔢 Embeddings** - OpenAI-compatible embeddings from Apple's NaturalLanguage model, on-device, via a dedicated server (`afm embed`, `/v1/embeddings`)
 - **🖥️ Built-in WebUI** - Chat interface with model selection (`afm -w`)
 - **🔒 Privacy-First** - All processing happens locally on your device
 - **⚡ Fast & Lightweight** - No network calls, no API keys required
@@ -219,15 +294,15 @@ afm --version
 #### Option 3: Build from Source
 
 ```bash
-# Clone the repository with submodules
-git clone --recurse-submodules https://github.com/scouzi1966/maclocal-api.git
+# Clone the repository (build.sh initializes submodules for you)
+git clone https://github.com/scouzi1966/maclocal-api.git
 cd maclocal-api
 
-# Build everything from scratch (patches + webui + release build)
-./Scripts/build-from-scratch.sh
+# Build everything from scratch (checks/installs deps + patches + webui + release build)
+./build.sh
 
 # Or skip webui if you don't have Node.js
-./Scripts/build-from-scratch.sh --skip-webui
+./build.sh --skip-webui
 
 # Or use make (patches + release build, no webui)
 make
@@ -325,6 +400,24 @@ curl -X POST http://localhost:9999/v1/vision/ocr \
 ```
 
 The endpoint returns structured JSON with per-document text, per-page text, text blocks, detected tables, document hints, and a top-level `combined_text` field. See [docs/vision-ocr-api.md](docs/vision-ocr-api.md) for request formats, options, and response details.
+
+### Embeddings
+**POST** `/v1/embeddings`
+
+Serves OpenAI-compatible embeddings backed by Apple's NaturalLanguage contextual model, fully on-device. Started with `afm embed` (default port `9998`), separate from the chat server.
+
+```bash
+afm embed                       # start the embeddings server on port 9998
+
+curl -X POST http://localhost:9998/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "apple-nl-contextual-en",
+    "input": "The quick brown fox"
+  }'
+```
+
+Accepts a string, an array of strings, or pre-tokenized ids; supports `float`/`base64` output and Matryoshka-style `dimensions` truncation. See [docs/embeddings-api.md](docs/embeddings-api.md) for models, request fields, response shape, and error semantics.
 
 ### Health Check
 **GET** `/health`
@@ -548,15 +641,15 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 ### Development Setup
 
 ```bash
-# Clone the repo with submodules
-git clone --recurse-submodules https://github.com/scouzi1966/maclocal-api.git
+# Clone the repo (build.sh initializes submodules for you)
+git clone https://github.com/scouzi1966/maclocal-api.git
 cd maclocal-api
 
 # Full build from scratch (submodules + patches + webui + release)
-./Scripts/build-from-scratch.sh
+./build.sh
 
 # Or for debug builds during development
-./Scripts/build-from-scratch.sh --debug --skip-webui
+./build.sh --debug --skip-webui
 
 # Run with verbose logging
 ./.build/debug/afm -w -g -v

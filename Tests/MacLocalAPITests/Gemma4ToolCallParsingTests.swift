@@ -2,7 +2,7 @@ import Foundation
 import Testing
 import MLXLMCommon
 
-@testable import MacLocalAPI
+@testable import AFMKit
 
 struct Gemma4ToolCallParsingTests {
 

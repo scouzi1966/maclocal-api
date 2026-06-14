@@ -201,8 +201,8 @@ if should_run_section U && min_tier unit; then
   # Ensure MLX metallib is findable by swift test (debug build may not have it after clean release build)
   if [ -z "${MACAFM_MLX_METALLIB:-}" ]; then
     for candidate in \
-      "$PROJECT_ROOT/.build/arm64-apple-macosx/release/MacLocalAPI_MacLocalAPI.bundle/default.metallib" \
-      "$PROJECT_ROOT/.build/arm64-apple-macosx/debug/MacLocalAPI_MacLocalAPI.bundle/default.metallib"; do
+      "$PROJECT_ROOT/.build/arm64-apple-macosx/release/MacLocalAPI_AFMKit.bundle/default.metallib" \
+      "$PROJECT_ROOT/.build/arm64-apple-macosx/debug/MacLocalAPI_AFMKit.bundle/default.metallib"; do
       if [ -f "$candidate" ]; then
         export MACAFM_MLX_METALLIB="$candidate"
         break

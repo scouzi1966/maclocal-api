@@ -2,7 +2,7 @@ import Foundation
 import MLXLMCommon
 import Testing
 
-@testable import MacLocalAPI
+@testable import AFMKit
 
 /// Comprehensive unit tests for XML tool call parsing pipeline.
 /// Covers every code path in: decodeXMLEntities, parseXMLFunction (XMLParser + regex fallback),

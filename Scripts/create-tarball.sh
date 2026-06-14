@@ -19,7 +19,7 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # Parse version from BuildInfo.swift
-VERSION=$(grep -o '"v[0-9.]*"' "$ROOT_DIR/Sources/MacLocalAPI/BuildInfo.swift" | tr -d '"')
+VERSION=$(grep -o '"v[0-9.]*"' "$ROOT_DIR/Sources/AFMKit/BuildInfo.swift" | tr -d '"')
 if [ -z "$VERSION" ]; then
   log_error "Could not read version from BuildInfo.swift"
   exit 1

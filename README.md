@@ -192,10 +192,10 @@ afm is built for agentic clients — OpenCode, OpenClaw, Cline, Continue.dev, Ai
 | **Streaming tool-call deltas** | Token-level start/end tag detection; content outside tool calls streams normally | `Controllers/MLXChatCompletionsController.swift` |
 | **`<think>` + harmony channel reasoning extraction** | Routes Qwen/DeepSeek `<think>…</think>` and gpt-oss `<\|channel\|>analysis…` into `reasoning_content` so the WebUI/agent can show it separately | `Controllers/MLXChatCompletionsController.swift:extractThinkTags / extractHarmonyChannels` |
 | **Strict `json_schema` + xgrammar EBNF** | Guaranteed-valid JSON via token-level grammar enforcement when `--enable-grammar-constraints` is on | `Models/XGrammarService.swift` |
-| **`--guided-json` server default** | One CLI flag pins a schema across every chat request that omits its own `response_format` (Foundation + MLX backends) | `Sources/MacLocalAPI/main.swift` |
+| **`--guided-json` server default** | One CLI flag pins a schema across every chat request that omits its own `response_format` (Foundation + MLX backends) | `Sources/AFMCLI/main.swift` |
 | **Deterministic `seed`, `logprobs`, `top_logprobs`** | All sampling controls (temperature, top_p, top_k, min_p, repetition_penalty, presence_penalty, seed, logprobs+top_logprobs up to 20) plumbed end-to-end | `Models/OpenAIRequest.swift` + `Scripts/patches/Evaluate.swift` |
 | **Radix-tree prefix KV cache** | `--enable-prefix-caching` reuses KV across turns — agent loops with stable system prompts get prefill for free | `Models/RadixTreeCache.swift` |
-| **4/8-bit KV quantization** | `--kv-bits 4|8` cuts memory ~2-4× on long-context turns | `Sources/MacLocalAPI/main.swift` |
+| **4/8-bit KV quantization** | `--kv-bits 4|8` cuts memory ~2-4× on long-context turns | `Sources/AFMCLI/main.swift` |
 | **Concurrent batch decode** | `--concurrent N` runs N requests through one model with fair queueing; vLLM-style metrics expose queue depth | `Models/BatchScheduler.swift` |
 | **vLLM-namespaced Prometheus `/metrics`** | `afm:max_concurrent_slots`, `afm:num_requests_running`, `afm:num_requests_waiting`, plus per-request token/timing histograms | `Controllers/MetricsController.swift` |
 | **`Retry-After: 2` on 503** | Tells well-behaved agents (LangChain, OpenAI SDK) when to retry — no thundering herd | `Controllers/MLXChatCompletionsController.swift` |
@@ -205,7 +205,7 @@ afm is built for agentic clients — OpenCode, OpenClaw, Cline, Continue.dev, Ai
 | **`parallel_tool_calls: false` honored** | Truncate to a single tool call per turn for agents that want serial execution | `Controllers/MLXChatCompletionsController.swift:finalizeAssistantTurn` |
 | **Speech (transcribe + TTS) and Vision OCR** | `/v1/audio/transcriptions`, `/v1/audio/speech`, `/v1/ocr` — agents can hand off audio/image inputs without a separate service | `Controllers/SpeechAPIController.swift`, `VisionAPIController.swift` |
 | **On-device embeddings for RAG** | `/v1/embeddings` from Apple's NaturalLanguage model — OpenAI-compatible vectors for retrieval/semantic search. Runs as a dedicated `afm embed` server (:9998), separate from the chat endpoint | `Controllers/EmbeddingsController.swift` |
-| **Per-client config generators** | `afm mlx -m <model> --openclaw-config` prints a paste-ready provider config; cookbook recipes in [`docs/clients/`](docs/clients/) cover OpenCode, OpenClaw, Cline, Continue.dev, Aider, Cursor, Hermes | `Sources/MacLocalAPI/main.swift:printOpenClawConfig` |
+| **Per-client config generators** | `afm mlx -m <model> --openclaw-config` prints a paste-ready provider config; cookbook recipes in [`docs/clients/`](docs/clients/) cover OpenCode, OpenClaw, Cline, Continue.dev, Aider, Cursor, Hermes | `Sources/AFMCLI/main.swift:printOpenClawConfig` |
 
 See [`docs/clients/`](docs/clients/) for one-page recipes per agent.
 
@@ -565,9 +565,11 @@ echo "Review this code" | afm -i "You are a senior software engineer"
 
 ```
 MacLocalAPI/
-├── Package.swift                    # Swift Package Manager config
-├── Sources/MacLocalAPI/
-│   ├── main.swift                   # CLI entry point & ArgumentParser
+├── Package.swift                    # SPM config — vends .library(AFMKit) + .executable(afm)
+├── Sources/AFMCLI/
+│   └── main.swift                   # CLI entry point & ArgumentParser (thin, over AFMKit)
+├── Sources/AFMKit/                  # importable library: `import AFMKit`
+│   ├── AFMEngine.swift              # public facade (AFMEngine + EngineConfig/GenerationConfig)
 │   ├── Server.swift                 # Vapor web server configuration
 │   ├── Controllers/
 │   │   └── ChatCompletionsController.swift  # OpenAI API endpoints

@@ -5,7 +5,7 @@ import MLXNN
 import Testing
 @testable import MLXLLM
 
-@testable import MacLocalAPI
+@testable import AFMKit
 
 /// P1 gate for the EAGLE3 port: the greedy draft -> verify -> accept -> KV-trim loop must produce
 /// EXACTLY the same token sequence as plain greedy autoregressive decoding from the same verifier.

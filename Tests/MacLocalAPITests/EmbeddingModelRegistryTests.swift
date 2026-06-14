@@ -1,6 +1,6 @@
 import XCTest
 
-@testable import MacLocalAPI
+@testable import AFMKit
 
 final class EmbeddingModelRegistryTests: XCTestCase {
     func testAppleEntriesResolve() {

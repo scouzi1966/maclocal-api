@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import MacLocalAPI
+@testable import AFMKit
 
 struct StrictGrammarWiringTests {
 // dimensions: grammar_constraints=on, tool_call_format=xmlFunction
