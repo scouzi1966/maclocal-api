@@ -620,23 +620,33 @@ This script handles everything:
 7. Builds a nightly wheel (`macafm-next`) via `Scripts/build-nightly-wheel.sh`
 8. Uploads the wheel to the GitHub release and updates the PEP 503 index on kruks.ai via `Scripts/update-wheel-index.sh` (requires vesta-mac repo at `../vesta-mac` and `wrangler` for Cloudflare Pages deploy)
 
-### Step 4b: Update README Release Link
+### Step 4b: Update README (release link + pinned wheel example)
 
-After publishing, update the nightly release notes link in `README.md` to point to the new release tag:
+After publishing, update **both** nightly references in `README.md`. There are two — update both or one goes stale:
 
+**(a) Release-notes link** (Install table row):
 ```bash
-# The README has a table row like:
 # | **Release notes** | [v0.9.6](...) | [v0.9.7-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-YYYYMMDD-SHORTSHA) |
-# Update the nightly link to the just-published tag
 ```
+1. Find the nightly release-notes link in the Install table.
+2. Replace the old `nightly-*` tag in the URL with the just-published tag (e.g., `nightly-20260614-a92a0fe`).
+3. If the base version changed, also update the link text (e.g., `v0.9.7-next` → `v0.9.8-next`).
 
-1. Read `README.md` and find the nightly release notes link in the Install table
-2. Replace the old `nightly-*` tag in the URL with the new release tag (e.g., `nightly-20260312-a49c207`)
-3. If the base version changed, also update the link text (e.g., `v0.9.7-next` → `v0.9.8-next`)
-4. Commit with message: `Update nightly release link to YYYYMMDD-SHORTSHA`
-5. Push to remote
+**(b) Pinned pip wheel example** (the "Install a previous version" / pip block):
+```bash
+#   macafm-next==0.9.13.dev20260613           # pinned nightly
+```
+4. Bump the pinned wheel to the one just built: `macafm-next==<base>.dev<YYYYMMDD>` (e.g., `0.9.13.dev20260614`).
+   The wheel version is `<base>.dev<YYYYMMDD>` — same base as the release, date = build date.
+   (The unpinned `pip install … macafm-next` command always resolves to latest and needs no change — only the *pinned example* lags.)
 
-**Do not skip this step.** The README is the main page users see — it must always point to the latest nightly.
+Then verify nothing stale remains, commit, and push:
+```bash
+grep -nE 'dev2026[0-9]{4}|nightly-2026[0-9]{4}' README.md   # all should show the NEW date/tag
+```
+5. Commit (e.g., `Update README nightly references to YYYYMMDD-SHORTSHA`) and push to remote.
+
+**Do not skip this step.** The README is the main page users see — both the release link and the pinned wheel example must point to the latest nightly.
 
 ### Step 5: Verify & Report
 
