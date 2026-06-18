@@ -1,5 +1,5 @@
 #!/bin/bash
-# Rebuild Sources/MacLocalAPI/Resources/default.metallib from the (patched) MLX
+# Rebuild Sources/AFMKit/Resources/default.metallib from the (patched) MLX
 # Metal kernel sources in the mlx-swift checkout.
 #
 # WHY THIS EXISTS
@@ -33,7 +33,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MLXROOT="$ROOT_DIR/.build/checkouts/mlx-swift/Source/Cmlx/mlx"
 KDIR="$MLXROOT/mlx/backend/metal/kernels"
-TARGET_METALLIB="$ROOT_DIR/Sources/MacLocalAPI/Resources/default.metallib"
+TARGET_METALLIB="$ROOT_DIR/Sources/AFMKit/Resources/default.metallib"
 OSX_MIN="26.0"            # matches `apple-macosx26.0.0` baked into the shipped metallib
 BUILD_DIR="$(mktemp -d /tmp/afm-metallib.XXXXXX)"
 

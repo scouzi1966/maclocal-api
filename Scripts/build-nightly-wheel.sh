@@ -24,7 +24,7 @@ done
 
 # ---------- determine version ----------
 if [ -z "$BASE_VERSION" ]; then
-    BASE_VERSION=$(grep 'static let version' Sources/MacLocalAPI/BuildInfo.swift \
+    BASE_VERSION=$(grep 'static let version' Sources/AFMKit/BuildInfo.swift \
         | sed 's/.*"\(.*\)".*/\1/' | sed 's/^v//')
 fi
 DATE=$(date -u +%Y%m%d)
@@ -40,7 +40,7 @@ if [ ! -x "$BIN" ]; then
 fi
 echo "[INFO] Binary: $(cd "$(dirname "$BIN")" && pwd)/$(basename "$BIN")"
 
-METALLIB="$(dirname "$BIN")/MacLocalAPI_MacLocalAPI.bundle/default.metallib"
+METALLIB="$(dirname "$BIN")/MacLocalAPI_AFMKit.bundle/default.metallib"
 
 # ---------- set version in package files ----------
 sed -i '' "s/^__version__ = .*/__version__ = \"${DEV_VERSION}\"/" macafm_next/__init__.py

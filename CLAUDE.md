@@ -10,17 +10,33 @@ The server exposes `/v1/chat/completions` and `/v1/models` endpoints compatible 
 
 ## Project Structure
 
+The package vends **two SPM products**: a `.library(AFMKit)` (headless, importable
+`import AFMKit`) and a `.executable(afm)` thin CLI. Library import is proven by
+`Examples/AFMKitConsumer`. (The clean Vapor-free `AFMServer` split is a tracked follow-up —
+today AFMKit also contains the server.)
+
 ```
-Sources/MacLocalAPI/
-├── main.swift                          # CLI entry point (ArgumentParser)
-├── Controllers/
-│   ├── MLXChatCompletionsController.swift  # Streaming/non-streaming SSE handler
-│   └── ...
-├── Models/
-│   ├── MLXModelService.swift           # Model loading, generation, prompt caching
-│   ├── OpenAIRequest.swift             # Request types (ChatCompletionRequest, etc.)
-│   ├── OpenAIResponse.swift            # Response types
-│   └── ...
+Sources/
+├── AFMKit/                             # LIBRARY target (importable via SPM)
+│   ├── AFMEngine.swift                 # Public facade: AFMEngine actor + EngineConfig/GenerationConfig/AFMResponse
+│   ├── AFMLanguageModel.swift          # WWDC26-shaped provider protocol (AFMEngine conforms)
+│   ├── Server.swift                    # Vapor HTTP server (currently in AFMKit)
+│   ├── Controllers/
+│   │   ├── MLXChatCompletionsController.swift  # Streaming/non-streaming SSE handler
+│   │   └── ...
+│   ├── Models/
+│   │   ├── MLXModelService.swift       # Model loading, generation, prompt caching
+│   │   ├── OpenAIRequest.swift         # Request types (ChatCompletionRequest, etc.)
+│   │   ├── OpenAIResponse.swift        # Response types
+│   │   └── ...
+│   ├── BuildInfo.swift                 # version string (SHA injected by build.sh)
+│   └── Resources/default.metallib      # MLX Metal kernels → bundle MacLocalAPI_AFMKit.bundle
+├── AFMCLI/                             # EXECUTABLE target (product name: afm)
+│   ├── main.swift                      # CLI entry point (ArgumentParser)
+│   ├── {Mlx,Serve,Vision,Speech,Embeddings}Command.swift
+│   └── Info.plist                      # embedded into the binary (privacy usage descriptions)
+Examples/AFMKitConsumer/                # standalone SPM package proving `import AFMKit`
+docs/wwdc26-migration.md                # WWDC26 Foundation Models adoption seam map
 vendor/
 ├── mlx-swift-lm/                       # Git submodule — DO NOT modify directly
 ├── llama.cpp/                          # Git submodule
@@ -70,7 +86,7 @@ swift build -c release                   # Release build
 ### MLX Metal shader library (`default.metallib`)
 
 `swift build` does **NOT** compile any Metal. The MLX kernels ship as a prebuilt
-`Sources/MacLocalAPI/Resources/default.metallib` (committed to git) that `swift build` only
+`Sources/AFMKit/Resources/default.metallib` (committed to git) that `swift build` only
 copies into the app bundle. The kernel *sources* live in the resolved `mlx-swift` dependency
 (`.build/checkouts/mlx-swift/.../kernels/*.metal`), so editing a kernel (e.g. `sdpa_vector.h`)
 has **zero effect** until the metallib is regenerated. (Editing the dispatch C++ in

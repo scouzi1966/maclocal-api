@@ -106,8 +106,8 @@ class ${class} < Formula
 
   def install
     bin.install "afm"
-    if File.directory?("MacLocalAPI_MacLocalAPI.bundle")
-      (libexec/"MacLocalAPI_MacLocalAPI.bundle").install Dir["MacLocalAPI_MacLocalAPI.bundle/*"]
+    if File.directory?("MacLocalAPI_AFMKit.bundle")
+      (libexec/"MacLocalAPI_AFMKit.bundle").install Dir["MacLocalAPI_AFMKit.bundle/*"]
     end
     if File.exist?("Resources/webui/index.html.gz")
       (share/"afm/webui").install "Resources/webui/index.html.gz"
@@ -115,8 +115,8 @@ class ${class} < Formula
   end
 
   def post_install
-    bundle_src = libexec/"MacLocalAPI_MacLocalAPI.bundle"
-    bundle_dst = HOMEBREW_PREFIX/"bin/MacLocalAPI_MacLocalAPI.bundle"
+    bundle_src = libexec/"MacLocalAPI_AFMKit.bundle"
+    bundle_dst = HOMEBREW_PREFIX/"bin/MacLocalAPI_AFMKit.bundle"
     bundle_dst.unlink if bundle_dst.symlink? || bundle_dst.exist?
     bundle_dst.make_symlink(bundle_src) if bundle_src.exist?
   end
@@ -159,8 +159,8 @@ class ${class} < Formula
 
   def install
     bin.install "afm"
-    if File.directory?("MacLocalAPI_MacLocalAPI.bundle")
-      (libexec/"MacLocalAPI_MacLocalAPI.bundle").install Dir["MacLocalAPI_MacLocalAPI.bundle/*"]
+    if File.directory?("MacLocalAPI_AFMKit.bundle")
+      (libexec/"MacLocalAPI_AFMKit.bundle").install Dir["MacLocalAPI_AFMKit.bundle/*"]
     end
     if File.exist?("Resources/webui/index.html.gz")
       (share/"afm/webui").install "Resources/webui/index.html.gz"
@@ -168,8 +168,8 @@ class ${class} < Formula
   end
 
   def post_install
-    bundle_src = libexec/"MacLocalAPI_MacLocalAPI.bundle"
-    bundle_dst = HOMEBREW_PREFIX/"bin/MacLocalAPI_MacLocalAPI.bundle"
+    bundle_src = libexec/"MacLocalAPI_AFMKit.bundle"
+    bundle_dst = HOMEBREW_PREFIX/"bin/MacLocalAPI_AFMKit.bundle"
     bundle_dst.unlink if bundle_dst.symlink? || bundle_dst.exist?
     bundle_dst.make_symlink(bundle_src) if bundle_src.exist?
   end

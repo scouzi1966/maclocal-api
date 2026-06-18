@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import MacLocalAPI
+@testable import AFMKit
 
 /// Tests for T1.6 (tokenize / count_tokens request decoding) and T1.7
 /// (`/openapi.json` integrity).
