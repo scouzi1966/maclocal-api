@@ -1367,18 +1367,17 @@ final class MLXModelService: @unchecked Sendable {
                         self.builtinChatTemplate = Self.cohere2MoeTemplate
                         self.implicitStopSequences = ["<|END_TEXT|>"]
                         // cohere2_moe's mixed sliding/full attention (RotatingKVCache on the
-                        // sliding layers, NoPE on the full layers) is not yet validated for the
-                        // KV-cache reuse paths: batched generation garbles output, and prefix-
-                        // cache reuse corrupts the rotating ring buffer (repetition + leaked
-                        // special tokens). Force serial generation and disable prefix caching so
-                        // every mode routes to the validated non-cached serial path.
+                        // sliding layers, NoPE on the full layers) is corrupted by batched decode
+                        // under BatchScheduler: output degenerates into repeated "thinking" text
+                        // and leaks <|END_THINKING|>/<|START_TEXT|> in a position-dependent way
+                        // (verified — some batch slots stay clean, others garble). Force serial
+                        // generation until the batched attention path is validated for this arch.
+                        // (Prefix caching IS correct here — KVCacheSimple full layers + sub-window
+                        // RotatingKVCache reuse verified producing cache hits with correct output —
+                        // so it is left enabled.)
                         self.forceSerialGeneration = true
-                        if self.enablePrefixCaching {
-                            self.enablePrefixCaching = false
-                            print("[\(ts())] [PrefixCache] cohere2_moe — prefix caching disabled (rotating-cache reuse not yet validated for this architecture)")
-                        }
                         if debugLogging {
-                            print("[\(ts())] [ChatTemplate] cohere2_moe — using built-in minimal template; forcing serial generation")
+                            print("[\(ts())] [ChatTemplate] cohere2_moe — built-in template; forcing serial generation (batch decode unvalidated)")
                         }
                     } else {
                         self.implicitStopSequences = []
