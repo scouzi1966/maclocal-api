@@ -305,6 +305,11 @@ final class MLXModelService: @unchecked Sendable {
     /// cohere2_moe ends each answer with the special token `<|END_TEXT|>` (then EOS), which
     /// otherwise leaks into the decoded output. Merged into the request stop list. Set at load.
     private(set) var implicitStopSequences: [String] = []
+    /// Force serial generation (no BatchScheduler) for model architectures whose batched
+    /// attention path is not yet validated — e.g. cohere2_moe (mixed sliding/full attention
+    /// with NoPE on full layers) produces garbled output under batching. Requests still run
+    /// concurrently from the client's view but are serialized through `container.perform`.
+    private(set) var forceSerialGeneration = false
     private var xgrammarService: XGrammarService?
     /// Concurrent generation scheduler (nil = serial mode via container.perform).
     private var scheduler: BatchScheduler?
@@ -1344,6 +1349,7 @@ final class MLXModelService: @unchecked Sendable {
             // and <|channel|>final|message|> ... <|return|>/<|end|> to content. (#121)
             self.harmonyChannels = false
             self.builtinChatTemplate = nil
+            self.forceSerialGeneration = false
             if let modelDir = self.resolver.localModelDirectory(repoId: modelID) {
                 let configURL = modelDir.appendingPathComponent("config.json")
                 if let data = try? Data(contentsOf: configURL),
@@ -1360,11 +1366,44 @@ final class MLXModelService: @unchecked Sendable {
                     if modelType == "cohere2_moe" {
                         self.builtinChatTemplate = Self.cohere2MoeTemplate
                         self.implicitStopSequences = ["<|END_TEXT|>"]
+                        // cohere2_moe's mixed sliding/full attention (RotatingKVCache on the
+                        // sliding layers, NoPE on the full layers) is not yet validated for the
+                        // KV-cache reuse paths: batched generation garbles output, and prefix-
+                        // cache reuse corrupts the rotating ring buffer (repetition + leaked
+                        // special tokens). Force serial generation and disable prefix caching so
+                        // every mode routes to the validated non-cached serial path.
+                        self.forceSerialGeneration = true
+                        if self.enablePrefixCaching {
+                            self.enablePrefixCaching = false
+                            print("[\(ts())] [PrefixCache] cohere2_moe — prefix caching disabled (rotating-cache reuse not yet validated for this architecture)")
+                        }
                         if debugLogging {
-                            print("[\(ts())] [ChatTemplate] cohere2_moe — using built-in minimal template")
+                            print("[\(ts())] [ChatTemplate] cohere2_moe — using built-in minimal template; forcing serial generation")
                         }
                     } else {
                         self.implicitStopSequences = []
+                    }
+                }
+            }
+            // Register implicit stops as token-level extra-EOS tokens so the vendor
+            // generate loop halts AT the token and never decodes it into the text
+            // stream. String-level stop-sequence matching alone leaks these special
+            // tokens in the streaming path (the detokenizer re-emits the buffered
+            // tail when the special token is rendered) — token-level EOS avoids that
+            // entirely and works identically for streaming and non-streaming.
+            // (cohere2_moe: <|END_TEXT|>.) Must run AFTER model_type detection sets
+            // implicitStopSequences above.
+            if !self.implicitStopSequences.isEmpty {
+                let stops = self.implicitStopSequences
+                await loaded.update { context in
+                    context.configuration.extraEOSTokens.formUnion(stops)
+                }
+                if debugLogging {
+                    await loaded.perform { context in
+                        for s in stops {
+                            let id = context.tokenizer.convertTokenToId(s)
+                            print("[\(ts())] [EOS] extra-EOS \(s) -> id=\(String(describing: id))")
+                        }
                     }
                 }
             }
@@ -1427,6 +1466,10 @@ final class MLXModelService: @unchecked Sendable {
     /// from the container. Must be called after ensureLoaded() and only when maxConcurrent >= 2.
     func initScheduler() async throws {
         guard maxConcurrent >= 2 else { return }
+        if forceSerialGeneration {
+            print("[\(ts())] Concurrent mode requested but model requires serial generation — running serially (correct output, requests serialized through model lock)")
+            return
+        }
         startedInBatchMode = true
         guard let container = withStateLock({ currentContainer }) else {
             throw MLXServiceError.noModelLoaded
@@ -1451,6 +1494,13 @@ final class MLXModelService: @unchecked Sendable {
     /// Auto-promote from serial to batch mode for batch requests.
     /// Thread-safe: uses stateLock + promotionInProgress to prevent races.
     func ensureBatchMode(concurrency: Int) async throws {
+        // Models that require serial generation never get a scheduler. Still increment the
+        // batch reference so the caller's matching releaseBatchReference() stays balanced;
+        // per-request generateStreaming() routes to the serial path when scheduler == nil.
+        if forceSerialGeneration {
+            _activeBatchCount.withLock { $0 += 1 }
+            return
+        }
         // Fast path: scheduler already exists
         if withStateLock({ scheduler != nil }) {
             _activeBatchCount.withLock { $0 += 1 }
