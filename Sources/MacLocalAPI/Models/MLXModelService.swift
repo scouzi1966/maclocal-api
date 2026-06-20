@@ -296,6 +296,20 @@ final class MLXModelService: @unchecked Sendable {
     /// (`<|channel|>analysis|message|>...<|end|>`) instead of `<think>` tags.
     /// Detected from `model_type == "gpt_oss"` in config.json. (#121)
     private(set) var harmonyChannels: Bool = false
+    /// Built-in chat template applied as an override when the model's own
+    /// chat_template.jinja cannot be parsed by swift-jinja (e.g. Cohere's
+    /// cohere2_moe template uses block-`set`/`namespace`/macros). nil = use the
+    /// model's own template. Set at load time from model_type.
+    private(set) var builtinChatTemplate: String? = nil
+    /// Extra stop strings implied by the model's format that aren't its EOS — e.g. Cohere
+    /// cohere2_moe ends each answer with the special token `<|END_TEXT|>` (then EOS), which
+    /// otherwise leaks into the decoded output. Merged into the request stop list. Set at load.
+    private(set) var implicitStopSequences: [String] = []
+    /// Force serial generation (no BatchScheduler) for model architectures whose batched
+    /// attention path is not yet validated — e.g. cohere2_moe (mixed sliding/full attention
+    /// with NoPE on full layers) produces garbled output under batching. Requests still run
+    /// concurrently from the client's view but are serialized through `container.perform`.
+    private(set) var forceSerialGeneration = false
     private var xgrammarService: XGrammarService?
     /// Concurrent generation scheduler (nil = serial mode via container.perform).
     private var scheduler: BatchScheduler?
@@ -1334,15 +1348,63 @@ final class MLXModelService: @unchecked Sendable {
             // routes <|channel|>analysis|message|> ... <|end|> to reasoning_content
             // and <|channel|>final|message|> ... <|return|>/<|end|> to content. (#121)
             self.harmonyChannels = false
+            self.builtinChatTemplate = nil
+            self.forceSerialGeneration = false
+            // Reset implicit stops here (not only in the model_type else-branch) so a
+            // subsequent load whose config.json is missing/unparsable can't inherit the
+            // previous model's stops (e.g. cohere2_moe's <|END_TEXT|>).
+            self.implicitStopSequences = []
             if let modelDir = self.resolver.localModelDirectory(repoId: modelID) {
                 let configURL = modelDir.appendingPathComponent("config.json")
                 if let data = try? Data(contentsOf: configURL),
                    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let modelType = json["model_type"] as? String,
-                   modelType.lowercased() == "gpt_oss" {
-                    self.harmonyChannels = true
-                    if debugLogging {
-                        print("[\(ts())] [Harmony] Detected gpt_oss model — enabling channel parsing")
+                   let modelType = (json["model_type"] as? String)?.lowercased() {
+                    if modelType == "gpt_oss" {
+                        self.harmonyChannels = true
+                        if debugLogging {
+                            print("[\(ts())] [Harmony] Detected gpt_oss model — enabling channel parsing")
+                        }
+                    }
+                    // Cohere's cohere2_moe ships a chat template swift-jinja can't parse
+                    // (block-set/namespace/macros). Use a built-in minimal template.
+                    if modelType == "cohere2_moe" {
+                        self.builtinChatTemplate = Self.cohere2MoeTemplate
+                        self.implicitStopSequences = ["<|END_TEXT|>"]
+                        // cohere2_moe's mixed sliding/full attention (RotatingKVCache on the
+                        // sliding layers, NoPE on the full layers) is corrupted by batched decode
+                        // under BatchScheduler: output degenerates into repeated "thinking" text
+                        // and leaks <|END_THINKING|>/<|START_TEXT|> in a position-dependent way
+                        // (verified — some batch slots stay clean, others garble). Force serial
+                        // generation until the batched attention path is validated for this arch.
+                        // (Prefix caching IS correct here — KVCacheSimple full layers + sub-window
+                        // RotatingKVCache reuse verified producing cache hits with correct output —
+                        // so it is left enabled.)
+                        self.forceSerialGeneration = true
+                        if debugLogging {
+                            print("[\(ts())] [ChatTemplate] cohere2_moe — built-in template; forcing serial generation (batch decode unvalidated)")
+                        }
+                    }
+                }
+            }
+            // Register implicit stops as token-level extra-EOS tokens so the vendor
+            // generate loop halts AT the token and never decodes it into the text
+            // stream. String-level stop-sequence matching alone leaks these special
+            // tokens in the streaming path (the detokenizer re-emits the buffered
+            // tail when the special token is rendered) — token-level EOS avoids that
+            // entirely and works identically for streaming and non-streaming.
+            // (cohere2_moe: <|END_TEXT|>.) Must run AFTER model_type detection sets
+            // implicitStopSequences above.
+            if !self.implicitStopSequences.isEmpty {
+                let stops = self.implicitStopSequences
+                await loaded.update { context in
+                    context.configuration.extraEOSTokens.formUnion(stops)
+                }
+                if debugLogging {
+                    await loaded.perform { context in
+                        for s in stops {
+                            let id = context.tokenizer.convertTokenToId(s)
+                            print("[\(ts())] [EOS] extra-EOS \(s) -> id=\(String(describing: id))")
+                        }
                     }
                 }
             }
@@ -1405,6 +1467,10 @@ final class MLXModelService: @unchecked Sendable {
     /// from the container. Must be called after ensureLoaded() and only when maxConcurrent >= 2.
     func initScheduler() async throws {
         guard maxConcurrent >= 2 else { return }
+        if forceSerialGeneration {
+            print("[\(ts())] Concurrent mode requested but model requires serial generation — running serially (correct output, requests serialized through model lock)")
+            return
+        }
         startedInBatchMode = true
         guard let container = withStateLock({ currentContainer }) else {
             throw MLXServiceError.noModelLoaded
@@ -1429,6 +1495,13 @@ final class MLXModelService: @unchecked Sendable {
     /// Auto-promote from serial to batch mode for batch requests.
     /// Thread-safe: uses stateLock + promotionInProgress to prevent races.
     func ensureBatchMode(concurrency: Int) async throws {
+        // Models that require serial generation never get a scheduler. Still increment the
+        // batch reference so the caller's matching releaseBatchReference() stays balanced;
+        // per-request generateStreaming() routes to the serial path when scheduler == nil.
+        if forceSerialGeneration {
+            _activeBatchCount.withLock { $0 += 1 }
+            return
+        }
         // Fast path: scheduler already exists
         if withStateLock({ scheduler != nil }) {
             _activeBatchCount.withLock { $0 += 1 }
@@ -1923,7 +1996,7 @@ final class MLXModelService: @unchecked Sendable {
                 }
             }
 
-            let activeStops = stop?.filter { !$0.isEmpty } ?? []
+            let activeStops = ((stop ?? []) + self.implicitStopSequences).filter { !$0.isEmpty }
             var insideThink = templateInjectedThink
             var visibleContentStart: String.Index? = nil  // Index where content after </think> begins
             let genStart = Date()
@@ -2369,7 +2442,7 @@ final class MLXModelService: @unchecked Sendable {
                         matcherHandle: $0.matcherHandle
                     )
                 },
-                stopSequences: stop ?? [],
+                stopSequences: (stop ?? []) + self.implicitStopSequences,
                 thinkStartTag: self.thinkStartTag,
                 thinkEndTag: self.thinkEndTag,
                 requestId: reqId
@@ -2726,7 +2799,7 @@ final class MLXModelService: @unchecked Sendable {
                         continuation.yield(StreamChunk(text: "", cachedTokens: streamCachedTokens))
                         self.logUsageChunk(stage: "preliminary", streaming: true, cachedTokens: streamCachedTokens)
 
-                        let activeStops = stop?.filter { !$0.isEmpty } ?? []
+                        let activeStops = ((stop ?? []) + self.implicitStopSequences).filter { !$0.isEmpty }
                         // Buffer to handle stop strings that span chunk boundaries.
                         // Stop sequences only apply to content OUTSIDE <think> blocks —
                         // thinking models emit reasoning inside <think>...</think> tags
@@ -4761,6 +4834,14 @@ final class MLXModelService: @unchecked Sendable {
             }
         }
 
+        // Built-in template override for models whose own chat_template.jinja swift-jinja
+        // cannot parse (e.g. cohere2_moe). Applied last so it wins — these models' official
+        // templates fail outright, so there is no usable template to fall back to.
+        if let builtin = self.builtinChatTemplate {
+            input.additionalContext = (input.additionalContext ?? [:])
+            input.additionalContext?["chatTemplateOverride"] = builtin
+        }
+
         // Merge chat template kwargs: server defaults first, then request-level overrides
         var resolvedKwargs: [String: any Sendable] = (self.defaultChatTemplateKwargs ?? [:]).mapValues { Self.asSendableJSON($0) }
         if let requestKwargs = chatTemplateKwargs {
@@ -5230,6 +5311,18 @@ final class MLXModelService: @unchecked Sendable {
         guard let value else { return nil }
         return UInt64(max(0, value))
     }
+
+    // MARK: - Built-in chat templates (for models whose own template swift-jinja can't parse)
+
+    /// Minimal Cohere `cohere2_moe` chat template. Cohere's official 262-line template uses
+    /// block-`set`, `namespace()`, and macros that swift-jinja cannot parse. This emits the
+    /// same control tokens for plain chat: per-turn `<|START_OF_TURN_TOKEN|>` + role token +
+    /// `<|START_TEXT|>…<|END_TEXT|>`, and primes the assistant turn with an empty thinking
+    /// block (reasoning off) followed by `<|START_TEXT|>` so the model writes the answer
+    /// directly. Tool/document/RAG features of the official template are not reproduced.
+    static let cohere2MoeTemplate = """
+    {{ '<BOS_TOKEN>' }}{%- for message in messages -%}{{ '<|START_OF_TURN_TOKEN|>' }}{%- if message['role'] == 'system' -%}{{ '<|SYSTEM_TOKEN|>' }}{%- elif message['role'] == 'user' -%}{{ '<|USER_TOKEN|>' }}{%- else -%}{{ '<|CHATBOT_TOKEN|>' }}{%- endif -%}{{ '<|START_TEXT|>' }}{{ message['content'] }}{{ '<|END_TEXT|>' }}{{ '<|END_OF_TURN_TOKEN|>' }}{%- endfor -%}{%- if add_generation_prompt -%}{{ '<|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|><|START_THINKING|><|END_THINKING|><|START_TEXT|>' }}{%- endif -%}
+    """
 
     // MARK: - Tool call parser templates
 
