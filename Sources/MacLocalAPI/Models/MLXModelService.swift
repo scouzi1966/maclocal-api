@@ -1350,6 +1350,10 @@ final class MLXModelService: @unchecked Sendable {
             self.harmonyChannels = false
             self.builtinChatTemplate = nil
             self.forceSerialGeneration = false
+            // Reset implicit stops here (not only in the model_type else-branch) so a
+            // subsequent load whose config.json is missing/unparsable can't inherit the
+            // previous model's stops (e.g. cohere2_moe's <|END_TEXT|>).
+            self.implicitStopSequences = []
             if let modelDir = self.resolver.localModelDirectory(repoId: modelID) {
                 let configURL = modelDir.appendingPathComponent("config.json")
                 if let data = try? Data(contentsOf: configURL),
@@ -1379,8 +1383,6 @@ final class MLXModelService: @unchecked Sendable {
                         if debugLogging {
                             print("[\(ts())] [ChatTemplate] cohere2_moe — built-in template; forcing serial generation (batch decode unvalidated)")
                         }
-                    } else {
-                        self.implicitStopSequences = []
                     }
                 }
             }

@@ -138,7 +138,14 @@ public struct Cohere2MoeConfiguration: Codable, Sendable {
     func appliesRope(_ i: Int) -> Bool { isSlidingLayer(i) || forceRope(i) }
 
     func makeNorm() -> RMSNorm {
-        RMSNorm(dimensions: hiddenSize, eps: rmsNormEps ?? layerNormEps)
+        // North checkpoints set rms_norm_eps and use RMSNorm. A LayerNorm variant
+        // (rms_norm_eps == null) would need a real LayerNorm path; fail fast rather
+        // than silently building an RMSNorm with the layer_norm_eps fallback.
+        guard let eps = rmsNormEps else {
+            fatalError("cohere2_moe: rms_norm_eps is null — this is a LayerNorm variant, "
+                + "which is not yet implemented (RMSNorm-only). See Cohere2Moe.swift makeNorm().")
+        }
+        return RMSNorm(dimensions: hiddenSize, eps: eps)
     }
 }
 
