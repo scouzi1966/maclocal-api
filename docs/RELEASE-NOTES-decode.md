@@ -93,8 +93,8 @@ We added speculative decoding to afm, our OpenAI-compatible MLX inference server
 and benchmarked it honestly against every other MLX engine.
 
 Highlights on an M4 Pro (64 GB), 4-bit models:
-• **Qwen3.6-27B + MTP: +52% decode** (~23 tok/s), output identical to greedy. On par with the
-  reference implementation.
+• **Qwen3.6-27B + MTP: +52% decode** (~23 tok/s), quality-preserving (bit-exact to greedy on short
+  generations; near-greedy on long ones). On par with the reference implementation.
 • **Gemma4-31B + EAGLE3: +30% decode, and lossless** — bit-exact to greedy autoregressive output.
 • **+10% decode at 16k context** from a backported adaptive 2-pass SDPA kernel.
 

@@ -418,13 +418,13 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Enable radix tree prefix caching for KV cache reuse across requests")
     var enablePrefixCaching: Bool = false
 
-    @Flag(name: .long, help: "Enable MTP self-speculative decoding (Qwen3.6 models with an mtp.safetensors sidecar). Faster decode, identical greedy output. No-op if the model has no MTP head.")
+    @Flag(name: .long, help: "Enable MTP self-speculative decoding (Qwen3.6 models with an mtp.safetensors sidecar). Faster decode, quality-preserving (bit-exact greedy on short generations; near-greedy on long ones). No-op if the model has no MTP head.")
     var mtp: Bool = false
 
     @Option(name: .long, help: "MTP draft depth (accepted for compatibility; the loop currently uses the fixed depth-2-bonus structure from mlx-lm PR #990 — ~+50% decode vs AR on M4 Pro — so this value is not used).")
     var mtpDepth: Int = 1
 
-    @Option(name: .long, help: "Enable EAGLE3 speculative decoding for a dense Gemma4 verifier. Pass the drafter directory (config.json + safetensors). Faster decode, identical greedy output. No-op if the verifier is not a dense Gemma4 text model.")
+    @Option(name: .long, help: "Enable EAGLE3 speculative decoding for a dense Gemma4 verifier. Pass the drafter directory (config.json + safetensors). Faster decode, quality-preserving (near-greedy output). No-op if the verifier is not a dense Gemma4 text model.")
     var eagle3: String?
 
     @Option(name: .long, help: "Write cache timing profile records as JSONL to this file")

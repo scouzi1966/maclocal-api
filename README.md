@@ -101,10 +101,10 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 
 > [!IMPORTANT]
 > The nightly build is the future stable release. It includes everything in v0.9.12 plus:
-> - **⚡ Lossless speculative decoding** — up to **+52% faster decode** with bit-exact output. Two model-specific options:
+> - **⚡ Speculative decoding** — up to **+52% faster decode**, quality-preserving. Two model-specific options:
 >   - **`--mtp`** for **Qwen3.6-27B** (self-speculative MTP head) → **~+52%**
 >   - **`--eagle3 <drafter>`** for **dense Gemma4-31B** (EAGLE3 drafter) → **~+30%**
->   - Both work for streaming *and* non-streaming, and produce output **identical to greedy decode** (no quality trade-off). See [⚡ Speculative Decoding](#-speculative-decoding-lossless) below.
+>   - Both work for streaming *and* non-streaming and preserve greedy-decode quality (bit-exact on short generations; may differ token-for-token on longer ones). See [⚡ Speculative Decoding](#-speculative-decoding) below.
 > - **Faster long context** — backported adaptive-block SDPA (~+10% decode @16k), eager `<think>`-tag streaming (reasoning TTFT ~610ms→~346ms), and Metal-kernel prewarm for a faster cold first token.
 > - **Swift 6 language mode** migration.
 
@@ -130,9 +130,9 @@ MACAFM_MLX_MODEL_CACHE=/path/to/models afm mlx -w
 afm -w
 ```
 
-## ⚡ Speculative Decoding (lossless)
+## ⚡ Speculative Decoding
 
-afm can decode **up to +52% faster** with **bit-exact, lossless output** — the generated text is *identical* to normal greedy decoding, there is no quality trade-off. There are **two** options, one per model family. Each needs a **specific checkpoint/drafter** (a plain 4-bit conversion won't work):
+afm can decode **up to +52% faster** while **preserving greedy-decode quality** — output is bit-exact to normal greedy decoding on short generations and stays greedy-quality on longer ones (it may differ token-for-token there). There are **two** options, one per model family. Each needs a **specific checkpoint/drafter** (a plain 4-bit conversion won't work):
 
 | Running… | Flag | Speedup | Get the model (Hugging Face) |
 |----------|------|---------|------------------------------|

@@ -13,8 +13,9 @@ export MACAFM_MLX_MODEL_CACHE=/Volumes/Crucial4TB/models/vesta-test-cache
 
 ## Which flag for which model? (start here)
 
-afm has exactly **two** speculative-decoding options — one per model family. Both are lossless
-(output identical to greedy) and need a specific drafter/checkpoint.
+afm has exactly **two** speculative-decoding options — one per model family. Both are
+quality-preserving (bit-exact to greedy on short generations; near-greedy on long ones) and need
+a specific drafter/checkpoint.
 
 | Running… | Use | Speedup | Needs |
 |----------|-----|---------|-------|
@@ -86,7 +87,9 @@ AFM_EAGLE3_BLOCK=3 afm mlx -m mlx-community/gemma-4-31b-it-4bit --eagle3 "$DRAFT
 **Flag:** `--mtp`
 
 Self-speculative decoding using Qwen3.6's **in-model MTP head** (no separate draft model).
-Output identical to greedy AR. ~**+52% decode** vs AR; ~**+47%** end-to-end.
+Quality-preserving: bit-exact to greedy AR on short generations, near-greedy on long ones (the
+depth-2 "bonus" token comes from a batched verify forward, so longer outputs may differ
+token-for-token while staying greedy-quality). ~**+52% decode** vs AR; ~**+47%** end-to-end.
 
 Requires a model checkpoint that ships the `mtp.safetensors` sidecar (the plain
 `mlx-community/Qwen3.6-27B-4bit` conversion **strips** the MTP head, so `--mtp` no-ops there):
@@ -158,7 +161,7 @@ AFM_DEBUG=1 AFM_EAGLE3_PROFILE=1 afm mlx -m <gemma4-31b> --eagle3 <drafter> --po
 | Feature | Flag | Model | Speedup | Output |
 |---------|------|-------|---------|--------|
 | EAGLE3 | `--eagle3 <dir>` | dense Gemma4-31B | ~+30% decode | lossless (== greedy AR) |
-| MTP | `--mtp` | Qwen3.6 w/ `mtp.safetensors` | ~+52% decode | identical to greedy AR |
+| MTP | `--mtp` | Qwen3.6 w/ `mtp.safetensors` | ~+52% decode | near-greedy (bit-exact on short gens) |
 | SDPA backport | (build-time) | any | ~+10% @16k | correct at all depths |
 | Eager think-tag | (auto) | thinking models | TTFT 610→346ms | unchanged |
 | Kernel prewarm | (auto) | any | faster cold token | unchanged |
