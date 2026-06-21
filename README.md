@@ -2,11 +2,11 @@ If you find this useful, please ⭐ the repo! &nbsp; Also check out [Vesta AI Ex
 
 ## Install
 
-|  | Stable (v0.9.12) | Nightly (afm-next) |
+|  | Stable (v0.9.13) | Nightly (afm-next) |
 |---|---|---|
 | **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
 | **pip** | `pip install macafm` | `pip install --extra-index-url https://maclocal-ai.pages.dev/afm/wheels/simple/ macafm-next` |
-| **Release notes** | [v0.9.12](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.12) | [v0.9.13-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260621-97e6683) |
+| **Release notes** | [v0.9.13](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.13) | [v0.9.13-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260621-97e6683) |
 
 ### 🔨 Build from source — one command
 
