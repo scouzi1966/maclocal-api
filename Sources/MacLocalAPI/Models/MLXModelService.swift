@@ -4842,8 +4842,21 @@ final class MLXModelService: @unchecked Sendable {
             input.additionalContext?["chatTemplateOverride"] = builtin
         }
 
-        // Merge chat template kwargs: server defaults first, then request-level overrides
-        var resolvedKwargs: [String: any Sendable] = (self.defaultChatTemplateKwargs ?? [:]).mapValues { Self.asSendableJSON($0) }
+        // Merge chat template kwargs: server defaults first, then request-level overrides.
+        // Booleans must reach the template as a native Swift Bool: asSendableJSON bridges
+        // them to NSNumber, which swift-jinja's `x is false` identity test does NOT treat as
+        // boolean false — this silently broke `--no-think` / `--default-chat-template-kwargs`
+        // (enable_thinking=false had no effect). The per-request path already delivers a Bool.
+        // CFBooleanGetTypeID catches both native Swift Bool and JSON __NSCFBoolean while leaving
+        // integer NSNumbers (e.g. a numeric kwarg) untouched.
+        var resolvedKwargs: [String: any Sendable] = [:]
+        for (key, value) in (self.defaultChatTemplateKwargs ?? [:]) {
+            if let num = value as? NSNumber, CFGetTypeID(num) == CFBooleanGetTypeID() {
+                resolvedKwargs[key] = num.boolValue
+            } else {
+                resolvedKwargs[key] = Self.asSendableJSON(value)
+            }
+        }
         if let requestKwargs = chatTemplateKwargs {
             for (key, value) in requestKwargs {
                 resolvedKwargs[key] = value.value.toAny()
