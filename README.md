@@ -2,6 +2,9 @@ If you find this useful, please ⭐ the repo! &nbsp; Also check out [Vesta AI Ex
 
 ## Install
 
+> [!NOTE]
+> **Stable (v0.9.13) is the absolute latest version** — it was cut from the current `main` HEAD, so it already includes everything in the latest nightly. Just install the stable build; the nightly track is only for previewing changes between releases.
+
 |  | Stable (v0.9.13) | Nightly (afm-next) |
 |---|---|---|
 | **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
