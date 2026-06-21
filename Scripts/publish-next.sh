@@ -202,7 +202,7 @@ brew reinstall afm-next                  # force reinstall (same version, new bu
 #### pip
 
 \`\`\`bash
-pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next
+pip install --extra-index-url https://maclocal-ai.pages.dev/afm/wheels/simple/ macafm-next
 \`\`\`
 
 #### Switching between stable and nightly
@@ -214,7 +214,7 @@ brew unlink afm-next && brew link afm                      # switch back to stab
 
 # pip
 pip install macafm          # stable
-pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next   # nightly
+pip install --extra-index-url https://maclocal-ai.pages.dev/afm/wheels/simple/ macafm-next   # nightly
 \`\`\`
 EOF
 )" \
@@ -281,4 +281,4 @@ echo ""
 log_info "Done! afm-next ${VERSION} published."
 echo "  Install (Homebrew): brew install scouzi1966/afm/afm-next"
 echo "  Upgrade (Homebrew): brew upgrade afm-next"
-echo "  Install (pip):      pip install --extra-index-url https://kruks.ai/afm/wheels/simple/ macafm-next"
+echo "  Install (pip):      pip install --extra-index-url https://maclocal-ai.pages.dev/afm/wheels/simple/ macafm-next"
