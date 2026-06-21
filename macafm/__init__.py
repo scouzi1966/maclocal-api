@@ -13,7 +13,7 @@ Requirements:
 - Apple Intelligence enabled in System Settings
 """
 
-__version__ = "0.9.13"
+__version__ = "0.9.14"
 __author__ = "Sylvain Cousineau"
 
 from .cli import main, get_binary_path
