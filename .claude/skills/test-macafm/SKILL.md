@@ -7,7 +7,8 @@ description: Run the maclocal-api (AFM/MLX) test suite — automated assertions 
 
 # test-macafm
 
-Run the maclocal-api test suite: automated pass/fail assertions and AI-judge smart analysis.
+Run the maclocal-api test suite: automated pass/fail assertions and smart analysis (the smart
+suite's AI judge is opt-in — default off; ask the user before enabling it).
 
 ## Triggers
 
@@ -32,7 +33,7 @@ Use this skill when the user asks to:
 |------|------|-------------|-----------|
 | **smoke** | ~2 min | Quick sanity check, any small model, CI | `test-assertions.sh --tier smoke` |
 | **standard** | ~15 min | After feature changes, mid-size model | `test-assertions.sh --tier standard` |
-| **full** | ~60 min | Release validation, production model | `test-assertions.sh --tier full` + `mlx-model-test.sh --smart` with `test-llm-comprehensive.txt` + promptfoo agentic evals |
+| **full** | ~60 min | Release validation, production model | `test-assertions.sh --tier full` + `mlx-model-test.sh` (smart suite; AI judge opt-in — ask the user) with `test-llm-comprehensive.txt` + promptfoo agentic evals |
 
 **Quick guide:**
 - "Just run a quick test" → smoke
@@ -75,8 +76,26 @@ until curl -sf http://127.0.0.1:9998/v1/models >/dev/null 2>&1; do sleep 1; done
 
 The smart analysis harness manages its own server (port 9877) — do NOT pass `--port`.
 It uses `test-llm-comprehensive.txt` which has an `[all]` baseline prompt and `[@ label]`
-template sections. The `--smart` flag accepts batch mode prefix and tool list.
+template sections.
 
+**The AI judge is OPT-IN — default OFF.** By default, run the smart suite WITHOUT an AI
+judge: it executes every prompt and records the model's raw outputs to the report for
+manual review, with no `claude`/`codex` scoring. Before running, **ask the user** (e.g.
+via AskUserQuestion) whether to enable the AI judge — it adds latency/cost and invokes an
+external CLI:
+
+> "Run the smart suite with an AI judge (claude) scoring each response, or without it
+>  (just record outputs for manual review)? Default: without."
+
+Default — **no AI judge** (records outputs only; omit `--smart` entirely):
+```bash
+AFM_BIN=.build/release/afm ./Scripts/mlx-model-test.sh \
+  --model MODEL \
+  --prompts Scripts/test-llm-comprehensive.txt
+```
+
+Only if the user opts in — append `--smart 1:claude` (the `--smart` flag accepts a batch
+mode prefix and tool list):
 ```bash
 AFM_BIN=.build/release/afm ./Scripts/mlx-model-test.sh \
   --model MODEL \
@@ -84,7 +103,7 @@ AFM_BIN=.build/release/afm ./Scripts/mlx-model-test.sh \
   --smart 1:claude
 ```
 
-**Smart analysis options:**
+**Smart analysis options (only when the AI judge is enabled):**
 - `--smart claude` or `--smart codex` — batch mode 0 (one big swoop, may fail on large test suites)
 - `--smart 1:claude` or `--smart 1:codex` — batch mode 1 (test-by-test, more reliable)
 - `--smart 1:claude,codex` — run multiple AI judges
@@ -463,7 +482,7 @@ python3 Scripts/benchmarks/benchmark_afm_vs_mlxlm.py --graph Scripts/benchmark-r
 - [ ] All standard checks
 - [ ] Performance: TTFT < 5s, tok/s > 1
 - [ ] Long context (2K, 4K tokens) no crash/NaN
-- [ ] Smart analysis: test-llm-comprehensive.txt with AI judge (`--smart 1:claude` or `--smart 1:codex`)
+- [ ] Smart analysis: test-llm-comprehensive.txt (AI judge opt-in — default off, ask the user; enable with `--smart 1:claude` / `--smart 1:codex`)
 - [ ] Streaming parity (assembled content matches non-streaming)
 - [ ] Cache timing improvement visible
 - [ ] Batch correctness: `validate_responses.py` at B={1,2,4,8}
