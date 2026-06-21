@@ -1023,9 +1023,18 @@ public final class Qwen3_5MoEMTPGenerator {
                 // 1-step context, so reset is cheapest and correct.
                 mtpCache.state = []
             } else {
-                // draft wrong: roll the backbone cache back to just-after-primary, emit the
-                // backbone's correct token, seed next cycle from it.
+                // draft wrong: roll the backbone cache back to BEFORE [primary, draft] (the
+                // snapshot was taken pre-verify), then re-establish `primary` alone. `primary`
+                // is a committed, already-emitted token, so it MUST stay in context — but the
+                // verify consumed it together with the bad draft, and the GDN recurrent state
+                // was replaced to post-draft, so the snapshot can only roll back to pre-primary.
+                // Re-feeding `primary` by itself restores correct post-primary state for ALL
+                // layers (trimmable KV + recurrent GDN) deterministically. Only the reject path
+                // pays this extra forward; accepts (the common case) stay single-forward.
+                // Without this, every rejected draft drops `primary` from the KV/GDN context and
+                // the output diverges from greedy AR (compounding garble on low-accept prompts).
                 Qwen3MTPCacheSnapshot.restore(snap, into: cache)
+                _ = model.forwardHidden(toks([primary]), cache: cache)
                 primary = correct
                 primaryHidden = vh[0..., 0..<1, 0...]       // hidden after primary
                 mtpCache.state = []
