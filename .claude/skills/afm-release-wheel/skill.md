@@ -19,6 +19,8 @@ Build a PyPI-distributable wheel from an existing compiled `afm` binary and prov
 
 ### Step 1: Ask Target Registry
 
+> **The maintainer has a TestPyPI account set up** (separate login from production PyPI, 2FA + API token). So TestPyPI validation is always available — default to recommending it for any first upload of a new version before production. The token is supplied at publish time (`--token`, `UV_PUBLISH_TOKEN`, or `~/.pypirc`); don't assume it's hardcoded anywhere.
+
 Use AskUserQuestion:
 
 **Question:** "Which PyPI registry should this wheel target?"

@@ -758,22 +758,31 @@ pip uninstall macafm    # clean up after testing
 
 ### Step 13: Provide PyPI Publish Command
 
-Present the exact command with the **absolute path** to the wheel and a placeholder token:
+> **The maintainer has a TestPyPI account** (separate login from production PyPI, 2FA + API token), so the wheel can be validated on TestPyPI before the production push. For a release that feels risky (new packaging, big version jump), offer the TestPyPI dry-run first; otherwise production is fine. The token is supplied at publish time (`--token` / `UV_PUBLISH_TOKEN` / `~/.pypirc`) — never assume it's stored in the repo.
+
+Present the exact command with the **absolute path** to the wheel and a placeholder token (production):
 
 ```bash
 ROOT="$(git rev-parse --show-toplevel)"
 echo "uv publish --token <YOUR_PYPI_TOKEN> ${ROOT}/dist/macafm-${VERSION}*"
 ```
 
+TestPyPI dry-run variant (validate first, then verify with `pip install --index-url https://test.pypi.org/simple/ macafm==${VERSION}`):
+
+```bash
+echo "uv publish --publish-url https://test.pypi.org/legacy/ --token <YOUR_TEST_PYPI_TOKEN> ${ROOT}/dist/macafm-${VERSION}*"
+```
+
 **IMPORTANT:** Always provide the full absolute path to the dist files — the user may run the command from a different directory.
 
 Use **AskUserQuestion**:
 
-**Question:** "The wheel is ready. Please run the `uv publish` command above (replace `<YOUR_PYPI_TOKEN>` with your token). Confirm when done, or skip PyPI."
+**Question:** "The wheel is ready. Validate on TestPyPI first, publish straight to production PyPI, or skip? (Replace the token placeholder with your own.)"
 
 **Options:**
-1. "Done — published to PyPI"
-2. "Skip PyPI"
+1. "TestPyPI first" — run the TestPyPI dry-run, verify, then production
+2. "Done — published to PyPI"
+3. "Skip PyPI"
 
 ### Step 14: Verify Deployment
 
