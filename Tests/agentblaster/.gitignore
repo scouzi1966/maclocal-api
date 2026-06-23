@@ -1,0 +1,5 @@
+# Generated suites (regenerable via ./generate-suites.sh; tied to AgentBlaster version)
+suites/*.yaml
+# Local run artifacts
+runs/
+*.run/
