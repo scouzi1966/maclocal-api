@@ -47,19 +47,13 @@ let package = Package(
         .target(
             name: "CXGrammar",
             exclude: [
-                "xgrammar/web",
-                "xgrammar/tests",
-                "xgrammar/python",
-                "xgrammar/docs",
-                "xgrammar/examples",
-                "xgrammar/scripts",
-                "xgrammar/site",
-                "xgrammar/cmake",
-                "xgrammar/3rdparty/cpptrace",
-                "xgrammar/3rdparty/googletest",
-                "xgrammar/3rdparty/dlpack/contrib",
+                // xgrammar is now vendored in-repo (Sources/CXGrammar/xgrammar) trimmed to
+                // exactly the compile set — cpp/ (minus the nanobind Python binding), include/,
+                // 3rdparty/dlpack/include, and the header-only 3rdparty/picojson. The web /
+                // tests / python / docs / examples / cpptrace / googletest trees are no longer
+                // committed, so their excludes are gone. picojson is header-only and stays on
+                // the header search path, so exclude its directory from compilation.
                 "xgrammar/3rdparty/picojson",
-                "xgrammar/cpp/nanobind",
             ],
             cSettings: [
                 .headerSearchPath("xgrammar/include"),
