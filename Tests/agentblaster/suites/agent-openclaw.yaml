@@ -1,0 +1,95 @@
+name: agentic-openclaw
+description: Representative OpenClaw-style local tool parser agent workload generated
+  by AgentBlaster.
+provenance:
+  origin: synthetic_representative
+  generator: agentblaster.agent_profiles
+  primary_source: AgentBlaster synthetic representative profiles
+  license: MIT
+  risk_labels:
+  - synthetic
+  - representative
+  - agent-profile
+  notes:
+  - Generated profile suites are representative harness fixtures, not claims about
+    exact upstream agent internals.
+  - Use these suites to compare provider behavior under common local-agent prompt/tool
+    shapes.
+cases:
+- id: openclaw-required-tool-envelope
+  title: OpenClaw-style strict required tool envelope
+  prompt: Call search_docs with query set to AgentBlaster PRD.
+  scenario: tool parser strictness
+  messages: []
+  provenance: synthetic_representative
+  license: MIT
+  risk_level: low
+  expected_json_fields: {}
+  expected_tool_name: search_docs
+  system_prompt: Emit API-native tool calls only when a tool is required. Do not describe
+    JSON or XML as plain text.
+  tools:
+  - type: function
+    function:
+      name: search_docs
+      description: Search a deterministic in-memory documentation fixture.
+      parameters:
+        type: object
+        properties:
+          query:
+            type: string
+            description: Search query.
+        required:
+        - query
+        additionalProperties: false
+  tool_choice:
+    type: function
+    function:
+      name: search_docs
+  simulated_tools:
+  - search_docs
+  expected_tool_result_substring: local agentic inference engines
+  skills: []
+  metrics:
+  - tool_calls_emitted
+  - tool_calls_valid
+  - invalid_tool_call_count
+  timeout_seconds: 30.0
+  streaming: false
+  max_tokens: 80
+  temperature: 0.0
+  tags:
+  - agent-profile
+  - openclaw
+  - parser
+  - toolcall
+- id: openclaw-structured-local-summary
+  title: OpenClaw-style structured local summary
+  prompt: 'Return exactly this JSON object: {"status":"agentblaster-ok","tool_parser":"api-native"}'
+  scenario: structured output
+  messages: []
+  provenance: synthetic_representative
+  license: MIT
+  risk_level: low
+  expected_json_fields:
+    status: agentblaster-ok
+    tool_parser: api-native
+  system_prompt: Return only valid JSON. No markdown and no raw tool transcript.
+  response_format:
+    type: json_object
+  tools: []
+  simulated_tools: []
+  skills: []
+  metrics:
+  - structured_output_valid
+  - latency_ms
+  timeout_seconds: 30.0
+  streaming: false
+  max_tokens: 80
+  temperature: 0.0
+  tags:
+  - agent-profile
+  - openclaw
+  - structured
+  - local-model
+
