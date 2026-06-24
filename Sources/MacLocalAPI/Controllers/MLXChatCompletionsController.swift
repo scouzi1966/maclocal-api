@@ -1340,13 +1340,13 @@ struct MLXChatCompletionsController: RouteCollection {
     }
 
     private func normalizedMaxTokens(_ requested: Int?) -> Int {
-        if let requested, requested > 0 {
-            return requested
-        }
-        if let maxTokens, maxTokens > 0 {
-            return maxTokens
-        }
-        return 4096
+        Self.resolveEffectiveMaxTokens(requested: requested, serverDefault: maxTokens)
+    }
+
+    static func resolveEffectiveMaxTokens(requested: Int?, serverDefault: Int?) -> Int {
+        if let requested, requested > 0 { return requested }
+        if let serverDefault, serverDefault > 0 { return serverDefault }
+        return 512
     }
 
     private func sanitizeDegenerateTail(_ text: String) -> String {

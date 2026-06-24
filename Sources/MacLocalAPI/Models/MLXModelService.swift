@@ -347,6 +347,9 @@ final class MLXModelService: @unchecked Sendable {
     /// cohere2_moe template uses block-`set`/`namespace`/macros). nil = use the
     /// model's own template. Set at load time from model_type.
     private(set) var builtinChatTemplate: String? = nil
+    /// Native chat template patched only to preserve Python/HF `tojson` spacing for tools.
+    /// nil = use the model's own template unchanged.
+    private(set) var nativeToolJSONChatTemplate: String? = nil
     /// Extra stop strings implied by the model's format that aren't its EOS — e.g. Cohere
     /// cohere2_moe ends each answer with the special token `<|END_TEXT|>` (then EOS), which
     /// otherwise leaks into the decoded output. Merged into the request stop list. Set at load.
@@ -1395,6 +1398,7 @@ final class MLXModelService: @unchecked Sendable {
             // and <|channel|>final|message|> ... <|return|>/<|end|> to content. (#121)
             self.harmonyChannels = false
             self.builtinChatTemplate = nil
+            self.nativeToolJSONChatTemplate = Self.nativeToolJSONChatTemplate(directory: directory)
             self.forceSerialGeneration = false
             // Reset implicit stops here (not only in the model_type else-branch) so a
             // subsequent load whose config.json is missing/unparsable can't inherit the
@@ -1698,7 +1702,7 @@ final class MLXModelService: @unchecked Sendable {
         guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
 
         let promptText = buildPrompt(from: messages)
-        let toolSpecs = convertToToolSpecs(tools)
+        let toolSpecs = convertToToolSpecs(tools, includePythonJSON: shouldUseNativePythonToolJSONTemplate(for: tools))
         let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat, chatTemplateKwargs: chatTemplateKwargs)
         defer { cleanupTempFiles(mediaTempFiles) }
         let wantLogprobs = logprobs == true
@@ -2369,7 +2373,7 @@ final class MLXModelService: @unchecked Sendable {
         guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
 
         let promptText = buildPrompt(from: messages)
-        let toolSpecs = convertToToolSpecs(tools)
+        let toolSpecs = convertToToolSpecs(tools, includePythonJSON: shouldUseNativePythonToolJSONTemplate(for: tools))
         // -VV: Log tool schemas as sent to model's Jinja template
         if trace, let toolSpecs {
             for spec in toolSpecs {
@@ -3198,7 +3202,7 @@ final class MLXModelService: @unchecked Sendable {
     // MARK: - Tool conversion helpers
 
     /// Convert OpenAI-format RequestTool array to vendor ToolSpec array.
-    private func convertToToolSpecs(_ tools: [RequestTool]?) -> [ToolSpec]? {
+    private func convertToToolSpecs(_ tools: [RequestTool]?, includePythonJSON: Bool = false) -> [ToolSpec]? {
         guard let tools, !tools.isEmpty else { return nil }
         return tools.map { tool -> ToolSpec in
             var funcDict: [String: any Sendable] = [
@@ -3210,11 +3214,125 @@ final class MLXModelService: @unchecked Sendable {
             if let params = tool.function.parameters {
                 funcDict["parameters"] = params.toJinjaCompatible()
             }
-            return [
+            var spec: ToolSpec = [
                 "type": tool.type,
                 "function": funcDict
             ]
+            if includePythonJSON {
+                spec["__python_json__"] = Self.pythonStyleToolJSON(tool)
+            }
+            return spec
         }
+    }
+
+    private func shouldUseNativePythonToolJSONTemplate(for tools: [RequestTool]?) -> Bool {
+        guard let tools, !tools.isEmpty else { return false }
+        guard nativeToolJSONChatTemplate != nil else { return false }
+        guard builtinChatTemplate == nil else { return false }
+        return resolvedChatTemplateToolCallParser(logBypass: false) == nil
+    }
+
+    private static func nativeToolJSONChatTemplate(directory: URL) -> String? {
+        let templateURL = directory.appendingPathComponent("chat_template.jinja")
+        guard let template = try? String(contentsOf: templateURL, encoding: .utf8) else { return nil }
+        let patched = patchNativeTemplateForPythonToolJSON(template)
+        return patched == template ? nil : patched
+    }
+
+    static func patchNativeTemplateForPythonToolJSON(_ template: String) -> String {
+        template
+            .replacingOccurrences(of: "{{- tool | tojson }}", with: "{{- tool.__python_json__ }}")
+            .replacingOccurrences(of: "{{ tool | tojson }}", with: "{{ tool.__python_json__ }}")
+            .replacingOccurrences(of: "{{- tool|tojson }}", with: "{{- tool.__python_json__ }}")
+            .replacingOccurrences(of: "{{ tool|tojson }}", with: "{{ tool.__python_json__ }}")
+    }
+
+    static func pythonStyleToolJSON(_ tool: RequestTool) -> String {
+        var functionPairs: [(String, Any)] = [("name", tool.function.name)]
+        if let description = tool.function.description {
+            functionPairs.append(("description", description))
+        }
+        if let parameters = tool.function.parameters {
+            functionPairs.append(("parameters", parameters.value.toAny()))
+        }
+        if let strict = tool.function.strict {
+            functionPairs.append(("strict", strict))
+        }
+        let functionValue = orderedJSONObject(functionPairs)
+        return "{\(jsonStringLiteral("type")): \(jsonStringLiteral(tool.type)), \(jsonStringLiteral("function")): \(functionValue)}"
+    }
+
+    private static func orderedJSONObject(_ pairs: [(String, Any)]) -> String {
+        let parts = pairs.compactMap { key, value -> String? in
+            if value is NSNull { return nil }
+            return "\(jsonStringLiteral(key)): \(pythonStyleJSONValue(value, parentKey: key))"
+        }
+        return "{\(parts.joined(separator: ", "))}"
+    }
+
+    private static func pythonStyleJSONValue(_ value: Any, parentKey: String? = nil) -> String {
+        if let value = value as? AnyCodableValue {
+            return pythonStyleJSONValue(value.toAny(), parentKey: parentKey)
+        }
+        if let value = value as? String {
+            return jsonStringLiteral(value)
+        }
+        if let value = value as? Bool {
+            return value ? "true" : "false"
+        }
+        if let value = value as? Int {
+            return String(value)
+        }
+        if let value = value as? Double {
+            return String(value)
+        }
+        if let value = value as? [Any] {
+            return "[\(value.map { pythonStyleJSONValue($0) }.joined(separator: ", "))]"
+        }
+        if let value = value as? [String] {
+            return "[\(value.map { jsonStringLiteral($0) }.joined(separator: ", "))]"
+        }
+        if let value = value as? [String: Any] {
+            return pythonStyleJSONObject(value, parentKey: parentKey)
+        }
+        if let value = value as? [String: any Sendable] {
+            return pythonStyleJSONObject(value, parentKey: parentKey)
+        }
+        if value is NSNull {
+            return "null"
+        }
+        return jsonStringLiteral(String(describing: value))
+    }
+
+    private static func pythonStyleJSONObject(_ dict: [String: Any], parentKey: String?) -> String {
+        let preferred: [String]
+        switch parentKey {
+        case "parameters":
+            preferred = ["type", "properties", "required"]
+        case "properties":
+            preferred = ["path", "old_string", "new_string", "dir", "recursive", "start_line", "limit", "query", "glob", "semantic", "cmd", "cwd", "timeout"]
+        default:
+            preferred = ["type", "default", "description", "properties", "required"]
+        }
+        let keys = orderedKeys(Array(dict.keys), preferred: preferred)
+        let parts = keys.compactMap { key -> String? in
+            guard let value = dict[key], !(value is NSNull) else { return nil }
+            return "\(jsonStringLiteral(key)): \(pythonStyleJSONValue(value, parentKey: key))"
+        }
+        return "{\(parts.joined(separator: ", "))}"
+    }
+
+    private static func orderedKeys(_ keys: [String], preferred: [String]) -> [String] {
+        let keySet = Set(keys)
+        let first = preferred.filter { keySet.contains($0) }
+        let rest = keys.filter { !preferred.contains($0) }.sorted()
+        return first + rest
+    }
+
+    private static func jsonStringLiteral(_ value: String) -> String {
+        let data = try? JSONSerialization.data(withJSONObject: [value])
+        let encoded = data.flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
+        return String(encoded.dropFirst().dropLast())
     }
 
     /// Convert a vendor ToolCall to an OpenAI-compatible ResponseToolCall.
@@ -5043,10 +5161,12 @@ final class MLXModelService: @unchecked Sendable {
         }
 
         var input = UserInput(chat: chatMessages, processing: .init(resize: .init(width: 1024, height: 1024)), tools: tools)
+        let hasTools = tools != nil && !tools!.isEmpty
+        var appliedChatTemplateOverride = false
 
         // When --tool-call-parser is explicitly set and tools are present, override the chat template.
         // Auto-detected parsers are used for parsing only; the model's native template is closer to mlx_lm.server.
-        if let parser = resolvedChatTemplateToolCallParser(logBypass: true), tools != nil, !tools!.isEmpty {
+        if let parser = resolvedChatTemplateToolCallParser(logBypass: true), hasTools {
             let templateOverride: String?
             switch parser {
             case "qwen3_xml", "afm_adaptive_xml":
@@ -5067,10 +5187,17 @@ final class MLXModelService: @unchecked Sendable {
             if let tpl = templateOverride {
                 input.additionalContext = (input.additionalContext ?? [:])
                 input.additionalContext?["chatTemplateOverride"] = tpl
+                appliedChatTemplateOverride = true
             }
             if debugLogging {
                 print("[\(ts())] [ToolCallParser] Using \(parser) chat template override")
             }
+        }
+
+        if !appliedChatTemplateOverride, hasTools, let nativeToolJSONChatTemplate {
+            input.additionalContext = (input.additionalContext ?? [:])
+            input.additionalContext?["chatTemplateOverride"] = nativeToolJSONChatTemplate
+            appliedChatTemplateOverride = true
         }
 
         // Built-in template override for models whose own chat_template.jinja swift-jinja
@@ -5079,6 +5206,7 @@ final class MLXModelService: @unchecked Sendable {
         if let builtin = self.builtinChatTemplate {
             input.additionalContext = (input.additionalContext ?? [:])
             input.additionalContext?["chatTemplateOverride"] = builtin
+            appliedChatTemplateOverride = true
         }
 
         // Merge chat template kwargs: server defaults first, then request-level overrides.
