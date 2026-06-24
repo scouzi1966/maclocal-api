@@ -689,3 +689,36 @@ public class FoundationModelService: @unchecked Sendable {
         return try await FoundationModelService(instructions: instructions, useSharedAdapter: true, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
     }
 }
+
+// MARK: - AFMLanguageModel conformance (vesta-mac's Apple-backend bridge)
+
+/// Lets the Apple Foundation Models backend be used interchangeably with the MLX
+/// backend (and, in year two, Apple's own `LanguageModel` conformers) through the
+/// same `AFMLanguageModel` surface. This is the seam vesta-mac targets: today it
+/// calls `FoundationModels.LanguageModelSession` directly; with AFMKit it can hold an
+/// `any AFMLanguageModel` and swap MLX in without touching call sites.
+@available(macOS 26.0, *)
+extension FoundationModelService: AFMLanguageModel {
+    /// The service only exists once `init` has successfully created a session, so a
+    /// live instance is by construction available.
+    public var isAvailable: Bool { true }
+
+    public func respond(to messages: [Message], options: GenerationConfig) async throws -> AFMResponse {
+        let text = try await generateResponse(
+            for: messages,
+            temperature: options.temperature,
+            maxTokens: options.maxTokens,
+            stop: options.stop
+        )
+        return AFMResponse(content: text)
+    }
+
+    public func streamResponse(to messages: [Message], options: GenerationConfig) -> AsyncThrowingStream<String, Error> {
+        generateNativeStreamingResponse(
+            for: messages,
+            temperature: options.temperature,
+            maxTokens: options.maxTokens,
+            stop: options.stop
+        )
+    }
+}
