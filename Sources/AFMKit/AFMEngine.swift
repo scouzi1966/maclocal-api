@@ -108,12 +108,15 @@ public struct AFMResponse: Sendable {
     /// Extracted `<think>…</think>` reasoning, when the model produced any.
     public let reasoningContent: String?
     public let toolCalls: [ResponseToolCall]?
+    /// Per-token logprobs, when `GenerationConfig.logprobs == true` (MLX backend).
+    public let logprobs: [ResolvedLogprob]?
     public let promptTokens: Int
     public let completionTokens: Int
-    public init(content: String, reasoningContent: String? = nil, toolCalls: [ResponseToolCall]? = nil, promptTokens: Int = 0, completionTokens: Int = 0) {
+    public init(content: String, reasoningContent: String? = nil, toolCalls: [ResponseToolCall]? = nil, logprobs: [ResolvedLogprob]? = nil, promptTokens: Int = 0, completionTokens: Int = 0) {
         self.content = content
         self.reasoningContent = reasoningContent
         self.toolCalls = toolCalls
+        self.logprobs = logprobs
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
     }
@@ -211,6 +214,7 @@ public actor AFMEngine {
             return AFMResponse(
                 content: r.content,
                 toolCalls: r.toolCalls,
+                logprobs: r.tokenLogprobs,
                 promptTokens: r.promptTokens,
                 completionTokens: r.completionTokens
             )
@@ -269,6 +273,44 @@ public actor AFMEngine {
             continuation.onTermination = { _ in task.cancel() }
         }
     }
+
+    // MARK: - Batch / concurrent generation
+
+    /// Generate responses for several chat transcripts concurrently, bounded by
+    /// `EngineConfig.maxConcurrent` (set ≥2 to engage the MLX batch scheduler). Results
+    /// are returned in the same order as `transcripts`.
+    public nonisolated func respondBatch(_ transcripts: [[Message]], _ config: GenerationConfig = GenerationConfig()) async throws -> [AFMResponse] {
+        if transcripts.isEmpty { return [] }
+        let cap = max(1, engineConfig.maxConcurrent)
+        var results = [AFMResponse?](repeating: nil, count: transcripts.count)
+        try await withThrowingTaskGroup(of: (Int, AFMResponse).self) { group in
+            var next = 0
+            var inFlight = 0
+            func submit() {
+                let i = next; next += 1; inFlight += 1
+                group.addTask { (i, try await self.respond(to: transcripts[i], config)) }
+            }
+            while next < transcripts.count && inFlight < cap { submit() }
+            while inFlight > 0 {
+                let (idx, resp) = try await group.next()!
+                results[idx] = resp
+                inFlight -= 1
+                if next < transcripts.count { submit() }
+            }
+        }
+        return results.compactMap { $0 }
+    }
+
+    // MARK: - Auxiliary capabilities (Apple-native, backend-independent)
+
+    /// Apple Vision OCR / table / barcode / classification / saliency service.
+    public nonisolated func vision() -> VisionService { VisionService() }
+    /// Apple Speech transcription service.
+    public nonisolated func speech() -> SpeechService { SpeechService() }
+    /// Apple text-to-speech synthesis service.
+    public nonisolated func speechSynthesis() -> SpeechSynthesisService { SpeechSynthesisService() }
+    /// Default Apple NaturalLanguage embeddings resolver (lazy, model loaded on first use).
+    public nonisolated func embeddings() -> any EmbeddingBackendResolver { LazyAppleEmbeddingResolver() }
 
     // MARK: - Foundation Models bridge (macOS 26+)
 
