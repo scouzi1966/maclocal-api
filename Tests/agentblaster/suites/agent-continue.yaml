@@ -1,0 +1,70 @@
+name: agentic-continue
+description: Representative Continue-style IDE retrieval agent workload generated
+  by AgentBlaster.
+provenance:
+  origin: synthetic_representative
+  generator: agentblaster.agent_profiles
+  primary_source: AgentBlaster synthetic representative profiles
+  license: MIT
+  risk_labels:
+  - synthetic
+  - representative
+  - agent-profile
+  notes:
+  - Generated profile suites are representative harness fixtures, not claims about
+    exact upstream agent internals.
+  - Use these suites to compare provider behavior under common local-agent prompt/tool
+    shapes.
+cases:
+- id: continue-doc-retrieval-summary
+  title: Continue-style IDE retrieval summary
+  prompt: Search docs for "security policy" and return {"status":"agentblaster-ok","source":"docs"}
+  scenario: IDE retrieval
+  messages: []
+  provenance: synthetic_representative
+  license: MIT
+  risk_level: low
+  expected_json_fields:
+    status: agentblaster-ok
+    source: docs
+  expected_tool_name: search_docs
+  system_prompt: Use deterministic retrieval context only and return compact JSON.
+  response_format:
+    type: json_object
+  tools:
+  - type: function
+    function:
+      name: search_docs
+      description: Search a deterministic in-memory documentation fixture.
+      parameters:
+        type: object
+        properties:
+          query:
+            type: string
+            description: Search query.
+        required:
+        - query
+        additionalProperties: false
+  tool_choice:
+    type: function
+    function:
+      name: search_docs
+  simulated_tools:
+  - search_docs
+  expected_tool_result_substring: Raw API keys must never appear
+  skills:
+  - repo-triage
+  metrics:
+  - structured_output_valid
+  - tool_calls_valid
+  - latency_ms
+  timeout_seconds: 30.0
+  streaming: false
+  max_tokens: 96
+  temperature: 0.0
+  tags:
+  - agent-profile
+  - continue
+  - retrieval
+  - structured
+

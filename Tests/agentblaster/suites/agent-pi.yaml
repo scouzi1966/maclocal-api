@@ -1,0 +1,75 @@
+name: agentic-pi
+description: Representative Pi-style local compatibility agent workload generated
+  by AgentBlaster.
+provenance:
+  origin: synthetic_representative
+  generator: agentblaster.agent_profiles
+  primary_source: AgentBlaster synthetic representative profiles
+  license: MIT
+  risk_labels:
+  - synthetic
+  - representative
+  - agent-profile
+  notes:
+  - Generated profile suites are representative harness fixtures, not claims about
+    exact upstream agent internals.
+  - Use these suites to compare provider behavior under common local-agent prompt/tool
+    shapes.
+cases:
+- id: pi-lean-local-chat
+  title: Pi-style lean local chat compatibility
+  prompt: 'Reply with exactly: agentblaster-ok'
+  scenario: local provider compatibility
+  messages: []
+  provenance: synthetic_representative
+  license: MIT
+  risk_level: low
+  expected_substring: agentblaster-ok
+  expected_json_fields: {}
+  system_prompt: Use plain assistant output. Avoid advanced role assumptions and keep
+    the answer short.
+  tools: []
+  simulated_tools: []
+  skills: []
+  metrics:
+  - latency_ms
+  - tokens_per_second_decode
+  timeout_seconds: 30.0
+  streaming: false
+  max_tokens: 16
+  temperature: 0.0
+  tags:
+  - agent-profile
+  - pi
+  - lean
+  - chat
+- id: pi-compatible-json-summary
+  title: Pi-style provider-compatible JSON summary
+  prompt: 'Return exactly this JSON object: {"status":"agentblaster-ok","mode":"local-compatible"}'
+  scenario: structured output
+  messages: []
+  provenance: synthetic_representative
+  license: MIT
+  risk_level: low
+  expected_json_fields:
+    status: agentblaster-ok
+    mode: local-compatible
+  system_prompt: Return only valid JSON with no markdown.
+  response_format:
+    type: json_object
+  tools: []
+  simulated_tools: []
+  skills: []
+  metrics:
+  - structured_output_valid
+  - latency_ms
+  timeout_seconds: 30.0
+  streaming: false
+  max_tokens: 64
+  temperature: 0.0
+  tags:
+  - agent-profile
+  - pi
+  - structured
+  - compatibility
+

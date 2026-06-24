@@ -1,0 +1,114 @@
+name: agentic-aider
+description: Representative Aider-style pair-programming agent workload generated
+  by AgentBlaster.
+provenance:
+  origin: synthetic_representative
+  generator: agentblaster.agent_profiles
+  primary_source: AgentBlaster synthetic representative profiles
+  license: MIT
+  risk_labels:
+  - synthetic
+  - representative
+  - agent-profile
+  notes:
+  - Generated profile suites are representative harness fixtures, not claims about
+    exact upstream agent internals.
+  - Use these suites to compare provider behavior under common local-agent prompt/tool
+    shapes.
+cases:
+- id: aider-diff-test-replay
+  title: Aider-style patch and test replay
+  prompt: 'Inspect the fixture repository, replay the tests, and summarize with exactly:
+    agentblaster-ok'
+  scenario: pair programming patch loop
+  messages:
+  - role: system
+    content: You are replaying a pair-programming agent loop. Use only fixture context.
+    tool_calls: []
+  - role: user
+    content: Inspect /repo/src/app.py, infer the one-line status behavior, then use
+      the replayed tests.
+    tool_calls: []
+  - role: assistant
+    content: ''
+    tool_calls:
+    - id: call_read
+      type: function
+      function:
+        name: read_file_fixture
+        arguments: '{"path":"/repo/src/app.py"}'
+  - role: tool
+    content: '{"path":"/repo/src/app.py","content":"agentblaster-ok"}'
+    name: read_file_fixture
+    tool_call_id: call_read
+    tool_calls: []
+  - role: assistant
+    content: ''
+    tool_calls:
+    - id: call_test
+      type: function
+      function:
+        name: shell_fixture
+        arguments: '{"command":"pytest -q"}'
+  - role: tool
+    content: '{"command":"pytest -q","exit_code":0,"stdout":"3 passed\n","stderr":""}'
+    name: shell_fixture
+    tool_call_id: call_test
+    tool_calls: []
+  - role: user
+    content: 'Summarize the outcome with exactly: agentblaster-ok'
+    tool_calls: []
+  provenance: synthetic_representative
+  license: MIT
+  risk_level: low
+  expected_substring: agentblaster-ok
+  expected_json_fields: {}
+  tools:
+  - type: function
+    function:
+      name: read_file_fixture
+      description: Read a deterministic fake repository file without touching the
+        host filesystem.
+      parameters:
+        type: object
+        properties:
+          path:
+            type: string
+            description: Fixture path to read.
+        required:
+        - path
+        additionalProperties: false
+  - type: function
+    function:
+      name: shell_fixture
+      description: Run a deterministic fake shell command without executing on the
+        host.
+      parameters:
+        type: object
+        properties:
+          command:
+            type: string
+            description: Fixture command to simulate.
+        required:
+        - command
+        additionalProperties: false
+  simulated_tools:
+  - read_file_fixture
+  - shell_fixture
+  skills:
+  - repo-triage
+  - safe-tool-replay
+  metrics:
+  - latency_ms
+  - tool_calls_valid
+  - tokens_per_second_decode
+  timeout_seconds: 30.0
+  streaming: false
+  max_tokens: 48
+  temperature: 0.0
+  tags:
+  - agent-profile
+  - aider
+  - pair-programming
+  - trace-replay
+

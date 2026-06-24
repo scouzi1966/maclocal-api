@@ -1,0 +1,69 @@
+name: agentic-codex
+description: Representative Codex-style sandboxed coding agent workload generated
+  by AgentBlaster.
+provenance:
+  origin: synthetic_representative
+  generator: agentblaster.agent_profiles
+  primary_source: AgentBlaster synthetic representative profiles
+  license: MIT
+  risk_labels:
+  - synthetic
+  - representative
+  - agent-profile
+  notes:
+  - Generated profile suites are representative harness fixtures, not claims about
+    exact upstream agent internals.
+  - Use these suites to compare provider behavior under common local-agent prompt/tool
+    shapes.
+cases:
+- id: codex-sandbox-command-plan
+  title: Codex-style sandboxed command plan
+  prompt: 'Use shell_fixture to run python -m agentblaster --version, then answer
+    with exactly: agentblaster-ok'
+  scenario: sandboxed command planning
+  messages: []
+  provenance: synthetic_representative
+  license: MIT
+  risk_level: low
+  expected_json_fields: {}
+  expected_tool_name: shell_fixture
+  system_prompt: You are a sandbox-aware coding agent. Use only the deterministic
+    shell fixture and do not request host escalation.
+  tools:
+  - type: function
+    function:
+      name: shell_fixture
+      description: Run a deterministic fake shell command without executing on the
+        host.
+      parameters:
+        type: object
+        properties:
+          command:
+            type: string
+            description: Fixture command to simulate.
+        required:
+        - command
+        additionalProperties: false
+  tool_choice:
+    type: function
+    function:
+      name: shell_fixture
+  simulated_tools:
+  - shell_fixture
+  expected_tool_result_substring: 0.1.0
+  skills:
+  - safe-tool-replay
+  metrics:
+  - tool_calls_valid
+  - latency_ms
+  - tokens_per_second_decode
+  timeout_seconds: 30.0
+  streaming: false
+  max_tokens: 64
+  temperature: 0.0
+  tags:
+  - agent-profile
+  - codex
+  - sandbox
+  - command
+

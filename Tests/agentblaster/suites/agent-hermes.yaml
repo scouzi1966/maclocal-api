@@ -1,0 +1,146 @@
+name: agentic-hermes
+description: Representative Nous Hermes-style multi-tool agent workload generated
+  by AgentBlaster.
+provenance:
+  origin: synthetic_representative
+  generator: agentblaster.agent_profiles
+  primary_source: AgentBlaster synthetic representative profiles
+  license: MIT
+  risk_labels:
+  - synthetic
+  - representative
+  - agent-profile
+  notes:
+  - Generated profile suites are representative harness fixtures, not claims about
+    exact upstream agent internals.
+  - Use these suites to compare provider behavior under common local-agent prompt/tool
+    shapes.
+cases:
+- id: hermes-mcp-planner-tool
+  title: Hermes-style planner with MCP fixture catalog
+  prompt: Call mcp_echo with value set to agentblaster-ok.
+  scenario: multi-tool planner
+  messages: []
+  provenance: synthetic_representative
+  license: MIT
+  risk_level: low
+  expected_json_fields: {}
+  expected_tool_name: mcp_echo
+  system_prompt: Use a compact planner step, then call the provided MCP-style fixture
+    tool when useful.
+  tools:
+  - type: function
+    function:
+      name: mcp_echo
+      description: Echo a deterministic MCP-style payload for harness validation.
+      parameters:
+        type: object
+        properties:
+          value:
+            description: Value to echo.
+        required:
+        - value
+        additionalProperties: true
+  tool_choice:
+    type: function
+    function:
+      name: mcp_echo
+  simulated_tools:
+  - mcp_echo
+  expected_tool_result_substring: agentblaster-ok
+  mcp_profile: fixture-mcp
+  skills:
+  - agent-planning
+  - safe-tool-replay
+  metrics:
+  - ttft_ms
+  - tool_calls_valid
+  - tokens_per_second_prefill
+  timeout_seconds: 30.0
+  streaming: false
+  max_tokens: 96
+  temperature: 0.0
+  tags:
+  - agent-profile
+  - hermes
+  - mcp
+  - planner
+- id: hermes-browser-memory-summary
+  title: Hermes-style browser and memory summary
+  prompt: 'Use browser_fetch_fixture for https://example.test/agentblaster, then answer
+    with exactly: agentblaster-ok'
+  scenario: search and summarize loop
+  messages: []
+  provenance: synthetic_representative
+  license: MIT
+  risk_level: low
+  expected_json_fields: {}
+  expected_tool_name: browser_fetch_fixture
+  system_prompt: Treat browser results as deterministic memory. Do not access the
+    real network.
+  tools:
+  - type: function
+    function:
+      name: browser_fetch_fixture
+      description: Fetch a deterministic fake web page without network access.
+      parameters:
+        type: object
+        properties:
+          url:
+            type: string
+            description: Fixture URL to fetch.
+        required:
+        - url
+        additionalProperties: false
+  tool_choice:
+    type: function
+    function:
+      name: browser_fetch_fixture
+  simulated_tools:
+  - browser_fetch_fixture
+  expected_tool_result_substring: AgentBlaster fixture page
+  skills:
+  - agent-planning
+  metrics:
+  - latency_ms
+  - tool_calls_valid
+  timeout_seconds: 30.0
+  streaming: false
+  max_tokens: 96
+  temperature: 0.0
+  tags:
+  - agent-profile
+  - hermes
+  - browser
+  - memory
+- id: hermes-lcp-context-boundary
+  title: Hermes-style LCP scoped context boundary
+  prompt: From the LCP fixture context, report the project status sentinel exactly.
+  scenario: local context protocol
+  messages: []
+  provenance: synthetic_representative
+  license: MIT
+  risk_level: low
+  expected_substring: agentblaster-lcp-ok
+  expected_json_fields: {}
+  system_prompt: Use the attached deterministic LCP context bundle only. Do not infer
+    host filesystem, browser, or memory state beyond the bundle.
+  tools: []
+  simulated_tools: []
+  lcp_profile: fixture-lcp
+  skills:
+  - agent-planning
+  metrics:
+  - ttft_ms
+  - tokens_per_second_prefill
+  - latency_ms
+  timeout_seconds: 30.0
+  streaming: false
+  max_tokens: 48
+  temperature: 0.0
+  tags:
+  - agent-profile
+  - hermes
+  - lcp
+  - context-boundary
+
