@@ -32,7 +32,12 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.99.3"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
-        .package(name: "mlx-swift-lm", path: "vendor/mlx-swift-lm"),
+        // Pre-patched fork (afm's patch set already applied, mlx-swift pinned 0.30.3) so the
+        // dependency resolves by URL with NO git submodules — a plain `git clone` + `swift build`
+        // works for downstream consumers. The fork is regenerated from the vendor/mlx-swift-lm
+        // submodule + Scripts/patches/ by Scripts/build-mlx-swift-lm-fork.sh. URL identity
+        // ("mlx-swift-lm") matches every `.product(package: "mlx-swift-lm")` reference below.
+        .package(url: "https://github.com/scouzi1966/mlx-swift-lm.git", revision: "239dce1652786482698877c8efe697a6c9f52096"),
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
         .package(url: "https://github.com/huggingface/swift-huggingface.git", from: "0.8.1"),
         // Pin mlx-swift to 0.30.3 — 0.30.4+ has SDPA regression (PR #3023 "Faster two pass sdpa")
