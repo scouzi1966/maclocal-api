@@ -5,6 +5,7 @@ import MLXLMCommon
 import Testing
 
 @testable import AFMKit
+@testable import AFMServer
 
 /// Unit tests for batched prefill infrastructure:
 /// - BatchKVCacheSimple mask creation with leftPadding

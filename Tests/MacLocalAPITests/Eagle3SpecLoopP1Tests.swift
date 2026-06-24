@@ -6,6 +6,7 @@ import Testing
 @testable import MLXLLM
 
 @testable import AFMKit
+@testable import AFMServer
 
 /// P1 gate for the EAGLE3 port: the greedy draft -> verify -> accept -> KV-trim loop must produce
 /// EXACTLY the same token sequence as plain greedy autoregressive decoding from the same verifier.

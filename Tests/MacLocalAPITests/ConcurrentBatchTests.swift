@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import AFMKit
+@testable import AFMServer
 
 /// Unit tests for Phase 1 concurrent batching internals:
 /// RequestSlot, StreamChunk, and BatchScheduler queuing logic.
