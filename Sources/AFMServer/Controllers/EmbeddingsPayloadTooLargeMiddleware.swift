@@ -1,4 +1,5 @@
 import Vapor
+import AFMKit
 
 /// Converts Vapor's `.payloadTooLarge` aborts into an OpenAI-shaped error body
 /// for the embeddings endpoint (so clients get a structured JSON error, not a bare 413).

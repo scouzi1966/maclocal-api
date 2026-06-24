@@ -1,4 +1,5 @@
 import Foundation
+import AFMKit
 import Vapor
 
 /// In-memory store for batch files and batch state.

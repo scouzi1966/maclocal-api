@@ -88,7 +88,7 @@ public struct VisionRequestOptions: Sendable {
     /// pipeline.  CGImageSource handles the image formats natively; PDF is
     /// rendered via PDFKit.  All Vision entry points (controller sanitization
     /// and service-level validation) must gate on this set.
-    static let supportedExtensions: Set<String> = [
+    public static let supportedExtensions: Set<String> = [
         "png", "jpg", "jpeg", "heic", "pdf",
         "tif", "tiff", "gif", "bmp", "webp"
     ]

@@ -1,4 +1,5 @@
 import Vapor
+import AFMKit
 import Foundation
 
 /// Serves a hand-curated OpenAPI 3.1 spec describing the AFM HTTP surface

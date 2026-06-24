@@ -1,4 +1,5 @@
 import Vapor
+import AFMKit
 import Foundation
 
 /// `POST /v1/chat/completions/{id}/cancel` — agent-friendly cancellation. (T1.5)

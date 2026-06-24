@@ -37,7 +37,7 @@ public enum TTSAudioFormat: String, Sendable, CaseIterable {
     case wav
     case caf
 
-    var contentType: String {
+    public var contentType: String {
         switch self {
         case .aac: return "audio/aac"
         case .wav: return "audio/wav"
@@ -73,7 +73,7 @@ enum OpenAIVoiceName: String, CaseIterable {
 }
 
 public struct TTSRequestOptions: Sendable {
-    static let maxInputCharacters = 4096
+    public static let maxInputCharacters = 4096
     static let synthesisTimeoutNs: UInt64 = 120_000_000_000
     static let encodeTimeoutNs: UInt64 = 30_000_000_000  // 30s for afconvert
 

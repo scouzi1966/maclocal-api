@@ -667,7 +667,7 @@ public class FoundationModelService: @unchecked Sendable {
     }
     
     // Initialize the shared instance once at server startup
-    static func initialize(instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool, prewarm: Bool = false) async throws {
+    public static func initialize(instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool, prewarm: Bool = false) async throws {
         shared = try await FoundationModelService(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
         if prewarm {
             print("🔥 Pre-warming model...")
@@ -685,7 +685,7 @@ public class FoundationModelService: @unchecked Sendable {
     }
     
     // Create a new instance that reuses the shared adapter (for per-request use)
-    static func createWithSharedAdapter(instructions: String = "You are a helpful assistant", temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) async throws -> FoundationModelService {
+    public static func createWithSharedAdapter(instructions: String = "You are a helpful assistant", temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) async throws -> FoundationModelService {
         return try await FoundationModelService(instructions: instructions, useSharedAdapter: true, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
     }
 }

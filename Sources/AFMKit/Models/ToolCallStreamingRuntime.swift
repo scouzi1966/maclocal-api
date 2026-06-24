@@ -1,30 +1,30 @@
 import Foundation
 import MLXLMCommon
 
-enum ToolCallStreamingEvent: Sendable {
+public enum ToolCallStreamingEvent: Sendable {
     case started
     case delta(StreamDeltaToolCall)
     case appendCollected(ResponseToolCall)
     case replaceCollected(index: Int, toolCall: ResponseToolCall)
 }
 
-struct ToolCallStreamingOutput: Sendable {
-    let handled: Bool
-    let events: [ToolCallStreamingEvent]
+public struct ToolCallStreamingOutput: Sendable {
+    public let handled: Bool
+    public let events: [ToolCallStreamingEvent]
 }
 
-final class ToolCallStreamingRuntime {
+public final class ToolCallStreamingRuntime {
     private let toolCallStartTag: String
     private let toolCallEndTag: String
     private let toolCallParser: String?
     private let tools: [RequestTool]?
-    private(set) var paramNameMapping: [String: String]
+    public private(set) var paramNameMapping: [String: String]
     private let applyFixToolArgs: @Sendable (ResponseToolCall) -> ResponseToolCall
     private let remapSingleKey: @Sendable (String, String) -> String
 
-    private(set) var inToolCall = false
-    private(set) var madeToolCall = false
-    private(set) var hasToolCalls = false
+    public private(set) var inToolCall = false
+    public private(set) var madeToolCall = false
+    public private(set) var hasToolCalls = false
 
     private var currentToolText = ""
     private var incrementalEmittedFirst = false
@@ -35,7 +35,7 @@ final class ToolCallStreamingRuntime {
     private var incrementalEmittedKeys = Set<String>()
     private var collectedCount = 0
 
-    init(
+    public init(
         toolCallStartTag: String,
         toolCallEndTag: String,
         toolCallParser: String?,
@@ -67,7 +67,7 @@ final class ToolCallStreamingRuntime {
         self.paramNameMapping = mapping
     }
 
-    func process(piece: String) -> ToolCallStreamingOutput {
+    public func process(piece: String) -> ToolCallStreamingOutput {
         if !inToolCall, let startRange = piece.range(of: toolCallStartTag) {
             inToolCall = true
             madeToolCall = true
@@ -82,7 +82,7 @@ final class ToolCallStreamingRuntime {
         return consumeToolBodyFragment(piece, prependStarted: false)
     }
 
-    func finishIncompleteToolCall() -> [ToolCallStreamingEvent] {
+    public func finishIncompleteToolCall() -> [ToolCallStreamingEvent] {
         guard inToolCall, !currentToolText.isEmpty else { return [] }
 
         defer { resetState() }
@@ -429,7 +429,7 @@ final class ToolCallStreamingRuntime {
             .replacingOccurrences(of: "\"", with: "\\\"")
     }
 
-    static func parseCompletedToolCalls(
+    public static func parseCompletedToolCalls(
         from text: String,
         toolCallParser: String?,
         tools: [RequestTool]?

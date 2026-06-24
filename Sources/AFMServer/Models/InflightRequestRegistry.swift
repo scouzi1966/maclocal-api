@@ -1,4 +1,5 @@
 import Foundation
+import AFMKit
 import Vapor
 
 /// In-memory registry of inflight chat completion requests, keyed by the

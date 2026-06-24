@@ -17,7 +17,13 @@ let package = Package(
             name: "AFMKit",
             targets: ["AFMKit"]
         ),
-        // The `afm` CLI executable (thin wrapper over AFMKit).
+        // Vapor HTTP layer (OpenAI-compatible server). Separate product so consumers that
+        // only want headless inference can depend on AFMKit alone (no Vapor/NIO in their graph).
+        .library(
+            name: "AFMServer",
+            targets: ["AFMServer"]
+        ),
+        // The `afm` CLI executable (thin wrapper over AFMKit + AFMServer).
         .executable(
             name: "afm",
             targets: ["AFMCLI"]
@@ -73,8 +79,6 @@ let package = Package(
             name: "AFMKit",
             dependencies: [
                 "CXGrammar",
-                .product(name: "Vapor", package: "vapor"),
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "MLXLLM", package: "mlx-swift-lm"),
                 .product(name: "MLXVLM", package: "mlx-swift-lm"),
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
@@ -98,11 +102,29 @@ let package = Package(
                 .linkedLibrary("sqlite3")
             ]
         ),
-        // Thin CLI executable over AFMKit.
+        // Vapor HTTP layer — the OpenAI-compatible server, controllers, backend
+        // discovery/proxy, and Telegram bridge. Depends on AFMKit + Vapor.
+        .target(
+            name: "AFMServer",
+            dependencies: [
+                "AFMKit",
+                .product(name: "Vapor", package: "vapor"),
+                .product(name: "MLXLLM", package: "mlx-swift-lm"),
+                .product(name: "MLXVLM", package: "mlx-swift-lm"),
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm")
+            ],
+            swiftSettings: [
+                .unsafeFlags(["-cross-module-optimization"], .when(configuration: .release)),
+                .unsafeFlags(["-O"], .when(configuration: .release)),
+                .unsafeFlags(["-file-prefix-map", "\(packageDir)/="], .when(configuration: .release))
+            ]
+        ),
+        // Thin CLI executable over AFMKit + AFMServer.
         .executableTarget(
             name: "AFMCLI",
             dependencies: [
                 "AFMKit",
+                "AFMServer",
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "MLXLLM", package: "mlx-swift-lm"),

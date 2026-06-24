@@ -2,7 +2,7 @@
 // Auto-generated build information - DO NOT EDIT MANUALLY
 
 public struct BuildInfo {
-    static let version: String? = "v0.9.13"
+    public static let version: String? = "v0.9.13"
     static let commit: String? = nil
 
     public static var fullVersion: String {

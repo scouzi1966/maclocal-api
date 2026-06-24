@@ -1,33 +1,32 @@
-import Vapor
 import Foundation
 
-struct ChatCompletionRequest: Content {
-    let model: String?
-    let messages: [Message]
-    let temperature: Double?
-    let maxTokens: Int?
-    let maxCompletionTokens: Int?
-    let topP: Double?
-    let repetitionPenalty: Double?
-    let repeatPenalty: Double?
-    let frequencyPenalty: Double?
-    let presencePenalty: Double?
-    let topK: Int?
-    let minP: Double?
-    let seed: Int?
-    let logprobs: Bool?
-    let topLogprobs: Int?
-    let stop: [String]?
-    let stream: Bool?
-    let streamOptions: StreamOptions?
-    let user: String?
-    let tools: [RequestTool]?
-    let toolChoice: ToolChoice?
-    let parallelToolCalls: Bool?
-    let responseFormat: ResponseFormat?
-    let chatTemplateKwargs: [String: AnyCodable]?
+public struct ChatCompletionRequest: Codable, Sendable {
+    public let model: String?
+    public let messages: [Message]
+    public let temperature: Double?
+    public let maxTokens: Int?
+    public let maxCompletionTokens: Int?
+    public let topP: Double?
+    public let repetitionPenalty: Double?
+    public let repeatPenalty: Double?
+    public let frequencyPenalty: Double?
+    public let presencePenalty: Double?
+    public let topK: Int?
+    public let minP: Double?
+    public let seed: Int?
+    public let logprobs: Bool?
+    public let topLogprobs: Int?
+    public let stop: [String]?
+    public let stream: Bool?
+    public let streamOptions: StreamOptions?
+    public let user: String?
+    public let tools: [RequestTool]?
+    public let toolChoice: ToolChoice?
+    public let parallelToolCalls: Bool?
+    public let responseFormat: ResponseFormat?
+    public let chatTemplateKwargs: [String: AnyCodable]?
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case model
         case messages
         case temperature
@@ -56,31 +55,60 @@ struct ChatCompletionRequest: Content {
 
     /// Whether the final SSE chunk should carry a `usage` block. Mirrors OpenAI's
     /// `stream_options.include_usage`. Default true preserves existing behavior. (T1.2)
-    var includeStreamingUsage: Bool {
+    public var includeStreamingUsage: Bool {
         streamOptions?.includeUsage ?? true
     }
 
-    var effectiveMaxTokens: Int? {
+    public var effectiveMaxTokens: Int? {
         maxTokens ?? maxCompletionTokens
     }
 
-    var effectiveRepetitionPenalty: Double? {
+    public var effectiveRepetitionPenalty: Double? {
         repetitionPenalty ?? repeatPenalty
+    }
+    public init(model: String?, messages: [Message], temperature: Double?, maxTokens: Int?, maxCompletionTokens: Int?, topP: Double?, repetitionPenalty: Double?, repeatPenalty: Double?, frequencyPenalty: Double?, presencePenalty: Double?, topK: Int?, minP: Double?, seed: Int?, logprobs: Bool?, topLogprobs: Int?, stop: [String]?, stream: Bool?, streamOptions: StreamOptions?, user: String?, tools: [RequestTool]?, toolChoice: ToolChoice?, parallelToolCalls: Bool?, responseFormat: ResponseFormat?, chatTemplateKwargs: [String: AnyCodable]?) {
+        self.model = model
+        self.messages = messages
+        self.temperature = temperature
+        self.maxTokens = maxTokens
+        self.maxCompletionTokens = maxCompletionTokens
+        self.topP = topP
+        self.repetitionPenalty = repetitionPenalty
+        self.repeatPenalty = repeatPenalty
+        self.frequencyPenalty = frequencyPenalty
+        self.presencePenalty = presencePenalty
+        self.topK = topK
+        self.minP = minP
+        self.seed = seed
+        self.logprobs = logprobs
+        self.topLogprobs = topLogprobs
+        self.stop = stop
+        self.stream = stream
+        self.streamOptions = streamOptions
+        self.user = user
+        self.tools = tools
+        self.toolChoice = toolChoice
+        self.parallelToolCalls = parallelToolCalls
+        self.responseFormat = responseFormat
+        self.chatTemplateKwargs = chatTemplateKwargs
     }
 }
 
 /// OpenAI-compatible `stream_options`. Currently models `include_usage`. (T1.2)
-struct StreamOptions: Content {
-    let includeUsage: Bool?
+public struct StreamOptions: Codable, Sendable {
+    public let includeUsage: Bool?
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case includeUsage = "include_usage"
+    }
+    public init(includeUsage: Bool?) {
+        self.includeUsage = includeUsage
     }
 }
 
 // MARK: - Response format
 
-public struct ResponseFormat: Content {
+public struct ResponseFormat: Codable, Sendable {
     public let type: String                    // "text", "json_object", "json_schema"
     public let jsonSchema: ResponseJsonSchema? // only for type="json_schema"
 
@@ -88,13 +116,13 @@ public struct ResponseFormat: Content {
         self.type = type; self.jsonSchema = jsonSchema
     }
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case type
         case jsonSchema = "json_schema"
     }
 }
 
-public struct ResponseJsonSchema: Content {
+public struct ResponseJsonSchema: Codable, Sendable {
     public let name: String?
     public let description: String?
     public let schema: AnyCodable?
@@ -106,32 +134,49 @@ public struct ResponseJsonSchema: Content {
 
 // MARK: - Tool definitions
 
-public struct RequestTool: Content {
+public struct RequestTool: Codable, Sendable {
     public let type: String          // "function"
     public let function: RequestToolFunction
+    public init(type: String, function: RequestToolFunction) {
+        self.type = type
+        self.function = function
+    }
 }
 
-public struct RequestToolFunction: Content {
+public struct RequestToolFunction: Codable, Sendable {
     public let name: String
     public let description: String?
     public let parameters: AnyCodable?
     public let strict: Bool?
+    public init(name: String, description: String?, parameters: AnyCodable?, strict: Bool?) {
+        self.name = name
+        self.description = description
+        self.parameters = parameters
+        self.strict = strict
+    }
 }
 
-enum ToolChoice: Codable {
+public enum ToolChoice: Codable, Sendable {
     case mode(String)                        // "auto", "none", "required"
     case function(ToolChoiceFunction)         // {"type":"function","function":{"name":"..."}}
 
-    struct ToolChoiceFunction: Codable {
-        let type: String
-        let function: ToolChoiceFunctionName
+    public struct ToolChoiceFunction: Codable, Sendable {
+        public let type: String
+        public let function: ToolChoiceFunctionName
+        public init(type: String, function: ToolChoiceFunctionName) {
+            self.type = type
+            self.function = function
+        }
     }
 
-    struct ToolChoiceFunctionName: Codable {
-        let name: String
+    public struct ToolChoiceFunctionName: Codable, Sendable {
+        public let name: String
+        public init(name: String) {
+            self.name = name
+        }
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if let str = try? container.decode(String.self) {
             self = .mode(str)
@@ -212,16 +257,21 @@ public struct InputAudio: Codable, Sendable {
     public let data: String   // base64-encoded audio
     public let format: String // "wav", "mp3", etc.
     public let language: String? // locale for transcription (e.g. "en-US", "ja-JP")
+    public init(data: String, format: String, language: String?) {
+        self.data = data
+        self.format = format
+        self.language = language
+    }
 }
 
-public struct Message: Content {
-    let role: String
-    let content: MessageContent?    // optional — null for tool-call assistant messages
-    let toolCalls: [MessageToolCall]?
-    let toolCallId: String?
-    let name: String?
+public struct Message: Codable, Sendable {
+    public let role: String
+    public let content: MessageContent?    // optional — null for tool-call assistant messages
+    public let toolCalls: [MessageToolCall]?
+    public let toolCallId: String?
+    public let name: String?
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case role
         case content
         case toolCalls = "tool_calls"
@@ -247,7 +297,7 @@ public struct Message: Content {
     }
 
     /// Get combined text content from all text parts
-    var textContent: String {
+    public var textContent: String {
         guard let content else { return "" }
         switch content {
         case .text(let str):
@@ -260,17 +310,22 @@ public struct Message: Content {
 
 // MARK: - Tool call messages (multi-turn)
 
-struct MessageToolCall: Content {
-    let id: String
-    let type: String        // "function"
-    let function: MessageToolCallFunction
+public struct MessageToolCall: Codable, Sendable {
+    public let id: String
+    public let type: String        // "function"
+    public let function: MessageToolCallFunction
+    public init(id: String, type: String, function: MessageToolCallFunction) {
+        self.id = id
+        self.type = type
+        self.function = function
+    }
 }
 
-struct MessageToolCallFunction: Content {
-    let name: String
-    let arguments: String   // JSON string
+public struct MessageToolCallFunction: Codable, Sendable {
+    public let name: String
+    public let arguments: String   // JSON string
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         name = try container.decode(String.self, forKey: .name)
         // Accept arguments as either a JSON string or a JSON object/array
@@ -293,7 +348,7 @@ struct MessageToolCallFunction: Content {
 
 /// Wraps arbitrary JSON values for decoding/encoding tool parameter schemas.
 public struct AnyCodable: Codable, Sendable {
-    let value: AnyCodableValue
+    public let value: AnyCodableValue
 
     public init(_ value: Any) {
         self.value = AnyCodableValue.from(value)
@@ -310,20 +365,20 @@ public struct AnyCodable: Codable, Sendable {
     }
 
     /// Convert to a dictionary suitable for ToolSpec ([String: any Sendable])
-    func toSendable() -> any Sendable {
+    public func toSendable() -> any Sendable {
         value.toAny()
     }
 
     /// Convert to a type hierarchy compatible with Jinja Value.init(any:).
     /// Strips null values from dicts (Jinja can't handle NSNull or boxed Optional<Any>).
     /// JSON Schema nulls (e.g. "default": null) are semantically equivalent when omitted.
-    func toJinjaCompatible() -> any Sendable {
+    public func toJinjaCompatible() -> any Sendable {
         value.toJinjaCompatible()
     }
 }
 
 /// Recursive enum representing arbitrary JSON values.
-enum AnyCodableValue: Codable, Sendable {
+public enum AnyCodableValue: Codable, Sendable {
     case null
     case bool(Bool)
     case int(Int)
@@ -332,7 +387,7 @@ enum AnyCodableValue: Codable, Sendable {
     case array([AnyCodableValue])
     case object([String: AnyCodableValue])
 
-    static func from(_ value: Any) -> AnyCodableValue {
+    public static func from(_ value: Any) -> AnyCodableValue {
         switch value {
         case is NSNull:
             return .null
@@ -353,7 +408,7 @@ enum AnyCodableValue: Codable, Sendable {
         }
     }
 
-    func toAny() -> any Sendable {
+    public func toAny() -> any Sendable {
         switch self {
         case .null: return NSNull()
         case .bool(let b): return b
@@ -372,7 +427,7 @@ enum AnyCodableValue: Codable, Sendable {
     /// equivalent when omitted — templates use `is defined` checks, not null comparisons.
     /// Arrays filter out nulls. Standalone nulls become empty string (shouldn't occur in
     /// practice since null only appears as dict values or array elements in JSON Schema).
-    func toJinjaCompatible() -> any Sendable {
+    public func toJinjaCompatible() -> any Sendable {
         switch self {
         case .null: return "" // Standalone null fallback; dict/array nulls are stripped
         case .bool(let b): return b
@@ -410,7 +465,7 @@ enum AnyCodableValue: Codable, Sendable {
         }
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if container.decodeNil() {
             self = .null
@@ -431,7 +486,7 @@ enum AnyCodableValue: Codable, Sendable {
         }
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
         case .null: try container.encodeNil()
@@ -448,56 +503,74 @@ enum AnyCodableValue: Codable, Sendable {
 // MARK: - Batch API Types
 
 /// A single request entry in the SSE multiplex batch.
-struct BatchRequestItem: Content {
-    let customId: String
-    let body: ChatCompletionRequest
+public struct BatchRequestItem: Codable, Sendable {
+    public let customId: String
+    public let body: ChatCompletionRequest
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case customId = "custom_id"
         case body
+    }
+    public init(customId: String, body: ChatCompletionRequest) {
+        self.customId = customId
+        self.body = body
     }
 }
 
 /// Request body for POST /v1/batch/completions (SSE multiplex).
-struct BatchCompletionRequest: Content {
-    let requests: [BatchRequestItem]
+public struct BatchCompletionRequest: Codable, Sendable {
+    public let requests: [BatchRequestItem]
+    public init(requests: [BatchRequestItem]) {
+        self.requests = requests
+    }
 }
 
 /// Request body for POST /v1/batches (OpenAI-compatible).
-struct BatchCreateRequest: Content {
-    let inputFileId: String
-    let endpoint: String
-    let completionWindow: String?
+public struct BatchCreateRequest: Codable, Sendable {
+    public let inputFileId: String
+    public let endpoint: String
+    public let completionWindow: String?
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case inputFileId = "input_file_id"
         case endpoint
         case completionWindow = "completion_window"
     }
+    public init(inputFileId: String, endpoint: String, completionWindow: String?) {
+        self.inputFileId = inputFileId
+        self.endpoint = endpoint
+        self.completionWindow = completionWindow
+    }
 }
 
 /// A single line in the input JSONL file for batch processing.
-struct BatchInputLine: Codable {
-    let customId: String
-    let method: String
-    let url: String
-    let body: ChatCompletionRequest
+public struct BatchInputLine: Codable, Sendable {
+    public let customId: String
+    public let method: String
+    public let url: String
+    public let body: ChatCompletionRequest
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case customId = "custom_id"
         case method, url, body
+    }
+    public init(customId: String, method: String, url: String, body: ChatCompletionRequest) {
+        self.customId = customId
+        self.method = method
+        self.url = url
+        self.body = body
     }
 }
 
 // MARK: - Embeddings API Types
 
-enum EmbeddingInput: Content {
+public enum EmbeddingInput: Codable, Sendable {
     case string(String)
     case array([String])
     case tokenIDs([Int])
     case arrayTokenIDs([[Int]])
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if let string = try? container.decode(String.self) {
             self = .string(string)
@@ -515,7 +588,7 @@ enum EmbeddingInput: Content {
         }
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
         case .string(let string):
@@ -529,7 +602,7 @@ enum EmbeddingInput: Content {
         }
     }
 
-    var strings: [String] {
+    public var strings: [String] {
         switch self {
         case .string(let string):
             return [string]
@@ -540,7 +613,7 @@ enum EmbeddingInput: Content {
         }
     }
 
-    var tokenIDArrays: [[Int]] {
+    public var tokenIDArrays: [[Int]] {
         switch self {
         case .string, .array:
             return []
@@ -551,7 +624,7 @@ enum EmbeddingInput: Content {
         }
     }
 
-    var isEmpty: Bool {
+    public var isEmpty: Bool {
         switch self {
         case .string(let string):
             return string.isEmpty
@@ -564,7 +637,7 @@ enum EmbeddingInput: Content {
         }
     }
 
-    var isTokenized: Bool {
+    public var isTokenized: Bool {
         switch self {
         case .tokenIDs, .arrayTokenIDs:
             return true
@@ -574,19 +647,19 @@ enum EmbeddingInput: Content {
     }
 }
 
-enum EmbeddingEncodingFormat: String, Content {
+public enum EmbeddingEncodingFormat: String, Codable, Sendable {
     case float
     case base64
 }
 
-struct EmbeddingsRequest: Content {
-    let input: EmbeddingInput
-    let model: String?
-    let encodingFormat: EmbeddingEncodingFormat?
-    let dimensions: Int?
-    let user: String?
+public struct EmbeddingsRequest: Codable, Sendable {
+    public let input: EmbeddingInput
+    public let model: String?
+    public let encodingFormat: EmbeddingEncodingFormat?
+    public let dimensions: Int?
+    public let user: String?
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case input
         case model
         case encodingFormat = "encoding_format"
@@ -594,7 +667,14 @@ struct EmbeddingsRequest: Content {
         case user
     }
 
-    var resolvedEncodingFormat: EmbeddingEncodingFormat {
+    public var resolvedEncodingFormat: EmbeddingEncodingFormat {
         encodingFormat ?? .float
+    }
+    public init(input: EmbeddingInput, model: String?, encodingFormat: EmbeddingEncodingFormat?, dimensions: Int?, user: String?) {
+        self.input = input
+        self.model = model
+        self.encodingFormat = encodingFormat
+        self.dimensions = dimensions
+        self.user = user
     }
 }

@@ -1,4 +1,5 @@
 import Vapor
+import AFMKit
 import Foundation
 
 /// `POST /v1/tokenize` (vLLM-compatible) and `POST /v1/count_tokens`
