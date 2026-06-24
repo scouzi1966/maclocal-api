@@ -11,6 +11,57 @@ import Testing
 struct XMLToolCallParsingTests {
 // dimensions: tool_call_format=xmlFunction
 
+    @Test("auto-detected XML format uses adaptive parser without explicit override")
+    func autoDetectedXMLUsesAdaptiveParserWithoutExplicitOverride() {
+        let parser = MLXModelService.effectiveToolCallParser(
+            configuredParser: nil,
+            detectedFormat: .xmlFunction
+        )
+        #expect(parser == "afm_adaptive_xml")
+    }
+
+    @Test("auto-detected XML format does not force chat template override")
+    func autoDetectedXMLDoesNotForceChatTemplateOverride() {
+        let parser = MLXModelService.effectiveChatTemplateToolCallParser(
+            configuredParser: nil,
+            detectedFormat: .xmlFunction
+        )
+        #expect(parser == nil)
+    }
+
+    @Test("explicit parser override still controls chat template override")
+    func explicitParserOverrideControlsChatTemplateOverride() {
+        let parser = MLXModelService.effectiveChatTemplateToolCallParser(
+            configuredParser: "afm_adaptive_xml",
+            detectedFormat: .xmlFunction
+        )
+        #expect(parser == "afm_adaptive_xml")
+    }
+
+    @Test("explicit parser override takes precedence over auto-detected XML format")
+    func explicitParserOverrideTakesPrecedence() {
+        let parser = MLXModelService.effectiveToolCallParser(
+            configuredParser: "qwen3_xml",
+            detectedFormat: .xmlFunction
+        )
+        #expect(parser == "qwen3_xml")
+    }
+
+    @Test("Gemma 4 bypass still suppresses adaptive parser override")
+    func gemma4BypassStillSuppressesAdaptiveOverride() {
+        let parser = MLXModelService.effectiveToolCallParser(
+            configuredParser: "afm_adaptive_xml",
+            detectedFormat: .gemma4
+        )
+        #expect(parser == nil)
+    }
+
+    @Test("serial generation stops after structured tool call when tools are present")
+    func serialGenerationStopsAfterStructuredToolCallWhenToolsArePresent() {
+        #expect(MLXModelService.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: true))
+        #expect(!MLXModelService.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: false))
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // MARK: - decodeXMLEntities
     // ═══════════════════════════════════════════════════════════════════
@@ -521,6 +572,66 @@ struct XMLToolCallParsingTests {
         #expect(calls.count == 2)
         #expect(calls[0].function.name == "read_file")
         #expect(calls[1].function.name == "write_file")
+    }
+
+    @Test("parses Qwen malformed JSON name equals tool call")
+    func parsesQwenMalformedJSONNameEquals() {
+        let text = #"""
+        <tool_call>
+        {"name="edit_file", "arguments": {"path": "src/parse.ts", "old_string": "old", "new_string": "new"}}
+        </tool_call>
+        """#
+        let (calls, remaining) = MLXModelService.extractToolCallsFallback(from: text)
+        #expect(calls.count == 1)
+        #expect(calls[0].function.name == "edit_file")
+        #expect(calls[0].function.arguments["path"]?.anyValue as? String == "src/parse.ts")
+        #expect(remaining.isEmpty)
+    }
+
+    @Test("parses Qwen malformed flat function equals tool call")
+    func parsesQwenMalformedFlatFunctionEquals() {
+        let text = #"""
+        <tool_call>
+        {"function="edit_file", "path="dag/graph.py", "old_string="old", "new_string="new"}}
+        </tool_call>
+        """#
+        let (calls, _) = MLXModelService.extractToolCallsFallback(from: text)
+        #expect(calls.count == 1)
+        #expect(calls[0].function.name == "edit_file")
+        #expect(calls[0].function.arguments["path"]?.anyValue as? String == "dag/graph.py")
+        #expect(calls[0].function.arguments["old_string"]?.anyValue as? String == "old")
+        #expect(calls[0].function.arguments["new_string"]?.anyValue as? String == "new")
+    }
+
+    @Test("parses Qwen malformed function element opener")
+    func parsesQwenMalformedFunctionElementOpener() {
+        let text = #"""
+        <tool_call>
+        {"function>
+        <name>edit_file</name>
+        <parameter=path>stack/pop.go</parameter>
+        <parameter=old_string>old</parameter>
+        <parameter=new_string>new</parameter>
+        </function>
+        </tool_call>
+        """#
+        let (calls, _) = MLXModelService.extractToolCallsFallback(from: text)
+        #expect(calls.count == 1)
+        #expect(calls[0].function.name == "edit_file")
+        #expect(calls[0].function.arguments["path"]?.anyValue as? String == "stack/pop.go")
+    }
+
+    @Test("parses Qwen malformed nested arguments equals tool call")
+    func parsesQwenMalformedNestedArgumentsEquals() {
+        let text = #"""
+        <tool_call>
+        {"function="run_command", "arguments="cmd="find . -name '*.rs'"}}
+        </tool_call>
+        """#
+        let (calls, _) = MLXModelService.extractToolCallsFallback(from: text)
+        #expect(calls.count == 1)
+        #expect(calls[0].function.name == "run_command")
+        #expect(calls[0].function.arguments["cmd"]?.anyValue as? String == "find . -name '*.rs'")
     }
 
     @Test("empty <tool_call></tool_call> block returns no calls")

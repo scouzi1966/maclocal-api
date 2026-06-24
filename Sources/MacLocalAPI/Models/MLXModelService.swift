@@ -268,14 +268,60 @@ final class MLXModelService: @unchecked Sendable {
         )
     }
 
-    func resolvedToolCallParser(logBypass: Bool = false) -> String? {
-        guard shouldBypassAdaptiveXMLParserForCurrentModel() else {
-            return toolCallParser
+    static func effectiveToolCallParser(
+        configuredParser: String?,
+        detectedFormat: ToolCallFormat?
+    ) -> String? {
+        if shouldBypassAdaptiveXMLParser(parser: configuredParser, format: detectedFormat) {
+            return nil
         }
-        if logBypass {
+        if let configuredParser {
+            return configuredParser
+        }
+        switch detectedFormat {
+        case .xmlFunction:
+            return "afm_adaptive_xml"
+        default:
+            return nil
+        }
+    }
+
+    static func shouldStopSerialGenerationAfterStructuredToolCall(hasTools: Bool) -> Bool {
+        hasTools
+    }
+
+    static func effectiveChatTemplateToolCallParser(
+        configuredParser: String?,
+        detectedFormat: ToolCallFormat?
+    ) -> String? {
+        if shouldBypassAdaptiveXMLParser(parser: configuredParser, format: detectedFormat) {
+            return nil
+        }
+        return configuredParser
+    }
+
+    func resolvedToolCallParser(logBypass: Bool = false) -> String? {
+        let format = withStateLock({ currentToolCallFormat })
+        let parser = Self.effectiveToolCallParser(
+            configuredParser: toolCallParser,
+            detectedFormat: format
+        )
+        if parser == nil, Self.shouldBypassAdaptiveXMLParser(parser: toolCallParser, format: format), logBypass {
             print("[\(ts())] [ToolCallParser] \(Self.gemma4AdaptiveXMLBypassLog)")
         }
-        return nil
+        return parser
+    }
+
+    func resolvedChatTemplateToolCallParser(logBypass: Bool = false) -> String? {
+        let format = withStateLock({ currentToolCallFormat })
+        let parser = Self.effectiveChatTemplateToolCallParser(
+            configuredParser: toolCallParser,
+            detectedFormat: format
+        )
+        if parser == nil, Self.shouldBypassAdaptiveXMLParser(parser: toolCallParser, format: format), logBypass {
+            print("[\(ts())] [ToolCallParser] \(Self.gemma4AdaptiveXMLBypassLog)")
+        }
+        return parser
     }
     /// Path to write a Metal GPU trace (.gputrace) — captures the first request only, then resets to nil.
     /// Auto-limits max tokens to 5 to keep trace size manageable.
@@ -2051,6 +2097,9 @@ final class MLXModelService: @unchecked Sendable {
                             print("[\(ts())] [DEBUG] Tool call detected: \(tc.function.name)(\(tc.function.arguments))")
                         }
                         collectedToolCalls.append(tc)
+                        if Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: !(tools?.isEmpty ?? true)) {
+                            break
+                        }
                     } else if case .info(let info) = piece {
                         completionInfo = info
                     }
@@ -3613,6 +3662,19 @@ final class MLXModelService: @unchecked Sendable {
                 if let fullRange = Range(match.range, in: remaining) {
                     remaining.removeSubrange(fullRange)
                 }
+                continue
+            }
+
+            // Try malformed Qwen JSON/XML hybrids observed in Qwen3.6 MoE:
+            // {"name="tool", "arguments": {...}} or {"function="tool", "path="..."}
+            if let tc = parseQwenMalformedToolCall(inner) {
+                if debugLogging {
+                    print("[\(ts())] [ToolCallParser] Qwen malformed hybrid: \(tc.function.name)(\(tc.function.arguments.keys.joined(separator: ", ")))")
+                }
+                toolCalls.insert(tc, at: 0)
+                if let fullRange = Range(match.range, in: remaining) {
+                    remaining.removeSubrange(fullRange)
+                }
             }
         }
 
@@ -4035,6 +4097,111 @@ final class MLXModelService: @unchecked Sendable {
             }
         }
         return ToolCall(function: .init(name: name, arguments: arguments))
+    }
+
+    /// Parse malformed Qwen3.6 MoE tool calls seen under XML tool prompting.
+    ///
+    /// Examples:
+    /// - `{"name="edit_file", "arguments": {...}}`
+    /// - `{"function="edit_file", "path="file", "old_string="...", "new_string="..."}`
+    /// - `{"function="run_command", "arguments="cmd="..."}`
+    /// - `{"function><name>edit_file</name><parameter=path>...</parameter></function>`
+    private static func parseQwenMalformedToolCall(_ content: String) -> ToolCall? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmed.contains(#"{"function>"#),
+           let nameStart = trimmed.range(of: "<name>"),
+           let nameEnd = trimmed.range(of: "</name>", range: nameStart.upperBound..<trimmed.endIndex) {
+            let name = String(trimmed[nameStart.upperBound..<nameEnd.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { return nil }
+            let bodyStart = nameEnd.upperBound
+            let normalized = "<function=\(name)>" + trimmed[bodyStart...]
+            return parseXMLFunctionRegex(String(normalized), funcName: name)
+        }
+
+        if let tc = parseQwenMalformedNameEqualsWithJSONArguments(trimmed) {
+            return tc
+        }
+
+        let fields = parseMalformedEqualsFields(trimmed)
+        guard let name = fields["name"] ?? fields["function"], !name.isEmpty else {
+            return nil
+        }
+
+        var arguments: [String: any Sendable] = [:]
+        for (key, value) in fields where key != "name" && key != "function" && key != "arguments" {
+            arguments[key] = decodeJSONEscapes(decodeXMLEntities(value))
+        }
+        if arguments.isEmpty, let nested = fields["arguments"] {
+            for (key, value) in parseMalformedEqualsFields(nested) where key != "arguments" {
+                arguments[key] = decodeJSONEscapes(decodeXMLEntities(value))
+            }
+        }
+
+        guard !arguments.isEmpty else { return nil }
+        return ToolCall(function: .init(name: name, arguments: arguments))
+    }
+
+    private static func parseQwenMalformedNameEqualsWithJSONArguments(_ content: String) -> ToolCall? {
+        let regex = try! NSRegularExpression(
+            pattern: #"^\s*\{\s*"(?:name|function)=["']?([a-zA-Z_][a-zA-Z0-9_]*)["']?\s*,\s*"arguments"\s*:\s*(\{[\s\S]*\})\s*\}+\s*$"#,
+            options: []
+        )
+        guard let match = regex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
+              let nameRange = Range(match.range(at: 1), in: content),
+              let argsRange = Range(match.range(at: 2), in: content) else {
+            return nil
+        }
+        let name = String(content[nameRange])
+        var argsStr = String(content[argsRange])
+        var parsed: [String: Any]?
+        for _ in 0..<4 {
+            if let data = argsStr.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                parsed = obj
+                break
+            }
+            guard argsStr.hasSuffix("}") else { break }
+            argsStr.removeLast()
+        }
+        guard let parsed else { return nil }
+        var arguments: [String: any Sendable] = [:]
+        for (key, value) in parsed {
+            arguments[key] = Self.asSendableJSON(value)
+        }
+        return ToolCall(function: .init(name: name, arguments: arguments))
+    }
+
+    private static func parseMalformedEqualsFields(_ content: String) -> [String: String] {
+        let markerRegex = try! NSRegularExpression(
+            pattern: #""?([a-zA-Z_][a-zA-Z0-9_]*)="#,
+            options: []
+        )
+        let matches = markerRegex.matches(in: content, range: NSRange(content.startIndex..., in: content))
+        guard !matches.isEmpty else { return [:] }
+
+        var fields: [String: String] = [:]
+        for (idx, match) in matches.enumerated() {
+            guard let keyRange = Range(match.range(at: 1), in: content),
+                  let valueStart = Range(match.range, in: content)?.upperBound else { continue }
+            let key = String(content[keyRange])
+            let valueEnd = idx + 1 < matches.count
+                ? content.index(content.startIndex, offsetBy: matches[idx + 1].range.location)
+                : content.endIndex
+            var value = String(content[valueStart..<valueEnd])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            value = value.replacingOccurrences(
+                of: #"</?(tool_call|function|parameter)[^>]*>"#,
+                with: "",
+                options: .regularExpression
+            )
+            value = value.trimmingCharacters(in: CharacterSet(charactersIn: " \n\r\t,}\"{"))
+            if !value.isEmpty {
+                fields[key] = value
+            }
+        }
+        return fields
     }
 
     // MARK: - Private helpers
@@ -4806,8 +4973,9 @@ final class MLXModelService: @unchecked Sendable {
 
         var input = UserInput(chat: chatMessages, processing: .init(resize: .init(width: 1024, height: 1024)), tools: tools)
 
-        // When --tool-call-parser is set and tools are present, override the chat template
-        if let parser = resolvedToolCallParser(logBypass: true), tools != nil, !tools!.isEmpty {
+        // When --tool-call-parser is explicitly set and tools are present, override the chat template.
+        // Auto-detected parsers are used for parsing only; the model's native template is closer to mlx_lm.server.
+        if let parser = resolvedChatTemplateToolCallParser(logBypass: true), tools != nil, !tools!.isEmpty {
             let templateOverride: String?
             switch parser {
             case "qwen3_xml", "afm_adaptive_xml":
