@@ -3330,7 +3330,10 @@ final class MLXModelService: @unchecked Sendable {
     static func remapResponseToolCallArguments(_ rtc: ResponseToolCall, tools: [RequestTool]?) -> ResponseToolCall {
         guard let tools, !tools.isEmpty else { return rtc }
         guard let data = rtc.function.arguments.data(using: .utf8),
-              let argsDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return rtc }
+              var argsDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return rtc }
+        if let repaired = repairSingleParameterPayload(argsDict, toolName: rtc.function.name, tools: tools) {
+            argsDict = repaired
+        }
         var sendableArgs = [String: any Sendable]()
         for (key, value) in argsDict { sendableArgs[key] = Self.asSendableJSON(value) }
         let remapped = remapArgumentKeys(sendableArgs, toolName: rtc.function.name, tools: tools)
@@ -3343,6 +3346,74 @@ final class MLXModelService: @unchecked Sendable {
             type: rtc.type,
             function: ResponseToolCallFunction(name: rtc.function.name, arguments: newString)
         )
+    }
+
+    private static func repairSingleParameterPayload(
+        _ arguments: [String: Any],
+        toolName: String,
+        tools: [RequestTool]
+    ) -> [String: Any]? {
+        guard arguments.count == 1,
+              let payload = arguments["parameter"] as? String,
+              let tool = tools.first(where: { $0.function.name == toolName }),
+              let paramsAny = tool.function.parameters?.toSendable() as? [String: Any],
+              let props = paramsAny["properties"] as? [String: Any] else {
+            return nil
+        }
+
+        let schemaKeys = Array(props.keys)
+        guard !schemaKeys.isEmpty else { return nil }
+
+        let keyAlternation = schemaKeys
+            .map { NSRegularExpression.escapedPattern(for: $0) }
+            .joined(separator: "|")
+        guard let markerRegex = try? NSRegularExpression(
+            pattern: #"(?:"("# + keyAlternation + #")"\s*:\s*|(?:^|[,{]\s*)("?("# + keyAlternation + #")>))"#,
+            options: []
+        ) else { return nil }
+        let matches = markerRegex.matches(in: payload, range: NSRange(payload.startIndex..., in: payload))
+        guard !matches.isEmpty else { return nil }
+
+        var markers: [(key: String, start: String.Index, valueStart: String.Index)] = []
+        for match in matches {
+            let keyRange = Range(match.range(at: 1), in: payload) ?? Range(match.range(at: 3), in: payload)
+            guard let keyRange,
+                  let fullRange = Range(match.range, in: payload) else { continue }
+            var valueStart = fullRange.upperBound
+            while valueStart < payload.endIndex, payload[valueStart].isWhitespace {
+                valueStart = payload.index(after: valueStart)
+            }
+            if valueStart < payload.endIndex, payload[valueStart] == "\"" {
+                valueStart = payload.index(after: valueStart)
+            }
+            markers.append((String(payload[keyRange]), fullRange.lowerBound, valueStart))
+        }
+        markers.sort { $0.start < $1.start }
+        guard !markers.isEmpty else { return nil }
+
+        var repaired = [String: Any]()
+        for (idx, marker) in markers.enumerated() {
+            let end = idx + 1 < markers.count ? markers[idx + 1].start : payload.endIndex
+            guard marker.valueStart <= end else { continue }
+            var value = String(payload[marker.valueStart..<end])
+                .trimmingCharacters(in: CharacterSet(charactersIn: " \n\r\t,\"{}"))
+            value = value.replacingOccurrences(
+                of: #"</?(tool_call|function|parameter)[^>]*>"#,
+                with: "",
+                options: .regularExpression
+            )
+            value = decodeJSONEscapes(decodeXMLEntities(value))
+            if !value.isEmpty {
+                repaired[marker.key] = value
+            }
+        }
+
+        guard !repaired.isEmpty else { return nil }
+        if debugLogging {
+            let names = repaired.keys.sorted().joined(separator: ", ")
+            print("[\(ts())] [ToolCallParser] repaired single parameter payload for \(toolName): \(names)")
+        }
+        return repaired
     }
 
     /// Remap tool call argument keys to match the original tool schema.

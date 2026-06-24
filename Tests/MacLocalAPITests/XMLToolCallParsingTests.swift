@@ -1347,6 +1347,34 @@ struct XMLToolCallParsingTests {
         #expect(args?["max_results"] == nil)
     }
 
+    @Test("normalizeToolCall splits malformed parameter payload into schema arguments")
+    func normalizeToolCallSplitsMalformedParameterPayload() {
+        let tool = makeRequestTool(name: "edit_file", properties: [
+            "path": ["type": "string"],
+            "old_string": ["type": "string"],
+            "new_string": ["type": "string"]
+        ], required: ["path", "old_string", "new_string"])
+        let toolCall = ToolCall(function: .init(
+            name: "edit_file",
+            arguments: [
+                "parameter": #"new_string>\n\t// Take the last element.\n\tv := s.items[len(s.items)-1]", "old_string": "\t// Take the first element.\n\tv := s.items[0]", "path": "stack/pop.go"#
+            ]
+        ))
+
+        let result = MLXModelService.normalizeToolCall(
+            toolCall,
+            index: 0,
+            tools: [tool],
+            fixToolArgs: true
+        )
+
+        let args = parseArgs(result.function.arguments)
+        #expect((args?["path"] as? String) == "stack/pop.go")
+        #expect((args?["old_string"] as? String)?.contains("s.items[0]") == true)
+        #expect((args?["new_string"] as? String)?.contains("s.items[len(s.items)-1]") == true)
+        #expect(args?["parameter"] == nil)
+    }
+
     @Test("normalizeToolCalls assigns sequential indices from startIndex")
     func normalizeToolCallsAssignsSequentialIndices() {
         let tool = makeRequestTool(name: "search", properties: [
