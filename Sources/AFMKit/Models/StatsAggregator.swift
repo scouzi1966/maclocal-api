@@ -120,48 +120,48 @@ public final class StatsAggregator: @unchecked Sendable {
     // MARK: - Storage
 
     private struct Counters {
-        var genTokensTotal: UInt64 = 0
-        var promptTokensTotal: UInt64 = 0
-        var requestsStartedTotal: UInt64 = 0
-        var requestsCompletedTotal: UInt64 = 0
-        var cacheHitsTotal: UInt64 = 0
-        var cacheMissesTotal: UInt64 = 0
+        public var genTokensTotal: UInt64 = 0
+        public var promptTokensTotal: UInt64 = 0
+        public var requestsStartedTotal: UInt64 = 0
+        public var requestsCompletedTotal: UInt64 = 0
+        public var cacheHitsTotal: UInt64 = 0
+        public var cacheMissesTotal: UInt64 = 0
         /// vLLM's `request_success_total{finished_reason=...}`. Keyed by
         /// the finished_reason string ("stop", "length", "abort", "error").
-        var requestSuccessByReason: [String: UInt64] = [:]
+        public var requestSuccessByReason: [String: UInt64] = [:]
     }
 
     private struct Histograms {
-        var e2eLatency = Histogram(buckets: Buckets.requestLatency)
-        var queueTime = Histogram(buckets: Buckets.requestLatency)
-        var inferenceTime = Histogram(buckets: Buckets.requestLatency)
-        var prefillTime = Histogram(buckets: Buckets.requestLatency)
-        var decodeTime = Histogram(buckets: Buckets.requestLatency)
-        var timeToFirstToken = Histogram(buckets: Buckets.timeToFirstToken)
-        var timePerOutputToken = Histogram(buckets: Buckets.timePerOutputToken)
-        var promptTokens = Histogram(buckets: Buckets.tokenCount)
-        var generationTokens = Histogram(buckets: Buckets.tokenCount)
-        var paramsN = Histogram(buckets: Buckets.samplingParam)
-        var paramsBestOf = Histogram(buckets: Buckets.samplingParam)
+        public var e2eLatency = Histogram(buckets: Buckets.requestLatency)
+        public var queueTime = Histogram(buckets: Buckets.requestLatency)
+        public var inferenceTime = Histogram(buckets: Buckets.requestLatency)
+        public var prefillTime = Histogram(buckets: Buckets.requestLatency)
+        public var decodeTime = Histogram(buckets: Buckets.requestLatency)
+        public var timeToFirstToken = Histogram(buckets: Buckets.timeToFirstToken)
+        public var timePerOutputToken = Histogram(buckets: Buckets.timePerOutputToken)
+        public var promptTokens = Histogram(buckets: Buckets.tokenCount)
+        public var generationTokens = Histogram(buckets: Buckets.tokenCount)
+        public var paramsN = Histogram(buckets: Buckets.samplingParam)
+        public var paramsBestOf = Histogram(buckets: Buckets.samplingParam)
     }
 
     private struct Meta {
-        var modelName: String = ""
-        var maxConcurrent: Int = 0
-        var processStartEpoch: Double
+        public var modelName: String = ""
+        public var maxConcurrent: Int = 0
+        public var processStartEpoch: Double
     }
 
     private struct GaugeState {
-        var running: GaugeReader?
-        var waiting: GaugeReader?
-        var gpuCacheUsage: FractionReader?
-        var radixCacheFill: FractionReader?
-        var batchSizePeak: Int = 0
+        public var running: GaugeReader?
+        public var waiting: GaugeReader?
+        public var gpuCacheUsage: FractionReader?
+        public var radixCacheFill: FractionReader?
+        public var batchSizePeak: Int = 0
         // Active HTTP connections — incremented when a request enters
         // the Vapor pipeline, decremented when its response finalizes.
         // Maintained by `ActiveConnectionsMiddleware` in Server.swift.
-        var activeConnections: Int = 0
-        var activeConnectionsPeak: Int = 0
+        public var activeConnections: Int = 0
+        public var activeConnectionsPeak: Int = 0
     }
 
     private let counters = OSAllocatedUnfairLock(initialState: Counters())

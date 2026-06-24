@@ -1,4 +1,5 @@
 import Foundation
+import AFMKit
 
 typealias ChatGenerationResult = (
     modelID: String,

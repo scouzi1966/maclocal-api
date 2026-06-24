@@ -1,4 +1,5 @@
 import Vapor
+import AFMKit
 import Foundation
 
 struct BatchAPIController: RouteCollection {

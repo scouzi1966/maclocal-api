@@ -89,7 +89,7 @@ public enum MLXLoadStage: String {
     case ready = "ready"
 }
 
-enum MLXServiceError: Error, LocalizedError {
+public enum MLXServiceError: Error, LocalizedError {
     case invalidModel(String)
     case modelNotFoundInCache(String)
     case downloadFailed(String)
@@ -98,7 +98,7 @@ enum MLXServiceError: Error, LocalizedError {
     case serviceShuttingDown
     case serverBusy(Int)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .invalidModel(let value):
             return "Invalid model identifier: \(value)"
@@ -221,13 +221,13 @@ public final class MLXModelService: @unchecked Sendable {
     /// Resolve the effective response format for an incoming request.
     /// Per-request `response_format` takes precedence over the server-level
     /// `--guided-json` default. (#97)
-    func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? {
+    public func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? {
         requestFormat ?? defaultGuidedJsonSchema
     }
 
     public var enableGrammarConstraints: Bool = false { didSet { grammarConstraintsActive = enableGrammarConstraints } }
     public var trace: Bool = false { didSet { traceLogging = trace } }
-    var supportsStrictToolGrammar: Bool {
+    public var supportsStrictToolGrammar: Bool {
         if let parser = resolvedToolCallParser(logBypass: false) {
             switch parser {
             case "afm_adaptive_xml", "qwen3_xml":
@@ -289,6 +289,18 @@ public final class MLXModelService: @unchecked Sendable {
         default:
             return nil
         }
+    }
+
+    public func resolvedToolCallParser(logBypass: Bool = false) -> String? {
+        let format = withStateLock({ currentToolCallFormat })
+        let parser = Self.effectiveToolCallParser(
+            configuredParser: toolCallParser,
+            detectedFormat: format
+        )
+        if parser == nil, Self.shouldBypassAdaptiveXMLParser(parser: toolCallParser, format: format), logBypass {
+            print("[\(ts())] [ToolCallParser] \(Self.gemma4AdaptiveXMLBypassLog)")
+        }
+        return parser
     }
 
     /// Producer-side early stop after a structured tool call. Stopping while
@@ -374,7 +386,7 @@ public final class MLXModelService: @unchecked Sendable {
     /// True when the loaded model uses OpenAI Harmony channel tokens
     /// (`<|channel|>analysis|message|>...<|end|>`) instead of `<think>` tags.
     /// Detected from `model_type == "gpt_oss"` in config.json. (#121)
-    private(set) var harmonyChannels: Bool = false
+    public private(set) var harmonyChannels: Bool = false
     /// Built-in chat template applied as an override when the model's own
     /// chat_template.jinja cannot be parsed by swift-jinja (e.g. Cohere's
     /// cohere2_moe template uses block-`set`/`namespace`/macros). nil = use the
@@ -416,14 +428,14 @@ public final class MLXModelService: @unchecked Sendable {
     private var teardownWorkItem: DispatchWorkItem?
 
     /// Atomically reserve a concurrent slot. Returns true if reserved (or serial mode).
-    func tryReserveSlot() -> Bool { scheduler?.tryReserve() ?? true }
+    public func tryReserveSlot() -> Bool { scheduler?.tryReserve() ?? true }
     /// Wait for a concurrent slot with timeout. Returns true if reserved (or serial mode).
-    func waitForSlot(timeout: TimeInterval = 30) async -> Bool {
+    public func waitForSlot(timeout: TimeInterval = 30) async -> Bool {
         guard let sched = scheduler else { return true }
         return await sched.waitForSlot(timeout: timeout)
     }
     /// Release a reserved slot (call if request fails before generation starts).
-    func releaseSlot() { scheduler?.releaseReservation() }
+    public func releaseSlot() { scheduler?.releaseReservation() }
     public init(resolver: MLXCacheResolver) {
         _ = Self.registerModelFactoriesOnce
         self.resolver = resolver
@@ -706,7 +718,7 @@ public final class MLXModelService: @unchecked Sendable {
     // MARK: - API Profile (X-AFM-Profile header)
 
     /// Start GPU profiling for an API request. Call before inference.
-    func startAPIProfile() {
+    public func startAPIProfile() {
         ioReportLock.lock()
         if ioReportActive {
             ioReportLock.unlock()
@@ -835,7 +847,7 @@ public final class MLXModelService: @unchecked Sendable {
     }
 
     /// Stop GPU profiling and build an AFMProfile for the API response.
-    func stopAPIProfile(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) -> AFMProfile {
+    public func stopAPIProfile(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) -> AFMProfile {
         ioReportTimer?.cancel()
         ioReportTimer = nil
         _ = sampleIOReportGPU()
@@ -905,7 +917,7 @@ public final class MLXModelService: @unchecked Sendable {
     }
 
     /// Stop GPU profiling and build an AFMProfileExtended with time-series samples.
-    func stopAPIProfileExtended(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) -> AFMProfileExtended {
+    public func stopAPIProfileExtended(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) -> AFMProfileExtended {
         // Collect raw samples before clearing state
         ioReportTimer?.cancel()
         ioReportTimer = nil
@@ -1563,7 +1575,7 @@ public final class MLXModelService: @unchecked Sendable {
     /// Concurrent mode pulls from the scheduler's nonisolated tokenizer; serial
     /// mode dives into the container under its actor lock.
     /// Throws `MLXServiceError.noModelLoaded` if no model is currently loaded.
-    func tokenize(text: String) async throws -> [Int] {
+    public func tokenize(text: String) async throws -> [Int] {
         if let scheduler = self.scheduler {
             return scheduler.tokenizer.encode(text: text)
         }
@@ -1606,7 +1618,7 @@ public final class MLXModelService: @unchecked Sendable {
 
     /// Auto-promote from serial to batch mode for batch requests.
     /// Thread-safe: uses stateLock + promotionInProgress to prevent races.
-    func ensureBatchMode(concurrency: Int) async throws {
+    public func ensureBatchMode(concurrency: Int) async throws {
         // Models that require serial generation never get a scheduler. Still increment the
         // batch reference so the caller's matching releaseBatchReference() stays balanced;
         // per-request generateStreaming() routes to the serial path when scheduler == nil.
@@ -1675,7 +1687,7 @@ public final class MLXModelService: @unchecked Sendable {
     }
 
     /// Decrement batch reference count and schedule teardown if appropriate.
-    func releaseBatchReference() {
+    public func releaseBatchReference() {
         let remaining = _activeBatchCount.withLock { count -> Int in
             count = max(0, count - 1)
             return count
@@ -1715,7 +1727,7 @@ public final class MLXModelService: @unchecked Sendable {
     }
 
     /// Forward cancellation to the scheduler for in-flight batch slots.
-    func cancelBatchSlots(ids: Set<UUID>) async {
+    public func cancelBatchSlots(ids: Set<UUID>) async {
         guard let sched = withStateLock({ scheduler }) else { return }
         await sched.cancelSlots(ids: ids)
     }
@@ -2607,7 +2619,7 @@ public final class MLXModelService: @unchecked Sendable {
             return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount, promptTime, generateTime, stoppedBySequence)
         }
 
-    func generateStreaming(
+    public func generateStreaming(
         model: String,
         messages: [Message],
         temperature: Double?,
@@ -3708,7 +3720,7 @@ public final class MLXModelService: @unchecked Sendable {
         return coerceArgumentTypes(converted, tools: tools)
     }
 
-    static func normalizeToolCalls(
+    public static func normalizeToolCalls(
         _ toolCalls: [ToolCall],
         startIndex: Int = 0,
         paramNameMapping: [String: String] = [:],
@@ -3747,7 +3759,7 @@ public final class MLXModelService: @unchecked Sendable {
         }
     }
 
-    static func remapResponseToolCallArguments(_ rtc: ResponseToolCall, tools: [RequestTool]?) -> ResponseToolCall {
+    public static func remapResponseToolCallArguments(_ rtc: ResponseToolCall, tools: [RequestTool]?) -> ResponseToolCall {
         guard let tools, !tools.isEmpty else { return rtc }
         guard let data = rtc.function.arguments.data(using: .utf8),
               var argsDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return rtc }
@@ -3842,7 +3854,7 @@ public final class MLXModelService: @unchecked Sendable {
     /// 2. Case-insensitive match — e.g. "filepath" → "filePath"
     /// 3. Snake↔Camel match — e.g. "file_path" → "filePath" or "filePath" → "file_path"
     /// 4. Suffix match — e.g. "path" matches "filePath" (only if exactly one candidate)
-    static func remapArgumentKeys(_ arguments: [String: any Sendable], toolName: String, tools: [RequestTool]) -> [String: any Sendable] {
+    public static func remapArgumentKeys(_ arguments: [String: any Sendable], toolName: String, tools: [RequestTool]) -> [String: any Sendable] {
         // Find the matching tool schema
         guard let tool = tools.first(where: { $0.function.name == toolName }),
               let paramsAny = tool.function.parameters?.toSendable() as? [String: Any],
@@ -3932,7 +3944,7 @@ public final class MLXModelService: @unchecked Sendable {
     /// Coerce string argument values to match the tool's declared schema types.
     /// XML tool call parsers emit all values as strings; this converts "true" → true, "5" → 5, etc.
     /// Also fills in default values for missing required parameters (model omission fix).
-    static func coerceArgumentTypes(_ rtc: ResponseToolCall, tools: [RequestTool]?) -> ResponseToolCall {
+    public static func coerceArgumentTypes(_ rtc: ResponseToolCall, tools: [RequestTool]?) -> ResponseToolCall {
         guard let tools, !tools.isEmpty else { return rtc }
         guard let tool = tools.first(where: { $0.function.name == rtc.function.name }),
               let paramsAny = tool.function.parameters?.toSendable() as? [String: Any],
@@ -4895,7 +4907,7 @@ public final class MLXModelService: @unchecked Sendable {
         responseFormat?.type == "json_schema" && responseFormat?.jsonSchema?.strict == true
     }
 
-    static func shouldDowngradeGrammarConstraints(
+    public static func shouldDowngradeGrammarConstraints(
         responseFormat: ResponseFormat?,
         tools: [RequestTool]?,
         supportsStrictToolGrammar: Bool,

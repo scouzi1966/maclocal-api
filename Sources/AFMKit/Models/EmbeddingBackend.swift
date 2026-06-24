@@ -30,31 +30,31 @@ public struct EmbedResult: Sendable {
 
 public struct EmbeddingModelEntry: Sendable {
     public let id: String
-    let backend: EmbeddingBackendKind
-    let nativeDimension: Int
-    let supportsMatryoshka: Bool
-    let pooling: PoolingKind
-    let normalized: Bool
-    let maxInputTokens: Int
-    let description: String
+    public let backend: EmbeddingBackendKind
+    public let nativeDimension: Int
+    public let supportsMatryoshka: Bool
+    public let pooling: PoolingKind
+    public let normalized: Bool
+    public let maxInputTokens: Int
+    public let description: String
     /// Stable Unix epoch for the `created` field in OpenAI's /v1/models shape.
     /// Per-model constants keep the response idempotent — the same GET returns
     /// the same value across process restarts, which is what the OpenAI spec
     /// implies for a model's intrinsic create time.
-    let createdEpoch: Int
+    public let createdEpoch: Int
 }
 
-enum EmbeddingBackendKind: String, Sendable {
+public enum EmbeddingBackendKind: String, Sendable {
     case nlContextual
 }
 
-enum PoolingKind: String, Sendable {
+public enum PoolingKind: String, Sendable {
     case mean
     case cls
     case lastToken
 }
 
-enum EmbeddingError: Error, Sendable {
+public enum EmbeddingError: Error, Sendable {
     case modelNotFound(String)
     case invalidInput(String)
     case invalidDimensions(requested: Int, native: Int)
@@ -66,7 +66,7 @@ enum EmbeddingError: Error, Sendable {
 }
 
 extension EmbeddingError: LocalizedError {
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .modelNotFound(let id):
             return "Embedding model not found: \(id)"
@@ -88,10 +88,10 @@ extension EmbeddingError: LocalizedError {
     }
 }
 
-enum EmbeddingMath {
-    static let zeroThreshold: Float = 1e-12
+public enum EmbeddingMath {
+    public static let zeroThreshold: Float = 1e-12
 
-    static func l2Normalize(_ vector: [Float]) -> [Float] {
+    public static func l2Normalize(_ vector: [Float]) -> [Float] {
         let sumSquares = vector.reduce(Float.zero) { partialResult, value in
             partialResult + (value * value)
         }
@@ -104,7 +104,7 @@ enum EmbeddingMath {
         return vector.map { $0 / norm }
     }
 
-    static func truncateAndNormalize(_ vector: [Float], dimensions: Int) -> [Float] {
+    public static func truncateAndNormalize(_ vector: [Float], dimensions: Int) -> [Float] {
         precondition(dimensions > 0, "truncateAndNormalize requires dimensions > 0")
 
         guard dimensions < vector.count else {
@@ -115,8 +115,8 @@ enum EmbeddingMath {
     }
 }
 
-enum EmbeddingEncoding {
-    static func base64LittleEndian(from vector: [Float]) -> String {
+public enum EmbeddingEncoding {
+    public static func base64LittleEndian(from vector: [Float]) -> String {
         var data = Data(capacity: vector.count * MemoryLayout<Float>.size)
 
         for value in vector {
