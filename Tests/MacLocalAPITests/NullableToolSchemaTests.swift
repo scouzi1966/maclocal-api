@@ -3,6 +3,7 @@ import Testing
 import Jinja
 
 @testable import AFMKit
+@testable import AFMServer
 
 /// Proves that toJinjaCompatible() fixes the Jinja crash on nullable tool schemas (Issue #32).
 ///

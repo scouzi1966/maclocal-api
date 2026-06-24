@@ -3,6 +3,7 @@ import MLXLMCommon
 import Testing
 
 @testable import AFMKit
+@testable import AFMServer
 
 /// Comprehensive unit tests for XML tool call parsing pipeline.
 /// Covers every code path in: decodeXMLEntities, parseXMLFunction (XMLParser + regex fallback),

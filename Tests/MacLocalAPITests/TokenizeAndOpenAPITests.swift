@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import AFMKit
+@testable import AFMServer
 
 /// Tests for T1.6 (tokenize / count_tokens request decoding) and T1.7
 /// (`/openapi.json` integrity).

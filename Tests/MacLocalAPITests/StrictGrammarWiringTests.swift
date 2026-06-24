@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import AFMKit
+@testable import AFMServer
 
 struct StrictGrammarWiringTests {
 // dimensions: grammar_constraints=on, tool_call_format=xmlFunction

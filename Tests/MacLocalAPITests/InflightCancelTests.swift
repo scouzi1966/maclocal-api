@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import AFMKit
+@testable import AFMServer
 
 /// Tests for the inflight request registry that powers T1.4 (mid-stream cancel
 /// on client disconnect) and T1.5 (POST /v1/chat/completions/{id}/cancel).

@@ -3,6 +3,7 @@ import Vapor
 import XCTVapor
 
 @testable import AFMKit
+@testable import AFMServer
 
 final class VisionAPIControllerTests: XCTestCase {
     private var app: Application!

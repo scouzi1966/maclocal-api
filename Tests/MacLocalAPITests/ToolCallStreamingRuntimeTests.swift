@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import AFMKit
+@testable import AFMServer
 
 struct ToolCallStreamingRuntimeTests {
 // dimensions: tool_call_format=xmlFunction/json, streaming=true

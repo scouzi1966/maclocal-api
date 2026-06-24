@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import AFMKit
+@testable import AFMServer
 
 /// Unit tests for harmony channel parsing (gpt-oss). (#121)
 ///
