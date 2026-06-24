@@ -6,6 +6,7 @@ import Testing
 @testable import MLXVLM
 
 @testable import AFMKit
+@testable import AFMServer
 
 /// P0 gate for the MTP Swift port: the Swift `Qwen3_5MTPHead` must reproduce the Python
 /// (mtplx) reference for one draft step.

@@ -1,5 +1,6 @@
 import XCTest
 @testable import AFMKit
+@testable import AFMServer
 
 final class StreamingUsageChunkTests: XCTestCase {
 // dimensions: streaming=true, execution=serial

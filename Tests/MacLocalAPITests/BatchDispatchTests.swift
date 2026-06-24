@@ -6,6 +6,7 @@ import Foundation
 import Testing
 
 @testable import AFMKit
+@testable import AFMServer
 
 // MARK: - Fake Service for Batch Tests
 

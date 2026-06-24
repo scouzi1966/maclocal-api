@@ -1,5 +1,6 @@
 import XCTest
 @testable import AFMKit
+@testable import AFMServer
 
 final class TelegramBridgeTests: XCTestCase {
 // dimensions: entry_mode=server

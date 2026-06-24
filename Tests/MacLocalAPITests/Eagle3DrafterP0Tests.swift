@@ -6,6 +6,7 @@ import Testing
 @testable import MLXLLM
 
 @testable import AFMKit
+@testable import AFMServer
 
 /// P0 gate for the EAGLE3 Swift port: `Gemma4Eagle3Drafter` must reproduce the mlx-vlm reference
 /// for one draft step. Fixture (Scripts/eagle3-port/fixtures/, from capture_eagle3_reference.py):

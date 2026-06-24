@@ -6,6 +6,7 @@ import Testing
 @testable import MLXVLM
 
 @testable import AFMKit
+@testable import AFMServer
 
 /// P1 gate for the MTP Swift port — the make-or-break test.
 ///

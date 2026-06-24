@@ -3,6 +3,23 @@ import Vapor
 import XCTVapor
 
 @testable import AFMKit
+@testable import AFMServer
+
+/// Minimal resolver wrapping a single (entry, backend) pair, for controller tests.
+/// EmbeddingsController took `(modelEntry:backend:)` before main's resolver refactor;
+/// it now takes `(resolver:)`, so the tests construct one of these.
+private struct StubEmbeddingResolver: EmbeddingBackendResolver {
+    let entry: EmbeddingModelEntry
+    let backend: any EmbeddingBackend
+    func resolve(requestedModelID: String?) async throws -> (entry: EmbeddingModelEntry, backend: any EmbeddingBackend) {
+        // Mirror the real resolver: an explicit, non-matching id is an unknown model.
+        if let id = requestedModelID, id != entry.id {
+            throw EmbeddingError.modelNotFound(id)
+        }
+        return (entry, backend)
+    }
+    func advertisedModels() async -> [EmbeddingModelEntry] { [entry] }
+}
 
 final class EmbeddingsControllerTests: XCTestCase {
     private var app: Application!
@@ -22,7 +39,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             maxInputTokens: 128,
             result: EmbedResult(vectors: [[1, 2, 3]], tokenCounts: [4])
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         var headers = HTTPHeaders()
         headers.contentType = .json
@@ -50,7 +67,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             maxInputTokens: 128,
             result: EmbedResult(vectors: [[1, 0], [0, 1]], tokenCounts: [2, 3])
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         var headers = HTTPHeaders()
         headers.contentType = .json
@@ -71,7 +88,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             maxInputTokens: 128,
             result: EmbedResult(vectors: [[1, 0]], tokenCounts: [1])
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         var headers = HTTPHeaders()
         headers.contentType = .json
@@ -90,7 +107,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             maxInputTokens: 128,
             result: EmbedResult(vectors: [[3, 4, 12]], tokenCounts: [3])
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         var headers = HTTPHeaders()
         headers.contentType = .json
@@ -115,7 +132,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             maxInputTokens: 128,
             result: EmbedResult(vectors: [[1, 0]], tokenCounts: [1])
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         var headers = HTTPHeaders()
         headers.contentType = .json
@@ -133,7 +150,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             maxInputTokens: 128,
             result: EmbedResult(vectors: [[1, 0]], tokenCounts: [1])
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         var headers = HTTPHeaders()
         headers.contentType = .json
@@ -151,7 +168,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             maxInputTokens: 128,
             result: EmbedResult(vectors: [[1, 0]], tokenCounts: [1])
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         var headers = HTTPHeaders()
         headers.contentType = .json
@@ -170,7 +187,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             maxInputTokens: 128,
             result: EmbedResult(vectors: [[1, 0]], tokenCounts: [1])
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         var headers = HTTPHeaders()
         headers.contentType = .json
@@ -188,7 +205,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             maxInputTokens: 128,
             result: EmbedResult(vectors: [[1, 0]], tokenCounts: [1])
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         var headers = HTTPHeaders()
         headers.contentType = .json
@@ -206,7 +223,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             maxInputTokens: 128,
             result: EmbedResult(vectors: [[1, 0]], tokenCounts: [1])
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         var headers = HTTPHeaders()
         headers.contentType = .json
@@ -224,7 +241,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             maxInputTokens: 128,
             result: EmbedResult(vectors: [[1, 0]], tokenCounts: [1])
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         try await app.testable(method: .running(port: 0)).test(.GET, "/v1/models") { response async in
             XCTAssertEqual(response.status, .ok)
@@ -253,7 +270,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             maxInputTokens: 128,
             result: EmbedResult(vectors: [[1, 0]], tokenCounts: [1])
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         var headers = HTTPHeaders()
         headers.contentType = .json
@@ -272,7 +289,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             maxInputTokens: 128,
             result: EmbedResult(vectors: [[1, 0]], tokenCounts: [1])
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         var headers = HTTPHeaders()
         headers.add(name: "Origin", value: "https://example.com")
@@ -294,7 +311,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             maxInputTokens: 128,
             result: EmbedResult(vectors: [[1, 0]], tokenCounts: [1])
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         var headers = HTTPHeaders()
         headers.add(name: .contentType, value: "application/x-not-a-real-type")
@@ -323,7 +340,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             maxInputTokens: 128,
             result: EmbedResult(vectors: [[1, 0]], tokenCounts: [1])
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         var headers = HTTPHeaders()
         headers.add(name: "Origin", value: "https://example.com")
@@ -346,7 +363,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             maxInputTokens: 128,
             result: EmbedResult(vectors: [[1, 0]], tokenCounts: [1])
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         var headers = HTTPHeaders()
         headers.contentType = .json
@@ -367,7 +384,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             maxInputTokens: 128,
             result: EmbedResult(vectors: [[1, 0]], tokenCounts: [1], truncatedInputCount: 1)
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         var headers = HTTPHeaders()
         headers.contentType = .json
@@ -390,7 +407,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             maxInputTokens: 128,
             result: EmbedResult(vectors: [[1, 0]], tokenCounts: [3])
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         var headers = HTTPHeaders()
         headers.contentType = .json
@@ -409,7 +426,7 @@ final class EmbeddingsControllerTests: XCTestCase {
             nativeDimension: 2,
             maxInputTokens: 128
         )
-        try EmbeddingsController(modelEntry: makeEntry(id: "apple-nl-contextual-en"), backend: backend).boot(routes: app)
+        try EmbeddingsController(resolver: StubEmbeddingResolver(entry: makeEntry(id: "apple-nl-contextual-en"), backend: backend)).boot(routes: app)
 
         var headers = HTTPHeaders()
         headers.contentType = .json

@@ -1,9 +1,19 @@
-import ArgumentParser
 import AFMKit
 import CryptoKit
 import Foundation
 
-public enum TelegramReplyFormat: String, Codable, CaseIterable, ExpressibleByArgument, Sendable {
+/// Configuration/validation error (plain Swift error so AFMServer stays free of
+/// ArgumentParser). The CLI surfaces its `description` the same way it does for a
+/// `ValidationError`.
+public struct TelegramConfigError: Error, CustomStringConvertible {
+    public let message: String
+    public init(_ message: String) { self.message = message }
+    public var description: String { message }
+}
+
+// `ExpressibleByArgument` (for CLI flag parsing) is added retroactively in AFMCLI so this
+// server layer stays free of ArgumentParser — keeping the AFMServer product self-contained.
+public enum TelegramReplyFormat: String, Codable, CaseIterable, Sendable {
     case markdown
     case plain
     case html
@@ -61,13 +71,13 @@ public struct TelegramConfiguration: Sendable {
             .filter { !$0.isEmpty }
 
         guard !values.isEmpty else {
-            throw ValidationError("--telegram-allow requires at least one comma-separated Telegram user ID")
+            throw TelegramConfigError("--telegram-allow requires at least one comma-separated Telegram user ID")
         }
 
         var ids = Set<Int64>()
         for value in values {
             guard let id = Int64(value), id > 0 else {
-                throw ValidationError("Invalid Telegram user ID: \(value)")
+                throw TelegramConfigError("Invalid Telegram user ID: \(value)")
             }
             ids.insert(id)
         }

@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 
 @testable import AFMKit
+@testable import AFMServer
 
 final class CacheProfileExporterTests: XCTestCase {
 // dimensions: prefix_caching=on

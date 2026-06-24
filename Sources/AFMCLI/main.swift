@@ -4,6 +4,11 @@ import ArgumentParser
 import Foundation
 import Darwin
 
+// CLI-only conformance: AFMServer's TelegramReplyFormat stays free of ArgumentParser; the
+// `@Option` flag parsing it needs is supplied here. It's a String-RawRepresentable enum, so
+// ExpressibleByArgument's default rawValue-based init applies — an empty conformance suffices.
+extension TelegramReplyFormat: ExpressibleByArgument {}
+
 // Global references for signal handling. Accessed from the C signal handler
 // (a nonisolated context), so these opt out of the main-actor isolation that
 // Swift 6 infers for top-level globals. Signal-handler access is inherently

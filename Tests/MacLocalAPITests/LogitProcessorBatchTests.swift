@@ -3,6 +3,7 @@ import Testing
 import MLX
 
 @testable import AFMKit
+@testable import AFMServer
 @testable import MLXLMCommon
 
 /// Unit tests for logit processors in batch mode (1D and 2D logit tensors).

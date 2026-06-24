@@ -161,6 +161,7 @@ let package = Package(
             name: "MacLocalAPITests",
             dependencies: [
                 "AFMKit",
+                "AFMServer",
                 .product(name: "Jinja", package: "swift-jinja"),
                 .product(name: "XCTVapor", package: "vapor"),
                 .product(name: "VaporTesting", package: "vapor"),

@@ -3,6 +3,7 @@ import MLX
 import Testing
 
 @testable import AFMKit
+@testable import AFMServer
 
 struct RadixTreeCacheTests {
 // dimensions: prefix_caching=on
