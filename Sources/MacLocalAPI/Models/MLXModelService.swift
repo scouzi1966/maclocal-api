@@ -2063,8 +2063,15 @@ final class MLXModelService: @unchecked Sendable {
                 }
                 fflush(stdout)
             }
+            try Task.checkCancellation()
             do {
                 for await piece in try MLXLMCommon.generate(input: generateInput, cache: generationCache, parameters: params, context: context) {
+                    if Task.isCancelled {
+                        if debugLogging {
+                            print("[\(ts())] [MLX] Non-streaming generation cancelled by client")
+                        }
+                        throw CancellationError()
+                    }
                     if debugLogging {
                         print("[\(ts())] [DEBUG] Generation piece: \(piece)")
                     }
