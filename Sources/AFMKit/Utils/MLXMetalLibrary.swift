@@ -1,6 +1,14 @@
 import Foundation
-import ArgumentParser
 import Darwin
+
+/// Error thrown while resolving/installing the MLX Metal shader library.
+/// (Plain Swift error so AFMKit stays free of the ArgumentParser dependency.)
+public struct MetalLibraryError: Error, CustomStringConvertible {
+    public let message: String
+    public init(_ message: String) { self.message = message }
+    public var description: String { message }
+    public var errorDescription: String? { message }
+}
 
 public enum MLXMetalLibrary {
     private static let lock = NSLock()
@@ -114,7 +122,7 @@ public enum MLXMetalLibrary {
             }
 
             guard let source = resolveMetallib() else {
-                throw ValidationError(
+                throw MetalLibraryError(
                     "MLX metallib not found. Searched next to binary and in MacLocalAPI_AFMKit.bundle. "
                     + "Set MACAFM_MLX_METALLIB=/path/to/default.metallib to override."
                 )
@@ -124,7 +132,7 @@ public enum MLXMetalLibrary {
             // MLX resolves the default metallib relative to the process CWD, so this is
             // intentionally a one-time process-global change during startup/test bootstrap.
             guard FileManager.default.changeCurrentDirectoryPath(metalDir) else {
-                throw ValidationError("Failed to switch to metallib directory: \(metalDir)")
+                throw MetalLibraryError("Failed to switch to metallib directory: \(metalDir)")
             }
 
             if verbose {
