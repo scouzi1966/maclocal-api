@@ -1,4 +1,5 @@
 import Foundation
+import AFMKit
 
 /// Result of collecting a `ChatStreamingResult` stream with post-processing applied.
 struct CollectedResult: Sendable {

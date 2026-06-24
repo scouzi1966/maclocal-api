@@ -1,22 +1,21 @@
-import Vapor
 import Foundation
 import MLX
 
 /// AFM-specific GPU profiling data, returned when client sends `X-AFM-Profile: true` header.
-struct AFMProfile: Content {
-    let gpuPowerAvgW: Double?
-    let gpuPowerPeakW: Double?
-    let gpuSamples: Int?
-    let memoryWeightsGiB: Double?
-    let memoryKvGiB: Double?
-    let memoryPeakGiB: Double?
-    let prefillTokS: Double?
-    let decodeTokS: Double?
-    let chip: String?
-    let theoreticalBwGbs: Double?
-    let estBandwidthGbs: Double?
+public struct AFMProfile: Codable, Sendable {
+    public let gpuPowerAvgW: Double?
+    public let gpuPowerPeakW: Double?
+    public let gpuSamples: Int?
+    public let memoryWeightsGiB: Double?
+    public let memoryKvGiB: Double?
+    public let memoryPeakGiB: Double?
+    public let prefillTokS: Double?
+    public let decodeTokS: Double?
+    public let chip: String?
+    public let theoreticalBwGbs: Double?
+    public let estBandwidthGbs: Double?
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case gpuPowerAvgW = "gpu_power_avg_w"
         case gpuPowerPeakW = "gpu_power_peak_w"
         case gpuSamples = "gpu_samples"
@@ -29,45 +28,69 @@ struct AFMProfile: Content {
         case theoreticalBwGbs = "theoretical_bw_gbs"
         case estBandwidthGbs = "est_bandwidth_gbs"
     }
+    public init(gpuPowerAvgW: Double?, gpuPowerPeakW: Double?, gpuSamples: Int?, memoryWeightsGiB: Double?, memoryKvGiB: Double?, memoryPeakGiB: Double?, prefillTokS: Double?, decodeTokS: Double?, chip: String?, theoreticalBwGbs: Double?, estBandwidthGbs: Double?) {
+        self.gpuPowerAvgW = gpuPowerAvgW
+        self.gpuPowerPeakW = gpuPowerPeakW
+        self.gpuSamples = gpuSamples
+        self.memoryWeightsGiB = memoryWeightsGiB
+        self.memoryKvGiB = memoryKvGiB
+        self.memoryPeakGiB = memoryPeakGiB
+        self.prefillTokS = prefillTokS
+        self.decodeTokS = decodeTokS
+        self.chip = chip
+        self.theoreticalBwGbs = theoreticalBwGbs
+        self.estBandwidthGbs = estBandwidthGbs
+    }
 }
 
 /// A single IOReport GPU sample (300ms interval).
-struct AFMProfileSample: Content {
-    let t: Double
-    let bwGbs: Double?
-    let gpuPct: Double
-    let gpuPowerW: Double
-    let dramPowerW: Double
+public struct AFMProfileSample: Codable, Sendable {
+    public let t: Double
+    public let bwGbs: Double?
+    public let gpuPct: Double
+    public let gpuPowerW: Double
+    public let dramPowerW: Double
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case t
         case bwGbs = "bw_gbs"
         case gpuPct = "gpu_pct"
         case gpuPowerW = "gpu_power_w"
         case dramPowerW = "dram_power_w"
     }
+    public init(t: Double, bwGbs: Double?, gpuPct: Double, gpuPowerW: Double, dramPowerW: Double) {
+        self.t = t
+        self.bwGbs = bwGbs
+        self.gpuPct = gpuPct
+        self.gpuPowerW = gpuPowerW
+        self.dramPowerW = dramPowerW
+    }
 }
 
 /// Extended profile with time-series samples.
 /// Returned when client sends `X-AFM-Profile: extended` header.
-struct AFMProfileExtended: Content {
-    let summary: AFMProfile
-    let samples: [AFMProfileSample]
+public struct AFMProfileExtended: Codable, Sendable {
+    public let summary: AFMProfile
+    public let samples: [AFMProfileSample]
+    public init(summary: AFMProfile, samples: [AFMProfileSample]) {
+        self.summary = summary
+        self.samples = samples
+    }
 }
 
-struct ChatCompletionResponse: Content {
-    let id: String
-    let object: String
-    let created: Int
-    let model: String
-    let choices: [Choice]
-    let usage: Usage
-    let timings: StreamTimings?
-    let systemFingerprint: String?
-    let afmProfile: AFMProfile?
-    let afmProfileExtended: AFMProfileExtended?
+public struct ChatCompletionResponse: Codable, Sendable {
+    public let id: String
+    public let object: String
+    public let created: Int
+    public let model: String
+    public let choices: [Choice]
+    public let usage: Usage
+    public let timings: StreamTimings?
+    public let systemFingerprint: String?
+    public let afmProfile: AFMProfile?
+    public let afmProfileExtended: AFMProfileExtended?
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case id
         case object
         case created
@@ -81,7 +104,7 @@ struct ChatCompletionResponse: Content {
     }
 
     /// Custom encoder: omit afmProfile/afmProfileExtended when nil (no null pollution).
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(object, forKey: .object)
@@ -104,7 +127,7 @@ struct ChatCompletionResponse: Content {
         }
     }
 
-    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, finishReason: String = "stop", promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil, timings: StreamTimings? = nil, afmProfile: AFMProfile? = nil, afmProfileExtended: AFMProfileExtended? = nil) {
+    public init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, finishReason: String = "stop", promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil, timings: StreamTimings? = nil, afmProfile: AFMProfile? = nil, afmProfileExtended: AFMProfileExtended? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion"
         self.created = Int(Date().timeIntervalSince1970)
@@ -131,7 +154,7 @@ struct ChatCompletionResponse: Content {
         self.afmProfileExtended = afmProfileExtended
     }
 
-    init(id: String = UUID().uuidString, model: String, toolCalls: [ResponseToolCall], logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil, timings: StreamTimings? = nil, afmProfile: AFMProfile? = nil, afmProfileExtended: AFMProfileExtended? = nil) {
+    public init(id: String = UUID().uuidString, model: String, toolCalls: [ResponseToolCall], logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil, timings: StreamTimings? = nil, afmProfile: AFMProfile? = nil, afmProfileExtended: AFMProfileExtended? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion"
         self.created = Int(Date().timeIntervalSince1970)
@@ -159,58 +182,78 @@ struct ChatCompletionResponse: Content {
     }
 }
 
-struct Choice: Content {
-    let index: Int
-    let message: ResponseMessage
-    let logprobs: ChoiceLogprobs?
-    let finishReason: String
+public struct Choice: Codable, Sendable {
+    public let index: Int
+    public let message: ResponseMessage
+    public let logprobs: ChoiceLogprobs?
+    public let finishReason: String
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case index
         case message
         case logprobs
         case finishReason = "finish_reason"
     }
+    public init(index: Int, message: ResponseMessage, logprobs: ChoiceLogprobs?, finishReason: String) {
+        self.index = index
+        self.message = message
+        self.logprobs = logprobs
+        self.finishReason = finishReason
+    }
 }
 
-struct ChoiceLogprobs: Content {
-    let content: [TokenLogprobContent]?
+public struct ChoiceLogprobs: Codable, Sendable {
+    public let content: [TokenLogprobContent]?
+    public init(content: [TokenLogprobContent]?) {
+        self.content = content
+    }
 }
 
-struct TokenLogprobContent: Content {
-    let token: String
-    let logprob: Double
-    let bytes: [Int]?
-    let topLogprobs: [TopLogprobEntry]
+public struct TokenLogprobContent: Codable, Sendable {
+    public let token: String
+    public let logprob: Double
+    public let bytes: [Int]?
+    public let topLogprobs: [TopLogprobEntry]
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case token
         case logprob
         case bytes
         case topLogprobs = "top_logprobs"
     }
+    public init(token: String, logprob: Double, bytes: [Int]?, topLogprobs: [TopLogprobEntry]) {
+        self.token = token
+        self.logprob = logprob
+        self.bytes = bytes
+        self.topLogprobs = topLogprobs
+    }
 }
 
-struct TopLogprobEntry: Content {
-    let token: String
-    let logprob: Double
-    let bytes: [Int]?
+public struct TopLogprobEntry: Codable, Sendable {
+    public let token: String
+    public let logprob: Double
+    public let bytes: [Int]?
+    public init(token: String, logprob: Double, bytes: [Int]?) {
+        self.token = token
+        self.logprob = logprob
+        self.bytes = bytes
+    }
 }
 
-struct ResponseMessage: Content {
-    let role: String
-    let content: String?
-    let reasoningContent: String?
-    let toolCalls: [ResponseToolCall]?
+public struct ResponseMessage: Codable, Sendable {
+    public let role: String
+    public let content: String?
+    public let reasoningContent: String?
+    public let toolCalls: [ResponseToolCall]?
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case role
         case content
         case reasoningContent = "reasoning_content"
         case toolCalls = "tool_calls"
     }
 
-    init(role: String, content: String?, reasoningContent: String? = nil, toolCalls: [ResponseToolCall]? = nil) {
+    public init(role: String, content: String?, reasoningContent: String? = nil, toolCalls: [ResponseToolCall]? = nil) {
         self.role = role
         self.content = content
         self.reasoningContent = reasoningContent
@@ -218,7 +261,7 @@ struct ResponseMessage: Content {
     }
 
     /// Always encode `content` (as null when nil) — Vercel AI SDK expects the key to be present.
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(role, forKey: .role)
         try container.encode(content, forKey: .content)
@@ -229,39 +272,52 @@ struct ResponseMessage: Content {
 
 // MARK: - Tool call response types
 
-public struct ResponseToolCall: Content {
+public struct ResponseToolCall: Codable, Sendable {
     public let index: Int?
     public let id: String           // "call_<random>"
     public let type: String         // "function"
     public let function: ResponseToolCallFunction
-}
-
-public struct ResponseToolCallFunction: Content {
-    public let name: String
-    public let arguments: String    // JSON string
-}
-
-struct PromptTokensDetails: Content {
-    let cachedTokens: Int
-
-    enum CodingKeys: String, CodingKey {
-        case cachedTokens = "cached_tokens"
+    public init(index: Int?, id: String, type: String, function: ResponseToolCallFunction) {
+        self.index = index
+        self.id = id
+        self.type = type
+        self.function = function
     }
 }
 
-struct Usage: Content {
-    let promptTokens: Int
-    let completionTokens: Int
-    let totalTokens: Int
-    let promptTokensDetails: PromptTokensDetails?
-    let completionTime: Double?
-    let promptTime: Double?
-    let totalTime: Double?
-    let completionTokensPerSecond: Double?
-    let promptTokensPerSecond: Double?
-    let peakMemoryGib: Double?
+public struct ResponseToolCallFunction: Codable, Sendable {
+    public let name: String
+    public let arguments: String    // JSON string
+    public init(name: String, arguments: String) {
+        self.name = name
+        self.arguments = arguments
+    }
+}
 
-    enum CodingKeys: String, CodingKey {
+public struct PromptTokensDetails: Codable, Sendable {
+    public let cachedTokens: Int
+
+    public enum CodingKeys: String, CodingKey {
+        case cachedTokens = "cached_tokens"
+    }
+    public init(cachedTokens: Int) {
+        self.cachedTokens = cachedTokens
+    }
+}
+
+public struct Usage: Codable, Sendable {
+    public let promptTokens: Int
+    public let completionTokens: Int
+    public let totalTokens: Int
+    public let promptTokensDetails: PromptTokensDetails?
+    public let completionTime: Double?
+    public let promptTime: Double?
+    public let totalTime: Double?
+    public let completionTokensPerSecond: Double?
+    public let promptTokensPerSecond: Double?
+    public let peakMemoryGib: Double?
+
+    public enum CodingKeys: String, CodingKey {
         case promptTokens = "prompt_tokens"
         case completionTokens = "completion_tokens"
         case totalTokens = "total_tokens"
@@ -274,7 +330,7 @@ struct Usage: Content {
         case peakMemoryGib = "peak_memory_gib"
     }
 
-    init(promptTokens: Int, completionTokens: Int, totalTokens: Int, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil) {
+    public init(promptTokens: Int, completionTokens: Int, totalTokens: Int, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil) {
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
         self.totalTokens = totalTokens
@@ -323,17 +379,17 @@ struct Usage: Content {
     }
 }
 
-struct ChatCompletionStreamResponse: Content {
-    let id: String
-    let object: String
-    let created: Int
-    let model: String
-    let systemFingerprint: String?
-    let choices: [StreamChoice]
-    let usage: StreamUsage?
-    let timings: StreamTimings?
+public struct ChatCompletionStreamResponse: Codable, Sendable {
+    public let id: String
+    public let object: String
+    public let created: Int
+    public let model: String
+    public let systemFingerprint: String?
+    public let choices: [StreamChoice]
+    public let usage: StreamUsage?
+    public let timings: StreamTimings?
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case id, object, created, model, choices, usage, timings
         case systemFingerprint = "system_fingerprint"
     }
@@ -347,7 +403,7 @@ struct ChatCompletionStreamResponse: Content {
         }
     }
 
-    init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, isFinished: Bool = false, isFirst: Bool = false, finishReason: String? = nil, usage: StreamUsage? = nil, timings: StreamTimings? = nil) {
+    public init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, isFinished: Bool = false, isFirst: Bool = false, finishReason: String? = nil, usage: StreamUsage? = nil, timings: StreamTimings? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion.chunk"
         self.created = Int(Date().timeIntervalSince1970)
@@ -390,7 +446,7 @@ struct ChatCompletionStreamResponse: Content {
     /// OpenAI-compatible usage chunks carry top-level usage with an empty
     /// choices array so downstream parsers can distinguish them from content
     /// deltas and terminal finish_reason chunks.
-    init(id: String, model: String, usage: StreamUsage, timings: StreamTimings? = nil) {
+    public init(id: String, model: String, usage: StreamUsage, timings: StreamTimings? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion.chunk"
         self.created = Int(Date().timeIntervalSince1970)
@@ -402,7 +458,7 @@ struct ChatCompletionStreamResponse: Content {
     }
 
     /// Init for streaming tool call deltas
-    init(id: String, model: String, toolCalls: [StreamDeltaToolCall], finishReason: String? = nil) {
+    public init(id: String, model: String, toolCalls: [StreamDeltaToolCall], finishReason: String? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion.chunk"
         self.created = Int(Date().timeIntervalSince1970)
@@ -421,48 +477,60 @@ struct ChatCompletionStreamResponse: Content {
     }
 }
 
-struct StreamTimings: Content {
-    let prompt_n: Int
-    let prompt_ms: Double
-    let predicted_n: Int
-    let predicted_ms: Double
+public struct StreamTimings: Codable, Sendable {
+    public let prompt_n: Int
+    public let prompt_ms: Double
+    public let predicted_n: Int
+    public let predicted_ms: Double
+    public init(prompt_n: Int, prompt_ms: Double, predicted_n: Int, predicted_ms: Double) {
+        self.prompt_n = prompt_n
+        self.prompt_ms = prompt_ms
+        self.predicted_n = predicted_n
+        self.predicted_ms = predicted_ms
+    }
 }
 
-struct StreamChoice: Content {
-    let index: Int
-    let delta: StreamDelta
-    let logprobs: ChoiceLogprobs?
-    let finishReason: String?
+public struct StreamChoice: Codable, Sendable {
+    public let index: Int
+    public let delta: StreamDelta
+    public let logprobs: ChoiceLogprobs?
+    public let finishReason: String?
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case index
         case delta
         case logprobs
         case finishReason = "finish_reason"
     }
+    public init(index: Int, delta: StreamDelta, logprobs: ChoiceLogprobs?, finishReason: String?) {
+        self.index = index
+        self.delta = delta
+        self.logprobs = logprobs
+        self.finishReason = finishReason
+    }
 }
 
-struct StreamDelta: Content {
-    let role: String?
-    let content: String?
-    let reasoningContent: String?
-    let toolCalls: [StreamDeltaToolCall]?
+public struct StreamDelta: Codable, Sendable {
+    public let role: String?
+    public let content: String?
+    public let reasoningContent: String?
+    public let toolCalls: [StreamDeltaToolCall]?
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case role
         case content
         case reasoningContent = "reasoning_content"
         case toolCalls = "tool_calls"
     }
 
-    init(role: String? = nil, content: String?, reasoningContent: String? = nil, toolCalls: [StreamDeltaToolCall]? = nil) {
+    public init(role: String? = nil, content: String?, reasoningContent: String? = nil, toolCalls: [StreamDeltaToolCall]? = nil) {
         self.role = role
         self.content = content
         self.reasoningContent = reasoningContent
         self.toolCalls = toolCalls
     }
 
-    init(toolCalls: [StreamDeltaToolCall]) {
+    public init(toolCalls: [StreamDeltaToolCall]) {
         self.role = nil
         self.content = nil
         self.reasoningContent = nil
@@ -470,30 +538,40 @@ struct StreamDelta: Content {
     }
 }
 
-public struct StreamDeltaToolCall: Content {
+public struct StreamDeltaToolCall: Codable, Sendable {
     public let index: Int
     public let id: String?
     public let type: String?
     public let function: StreamDeltaFunction?
+    public init(index: Int, id: String?, type: String?, function: StreamDeltaFunction?) {
+        self.index = index
+        self.id = id
+        self.type = type
+        self.function = function
+    }
 }
 
-public struct StreamDeltaFunction: Content {
+public struct StreamDeltaFunction: Codable, Sendable {
     public let name: String?
     public let arguments: String?
+    public init(name: String?, arguments: String?) {
+        self.name = name
+        self.arguments = arguments
+    }
 }
 
-struct StreamUsage: Content {
-    let promptTokens: Int
-    let completionTokens: Int
-    let totalTokens: Int
-    let promptTokensDetails: PromptTokensDetails?
-    let completionTime: Double?
-    let promptTime: Double?
-    let totalTime: Double?
-    let promptTokensPerSecond: Double?
-    let completionTokensPerSecond: Double?
+public struct StreamUsage: Codable, Sendable {
+    public let promptTokens: Int
+    public let completionTokens: Int
+    public let totalTokens: Int
+    public let promptTokensDetails: PromptTokensDetails?
+    public let completionTime: Double?
+    public let promptTime: Double?
+    public let totalTime: Double?
+    public let promptTokensPerSecond: Double?
+    public let completionTokensPerSecond: Double?
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case promptTokens = "prompt_tokens"
         case completionTokens = "completion_tokens"
         case totalTokens = "total_tokens"
@@ -505,7 +583,7 @@ struct StreamUsage: Content {
         case completionTokensPerSecond = "completion_tokens_per_second"
     }
 
-    init(promptTokens: Int, completionTokens: Int, completionTime: Double, promptTime: Double = 0.0, cachedTokens: Int? = nil) {
+    public init(promptTokens: Int, completionTokens: Int, completionTime: Double, promptTime: Double = 0.0, cachedTokens: Int? = nil) {
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
         self.totalTokens = promptTokens + completionTokens
@@ -530,19 +608,25 @@ struct StreamUsage: Content {
     }
 }
 
-public struct OpenAIError: Content, Error {
-    let error: ErrorDetail
+public struct OpenAIError: Error, Codable, Sendable {
+    public let error: ErrorDetail
 
-    struct ErrorDetail: Content {
-        let message: String
-        let type: String
-        let code: String?
+    public struct ErrorDetail: Codable, Sendable {
+        public let message: String
+        public let type: String
+        public let code: String?
         /// Correlates with the `X-Request-ID`/`OpenAI-Request-ID` response header. (T1.1)
-        let requestId: String?
+        public let requestId: String?
 
-        enum CodingKeys: String, CodingKey {
+        public enum CodingKeys: String, CodingKey {
             case message, type, code
             case requestId = "request_id"
+        }
+        public init(message: String, type: String, code: String?, requestId: String?) {
+            self.message = message
+            self.type = type
+            self.code = code
+            self.requestId = requestId
         }
     }
 
@@ -554,21 +638,21 @@ public struct OpenAIError: Content, Error {
 // MARK: - Batch API Response Types
 
 /// OpenAI File object for /v1/files endpoints.
-struct FileObject: Content {
-    let id: String
-    let object: String
-    let bytes: Int
-    let createdAt: Int
-    let filename: String
-    let purpose: String
+public struct FileObject: Codable, Sendable {
+    public let id: String
+    public let object: String
+    public let bytes: Int
+    public let createdAt: Int
+    public let filename: String
+    public let purpose: String
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case id, object, bytes
         case createdAt = "created_at"
         case filename, purpose
     }
 
-    init(id: String, bytes: Int, createdAt: Int, filename: String, purpose: String) {
+    public init(id: String, bytes: Int, createdAt: Int, filename: String, purpose: String) {
         self.id = id
         self.object = "file"
         self.bytes = bytes
@@ -579,12 +663,12 @@ struct FileObject: Content {
 }
 
 /// Response for DELETE /v1/files/{id}.
-struct FileDeleteResponse: Content {
-    let id: String
-    let object: String
-    let deleted: Bool
+public struct FileDeleteResponse: Codable, Sendable {
+    public let id: String
+    public let object: String
+    public let deleted: Bool
 
-    init(id: String) {
+    public init(id: String) {
         self.id = id
         self.object = "file"
         self.deleted = true
@@ -592,26 +676,31 @@ struct FileDeleteResponse: Content {
 }
 
 /// Batch request counts.
-struct BatchRequestCounts: Content {
-    var total: Int
-    var completed: Int
-    var failed: Int
+public struct BatchRequestCounts: Codable, Sendable {
+    public var total: Int
+    public var completed: Int
+    public var failed: Int
+    public init(total: Int, completed: Int, failed: Int) {
+        self.total = total
+        self.completed = completed
+        self.failed = failed
+    }
 }
 
 /// OpenAI Batch object for /v1/batches endpoints.
-struct BatchObject: Content {
-    let id: String
-    let object: String
-    let endpoint: String
-    let inputFileId: String
-    let completionWindow: String
-    var status: String
-    let createdAt: Int
-    var completedAt: Int?
-    var outputFileId: String?
-    var requestCounts: BatchRequestCounts
+public struct BatchObject: Codable, Sendable {
+    public let id: String
+    public let object: String
+    public let endpoint: String
+    public let inputFileId: String
+    public let completionWindow: String
+    public var status: String
+    public let createdAt: Int
+    public var completedAt: Int?
+    public var outputFileId: String?
+    public var requestCounts: BatchRequestCounts
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case id, object, endpoint, status
         case inputFileId = "input_file_id"
         case completionWindow = "completion_window"
@@ -620,53 +709,80 @@ struct BatchObject: Content {
         case outputFileId = "output_file_id"
         case requestCounts = "request_counts"
     }
+    public init(id: String, object: String, endpoint: String, inputFileId: String, completionWindow: String, status: String, createdAt: Int, completedAt: Int?, outputFileId: String?, requestCounts: BatchRequestCounts) {
+        self.id = id
+        self.object = object
+        self.endpoint = endpoint
+        self.inputFileId = inputFileId
+        self.completionWindow = completionWindow
+        self.status = status
+        self.createdAt = createdAt
+        self.completedAt = completedAt
+        self.outputFileId = outputFileId
+        self.requestCounts = requestCounts
+    }
 }
 
 /// A single result line in the output JSONL file.
-struct BatchResultLine: Codable {
-    let id: String
-    let customId: String
-    let response: BatchResultResponse?
-    let error: BatchError?
+public struct BatchResultLine: Codable, Sendable {
+    public let id: String
+    public let customId: String
+    public let response: BatchResultResponse?
+    public let error: BatchError?
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case id
         case customId = "custom_id"
         case response, error
     }
+    public init(id: String, customId: String, response: BatchResultResponse?, error: BatchError?) {
+        self.id = id
+        self.customId = customId
+        self.response = response
+        self.error = error
+    }
 }
 
 /// The response wrapper inside a batch result line.
-struct BatchResultResponse: Codable {
-    let statusCode: Int
-    let requestId: String
-    let body: ChatCompletionResponse
+public struct BatchResultResponse: Codable, Sendable {
+    public let statusCode: Int
+    public let requestId: String
+    public let body: ChatCompletionResponse
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case statusCode = "status_code"
         case requestId = "request_id"
         case body
     }
+    public init(statusCode: Int, requestId: String, body: ChatCompletionResponse) {
+        self.statusCode = statusCode
+        self.requestId = requestId
+        self.body = body
+    }
 }
 
 /// Error object for batch results and SSE error events.
-struct BatchError: Content {
-    let message: String
-    let type: String
+public struct BatchError: Codable, Sendable {
+    public let message: String
+    public let type: String
+    public init(message: String, type: String) {
+        self.message = message
+        self.type = type
+    }
 }
 
 /// Wrapper for OpenAI list responses (GET /v1/batches).
-struct BatchListResponse: Content {
-    let object: String
-    let data: [BatchObject]
-    let hasMore: Bool
+public struct BatchListResponse: Codable, Sendable {
+    public let object: String
+    public let data: [BatchObject]
+    public let hasMore: Bool
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case object, data
         case hasMore = "has_more"
     }
 
-    init(data: [BatchObject]) {
+    public init(data: [BatchObject]) {
         self.object = "list"
         self.data = data
         self.hasMore = false
@@ -675,11 +791,11 @@ struct BatchListResponse: Content {
 
 // MARK: - Embeddings API Response Types
 
-enum EmbeddingVectorPayload: Content {
+public enum EmbeddingVectorPayload: Codable, Sendable {
     case float([Float])
     case base64(String)
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if let floatVector = try? container.decode([Float].self) {
             self = .float(floatVector)
@@ -693,7 +809,7 @@ enum EmbeddingVectorPayload: Content {
         }
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
         case .float(let vector):
@@ -704,12 +820,12 @@ enum EmbeddingVectorPayload: Content {
     }
 }
 
-struct EmbeddingDataItem: Content {
-    let object: String
-    let index: Int
-    let embedding: EmbeddingVectorPayload
+public struct EmbeddingDataItem: Codable, Sendable {
+    public let object: String
+    public let index: Int
+    public let embedding: EmbeddingVectorPayload
 
-    init(index: Int, embedding: EmbeddingVectorPayload) {
+    public init(index: Int, embedding: EmbeddingVectorPayload) {
         self.object = "embedding"
         self.index = index
         self.embedding = embedding
@@ -721,23 +837,27 @@ struct EmbeddingDataItem: Content {
 /// Scoped separately from the chat `Usage` struct so the Apple-only embeddings
 /// path does not pull in `MLXMetalLibrary.ensureAvailable()`, which mutates the
 /// process working directory when it initializes the MLX Metal library.
-struct EmbeddingsUsage: Content {
-    let promptTokens: Int
-    let totalTokens: Int
+public struct EmbeddingsUsage: Codable, Sendable {
+    public let promptTokens: Int
+    public let totalTokens: Int
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case promptTokens = "prompt_tokens"
         case totalTokens = "total_tokens"
     }
+    public init(promptTokens: Int, totalTokens: Int) {
+        self.promptTokens = promptTokens
+        self.totalTokens = totalTokens
+    }
 }
 
-struct EmbeddingsResponse: Content {
-    let object: String
-    let data: [EmbeddingDataItem]
-    let model: String
-    let usage: EmbeddingsUsage
+public struct EmbeddingsResponse: Codable, Sendable {
+    public let object: String
+    public let data: [EmbeddingDataItem]
+    public let model: String
+    public let usage: EmbeddingsUsage
 
-    init(model: String, data: [EmbeddingDataItem], promptTokens: Int) {
+    public init(model: String, data: [EmbeddingDataItem], promptTokens: Int) {
         self.object = "list"
         self.data = data
         self.model = model

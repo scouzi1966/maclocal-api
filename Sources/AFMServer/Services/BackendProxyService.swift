@@ -1,4 +1,5 @@
 import Vapor
+import AFMKit
 import Foundation
 
 /// Hardcoded API key sent to all discovered backends.

@@ -33,8 +33,8 @@ public enum SpeechError: Error, LocalizedError {
 
 public struct SpeechRequestOptions: Sendable {
     static let recognitionTimeoutNs: UInt64 = 120_000_000_000  // 120 seconds
-    static let defaultMaxFileBytes = 50 * 1024 * 1024  // 50MB matches Vapor body limit
-    static let supportedExtensions: Set<String> = ["wav", "mp3", "m4a", "caf", "aiff", "aif"]
+    public static let defaultMaxFileBytes = 50 * 1024 * 1024  // 50MB matches Vapor body limit
+    public static let supportedExtensions: Set<String> = ["wav", "mp3", "m4a", "caf", "aiff", "aif"]
 
     let locale: String
 

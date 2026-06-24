@@ -1,4 +1,5 @@
 import Vapor
+import AFMKit
 import Foundation
 
 /// `GET /metrics` — Prometheus text exposition format.
