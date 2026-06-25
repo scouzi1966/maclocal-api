@@ -1,0 +1,24 @@
+{
+  "id": "ts-event-emitter",
+  "category": "feature",
+  "languages": ["typescript"],
+  "difficulty": "medium",
+  "task_complexity": "localized",
+  "created": "2026-06-01",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Original scenario authored for VulcanBench on 2026-06-01; not derived from any public repository, issue, or dataset, so it post-dates all model training cutoffs.",
+  "tests": {
+    "fail_to_pass": [
+      {"name": "once_fires_once", "cmd": "node --experimental-strip-types --test --test-name-pattern='^once fires its listener only on the first emit$' tests/emitter.test.ts"},
+      {"name": "off_removes", "cmd": "node --experimental-strip-types --test --test-name-pattern='^off removes a listener$' tests/emitter.test.ts"},
+      {"name": "off_targeted_only", "cmd": "node --experimental-strip-types --test --test-name-pattern='^off only removes the targeted listener$' tests/emitter.test.ts"},
+      {"name": "once_unsubscribed_after", "cmd": "node --experimental-strip-types --test --test-name-pattern='^once is unsubscribed after it fires$' tests/emitter.test.ts"}
+    ],
+    "pass_to_pass": [
+      {"name": "on_emit_args", "cmd": "node --experimental-strip-types --test --test-name-pattern='^on \\+ emit invokes the listener with args$' tests/emitter.test.ts"},
+      {"name": "emit_order", "cmd": "node --experimental-strip-types --test --test-name-pattern='^emit calls listeners in subscription order$' tests/emitter.test.ts"},
+      {"name": "listener_count", "cmd": "node --experimental-strip-types --test --test-name-pattern='^listenerCount reflects subscriptions$' tests/emitter.test.ts"}
+    ]
+  }
+}

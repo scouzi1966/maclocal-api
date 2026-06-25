@@ -1,0 +1,21 @@
+{
+  "id": "py-retry-refactor",
+  "category": "refactor",
+  "languages": ["python"],
+  "difficulty": "medium",
+  "task_complexity": "system",
+  "created": "2026-06-01",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Original scenario written for VulcanBench on 2026-06-01; not derived from any public repository or issue, so it post-dates all model training cutoffs.",
+  "tests": {
+    "fail_to_pass": [
+      {"name": "http_caps_delay", "cmd": "python -m pytest test_retry.py::test_http_caps_backoff_delay -q"},
+      {"name": "db_runs_all_attempts", "cmd": "python -m pytest test_retry.py::test_db_runs_all_attempts -q"},
+      {"name": "clients_identical", "cmd": "python -m pytest test_retry.py::test_http_and_db_behave_identically -q"}
+    ],
+    "pass_to_pass": [
+      {"name": "basic", "cmd": "python -m pytest test_basic.py -q"}
+    ]
+  }
+}

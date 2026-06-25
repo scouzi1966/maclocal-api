@@ -1,0 +1,10 @@
+{
+  "functional": 1.0,
+  "quality": 0.95,
+  "security": 1.0,
+  "efficiency": 0.8,
+  "human_like": 0.7,
+  "total": 0.89,
+  "gold_runs": 3,
+  "notes": "synthetic baseline for pipeline validation"
+}

@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "generated_at": "2026-06-22",
+  "judges": true,
+  "by_model_task": {
+    "openai:gpt-5.5": {
+      "hello-world": {"low": 0.02, "mid": 0.04, "high": 0.08, "n": 5}
+    }
+  },
+  "by_model_scale": {
+    "openai:gpt-5.5": {
+      "micro": {"low": 0.015, "mid": 0.03, "high": 0.06, "n": 10}
+    }
+  }
+}

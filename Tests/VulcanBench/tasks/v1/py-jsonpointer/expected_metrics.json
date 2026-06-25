@@ -1,0 +1,4 @@
+{
+  "functional": 1.0,
+  "notes": "Gold implements RFC 6901 escaping (~1/~0), array indexing with leading-zero/range/dash checks, and JSONPointerError on every malformed or unresolvable pointer."
+}

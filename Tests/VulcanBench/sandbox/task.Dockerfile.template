@@ -1,0 +1,18 @@
+# Template for a task-specific sandbox image.
+#
+# Copy this to a task directory (e.g. tasks/v1/<id>/Dockerfile), add the task's
+# runtime dependencies, build it, and reference it from the task's metadata.json
+# ("image": "vulcanbench/task-<id>") or via `vulcanbench run --image ...`.
+#
+# Build:  docker build -t vulcanbench/task-<id> -f tasks/v1/<id>/Dockerfile .
+FROM vulcanbench/sandbox:base
+
+# --- Add the task's toolchain / dependencies below -------------------------
+# Examples:
+#   RUN pip install -r requirements.txt
+#   RUN npm ci
+#   RUN apt-get update && apt-get install -y --no-install-recommends <pkgs> \
+#       && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+CMD ["sleep", "infinity"]

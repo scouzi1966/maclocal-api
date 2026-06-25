@@ -1,0 +1,4 @@
+{
+  "functional": 1.0,
+  "notes": "Gold patch implements required-field and type checks, making all fail_to_pass tests pass while the pass_to_pass valid-object test continues to hold."
+}

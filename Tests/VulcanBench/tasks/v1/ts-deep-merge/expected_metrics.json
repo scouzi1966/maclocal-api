@@ -1,0 +1,4 @@
+{
+  "functional": 1.0,
+  "notes": "Gold returns a fresh object, replaces arrays/primitives, recurses only into plain objects, and skips __proto__/constructor/prototype keys."
+}

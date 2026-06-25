@@ -1,0 +1,80 @@
+diff --git a/lru/lru.go b/lru/lru.go
+index 1b46bbf..2a82324 100644
+--- a/lru/lru.go
++++ b/lru/lru.go
+@@ -1,32 +1,61 @@
+-// Package lru is meant to provide a fixed-capacity least-recently-used cache.
+-//
+-// NOTE: the current implementation is just a map — it never evicts and does not
+-// track recency. See issue.md.
++// Package lru provides a fixed-capacity least-recently-used cache.
+ package lru
+ 
+-// Cache maps string keys to int values with a bounded capacity.
++import "container/list"
++
++type entry struct {
++	key   string
++	value int
++}
++
++// Cache maps string keys to int values, evicting the least-recently-used entry
++// when it would exceed its capacity. Get and Put both count as a use.
+ type Cache struct {
+ 	capacity int
+-	data     map[string]int
++	ll       *list.List // front = most-recently-used, back = least-recently-used
++	items    map[string]*list.Element
+ }
+ 
+-// New returns an empty cache that should hold at most `capacity` entries.
++// New returns an empty cache that holds at most `capacity` entries.
+ func New(capacity int) *Cache {
+-	return &Cache{capacity: capacity, data: make(map[string]int)}
++	return &Cache{
++		capacity: capacity,
++		ll:       list.New(),
++		items:    make(map[string]*list.Element),
++	}
+ }
+ 
+-// Get returns the value for key and whether it was present.
++// Get returns the value for key and whether it was present. A hit marks the key
++// as most-recently-used; a miss does not change recency.
+ func (c *Cache) Get(key string) (int, bool) {
+-	v, ok := c.data[key]
+-	return v, ok
++	el, ok := c.items[key]
++	if !ok {
++		return 0, false
++	}
++	c.ll.MoveToFront(el)
++	return el.Value.(*entry).value, true
+ }
+ 
+-// Put inserts or updates the value for key.
++// Put inserts or updates the value for key and marks it most-recently-used,
++// evicting the least-recently-used entry if capacity would be exceeded.
+ func (c *Cache) Put(key string, value int) {
+-	c.data[key] = value
++	if el, ok := c.items[key]; ok {
++		el.Value.(*entry).value = value
++		c.ll.MoveToFront(el)
++		return
++	}
++	el := c.ll.PushFront(&entry{key: key, value: value})
++	c.items[key] = el
++	if c.capacity > 0 && c.ll.Len() > c.capacity {
++		back := c.ll.Back()
++		if back != nil {
++			c.ll.Remove(back)
++			delete(c.items, back.Value.(*entry).key)
++		}
++	}
+ }
+ 
+ // Len reports how many entries are currently stored.
+ func (c *Cache) Len() int {
+-	return len(c.data)
++	return c.ll.Len()
+ }

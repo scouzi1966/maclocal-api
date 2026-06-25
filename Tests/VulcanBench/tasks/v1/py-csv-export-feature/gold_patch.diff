@@ -1,0 +1,45 @@
+diff --git a/report/exporter.py b/report/exporter.py
+index 300b80a..25c16fa 100644
+--- a/report/exporter.py
++++ b/report/exporter.py
+@@ -6,6 +6,8 @@ from typing import List
+ 
+ from report.models import Row
+ 
++_NEEDS_QUOTING = (",", '"', "\r", "\n")
++
+ 
+ def _columns(rows: List[Row]) -> List[str]:
+     """Column order is taken from the first row's insertion order."""
+@@ -21,10 +23,29 @@ def to_json(rows: List[Row]) -> str:
+     return json.dumps(payload)
+ 
+ 
++def _csv_field(value: object) -> str:
++    """Render one value as an RFC 4180 CSV field."""
++    text = "" if value is None else str(value)
++    if any(ch in text for ch in _NEEDS_QUOTING):
++        return '"' + text.replace('"', '""') + '"'
++    return text
++
++
++def _csv_line(values: List[object]) -> str:
++    return ",".join(_csv_field(v) for v in values)
++
++
+ def to_csv(rows: List[Row]) -> str:
+     """Serialize ``rows`` to an RFC 4180 CSV string.
+ 
+     The first line is the header (column names); one line follows per row.
+-    Not implemented yet — see issue.md.
++    Records are terminated by CRLF, including a trailing CRLF. Fields containing
++    a comma, double-quote, or line break are quoted; embedded double-quotes are
++    doubled. ``None`` becomes an empty field.
+     """
+-    raise NotImplementedError("CSV export is not implemented yet")
++    columns = _columns(rows)
++    if not columns:
++        return ""
++    lines = [_csv_line(list(columns))]
++    lines.extend(_csv_line([row.get(col) for col in columns]) for row in rows)
++    return "".join(line + "\r\n" for line in lines)

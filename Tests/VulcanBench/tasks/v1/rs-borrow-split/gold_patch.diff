@@ -1,0 +1,48 @@
+diff --git a/core/src/lib.rs b/core/src/lib.rs
+index 11ed1d3..71e6f02 100644
+--- a/core/src/lib.rs
++++ b/core/src/lib.rs
+@@ -11,10 +11,6 @@ use utils::SplitVec;
+ /// FIX: Use `slice::split_at_mut` (or `SplitVec::get_two_mut`) to obtain
+ /// two non-overlapping mutable references.
+ pub fn get_pair_mut(v: &mut SplitVec<i32>, i: usize, j: usize) -> (&mut i32, &mut i32) {
+-    // This is the broken implementation: it calls get_mut twice, which
+-    // produces overlapping mutable references when i == j or when the
+-    // underlying SplitVec doesn't enforce non-overlap.
+-    let a = v.get_mut(i).unwrap();
+-    let b = v.get_mut(j).unwrap();
+-    (a, b)
++    v.get_two_mut(i, j)
++        .expect("indices out of bounds or equal")
+ }
+diff --git a/utils/src/lib.rs b/utils/src/lib.rs
+index fb3729b..ccf9fac 100644
+--- a/utils/src/lib.rs
++++ b/utils/src/lib.rs
+@@ -32,6 +32,26 @@ impl<T> SplitVec<T> {
+     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+         self.data.get_mut(index)
+     }
++
++    /// Returns two non-overlapping mutable references to elements at `i` and `j`.
++    ///
++    /// Panics if `i == j` (cannot have two mutable refs to the same slot).
++    /// Returns `None` if either index is out of bounds.
++    pub fn get_two_mut(&mut self, i: usize, j: usize) -> Option<(&mut T, &mut T)> {
++        assert!(i != j, "cannot get two mutable refs to the same index");
++        if i >= self.data.len() || j >= self.data.len() {
++            return None;
++        }
++        let (lo, hi) = if i < j { (i, j) } else { (j, i) };
++        let (left, right) = self.data.split_at_mut(hi);
++        let a = &mut left[lo];
++        let b = &mut right[0];
++        if i < j {
++            Some((a, b))
++        } else {
++            Some((b, a))
++        }
++    }
+ }
+ 
+ impl<T: Default> SplitVec<T> {

@@ -1,0 +1,35 @@
+diff --git a/csvparse/csv.go b/csvparse/csv.go
+index e446fb2..25b8fa9 100644
+--- a/csvparse/csv.go
++++ b/csvparse/csv.go
+@@ -1,6 +1,4 @@
+ // Package csvparse parses RFC 4180 CSV text into records of fields.
+-//
+-// NOTE: the handling of escaped quotes is buggy — see issue.md.
+ package csvparse
+ 
+ import "strings"
+@@ -8,8 +6,9 @@ import "strings"
+ // Parse parses a CSV document into a slice of records, each a slice of fields.
+ //
+ // A field may be quoted with double-quotes; inside a quoted field, commas and
+-// newlines are literal. Records are separated by "\n" (a leading "\r" is
+-// stripped). The final record does not require a trailing newline.
++// newlines are literal and a doubled double-quote ("") is a single literal
++// quote. Records are separated by "\n" (a leading "\r" is stripped). The final
++// record does not require a trailing newline.
+ func Parse(s string) [][]string {
+ 	s = strings.ReplaceAll(s, "\r\n", "\n")
+ 
+@@ -22,6 +21,11 @@ func Parse(s string) [][]string {
+ 		c := s[i]
+ 		if inQuotes {
+ 			if c == '"' {
++				if i+1 < len(s) && s[i+1] == '"' {
++					field.WriteByte('"') // escaped quote: "" -> "
++					i++
++					continue
++				}
+ 				inQuotes = false
+ 				continue
+ 			}

@@ -1,0 +1,7 @@
+diff --git a/src/lib5.ts b/src/lib5.ts
+index d827dcc..ecc4b2e 100644
+--- a/src/lib5.ts
++++ b/src/lib5.ts
+@@ -1 +1 @@
+-export function run(x: number) { return x + 1; }
++export function run(x: number) { return x * 2; }

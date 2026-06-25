@@ -1,0 +1,63 @@
+# VulcanBench sandbox base image.
+#
+# Build:  docker build -t vulcanbench/sandbox:base -f sandbox/Dockerfile.base .
+# Use:    vulcanbench run --task <id> --model <m> --sandbox docker --image vulcanbench/sandbox:base
+#
+# Provides the toolchains the agent and the in-container verifier need across
+# seed-task languages: Python (+ analyzers), Go, and Node/TypeScript, plus
+# git/ripgrep/a compiler. Rust tasks use ``vulcanbench/sandbox:rust`` (see
+# ``sandbox/Dockerfile.rust``), auto-selected by language.
+#
+# Pinned by digest for reproducible sandbox builds (amd64; see multi-arch manifest).
+FROM python:3.12-slim-bookworm@sha256:4181eb0137487812d8b84ee677de85e5c9f7e08b7c3e16fc564b077cff4907a8
+
+ARG GO_VERSION=1.23.4
+ARG NODE_MAJOR=22
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PATH=/usr/local/go/bin:$PATH \
+    HOME=/tmp \
+    GOPATH=/tmp/go \
+    GOCACHE=/tmp/go-build \
+    GOFLAGS=-mod=mod
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        git \
+        ripgrep \
+        build-essential \
+        ca-certificates \
+        coreutils \
+        curl \
+        xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python analyzers used by the evaluator and the agent's lint/test tools.
+RUN python -m pip install \
+    "ruff>=0.5.0" \
+    "radon>=6.0" \
+    "bandit>=1.7" \
+    "pytest>=8.2.0"
+
+# Go (for Go tasks + `go test` verification).
+RUN ARCH="$(dpkg --print-architecture)" \
+    && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" -o /tmp/go.tgz \
+    && tar -C /usr/local -xzf /tmp/go.tgz \
+    && rm /tmp/go.tgz \
+    && go version
+
+# Node (for TypeScript tasks; `node --experimental-strip-types --test`).
+RUN ARCH="$(dpkg --print-architecture)" \
+    && case "$ARCH" in amd64) NARCH=x64 ;; arm64) NARCH=arm64 ;; *) NARCH="$ARCH" ;; esac \
+    && curl -fsSL "https://nodejs.org/dist/v${NODE_MAJOR}.11.0/node-v${NODE_MAJOR}.11.0-linux-${NARCH}.tar.xz" -o /tmp/node.tar.xz \
+    && tar -C /usr/local --strip-components=1 -xJf /tmp/node.tar.xz \
+    && rm /tmp/node.tar.xz \
+    && node --version
+
+WORKDIR /workspace
+
+# The container runs as the invoking host UID/GID (set at `docker run` time) so
+# bind-mounted files stay writable and the process is never root.
+CMD ["sleep", "infinity"]

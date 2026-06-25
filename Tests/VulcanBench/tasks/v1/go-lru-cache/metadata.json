@@ -1,0 +1,24 @@
+{
+  "id": "go-lru-cache",
+  "category": "feature",
+  "languages": ["go"],
+  "difficulty": "medium",
+  "task_complexity": "localized",
+  "created": "2026-06-01",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Original scenario written for VulcanBench on 2026-06-01; not derived from any public repository or issue, so it post-dates all model training cutoffs.",
+  "tests": {
+    "fail_to_pass": [
+      {"name": "evicts_lru", "cmd": "go test -run '^TestEvictsLeastRecentlyUsed$' ./..."},
+      {"name": "get_marks_recent", "cmd": "go test -run '^TestGetMarksRecentlyUsed$' ./..."},
+      {"name": "update_marks_recent", "cmd": "go test -run '^TestUpdateMarksRecentlyUsed$' ./..."},
+      {"name": "len_capped", "cmd": "go test -run '^TestLenStaysWithinCapacity$' ./..."}
+    ],
+    "pass_to_pass": [
+      {"name": "miss", "cmd": "go test -run '^TestGetMissReturnsFalse$' ./..."},
+      {"name": "put_then_get", "cmd": "go test -run '^TestPutThenGet$' ./..."},
+      {"name": "update_value", "cmd": "go test -run '^TestUpdateValueInPlace$' ./..."}
+    ]
+  }
+}

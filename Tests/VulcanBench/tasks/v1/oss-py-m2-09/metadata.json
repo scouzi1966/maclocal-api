@@ -1,0 +1,35 @@
+{
+  "id": "oss-py-m2-09",
+  "category": "bug_fix",
+  "languages": [
+    "python"
+  ],
+  "difficulty": "easy",
+  "task_complexity": "localized",
+  "created": "2026-06-04",
+  "repo_scale": "small",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Vendored m2pkg9 slice (oss-py-m2-09). Hand-authored benchmark scaffold inspired by OSS patterns; not vendored from a pinned upstream commit.",
+  "tests": {
+    "fail_to_pass": [
+      {
+        "name": "run",
+        "cmd": "python -m pytest test_service.py::test_run -q"
+      }
+    ],
+    "pass_to_pass": [
+      {
+        "name": "import",
+        "cmd": "python -m pytest test_service.py::test_import_api -q"
+      }
+    ]
+  },
+  "test_timeout_s": 120,
+  "agent_hints": {
+    "suggested_max_steps": 60,
+    "entry_paths": [
+      "m2pkg9/service.py"
+    ]
+  }
+}

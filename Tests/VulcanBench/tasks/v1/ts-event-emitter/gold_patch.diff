@@ -1,0 +1,53 @@
+diff --git a/src/emitter.ts b/src/emitter.ts
+index b05147d..f130e57 100644
+--- a/src/emitter.ts
++++ b/src/emitter.ts
+@@ -1,8 +1,5 @@
+ /**
+- * A tiny event emitter.
+- *
+- * NOTE: `off` and `once` are not implemented correctly — see issue.md. `on`,
+- * `emit`, and `listenerCount` work.
++ * A tiny event emitter supporting on / off / once / emit.
+  */
+ 
+ export type Listener = (...args: unknown[]) => void;
+@@ -17,24 +14,31 @@ export class Emitter {
+     this.listeners.set(event, fns);
+   }
+ 
+-  /** Unsubscribe `fn` from `event`. */
++  /** Unsubscribe `fn` from `event` (removes a single matching listener). */
+   off(event: string, fn: Listener): void {
+-    // TODO: actually remove the listener.
+-    void event;
+-    void fn;
++    const fns = this.listeners.get(event);
++    if (!fns) return;
++    const i = fns.indexOf(fn);
++    if (i !== -1) {
++      fns.splice(i, 1);
++    }
+   }
+ 
+   /** Subscribe `fn` to `event` for a single emit, then auto-remove it. */
+   once(event: string, fn: Listener): void {
+-    // TODO: remove after the first emit.
+-    this.on(event, fn);
++    const wrapper: Listener = (...args: unknown[]): void => {
++      this.off(event, wrapper);
++      fn(...args);
++    };
++    this.on(event, wrapper);
+   }
+ 
+   /** Invoke every listener subscribed to `event`, in subscription order. */
+   emit(event: string, ...args: unknown[]): void {
+     const fns = this.listeners.get(event);
+     if (!fns) return;
+-    for (const fn of fns) {
++    // Iterate a snapshot so once-listeners removing themselves don't disturb it.
++    for (const fn of [...fns]) {
+       fn(...args);
+     }
+   }

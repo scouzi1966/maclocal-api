@@ -1,0 +1,8 @@
+diff --git a/configlib/service.py b/configlib/service.py
+index f3c88ad..e3e6d09 100644
+--- a/configlib/service.py
++++ b/configlib/service.py
+@@ -1,2 +1,2 @@
+ def run(x):
+-    return x + 0
++    return x * 2

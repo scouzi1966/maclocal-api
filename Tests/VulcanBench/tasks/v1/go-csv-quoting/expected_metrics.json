@@ -1,0 +1,4 @@
+{
+  "functional": 1.0,
+  "notes": "Gold adds the lookahead so a doubled quote inside a quoted field emits one literal quote and keeps the field open."
+}

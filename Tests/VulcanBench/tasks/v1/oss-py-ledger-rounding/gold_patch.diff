@@ -1,0 +1,14 @@
+diff --git a/ledger/core.py b/ledger/core.py
+index 2bd1772..6ed69aa 100644
+--- a/ledger/core.py
++++ b/ledger/core.py
+@@ -11,5 +11,8 @@ class Ledger:
+     def allocate(self, total: Money, ratios):
+         parts = []
+         for r in ratios:
+-            parts.append(Money(int(total.cents * r)))
++            parts.append(Money(int(total.cents * r / sum(ratios))))
++        remainder = total.cents - sum(p.cents for p in parts)
++        if parts:
++            parts[0] = Money(parts[0].cents + remainder)
+         return parts

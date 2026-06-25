@@ -1,0 +1,11 @@
+diff --git a/lib/src/lib.rs b/lib/src/lib.rs
+--- a/lib/src/lib.rs
++++ b/lib/src/lib.rs
+@@ -26,7 +26,6 @@
+ }
+ 
+ // BUG: This impl is behind the wrong feature gate.
+-#[cfg(feature = "crypto")]
+ impl Hashable for Record {
+     fn hash_value(&self) -> u64 {
+         let mut h: u64 = self.id as u64;

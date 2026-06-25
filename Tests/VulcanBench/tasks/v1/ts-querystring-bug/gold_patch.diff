@@ -1,0 +1,28 @@
+diff --git a/src/parse.ts b/src/parse.ts
+index 02fcfb9..ff65a59 100644
+--- a/src/parse.ts
++++ b/src/parse.ts
+@@ -33,12 +33,17 @@ export function parseQuery(qs: string): Record<string, string | string[]> {
+     }
+ 
+     const key = decodeComponent(rawKey);
+-    // BUG: the raw value is stored without decoding, so "%20" and "+" survive
+-    // literally instead of becoming spaces.
+-    const value = rawValue;
+-    // BUG: a repeated key overwrites the earlier value instead of collecting
+-    // all values into an array.
+-    result[key] = value;
++    const value = decodeComponent(rawValue);
++    if (Object.prototype.hasOwnProperty.call(result, key)) {
++      const existing = result[key];
++      if (Array.isArray(existing)) {
++        existing.push(value);
++      } else {
++        result[key] = [existing, value];
++      }
++    } else {
++      result[key] = value;
++    }
+   }
+ 
+   return result;

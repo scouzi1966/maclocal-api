@@ -1,0 +1,25 @@
+{
+  "id": "rs-borrow-split",
+  "category": "bug_fix",
+  "languages": ["rust"],
+  "difficulty": "medium",
+  "task_complexity": "multi_file",
+  "created": "2026-06-10",
+  "repo_scale": "small",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Original scenario written for VulcanBench on 2026-06-10; not derived from any public repository or issue, so it post-dates all model training cutoffs.",
+  "tests": {
+    "fail_to_pass": [
+      {"name": "two_mut_different", "cmd": "cargo test -p core --test test_borrow test_two_mut_different_indices"},
+      {"name": "two_mut_reversed", "cmd": "cargo test -p core --test test_borrow test_two_mut_reversed_indices"}
+    ],
+    "pass_to_pass": []
+  },
+  "test_timeout_s": 300,
+  "agent_hints": {
+    "suggested_max_steps": 60,
+    "suggested_timeout_s": 600,
+    "entry_paths": ["core/src/lib.rs", "utils/src/lib.rs", "Cargo.toml"]
+  }
+}

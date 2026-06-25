@@ -1,0 +1,4 @@
+{
+  "functional": 1.0,
+  "notes": "Gold extracts resilient/backoff.py:retry and delegates both clients to it; HttpClient now caps delays and DbClient now runs all max_attempts."
+}

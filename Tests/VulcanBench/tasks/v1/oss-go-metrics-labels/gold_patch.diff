@@ -1,0 +1,24 @@
+diff --git a/metrics/labels.go b/metrics/labels.go
+index 48d4064..ba496fd 100644
+--- a/metrics/labels.go
++++ b/metrics/labels.go
+@@ -1,11 +1,15 @@
+ package metrics
+ 
+-import "strings"
++import (
++    "sort"
++    "strings"
++)
+ 
+ func Key(name string, labels map[string]string) string {
+     parts := []string{name}
+-    for k, v := range labels {
+-        parts = append(parts, k+"="+v)
+-    }
++    keys := make([]string, 0, len(labels))
++    for k := range labels { keys = append(keys, k) }
++    sort.Strings(keys)
++    for _, k := range keys { parts = append(parts, k+"="+labels[k]) }
+     return strings.Join(parts, ",")
+ }

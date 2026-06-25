@@ -1,0 +1,21 @@
+{
+  "id": "ts-schema-validate",
+  "category": "feature",
+  "languages": ["typescript"],
+  "difficulty": "easy",
+  "task_complexity": "localized",
+  "created": "2026-05-30",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Original scenario authored for VulcanBench on 2026-05-30; not derived from any public repository, issue, or dataset, so it post-dates all model training cutoffs.",
+  "tests": {
+    "fail_to_pass": [
+      {"name": "missing_required", "cmd": "node --experimental-strip-types --test --test-name-pattern='^reports missing required field$' tests/validate.test.ts"},
+      {"name": "wrong_type", "cmd": "node --experimental-strip-types --test --test-name-pattern='^reports wrong type for present field$' tests/validate.test.ts"},
+      {"name": "missing_and_type", "cmd": "node --experimental-strip-types --test --test-name-pattern='^reports both missing and type errors together$' tests/validate.test.ts"}
+    ],
+    "pass_to_pass": [
+      {"name": "valid_object_no_errors", "cmd": "node --experimental-strip-types --test --test-name-pattern='^fully valid object yields no errors$' tests/validate.test.ts"}
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "id": "py-ttl-cache-expiry",
+  "category": "bug_fix",
+  "languages": ["python"],
+  "difficulty": "easy",
+  "task_complexity": "localized",
+  "created": "2026-05-30",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Original scenario written for VulcanBench on 2026-05-30; not derived from any public repository or issue, so it post-dates all model training cutoffs.",
+  "tests": {
+    "fail_to_pass": [
+      {"name": "expiry_returns_none", "cmd": "python -m pytest test_expiry.py::test_get_returns_none_after_expiry -q"},
+      {"name": "expired_evicted", "cmd": "python -m pytest test_expiry.py::test_expired_entry_is_evicted -q"}
+    ],
+    "pass_to_pass": [
+      {"name": "basic", "cmd": "python -m pytest test_basic.py -q"}
+    ]
+  }
+}
