@@ -217,8 +217,8 @@ struct MlxCommand: ParsableCommand {
           --kv-bits: Quantize KV cache (4 or 8 bits) to reduce memory
           --prefill-step-size: Prompt tokens per GPU pass (default: 1024)
           --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
-          --tool-call-parser: Override tool call format (afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml)
-          --fix-tool-args: Post-process tool call arg names to match original tool schema
+          --tool-call-parser: Override tool call format (none, afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml). Omit for default native mode and MLX Python-style parity; use "none" for raw output; use "afm_adaptive_xml" for opt-in repair mode.
+          --fix-tool-args: Opt-in repair-mode helper that post-processes tool call arg names to match original tool schema
           --enable-grammar-constraints: Enable grammar-constrained decoding engine. When active, API requests with strict: true on tools or response_format.json_schema use xgrammar for token-level enforcement. Without this flag, strict: true is silently downgraded to best-effort.
           --no-think: Disable thinking/reasoning (sets enable_thinking=false)
           --default-chat-template-kwargs: JSON object merged into chat template context
@@ -244,14 +244,16 @@ struct MlxCommand: ParsableCommand {
           - max_completion_tokens is accepted alongside max_tokens
         supported_model_types: [llama, qwen2, qwen3, qwen3_moe, qwen3_5, qwen3_5_moe, gemma, gemma2, phi3, starcoder2, openelm, cohere2, deepseek_v3, glm4, glm4_moe, lfm2, lfm2_moe, nemotron_h, minimax_m2, kimi_k2]
         tool_calling:
-          auto_detection: Tool call format is auto-detected from model_type in config.json. Most models work without --tool-call-parser.
+          auto_detection: Tool call format is auto-detected from model_type in config.json. Qwen XML models use the narrow qwen3_xml parser by default. Omit --tool-call-parser for default native mode and benchmark parity checks.
           parser_overrides:
-            afm_adaptive_xml: Adaptive XML parser with JSON-in-XML fallback, type coercion, and EBNF grammar-constrained decoding (with --enable-grammar-constraints). Best for Qwen3+ models. Recommended combo: --tool-call-parser afm_adaptive_xml --enable-grammar-constraints
+            none: Raw mode. Disables AFM/server-side tool-call extraction and fallback repair. Generated tool text is returned as ordinary content.
+            afm_adaptive_xml: Repair mode. Opt-in adaptive XML parser with JSON-in-XML fallback, type coercion, and EBNF grammar-constrained decoding (with --enable-grammar-constraints). Use only when you want AFM repair behavior beyond default native parsing.
             hermes: JSON format with Hermes chat template (Llama, Qwen, most models)
             llama3_json: JSON format with Llama-3 chat template
             mistral: JSON format with Mistral chat template
             qwen3_xml: XML function format with Qwen3-Coder chat template
             gemma: Gemma function call format (uses model's built-in template)
+          benchmark_guidance: Use default native mode for MLX Python parity and VulcanBench comparisons. Treat afm_adaptive_xml / --fix-tool-args results as AFM repair-layer results, not plain-vanilla parity.
           auto_detected_formats:
             json: Default for Llama, Qwen, most models (<tool_call>...</tool_call> tags)
             xml_function: Qwen3 Coder, Qwen3.5 MoE (<function=name><parameter=key>value</parameter></function>)
@@ -403,10 +405,10 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Require a specific prefix for Telegram messages, for example '/afm' (default: no prefix required)")
     var telegramRequirePrefix: String?
 
-    @Option(name: .long, help: "Tool call parser override: afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml. afm_adaptive_xml adds JSON-in-XML fallback, type coercion, and optional xgrammar EBNF constrained decoding for models that switch between XML and JSON formats. Recommended for Qwen3+ models.")
+    @Option(name: .long, help: "Tool call parser override: none, afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml. Omit for default native mode and MLX Python-style parity; Qwen XML models default to qwen3_xml. Use none for raw output with no AFM extraction. Use afm_adaptive_xml for opt-in repair behavior with JSON-in-XML fallback, type coercion, and optional xgrammar EBNF constrained decoding.")
     var toolCallParser: String?
 
-    @Flag(name: .long, help: "Post-process tool call argument names to match the original tool schema (fixes model renaming e.g. path→filePath)")
+    @Flag(name: .long, help: "Opt-in repair helper: post-process tool call argument names to match the original tool schema (fixes model renaming e.g. path→filePath). Leave off for plain native/parity mode.")
     var fixToolArgs: Bool = false
 
     @Option(name: .customLong("kv-eviction"), help: "KV cache eviction policy: streaming (StreamingLLM) or none (default)")

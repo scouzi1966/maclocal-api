@@ -189,8 +189,8 @@ afm is built for agentic clients — OpenCode, OpenClaw, Cline, Continue.dev, Ai
 
 | Capability | What it gets you | Where it lives |
 |---|---|---|
-| **7+ tool-call formats, auto-detected** | json, lfm2, xmlFunction (Qwen3-Coder), glm4, gemma, kimiK2, minimaxM2 picked from `model_type` in `config.json` — no per-model tuning | `MLXModelService.swift:inferToolCallFormat` |
-| **`afm_adaptive_xml` parser** | JSON-in-XML fallback, type coercion, nullable schema flatten, fuzzy tool-name match — survives the malformed XML real models emit | `Models/ToolCallStreamingRuntime.swift` |
+| **Native tool-call formats, auto-detected** | json, lfm2, xmlFunction (Qwen/Qwen3-Coder), glm4, gemma, kimiK2, minimaxM2 picked from `model_type` in `config.json`. The default path uses narrow native parsing for MLX Python-style parity. | `MLXModelService.swift:inferToolCallFormat` |
+| **Opt-in `afm_adaptive_xml` repair parser** | JSON-in-XML fallback, type coercion, nullable schema flatten, fuzzy tool-name match — useful for production robustness, but not the default benchmark/parity path | `Models/ToolCallStreamingRuntime.swift` |
 | **`tool_choice`: auto / none / required / named function** | Standard OpenAI semantics; named-function forcing routed end-to-end | `Models/OpenAIRequest.swift:ToolChoice` |
 | **Streaming tool-call deltas** | Token-level start/end tag detection; content outside tool calls streams normally | `Controllers/MLXChatCompletionsController.swift` |
 | **`<think>` + harmony channel reasoning extraction** | Routes Qwen/DeepSeek `<think>…</think>` and gpt-oss `<\|channel\|>analysis…` into `reasoning_content` so the WebUI/agent can show it separately | `Controllers/MLXChatCompletionsController.swift:extractThinkTags / extractHarmonyChannels` |
@@ -208,6 +208,16 @@ afm is built for agentic clients — OpenCode, OpenClaw, Cline, Continue.dev, Ai
 | **`parallel_tool_calls: false` honored** | Truncate to a single tool call per turn for agents that want serial execution | `Controllers/MLXChatCompletionsController.swift:finalizeAssistantTurn` |
 | **Speech (transcribe + TTS) and Vision OCR** | `/v1/audio/transcriptions`, `/v1/audio/speech`, `/v1/ocr` — agents can hand off audio/image inputs without a separate service | `Controllers/SpeechAPIController.swift`, `VisionAPIController.swift` |
 | **On-device embeddings for RAG** | `/v1/embeddings` from Apple's NaturalLanguage model — OpenAI-compatible vectors for retrieval/semantic search. Runs as a dedicated `afm embed` server (:9998), separate from the chat endpoint | `Controllers/EmbeddingsController.swift` |
+
+### Tool-calling modes
+
+AFM separates tool calling into three explicit modes:
+
+- **Default native mode**: omit `--tool-call-parser`. AFM auto-detects the model's native tool format and uses the narrowest parser needed to expose valid model output as OpenAI `tool_calls`. Qwen XML models default to `qwen3_xml`. Use this mode for MLX Python parity checks and benchmarks.
+- **Repair mode**: pass `--tool-call-parser afm_adaptive_xml` and, when needed, `--fix-tool-args`. AFM will try harder to salvage malformed XML/JSON tool calls. Use this for real clients where robustness matters more than strict parity.
+- **Raw mode**: pass `--tool-call-parser none`. AFM disables server-side tool extraction and fallback repair; generated tool markup is returned as ordinary assistant content. Use this for debugging raw model output, not for agent benchmarks that expect structured tool calls.
+
+See [MLX tool-calling modes](docs/mlx-tool-calling.md) for benchmark guidance and examples.
 | **Per-client config generators** | `afm mlx -m <model> --openclaw-config` prints a paste-ready provider config; cookbook recipes in [`docs/clients/`](docs/clients/) cover OpenCode, OpenClaw, Cline, Continue.dev, Aider, Cursor, Hermes | `Sources/MacLocalAPI/main.swift:printOpenClawConfig` |
 
 See [`docs/clients/`](docs/clients/) for one-page recipes per agent.

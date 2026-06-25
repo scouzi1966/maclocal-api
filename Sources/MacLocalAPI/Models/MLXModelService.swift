@@ -272,6 +272,9 @@ final class MLXModelService: @unchecked Sendable {
         configuredParser: String?,
         detectedFormat: ToolCallFormat?
     ) -> String? {
+        if isToolCallParserDisabled(configuredParser) {
+            return nil
+        }
         if shouldBypassAdaptiveXMLParser(parser: configuredParser, format: detectedFormat) {
             return nil
         }
@@ -280,7 +283,7 @@ final class MLXModelService: @unchecked Sendable {
         }
         switch detectedFormat {
         case .xmlFunction:
-            return "afm_adaptive_xml"
+            return "qwen3_xml"
         default:
             return nil
         }
@@ -294,10 +297,21 @@ final class MLXModelService: @unchecked Sendable {
         configuredParser: String?,
         detectedFormat: ToolCallFormat?
     ) -> String? {
+        if isToolCallParserDisabled(configuredParser) {
+            return nil
+        }
         if shouldBypassAdaptiveXMLParser(parser: configuredParser, format: detectedFormat) {
             return nil
         }
         return configuredParser
+    }
+
+    static func isToolCallParserDisabled(_ parser: String?) -> Bool {
+        parser?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "none"
+    }
+
+    private var toolCallParserDisabled: Bool {
+        Self.isToolCallParserDisabled(toolCallParser)
     }
 
     func resolvedToolCallParser(logBypass: Bool = false) -> String? {
@@ -1255,7 +1269,9 @@ final class MLXModelService: @unchecked Sendable {
         }
         // --tool-call-parser override: force format for the specified parser
         if let parser = toolCallParser {
-            if Self.shouldBypassAdaptiveXMLParser(parser: parser, format: detectedFormat) {
+            if Self.isToolCallParserDisabled(parser) {
+                detectedFormat = ToolCallFormat.none
+            } else if Self.shouldBypassAdaptiveXMLParser(parser: parser, format: detectedFormat) {
                 print("[\(ts())] [ToolCallParser] \(Self.gemma4AdaptiveXMLBypassLog)")
             } else {
                 switch parser {
@@ -1697,6 +1713,7 @@ final class MLXModelService: @unchecked Sendable {
                 StatsAggregator.shared.requestCompleted()
             }
         }
+        let requestHasTools = !(tools?.isEmpty ?? true)
 
         let modelID = try await ensureLoaded(model: model, countOperation: false)
         guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
@@ -1796,6 +1813,206 @@ final class MLXModelService: @unchecked Sendable {
             }
         }
 
+        let lockFreeGenerationEligible = Self.isLockFreeGenerationEligible(
+            hasRadixCache: self.radixCache != nil,
+            wantLogprobs: wantLogprobs,
+            responseFormat: responseFormat,
+            tools: tools,
+            isTextOnlyInput: self.isTextOnlyInput(messages)
+        )
+        if lockFreeGenerationEligible {
+            var params = GenerateParameters(
+                maxTokens: effectiveMaxTokens,
+                kvBits: self.kvBits,
+                kvGroupSize: 64,
+                quantizedKVStart: 0,
+                temperature: normalizedTemperature(temperature),
+                topP: normalizedTopP(topP),
+                repetitionPenalty: normalizedRepetitionPenalty(repetitionPenalty),
+                repetitionContextSize: 64,
+                topK: normalizedTopK(topK),
+                minP: normalizedMinP(minP),
+                presencePenalty: normalizedPresencePenalty(presencePenalty),
+                seed: normalizedSeed(seed),
+                computeLogprobs: false,
+                topLogprobsCount: 0,
+                stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: requestHasTools),
+                prefillStepSize: self.prefillStepSize
+            )
+            params.extraProcessor = nil
+
+            let input = try await container.prepare(input: scratch.userInput)
+            let inputTokens = self.extractTokenArray(input)
+            let tokenizer = await container.tokenizer
+            let thinkStart = self.thinkStartTag
+            let tokens = input.text.tokens
+            let ndim = tokens.ndim
+            let seqLen = tokens.dim(ndim - 1)
+            var generated = ""
+            var templateInjectedThink = false
+            if let thinkStart, seqLen >= 2 {
+                let flat = tokens.reshaped(-1)
+                let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
+                let decoded = tokenizer.decode(tokens: lastTwo)
+                if decoded.contains(thinkStart) {
+                    generated = thinkStart
+                    templateInjectedThink = true
+                }
+            }
+
+            self.logCachePrefill(
+                mode: "non-streaming",
+                outcome: "disabled",
+                inputTokenCount: inputTokens.count,
+                cachedTokenCount: 0,
+                suffixTokenCount: inputTokens.count,
+                radixEntryCount: nil,
+                cache: []
+            )
+
+            let activeStops = ((stop ?? []) + self.implicitStopSequences).filter { !$0.isEmpty }
+            var insideThink = templateInjectedThink
+            var visibleContentStart: String.Index? = nil
+            var collectedToolCalls = [ToolCall]()
+            var completionInfo: GenerateCompletionInfo? = nil
+            var stoppedBySequence = false
+            let (generationStream, generationTask) = try await container.generateTask(input: input, parameters: params)
+            defer {
+                generationTask.cancel()
+            }
+            try await withTaskCancellationHandler {
+                for await piece in generationStream {
+                    if Task.isCancelled {
+                        if debugLogging {
+                            print("[\(ts())] [MLX] Non-streaming generation cancelled by client")
+                        }
+                        throw CancellationError()
+                    }
+                    if case .chunk(let text) = piece {
+                        if let ts = thinkStart, text.contains(ts) { insideThink = true }
+                        if let te = self.thinkEndTag, text.contains(te) { insideThink = false }
+                        generated += text
+                        if !insideThink && visibleContentStart == nil {
+                            if let te = self.thinkEndTag, let thinkEnd = generated.range(of: te) {
+                                visibleContentStart = thinkEnd.upperBound
+                            } else {
+                                visibleContentStart = generated.startIndex
+                            }
+                        }
+                        if !activeStops.isEmpty && !insideThink, let vcStart = visibleContentStart {
+                            let visibleContent = String(generated[vcStart...])
+                            if let match = activeStops.first(where: { visibleContent.contains($0) }) {
+                                if let range = visibleContent.range(of: match) {
+                                    let keepEnd = generated.index(vcStart, offsetBy: visibleContent.distance(from: visibleContent.startIndex, to: range.lowerBound))
+                                    generated = String(generated[..<keepEnd])
+                                }
+                                stoppedBySequence = true
+                                break
+                            }
+                        }
+                    } else if case .toolCall(let tc) = piece {
+                        collectedToolCalls.append(tc)
+                    } else if case .info(let info) = piece {
+                        completionInfo = info
+                    }
+                }
+            } onCancel: {
+                generationTask.cancel()
+            }
+
+            if capturing, let path = capturePath {
+                endGPUCapture(path: path)
+            }
+            if tracing {
+                endGPUTrace()
+            }
+            if gpuProfile {
+                let pTok = completionInfo?.promptTokenCount ?? estimateTokens(promptText)
+                let cTok = completionInfo?.generationTokenCount ?? estimateTokens(generated)
+                let pTime = completionInfo?.promptTime ?? 0
+                let gTime = completionInfo?.generateTime ?? 0
+                printGPUProfileFooter(promptTokens: pTok, completionTokens: cTok, promptTime: pTime, generateTime: gTime)
+            }
+
+            var finalToolCalls = collectedToolCalls
+            var finalContent = generated
+            if finalToolCalls.isEmpty && tools != nil && !self.toolCallParserDisabled {
+                let (parsed, remaining) = ToolCallStreamingRuntime.parseCompletedToolCalls(
+                    from: generated,
+                    toolCallParser: self.resolvedToolCallParser(logBypass: false),
+                    tools: tools
+                )
+                if !parsed.isEmpty {
+                    finalToolCalls = parsed
+                    finalContent = remaining
+                }
+            }
+
+            let responseToolCalls: [ResponseToolCall]? = finalToolCalls.isEmpty
+                ? nil
+                : Self.normalizeToolCalls(
+                    finalToolCalls,
+                    tools: tools,
+                    fixToolArgs: self.fixToolArgs
+                )
+            let promptTokens = inputTokens.count > 0
+                ? inputTokens.count
+                : (completionInfo?.promptTokenCount ?? estimateTokens(promptText))
+            let completionTokens = completionInfo?.generationTokenCount ?? estimateTokens(generated)
+            let promptTime = completionInfo?.promptTime ?? 0
+            let generateTime = completionInfo?.generateTime ?? 0
+            self.logCacheProfile(
+                phase: "restore",
+                mode: "non-streaming",
+                outcome: "disabled",
+                inputTokenCount: inputTokens.count,
+                cachedTokenCount: 0,
+                promptTime: promptTime
+            )
+            self.logCacheProfile(
+                phase: "save",
+                mode: "non-streaming",
+                outcome: "skip",
+                inputTokenCount: inputTokens.count,
+                cachedTokenCount: 0,
+                promptTime: promptTime
+            )
+
+            let completedAt = Date()
+            let firstTokenAt: Date? = (completionTokens > 0 && promptTime >= 0)
+                ? serialQueuedAt.addingTimeInterval(promptTime)
+                : nil
+            StatsAggregator.shared.addPromptTokens(promptTokens)
+            StatsAggregator.shared.addGenTokens(completionTokens)
+            StatsAggregator.shared.observeRequest(
+                StatsAggregator.RequestObservation(
+                    queuedAt: serialQueuedAt.timeIntervalSince1970,
+                    startedAt: serialQueuedAt.timeIntervalSince1970,
+                    firstTokenAt: firstTokenAt?.timeIntervalSince1970,
+                    completedAt: completedAt.timeIntervalSince1970,
+                    promptTokens: promptTokens,
+                    generationTokens: completionTokens,
+                    paramsN: 1,
+                    paramsBestOf: 1
+                )
+            )
+            let serialFinishedReason: String
+            if stoppedBySequence {
+                serialFinishedReason = "stop"
+            } else if completionTokens >= effectiveMaxTokens {
+                serialFinishedReason = "length"
+            } else if responseToolCalls?.isEmpty == false {
+                serialFinishedReason = "tool_calls"
+            } else {
+                serialFinishedReason = "stop"
+            }
+            StatsAggregator.shared.requestSucceeded(reason: serialFinishedReason)
+            StatsAggregator.shared.requestCompleted()
+            serialRequestRecorded = true
+
+            return (modelID, finalContent, promptTokens, completionTokens, nil, responseToolCalls, 0, promptTime, generateTime, stoppedBySequence)
+        }
+
         let generated: String = try await container.perform { context in
             var params = GenerateParameters(
                 maxTokens: effectiveMaxTokens,
@@ -1812,6 +2029,7 @@ final class MLXModelService: @unchecked Sendable {
                 seed: normalizedSeed(seed),
                 computeLogprobs: wantLogprobs,
                 topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
+                stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: requestHasTools),
                 prefillStepSize: self.prefillStepSize
             )
             var collectedLogprobs = [TokenLogprobData]()
@@ -2108,9 +2326,6 @@ final class MLXModelService: @unchecked Sendable {
                             print("[\(ts())] [DEBUG] Tool call detected: \(tc.function.name)(\(tc.function.arguments))")
                         }
                         collectedToolCalls.append(tc)
-                        if Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: !(tools?.isEmpty ?? true)) {
-                            break
-                        }
                     } else if case .info(let info) = piece {
                         completionInfo = info
                     }
@@ -2253,7 +2468,7 @@ final class MLXModelService: @unchecked Sendable {
         // the vendor's XMLFunctionParser misses (regex doesn't match multiline content).
         var finalToolCalls = collectedToolCalls
         var finalContent = generated
-        if finalToolCalls.isEmpty && tools != nil {
+        if finalToolCalls.isEmpty && tools != nil && !self.toolCallParserDisabled {
             if debugLogging {
                 print("[\(ts())] [ToolCallParser] Vendor parser found 0 tool calls, trying fallback on \(generated.count) chars")
             }
@@ -2395,6 +2610,7 @@ final class MLXModelService: @unchecked Sendable {
         let promptTokens = estimateTokens(promptText)
         let wantLogprobs = logprobs == true
         let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
+        let streamRequestHasTools = !(tools?.isEmpty ?? true)
 
         // /metrics: streaming-path queue timestamp. The actual
         // requestStarted/observe calls happen ONLY in the serial-path
@@ -2416,6 +2632,7 @@ final class MLXModelService: @unchecked Sendable {
             seed: normalizedSeed(seed),
             computeLogprobs: wantLogprobs,
             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
+            stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: streamRequestHasTools),
             prefillStepSize: self.prefillStepSize
         )
 
@@ -2683,6 +2900,7 @@ final class MLXModelService: @unchecked Sendable {
                             seed: normalizedSeed(seed),
                             computeLogprobs: wantLogprobs,
                             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
+                            stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: !(tools?.isEmpty ?? true)),
                             prefillStepSize: self.prefillStepSize
                         )
                         // Grammar constraint setup — see non-streaming path for details.
@@ -4495,6 +4713,23 @@ final class MLXModelService: @unchecked Sendable {
         tools?.contains { $0.function.strict == true } ?? false
     }
 
+    /// The lock-free path is for plain text generation only. Tool requests use
+    /// the serialized path so structured generation, cache lifecycle, and GPU
+    /// synchronization follow the mature MLX Python-parity path.
+    static func isLockFreeGenerationEligible(
+        hasRadixCache: Bool,
+        wantLogprobs: Bool,
+        responseFormat: ResponseFormat?,
+        tools: [RequestTool]?,
+        isTextOnlyInput: Bool
+    ) -> Bool {
+        !hasRadixCache
+            && !wantLogprobs
+            && responseFormat == nil
+            && (tools?.isEmpty ?? true)
+            && isTextOnlyInput
+    }
+
     /// Check whether a response_format has json_schema with strict: true.
     static func hasStrictSchema(_ responseFormat: ResponseFormat?) -> Bool {
         responseFormat?.type == "json_schema" && responseFormat?.jsonSchema?.strict == true
@@ -5659,6 +5894,20 @@ final class MLXModelService: @unchecked Sendable {
     /// Check if the LMInput contains multimodal content (images/video) which we don't cache.
     private func isMultimodalInput(_ input: LMInput) -> Bool {
         input.image != nil || input.video != nil
+    }
+
+    /// Check the OpenAI request shape before preparing UserInput, so multimodal/audio
+    /// inputs can stay on the legacy container.perform path.
+    private func isTextOnlyInput(_ messages: [Message]) -> Bool {
+        for message in messages {
+            guard let content = message.content else { continue }
+            if case .parts(let parts) = content {
+                if parts.contains(where: { $0.type != "text" }) {
+                    return false
+                }
+            }
+        }
+        return true
     }
 
     private func normalizedRepetitionPenalty(_ value: Double?) -> Float? {

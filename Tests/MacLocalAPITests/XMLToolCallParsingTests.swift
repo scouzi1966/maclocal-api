@@ -11,13 +11,13 @@ import Testing
 struct XMLToolCallParsingTests {
 // dimensions: tool_call_format=xmlFunction
 
-    @Test("auto-detected XML format uses adaptive parser without explicit override")
-    func autoDetectedXMLUsesAdaptiveParserWithoutExplicitOverride() {
+    @Test("auto-detected XML format uses narrow Qwen XML parser without explicit override")
+    func autoDetectedXMLUsesNarrowQwenXMLParserWithoutExplicitOverride() {
         let parser = MLXModelService.effectiveToolCallParser(
             configuredParser: nil,
             detectedFormat: .xmlFunction
         )
-        #expect(parser == "afm_adaptive_xml")
+        #expect(parser == "qwen3_xml")
     }
 
     @Test("auto-detected XML format does not force chat template override")
@@ -27,6 +27,45 @@ struct XMLToolCallParsingTests {
             detectedFormat: .xmlFunction
         )
         #expect(parser == nil)
+    }
+
+    @Test("explicit none parser disables auto-detected adaptive XML parser")
+    func explicitNoneParserDisablesAutoDetectedAdaptiveXMLParser() {
+        let parser = MLXModelService.effectiveToolCallParser(
+            configuredParser: "none",
+            detectedFormat: .xmlFunction
+        )
+        #expect(parser == nil)
+    }
+
+    @Test("explicit none parser disables chat template override")
+    func explicitNoneParserDisablesChatTemplateOverride() {
+        let parser = MLXModelService.effectiveChatTemplateToolCallParser(
+            configuredParser: "none",
+            detectedFormat: .xmlFunction
+        )
+        #expect(parser == nil)
+    }
+
+    @Test("none tool call format passes tagged tool text through unchanged")
+    func noneToolCallFormatPassesTaggedToolTextThroughUnchanged() {
+        let processor = ToolCallProcessor(format: .none)
+        let text = #"<tool_call>{"name":"search","arguments":{"query":"x"}}</tool_call>"#
+        #expect(processor.processChunk(text) == text)
+        #expect(processor.toolCalls.isEmpty)
+    }
+
+    @Test("XML function parser rejects malformed function names")
+    func xmlFunctionParserRejectsMalformedFunctionNames() {
+        let parser = XMLFunctionParser()
+        let malformed = """
+        <function=edit_file
+        <(parameter=path>
+        csv.go
+        </parameter>
+        </function>
+        """
+        #expect(parser.parse(content: malformed, tools: nil) == nil)
     }
 
     @Test("explicit parser override still controls chat template override")
@@ -60,6 +99,12 @@ struct XMLToolCallParsingTests {
     func serialGenerationStopsAfterStructuredToolCallWhenToolsArePresent() {
         #expect(MLXModelService.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: true))
         #expect(!MLXModelService.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: false))
+    }
+
+    @Test("generate parameters keep producer-side tool stop explicit")
+    func generateParametersKeepProducerSideToolStopExplicit() {
+        #expect(!GenerateParameters().stopAfterToolCall)
+        #expect(GenerateParameters(stopAfterToolCall: true).stopAfterToolCall)
     }
 
     // ═══════════════════════════════════════════════════════════════════
