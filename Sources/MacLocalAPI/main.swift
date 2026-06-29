@@ -1519,7 +1519,7 @@ if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
         let group = DispatchGroup()
         var caughtError: Error?
         group.enter()
-        Task {
+        Task.detached {
             do {
                 try await cmd.run()
             } catch {
@@ -1541,7 +1541,7 @@ if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
         let group = DispatchGroup()
         var caughtError: Error?
         group.enter()
-        Task {
+        Task.detached {
             do {
                 try await cmd.run()
             } catch {
