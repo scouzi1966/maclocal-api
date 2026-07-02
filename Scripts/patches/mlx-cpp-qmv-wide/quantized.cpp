@@ -311,8 +311,13 @@ void qmv(
 // (+1.4%); the batch win lives at M=4-8 (+34%).
 constexpr int qmv_wide_min_m = 3;
 
-inline bool use_qmv_wide(const std::string& mode, metal::Device& d) {
-  return mode == "affine" && d.get_architecture_gen() >= 15;
+inline bool use_qmv_wide(const std::string& mode, int bits, metal::Device& d) {
+  // Bit widths are limited to the A/B-validated ones. The kernel (and upstream's
+  // tests) cover affine 2/3/5/6 as well, but afm has only validated 4/8-bit
+  // end-to-end (batch throughput + spec-decode consistency); widen only with a
+  // matching A/B run per width.
+  return mode == "affine" && (bits == 4 || bits == 8) &&
+      d.get_architecture_gen() >= 15;
 }
 
 // Dispatches affine_qmv_wide: vecs_per_tg input vectors streamed and reused
@@ -1421,7 +1426,7 @@ void QuantizedMatmul::eval_gpu(const std::vector<array>& inputs, array& out) {
 
   // [AFM-BACKPORT qmv_wide mlx#3764] Small batch so route to qmv_wide, which
   // reuses each weight group across the M vectors.
-  if (transpose_ && M >= qmv_wide_min_m && use_qmv_wide(mode, d)) {
+  if (transpose_ && M >= qmv_wide_min_m && use_qmv_wide(mode, bits_, d)) {
     qmv_wide(x, w, scales, biases, out, group_size_, bits_, M, N, K, d, s, mode);
     return;
   }
