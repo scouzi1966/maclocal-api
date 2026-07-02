@@ -278,9 +278,16 @@ swift package resolve
 # These patch the EPHEMERAL .build/checkouts/mlx-swift C++ tree (wiped by clean/re-resolve),
 # so they must run AFTER `swift package resolve` and BEFORE the metallib rebuild (which compiles
 # the patched kernels) and `swift build` (which compiles the patched dispatch C++).
+#   - apply-mlx-qmv-wide-backport.sh : mlx#3764 qmv_wide small-batch matvec (spec-decode verify,
+#                                      batch B=2-8). FULL-FILE replacement — MUST run before
+#                                      apply-mlx-cpp-patches.sh, which edits the same files.
 #   - apply-mlx-cpp-patches.sh    : qmv_fast_wide quantized matvec kernels
 #   - apply-mlx-sdpa-backport.sh  : 0.31.3 adaptive-block SDPA (decode@16k ~+10%, correct)
 if $DO_PATCHES; then
+  if [ -x "$SCRIPTS_DIR/apply-mlx-qmv-wide-backport.sh" ]; then
+    log_step "Applying MLX qmv_wide backport (mlx#3764)"
+    "$SCRIPTS_DIR/apply-mlx-qmv-wide-backport.sh"
+  fi
   if [ -x "$SCRIPTS_DIR/apply-mlx-cpp-patches.sh" ]; then
     log_step "Applying MLX C++ kernel patches (qmv_fast_wide)"
     "$SCRIPTS_DIR/apply-mlx-cpp-patches.sh"
