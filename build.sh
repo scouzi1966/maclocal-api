@@ -397,7 +397,9 @@ fi
 # -Xlinker __info_plist -Xlinker Sources/MacLocalAPI/Info.plist) must be preserved.
 INFO_PLIST_SECTION=$(otool -l "$FINAL_BIN" 2>/dev/null | grep -A2 '__info_plist' | head -3)
 if echo "$INFO_PLIST_SECTION" | grep -q '__info_plist'; then
-  if strings "$FINAL_BIN" | grep -q 'NSSpeechRecognitionUsageDescription'; then
+  # No `grep -q` here: -q closes the pipe on first hit, which SIGPIPEs `strings` (exit 141)
+  # and — under `set -o pipefail` — fails the check even though the key IS present.
+  if [ "$(strings "$FINAL_BIN" | grep -c 'NSSpeechRecognitionUsageDescription')" -gt 0 ]; then
     log_info "Info.plist embedded OK (NSSpeechRecognitionUsageDescription present)"
   else
     log_error "Info.plist section present but NSSpeechRecognitionUsageDescription key is missing"
