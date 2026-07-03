@@ -1,0 +1,2501 @@
+{
+  "evalId": "eval-SFn-2026-07-03T02:48:00",
+  "results": {
+    "version": 3,
+    "timestamp": "2026-07-03T02:48:00.871Z",
+    "prompts": [
+      {
+        "id": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "raw": "{{prompt}}",
+        "label": "{{prompt}}",
+        "provider": "afm-adaptive-xml-agentic",
+        "metrics": {
+          "score": 4,
+          "testPassCount": 4,
+          "testFailCount": 0,
+          "testErrorCount": 0,
+          "assertPassCount": 4,
+          "assertFailCount": 0,
+          "totalLatencyMs": 6208,
+          "tokenUsage": {
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "total": 0,
+            "numRequests": 4,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            },
+            "assertions": {
+              "total": 0,
+              "prompt": 0,
+              "completion": 0,
+              "cached": 0,
+              "numRequests": 0,
+              "completionDetails": {
+                "reasoning": 0,
+                "acceptedPrediction": 0,
+                "rejectedPrediction": 0,
+                "cacheReadInputTokens": 0,
+                "cacheCreationInputTokens": 0
+              }
+            }
+          },
+          "namedScores": {},
+          "namedScoresCount": {},
+          "namedScoreWeights": {},
+          "cost": 0
+        }
+      }
+    ],
+    "results": [
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'search_code' &&\n  /cache|prefix|save/i.test(String(call.function.arguments.query || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "8a084de7-f045-47e4-8ce2-db74703671d7",
+        "latencyMs": 1060,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Find where AFM logs prefix cache save behavior before I ask you to change it.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-agentic"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"index\":0,\"id\":\"call_Q08E89sIrnSDKhcfIc2dVHBc\",\"type\":\"function\",\"function\":{\"arguments\":{\"query\":\"prefix cache save\"},\"name\":\"search_code\"}}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 1060,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are an autonomous coding agent. Prefer inspecting the repository before editing."
+                },
+                {
+                  "role": "user",
+                  "content": "Find where AFM logs prefix cache save behavior before I ask you to change it."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "search_code",
+                    "description": "Search the repository for text or file names",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "query": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "query"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "apply_patch",
+                    "description": "Apply a patch to a file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "patch": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "patch"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+              "created": 1783046881,
+              "choices": [
+                {
+                  "message": {
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "id": "call_Q08E89sIrnSDKhcfIc2dVHBc",
+                        "type": "function",
+                        "function": {
+                          "arguments": "{\"query\":\"prefix cache save\"}",
+                          "name": "search_code"
+                        }
+                      }
+                    ],
+                    "role": "assistant"
+                  },
+                  "finish_reason": "tool_calls",
+                  "index": 0
+                }
+              ],
+              "usage": {
+                "completion_time": 0.33,
+                "total_time": 1.03,
+                "completion_tokens_per_second": 91.06,
+                "prompt_time": 0.7,
+                "peak_memory_gib": 19.7,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_tokens": 468,
+                "prompt_tokens_per_second": 622.01,
+                "prompt_tokens": 438,
+                "completion_tokens": 30
+              },
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "id": "chatcmpl-90EFFDC6",
+              "object": "chat.completion",
+              "timings": {
+                "prompt_ms": 704.166054725647,
+                "prompt_n": 438,
+                "predicted_n": 30,
+                "predicted_ms": 329.44297790527344
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "827",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Jul 2026 02:48:01 GMT",
+              "openai-request-id": "req_c6e40fbd5559",
+              "x-request-id": "req_c6e40fbd5559"
+            },
+            "usage": {
+              "completion_time": 0.33,
+              "total_time": 1.03,
+              "completion_tokens_per_second": 91.06,
+              "prompt_time": 0.7,
+              "peak_memory_gib": 19.7,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 468,
+              "prompt_tokens_per_second": 622.01,
+              "prompt_tokens": 438,
+              "completion_tokens": 30
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "agentic/opencode style choose repo search first",
+          "metadata": {
+            "suite": "agentic",
+            "classification": "not_yet_classified",
+            "source": "opencode_inspired",
+            "use_case": "coding_agent_initial_repo_search"
+          },
+          "vars": {
+            "prompt": "Find where AFM logs prefix cache save behavior before I ask you to change it.",
+            "system_prompt": "You are an autonomous coding agent. Prefer inspecting the repository before editing.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "search_code",
+                  "description": "Search the repository for text or file names",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply a patch to a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "patch": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "patch"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'search_code' &&\n  /cache|prefix|save/i.test(String(call.function.arguments.query || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 0,
+        "tokenUsage": {
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "total": 0,
+          "numRequests": 1,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          },
+          "assertions": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 1,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            }
+          }
+        },
+        "vars": {
+          "prompt": "Find where AFM logs prefix cache save behavior before I ask you to change it.",
+          "system_prompt": "You are an autonomous coding agent. Prefer inspecting the repository before editing.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "search_code",
+                "description": "Search the repository for text or file names",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply a patch to a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "patch": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "patch"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "agentic",
+          "classification": "not_yet_classified",
+          "source": "opencode_inspired",
+          "use_case": "coding_agent_initial_repo_search",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an autonomous coding agent. Prefer inspecting the repository before editing."
+              },
+              {
+                "role": "user",
+                "content": "Find where AFM logs prefix cache save behavior before I ask you to change it."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "search_code",
+                  "description": "Search the repository for text or file names",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply a patch to a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "patch": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "patch"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+            "created": 1783046881,
+            "choices": [
+              {
+                "message": {
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "id": "call_Q08E89sIrnSDKhcfIc2dVHBc",
+                      "type": "function",
+                      "function": {
+                        "arguments": "{\"query\":\"prefix cache save\"}",
+                        "name": "search_code"
+                      }
+                    }
+                  ],
+                  "role": "assistant"
+                },
+                "finish_reason": "tool_calls",
+                "index": 0
+              }
+            ],
+            "usage": {
+              "completion_time": 0.33,
+              "total_time": 1.03,
+              "completion_tokens_per_second": 91.06,
+              "prompt_time": 0.7,
+              "peak_memory_gib": 19.7,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 468,
+              "prompt_tokens_per_second": 622.01,
+              "prompt_tokens": 438,
+              "completion_tokens": 30
+            },
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "id": "chatcmpl-90EFFDC6",
+            "object": "chat.completion",
+            "timings": {
+              "prompt_ms": 704.166054725647,
+              "prompt_n": 438,
+              "predicted_n": 30,
+              "predicted_ms": 329.44297790527344
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "827",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Jul 2026 02:48:01 GMT",
+            "openai-request-id": "req_c6e40fbd5559",
+            "x-request-id": "req_c6e40fbd5559"
+          },
+          "usage": {
+            "completion_time": 0.33,
+            "total_time": 1.03,
+            "completion_tokens_per_second": 91.06,
+            "prompt_time": 0.7,
+            "peak_memory_gib": 19.7,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_tokens": 468,
+            "prompt_tokens_per_second": 622.01,
+            "prompt_tokens": 438,
+            "completion_tokens": 30
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'read_file' &&\n  /MLXModelService\\.swift|BatchScheduler\\.swift/.test(String(call.function.arguments.path || ''));\n"
+              }
+            }
+          ]
+        },
+        "id": "0fe8dc08-100f-469b-93f2-e1432cb6d3f6",
+        "latencyMs": 2668,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Inspect the restore path that matched this search result and decide what to read next.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-agentic"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"name\":\"read_file\",\"arguments\":{\"path\":\"Sources/MacLocalAPI/Models/MLXModelService.swift\"}},\"type\":\"function\",\"id\":\"call_ld0V1LCJxX34Hnz9CTtC3fVJ\",\"index\":0}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 2668,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are an autonomous coding agent. Use repository tools conservatively and inspect before editing."
+                },
+                {
+                  "role": "user",
+                  "content": "Find the exact cache restore logic for MLX prefix caching."
+                },
+                {
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "id": "call_search_1",
+                      "type": "function",
+                      "function": {
+                        "name": "search_code",
+                        "arguments": "{\"query\":\"PrefixCache Save complete\",\"path\":\"Sources/MacLocalAPI\"}"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "tool_call_id": "call_search_1",
+                  "content": "Sources/MacLocalAPI/Models/MLXModelService.swift: PrefixCache Save complete\nSources/MacLocalAPI/Models/BatchScheduler.swift: PrefixCache Save complete"
+                },
+                {
+                  "role": "user",
+                  "content": "Inspect the restore path that matched this search result and decide what to read next."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "read_file",
+                    "description": "Read a file from the repository",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "apply_patch",
+                    "description": "Apply a patch to a file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "patch": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "patch"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "created": 1783046884,
+              "usage": {
+                "completion_tokens_per_second": 91,
+                "total_tokens": 731,
+                "completion_time": 1.79,
+                "total_time": 2.65,
+                "completion_tokens": 163,
+                "prompt_tokens_per_second": 658.26,
+                "peak_memory_gib": 19.9,
+                "prompt_time": 0.86,
+                "prompt_tokens": 568,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                }
+              },
+              "id": "chatcmpl-98400B91",
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "object": "chat.completion",
+              "choices": [
+                {
+                  "index": 0,
+                  "finish_reason": "tool_calls",
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "name": "read_file",
+                          "arguments": "{\"path\":\"Sources\\/MacLocalAPI\\/Models\\/MLXModelService.swift\"}"
+                        },
+                        "type": "function",
+                        "id": "call_ld0V1LCJxX34Hnz9CTtC3fVJ",
+                        "index": 0
+                      }
+                    ]
+                  }
+                }
+              ],
+              "timings": {
+                "predicted_ms": 1791.2510633468628,
+                "prompt_n": 568,
+                "prompt_ms": 862.881064414978,
+                "predicted_n": 163
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "864",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Jul 2026 02:48:04 GMT",
+              "openai-request-id": "req_ef856c1a3a46",
+              "x-request-id": "req_ef856c1a3a46"
+            },
+            "usage": {
+              "completion_tokens_per_second": 91,
+              "total_tokens": 731,
+              "completion_time": 1.79,
+              "total_time": 2.65,
+              "completion_tokens": 163,
+              "prompt_tokens_per_second": 658.26,
+              "peak_memory_gib": 19.9,
+              "prompt_time": 0.86,
+              "prompt_tokens": 568,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              }
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "agentic/openhands style inspect file after search results",
+          "metadata": {
+            "suite": "agentic",
+            "classification": "not_yet_classified",
+            "source": "openhands_inspired",
+            "use_case": "coding_agent_follow_search_with_file_read"
+          },
+          "vars": {
+            "prompt": "Inspect the restore path that matched this search result and decide what to read next.",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an autonomous coding agent. Use repository tools conservatively and inspect before editing."
+              },
+              {
+                "role": "user",
+                "content": "Find the exact cache restore logic for MLX prefix caching."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "call_search_1",
+                    "type": "function",
+                    "function": {
+                      "name": "search_code",
+                      "arguments": "{\"query\":\"PrefixCache Save complete\",\"path\":\"Sources/MacLocalAPI\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_search_1",
+                "content": "Sources/MacLocalAPI/Models/MLXModelService.swift: PrefixCache Save complete\nSources/MacLocalAPI/Models/BatchScheduler.swift: PrefixCache Save complete"
+              },
+              {
+                "role": "user",
+                "content": "Inspect the restore path that matched this search result and decide what to read next."
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "read_file",
+                  "description": "Read a file from the repository",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply a patch to a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "patch": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "patch"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'read_file' &&\n  /MLXModelService\\.swift|BatchScheduler\\.swift/.test(String(call.function.arguments.path || ''));\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 1,
+        "tokenUsage": {
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "total": 0,
+          "numRequests": 1,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          },
+          "assertions": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 1,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            }
+          }
+        },
+        "vars": {
+          "prompt": "Inspect the restore path that matched this search result and decide what to read next.",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an autonomous coding agent. Use repository tools conservatively and inspect before editing."
+            },
+            {
+              "role": "user",
+              "content": "Find the exact cache restore logic for MLX prefix caching."
+            },
+            {
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "id": "call_search_1",
+                  "type": "function",
+                  "function": {
+                    "name": "search_code",
+                    "arguments": "{\"query\":\"PrefixCache Save complete\",\"path\":\"Sources/MacLocalAPI\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_search_1",
+              "content": "Sources/MacLocalAPI/Models/MLXModelService.swift: PrefixCache Save complete\nSources/MacLocalAPI/Models/BatchScheduler.swift: PrefixCache Save complete"
+            },
+            {
+              "role": "user",
+              "content": "Inspect the restore path that matched this search result and decide what to read next."
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read a file from the repository",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply a patch to a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "patch": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "patch"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "agentic",
+          "classification": "not_yet_classified",
+          "source": "openhands_inspired",
+          "use_case": "coding_agent_follow_search_with_file_read",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an autonomous coding agent. Use repository tools conservatively and inspect before editing."
+              },
+              {
+                "role": "user",
+                "content": "Find the exact cache restore logic for MLX prefix caching."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "call_search_1",
+                    "type": "function",
+                    "function": {
+                      "name": "search_code",
+                      "arguments": "{\"query\":\"PrefixCache Save complete\",\"path\":\"Sources/MacLocalAPI\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_search_1",
+                "content": "Sources/MacLocalAPI/Models/MLXModelService.swift: PrefixCache Save complete\nSources/MacLocalAPI/Models/BatchScheduler.swift: PrefixCache Save complete"
+              },
+              {
+                "role": "user",
+                "content": "Inspect the restore path that matched this search result and decide what to read next."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "read_file",
+                  "description": "Read a file from the repository",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply a patch to a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "patch": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "patch"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "created": 1783046884,
+            "usage": {
+              "completion_tokens_per_second": 91,
+              "total_tokens": 731,
+              "completion_time": 1.79,
+              "total_time": 2.65,
+              "completion_tokens": 163,
+              "prompt_tokens_per_second": 658.26,
+              "peak_memory_gib": 19.9,
+              "prompt_time": 0.86,
+              "prompt_tokens": 568,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              }
+            },
+            "id": "chatcmpl-98400B91",
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "object": "chat.completion",
+            "choices": [
+              {
+                "index": 0,
+                "finish_reason": "tool_calls",
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "function": {
+                        "name": "read_file",
+                        "arguments": "{\"path\":\"Sources\\/MacLocalAPI\\/Models\\/MLXModelService.swift\"}"
+                      },
+                      "type": "function",
+                      "id": "call_ld0V1LCJxX34Hnz9CTtC3fVJ",
+                      "index": 0
+                    }
+                  ]
+                }
+              }
+            ],
+            "timings": {
+              "predicted_ms": 1791.2510633468628,
+              "prompt_n": 568,
+              "prompt_ms": 862.881064414978,
+              "predicted_n": 163
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "864",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Jul 2026 02:48:04 GMT",
+            "openai-request-id": "req_ef856c1a3a46",
+            "x-request-id": "req_ef856c1a3a46"
+          },
+          "usage": {
+            "completion_tokens_per_second": 91,
+            "total_tokens": 731,
+            "completion_time": 1.79,
+            "total_time": 2.65,
+            "completion_tokens": 163,
+            "prompt_tokens_per_second": 658.26,
+            "peak_memory_gib": 19.9,
+            "prompt_time": 0.86,
+            "prompt_tokens": 568,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            }
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read_file';\n"
+              }
+            }
+          ]
+        },
+        "id": "8b47d15e-816d-44d2-86ba-06a15e3ac425",
+        "latencyMs": 1307,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Patch the cache logging to show suffix on misses.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-agentic"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"name\":\"read_file\",\"arguments\":{\"path\":\".\"}},\"id\":\"call_YmdI5zBHkeazfmusdspTKJW3\",\"index\":0,\"type\":\"function\"}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 1307,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are an autonomous coding agent. Never edit before inspecting the target file."
+                },
+                {
+                  "role": "user",
+                  "content": "Patch the cache logging to show suffix on misses."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "read_file",
+                    "description": "Read a file from the repository",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "apply_patch",
+                    "description": "Apply a patch to a file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "patch": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "patch"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+              "created": 1783046885,
+              "choices": [
+                {
+                  "finish_reason": "tool_calls",
+                  "message": {
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "name": "read_file",
+                          "arguments": "{\"path\":\".\"}"
+                        },
+                        "id": "call_YmdI5zBHkeazfmusdspTKJW3",
+                        "index": 0,
+                        "type": "function"
+                      }
+                    ],
+                    "role": "assistant",
+                    "content": null
+                  },
+                  "index": 0
+                }
+              ],
+              "usage": {
+                "completion_time": 0.64,
+                "total_time": 1.3,
+                "completion_tokens_per_second": 91.19,
+                "prompt_time": 0.66,
+                "peak_memory_gib": 19.7,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_tokens": 464,
+                "prompt_tokens_per_second": 612.59,
+                "prompt_tokens": 406,
+                "completion_tokens": 58
+              },
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "id": "chatcmpl-8735221B",
+              "object": "chat.completion",
+              "timings": {
+                "prompt_ms": 662.7650260925293,
+                "prompt_n": 406,
+                "predicted_n": 58,
+                "predicted_ms": 636.0290050506592
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "808",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Jul 2026 02:48:05 GMT",
+              "openai-request-id": "req_450b83dfe73e",
+              "x-request-id": "req_450b83dfe73e"
+            },
+            "usage": {
+              "completion_time": 0.64,
+              "total_time": 1.3,
+              "completion_tokens_per_second": 91.19,
+              "prompt_time": 0.66,
+              "peak_memory_gib": 19.7,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 464,
+              "prompt_tokens_per_second": 612.59,
+              "prompt_tokens": 406,
+              "completion_tokens": 58
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "agentic/hermes style avoid patch before file context",
+          "metadata": {
+            "suite": "agentic",
+            "classification": "not_yet_classified",
+            "source": "hermes_agent_inspired",
+            "use_case": "no_edit_without_context"
+          },
+          "vars": {
+            "prompt": "Patch the cache logging to show suffix on misses.",
+            "system_prompt": "You are an autonomous coding agent. Never edit before inspecting the target file.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "read_file",
+                  "description": "Read a file from the repository",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply a patch to a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "patch": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "patch"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read_file';\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 2,
+        "tokenUsage": {
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "total": 0,
+          "numRequests": 1,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          },
+          "assertions": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 1,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            }
+          }
+        },
+        "vars": {
+          "prompt": "Patch the cache logging to show suffix on misses.",
+          "system_prompt": "You are an autonomous coding agent. Never edit before inspecting the target file.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read a file from the repository",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply a patch to a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "patch": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "patch"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "agentic",
+          "classification": "not_yet_classified",
+          "source": "hermes_agent_inspired",
+          "use_case": "no_edit_without_context",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an autonomous coding agent. Never edit before inspecting the target file."
+              },
+              {
+                "role": "user",
+                "content": "Patch the cache logging to show suffix on misses."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "read_file",
+                  "description": "Read a file from the repository",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "apply_patch",
+                  "description": "Apply a patch to a file",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "patch": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "patch"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+            "created": 1783046885,
+            "choices": [
+              {
+                "finish_reason": "tool_calls",
+                "message": {
+                  "tool_calls": [
+                    {
+                      "function": {
+                        "name": "read_file",
+                        "arguments": "{\"path\":\".\"}"
+                      },
+                      "id": "call_YmdI5zBHkeazfmusdspTKJW3",
+                      "index": 0,
+                      "type": "function"
+                    }
+                  ],
+                  "role": "assistant",
+                  "content": null
+                },
+                "index": 0
+              }
+            ],
+            "usage": {
+              "completion_time": 0.64,
+              "total_time": 1.3,
+              "completion_tokens_per_second": 91.19,
+              "prompt_time": 0.66,
+              "peak_memory_gib": 19.7,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 464,
+              "prompt_tokens_per_second": 612.59,
+              "prompt_tokens": 406,
+              "completion_tokens": 58
+            },
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "id": "chatcmpl-8735221B",
+            "object": "chat.completion",
+            "timings": {
+              "prompt_ms": 662.7650260925293,
+              "prompt_n": 406,
+              "predicted_n": 58,
+              "predicted_ms": 636.0290050506592
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "808",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Jul 2026 02:48:05 GMT",
+            "openai-request-id": "req_450b83dfe73e",
+            "x-request-id": "req_450b83dfe73e"
+          },
+          "usage": {
+            "completion_time": 0.64,
+            "total_time": 1.3,
+            "completion_tokens_per_second": 91.19,
+            "prompt_time": 0.66,
+            "peak_memory_gib": 19.7,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_tokens": 464,
+            "prompt_tokens_per_second": 612.59,
+            "prompt_tokens": 406,
+            "completion_tokens": 58
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "javascript",
+                "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  (parsed.tool_calls[0].function.name === 'swift_build' ||\n   parsed.tool_calls[0].function.name === 'run_assertion_suite');\n"
+              }
+            }
+          ]
+        },
+        "id": "cf8e317d-cee7-4979-a589-49cef0aa19d7",
+        "latencyMs": 1173,
+        "namedScores": {},
+        "prompt": {
+          "raw": "What should you do next?",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-adaptive-xml-agentic"
+        },
+        "response": {
+          "output": "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"name\":\"swift_build\",\"arguments\":{\"configuration\":\"debug\"}},\"type\":\"function\",\"id\":\"call_SKSvcDlglqiaUC0LrzL0IotO\",\"index\":0}],\"finish_reason\":\"tool_calls\",\"refusal\":null}",
+          "latencyMs": 1173,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are an autonomous coding agent. After code changes, validate with the narrowest useful test."
+                },
+                {
+                  "role": "user",
+                  "content": "Add index to non-streaming tool_calls."
+                },
+                {
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "id": "call_patch_1",
+                      "type": "function",
+                      "function": {
+                        "name": "apply_patch",
+                        "arguments": "{\"path\":\"Sources/MacLocalAPI/Models/OpenAIResponse.swift\",\"patch\":\"...\"}"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "tool_call_id": "call_patch_1",
+                  "content": "Patch applied successfully to Sources/MacLocalAPI/Models/OpenAIResponse.swift"
+                },
+                {
+                  "role": "user",
+                  "content": "What should you do next?"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "swift_build",
+                    "description": "Run swift build for the project",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "configuration": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "configuration"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "run_assertion_suite",
+                    "description": "Run the AFM assertion harness",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "tier": {
+                          "type": "string"
+                        },
+                        "model": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+              "created": 1783046887,
+              "choices": [
+                {
+                  "index": 0,
+                  "finish_reason": "tool_calls",
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "name": "swift_build",
+                          "arguments": "{\"configuration\":\"debug\"}"
+                        },
+                        "type": "function",
+                        "id": "call_SKSvcDlglqiaUC0LrzL0IotO",
+                        "index": 0
+                      }
+                    ]
+                  }
+                }
+              ],
+              "usage": {
+                "completion_time": 0.32,
+                "total_time": 1.16,
+                "completion_tokens_per_second": 92.54,
+                "prompt_time": 0.84,
+                "peak_memory_gib": 19.8,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_tokens": 565,
+                "prompt_tokens_per_second": 638.43,
+                "prompt_tokens": 535,
+                "completion_tokens": 30
+              },
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "id": "chatcmpl-0B91BC49",
+              "object": "chat.completion",
+              "timings": {
+                "predicted_ms": 324.19097423553467,
+                "prompt_n": 535,
+                "prompt_ms": 837.9949331283569,
+                "predicted_n": 30
+              }
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "825",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Jul 2026 02:48:07 GMT",
+              "openai-request-id": "req_f3357ec7011d",
+              "x-request-id": "req_f3357ec7011d"
+            },
+            "usage": {
+              "completion_time": 0.32,
+              "total_time": 1.16,
+              "completion_tokens_per_second": 92.54,
+              "prompt_time": 0.84,
+              "peak_memory_gib": 19.8,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 565,
+              "prompt_tokens_per_second": 638.43,
+              "prompt_tokens": 535,
+              "completion_tokens": 30
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "agentic/opencode style run tests after patch",
+          "metadata": {
+            "suite": "agentic",
+            "classification": "not_yet_classified",
+            "source": "opencode_inspired",
+            "use_case": "validate_after_edit"
+          },
+          "vars": {
+            "prompt": "What should you do next?",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an autonomous coding agent. After code changes, validate with the narrowest useful test."
+              },
+              {
+                "role": "user",
+                "content": "Add index to non-streaming tool_calls."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "call_patch_1",
+                    "type": "function",
+                    "function": {
+                      "name": "apply_patch",
+                      "arguments": "{\"path\":\"Sources/MacLocalAPI/Models/OpenAIResponse.swift\",\"patch\":\"...\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_patch_1",
+                "content": "Patch applied successfully to Sources/MacLocalAPI/Models/OpenAIResponse.swift"
+              },
+              {
+                "role": "user",
+                "content": "What should you do next?"
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "swift_build",
+                  "description": "Run swift build for the project",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "configuration": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "configuration"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "run_assertion_suite",
+                  "description": "Run the AFM assertion harness",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "tier": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "javascript",
+              "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  (parsed.tool_calls[0].function.name === 'swift_build' ||\n   parsed.tool_calls[0].function.name === 'run_assertion_suite');\n"
+            }
+          ],
+          "options": {}
+        },
+        "testIdx": 3,
+        "tokenUsage": {
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "total": 0,
+          "numRequests": 1,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          },
+          "assertions": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 1,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            }
+          }
+        },
+        "vars": {
+          "prompt": "What should you do next?",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an autonomous coding agent. After code changes, validate with the narrowest useful test."
+            },
+            {
+              "role": "user",
+              "content": "Add index to non-streaming tool_calls."
+            },
+            {
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "id": "call_patch_1",
+                  "type": "function",
+                  "function": {
+                    "name": "apply_patch",
+                    "arguments": "{\"path\":\"Sources/MacLocalAPI/Models/OpenAIResponse.swift\",\"patch\":\"...\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_patch_1",
+              "content": "Patch applied successfully to Sources/MacLocalAPI/Models/OpenAIResponse.swift"
+            },
+            {
+              "role": "user",
+              "content": "What should you do next?"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "swift_build",
+                "description": "Run swift build for the project",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "configuration": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "configuration"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "run_assertion_suite",
+                "description": "Run the AFM assertion harness",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "tier": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "suite": "agentic",
+          "classification": "not_yet_classified",
+          "source": "opencode_inspired",
+          "use_case": "validate_after_edit",
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an autonomous coding agent. After code changes, validate with the narrowest useful test."
+              },
+              {
+                "role": "user",
+                "content": "Add index to non-streaming tool_calls."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "call_patch_1",
+                    "type": "function",
+                    "function": {
+                      "name": "apply_patch",
+                      "arguments": "{\"path\":\"Sources/MacLocalAPI/Models/OpenAIResponse.swift\",\"patch\":\"...\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_patch_1",
+                "content": "Patch applied successfully to Sources/MacLocalAPI/Models/OpenAIResponse.swift"
+              },
+              {
+                "role": "user",
+                "content": "What should you do next?"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "swift_build",
+                  "description": "Run swift build for the project",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "configuration": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "configuration"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "run_assertion_suite",
+                  "description": "Run the AFM assertion harness",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "tier": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+            "created": 1783046887,
+            "choices": [
+              {
+                "index": 0,
+                "finish_reason": "tool_calls",
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "function": {
+                        "name": "swift_build",
+                        "arguments": "{\"configuration\":\"debug\"}"
+                      },
+                      "type": "function",
+                      "id": "call_SKSvcDlglqiaUC0LrzL0IotO",
+                      "index": 0
+                    }
+                  ]
+                }
+              }
+            ],
+            "usage": {
+              "completion_time": 0.32,
+              "total_time": 1.16,
+              "completion_tokens_per_second": 92.54,
+              "prompt_time": 0.84,
+              "peak_memory_gib": 19.8,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 565,
+              "prompt_tokens_per_second": 638.43,
+              "prompt_tokens": 535,
+              "completion_tokens": 30
+            },
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "id": "chatcmpl-0B91BC49",
+            "object": "chat.completion",
+            "timings": {
+              "predicted_ms": 324.19097423553467,
+              "prompt_n": 535,
+              "prompt_ms": 837.9949331283569,
+              "predicted_n": 30
+            }
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "825",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Jul 2026 02:48:07 GMT",
+            "openai-request-id": "req_f3357ec7011d",
+            "x-request-id": "req_f3357ec7011d"
+          },
+          "usage": {
+            "completion_time": 0.32,
+            "total_time": 1.16,
+            "completion_tokens_per_second": 92.54,
+            "prompt_time": 0.84,
+            "peak_memory_gib": 19.8,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_tokens": 565,
+            "prompt_tokens_per_second": 638.43,
+            "prompt_tokens": 535,
+            "completion_tokens": 30
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      }
+    ],
+    "stats": {
+      "successes": 4,
+      "failures": 0,
+      "errors": 0,
+      "tokenUsage": {
+        "prompt": 0,
+        "completion": 0,
+        "cached": 0,
+        "total": 0,
+        "numRequests": 4,
+        "completionDetails": {
+          "reasoning": 0,
+          "acceptedPrediction": 0,
+          "rejectedPrediction": 0,
+          "cacheReadInputTokens": 0,
+          "cacheCreationInputTokens": 0
+        },
+        "assertions": {
+          "total": 0,
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "numRequests": 0,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          }
+        }
+      },
+      "durationMs": 6237,
+      "evaluationDurationMs": 6237
+    }
+  },
+  "config": {
+    "tags": {},
+    "description": "AFM multi-turn agentic suite",
+    "prompts": [
+      "{{prompt}}"
+    ],
+    "providers": [
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-default-agentic",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_DEFAULT",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-adaptive-xml-agentic",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_ADAPTIVE_XML",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-adaptive-xml-grammar-agentic",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_ADAPTIVE_XML_GRAMMAR",
+          "modelEnv": "AFM_MODEL",
+          "extract": "normalized_message"
+        }
+      }
+    ],
+    "tests": [
+      {
+        "description": "agentic/opencode style choose repo search first",
+        "metadata": {
+          "suite": "agentic",
+          "classification": "not_yet_classified",
+          "source": "opencode_inspired",
+          "use_case": "coding_agent_initial_repo_search"
+        },
+        "vars": {
+          "prompt": "Find where AFM logs prefix cache save behavior before I ask you to change it.",
+          "system_prompt": "You are an autonomous coding agent. Prefer inspecting the repository before editing.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "search_code",
+                "description": "Search the repository for text or file names",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply a patch to a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "patch": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "patch"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'search_code' &&\n  /cache|prefix|save/i.test(String(call.function.arguments.query || ''));\n"
+          }
+        ]
+      },
+      {
+        "description": "agentic/openhands style inspect file after search results",
+        "metadata": {
+          "suite": "agentic",
+          "classification": "not_yet_classified",
+          "source": "openhands_inspired",
+          "use_case": "coding_agent_follow_search_with_file_read"
+        },
+        "vars": {
+          "prompt": "Inspect the restore path that matched this search result and decide what to read next.",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an autonomous coding agent. Use repository tools conservatively and inspect before editing."
+            },
+            {
+              "role": "user",
+              "content": "Find the exact cache restore logic for MLX prefix caching."
+            },
+            {
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "id": "call_search_1",
+                  "type": "function",
+                  "function": {
+                    "name": "search_code",
+                    "arguments": "{\"query\":\"PrefixCache Save complete\",\"path\":\"Sources/MacLocalAPI\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_search_1",
+              "content": "Sources/MacLocalAPI/Models/MLXModelService.swift: PrefixCache Save complete\nSources/MacLocalAPI/Models/BatchScheduler.swift: PrefixCache Save complete"
+            },
+            {
+              "role": "user",
+              "content": "Inspect the restore path that matched this search result and decide what to read next."
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read a file from the repository",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply a patch to a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "patch": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "patch"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nconst call = parsed.tool_calls[0];\nreturn parsed.tool_calls.length === 1 &&\n  call.function.name === 'read_file' &&\n  /MLXModelService\\.swift|BatchScheduler\\.swift/.test(String(call.function.arguments.path || ''));\n"
+          }
+        ]
+      },
+      {
+        "description": "agentic/hermes style avoid patch before file context",
+        "metadata": {
+          "suite": "agentic",
+          "classification": "not_yet_classified",
+          "source": "hermes_agent_inspired",
+          "use_case": "no_edit_without_context"
+        },
+        "vars": {
+          "prompt": "Patch the cache logging to show suffix on misses.",
+          "system_prompt": "You are an autonomous coding agent. Never edit before inspecting the target file.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "description": "Read a file from the repository",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "apply_patch",
+                "description": "Apply a patch to a file",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "patch": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "patch"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  parsed.tool_calls[0].function.name === 'read_file';\n"
+          }
+        ]
+      },
+      {
+        "description": "agentic/opencode style run tests after patch",
+        "metadata": {
+          "suite": "agentic",
+          "classification": "not_yet_classified",
+          "source": "opencode_inspired",
+          "use_case": "validate_after_edit"
+        },
+        "vars": {
+          "prompt": "What should you do next?",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an autonomous coding agent. After code changes, validate with the narrowest useful test."
+            },
+            {
+              "role": "user",
+              "content": "Add index to non-streaming tool_calls."
+            },
+            {
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "id": "call_patch_1",
+                  "type": "function",
+                  "function": {
+                    "name": "apply_patch",
+                    "arguments": "{\"path\":\"Sources/MacLocalAPI/Models/OpenAIResponse.swift\",\"patch\":\"...\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_patch_1",
+              "content": "Patch applied successfully to Sources/MacLocalAPI/Models/OpenAIResponse.swift"
+            },
+            {
+              "role": "user",
+              "content": "What should you do next?"
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "swift_build",
+                "description": "Run swift build for the project",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "configuration": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "configuration"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "run_assertion_suite",
+                "description": "Run the AFM assertion harness",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "tier": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "javascript",
+            "value": "const parsed = JSON.parse(output);\nreturn parsed.tool_calls.length === 1 &&\n  (parsed.tool_calls[0].function.name === 'swift_build' ||\n   parsed.tool_calls[0].function.name === 'run_assertion_suite');\n"
+          }
+        ]
+      }
+    ],
+    "env": {},
+    "outputPath": [
+      "/Volumes/Crucial4TB/promptfoo/data/maclocal-api/current/agentic-adaptive-xml-mlx-community_Qwen3.6-35B-A3B-4bit.json"
+    ],
+    "extensions": [],
+    "metadata": {},
+    "evaluateOptions": {}
+  },
+  "shareableUrl": null,
+  "metadata": {
+    "promptfooVersion": "0.121.17",
+    "nodeVersion": "v24.0.1",
+    "platform": "darwin",
+    "arch": "arm64",
+    "exportedAt": "2026-07-03T02:48:07.233Z",
+    "evaluationCreatedAt": "2026-07-03T02:48:00.871Z"
+  },
+  "vars": [
+    "prompt",
+    "system_prompt",
+    "tools",
+    "messages"
+  ],
+  "runtimeOptions": {
+    "eventSource": "cli",
+    "showProgressBar": true,
+    "repeat": 1,
+    "maxConcurrency": 1,
+    "cache": true,
+    "providerFilter": "^afm-adaptive-xml-agentic$"
+  }
+}
