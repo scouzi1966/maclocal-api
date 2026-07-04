@@ -149,7 +149,22 @@ class GLM5MoeDsaIndexer: Module {
         var weights = weightsProj(x) * (pow(Float(nHeads), -0.5) * softmaxScale)
         weights = weights.swappedAxes(-1, -2)[.ellipsis, .newAxis]
         scores = scores * weights
-        scores = scores.sum(axis: 1, keepDims: true)  // [B, 1, s, totalSeq]
+        if s > 1 {
+            // Reduce heads with elementwise adds instead of sum(axis: 1): works around
+            // ml-explore/mlx#3784 (non-last-axis sum of a large strided tensor returns
+            // all-zeros, e.g. [1, 32, 4096, 131072]), which silently zeroes the indexer
+            // scores and corrupts the top-k selection at long contexts. At decode
+            // (s == 1) the tensor is far below the trigger threshold, so the fused sum
+            // is kept. Ported from mlx-lm PR #1454.
+            // TODO: revert to sum(axis: 1, keepDims: true) once the MLX core fix lands.
+            var summed = scores[0..., 0 ..< 1]
+            for h in 1 ..< nHeads {
+                summed = summed + scores[0..., h ..< (h + 1)]
+            }
+            scores = summed  // [B, 1, s, totalSeq]
+        } else {
+            scores = scores.sum(axis: 1, keepDims: true)  // [B, 1, s, totalSeq]
+        }
 
         // Apply mask
         if let mask {
@@ -303,6 +318,7 @@ class GLM5MoeDsaAttention: Module {
         var currentMask = mask
         let topkIndices = indexer(x, qr: qr, mask: currentMask, cache: indexerCache)
 
+        var useSparseGather = false
         if let topkIndices {
             if L == 1 {
                 // Decode mode: physically gather top-k KV entries
@@ -321,8 +337,16 @@ class GLM5MoeDsaAttention: Module {
                 kPe = takeAlong(kPe, peIdx, axis: 2)
 
                 currentMask = nil
+            } else if kvLatent.dim(2) >= GLM5MoeDsaAttention.sparsePrefillMinContext {
+                // Long-context prefill: attend over only the indexTopk selected KV per
+                // query (sparseGatherAttention below) instead of dense-masking all S
+                // keys. Same selected set as the masked path — identical math — but
+                // O(L·topk) instead of O(L·S), with transient memory flat in S.
+                // Ported from mlx-lm PR #1454.
+                useSparseGather = true
             } else {
-                // Prefill mode: create sparse boolean mask
+                // Short-context prefill: create sparse boolean mask (dense attention
+                // wins below sparsePrefillMinContext — the gather has fixed overhead).
                 // topkIndices shape: [B, 1, L, topk]
                 var shape = topkIndices.shape
                 shape[shape.count - 1] = kvLatent.dim(2)  // replace topk with totalSeq
@@ -347,34 +371,97 @@ class GLM5MoeDsaAttention: Module {
             }
         }
 
-        // Compute positional attention scores
-        var peScores = matmul(qPe * scale, kPe.swappedAxes(-1, -2))
-        if let currentMask {
-            peScores = MLX.where(
-                currentMask, peScores,
-                MLXArray(-Float.greatestFiniteMagnitude, dtype: peScores.dtype))
-        }
-
-        // MLA attention with two-path optimization
         let output: MLXArray
-        if L == 1 {
-            // Decode path: work in latent space (cheaper)
-            qNope = embedQ(qNope)
-            let attnOut = mlaAttention(
-                queries: qNope, keys: kvLatent, values: kvLatent,
-                scale: scale, peMask: peScores)
-            output = unembedOut(attnOut)
+        if useSparseGather, let topkIndices {
+            output = sparseGatherAttention(
+                qNope: qNope, qPe: qPe, kvLatent: kvLatent, kPe: kPe,
+                topkIndices: topkIndices, causal: mask != nil, offset: offset)
         } else {
-            // Prefill path: project K and V from latent space
-            let k = embedQ(kvLatent, transpose: false)
-            let v = unembedOut(kvLatent)
-            output = mlaAttention(
-                queries: qNope, keys: k, values: v,
-                scale: scale, peMask: peScores)
+            // Compute positional attention scores
+            var peScores = matmul(qPe * scale, kPe.swappedAxes(-1, -2))
+            if let currentMask {
+                peScores = MLX.where(
+                    currentMask, peScores,
+                    MLXArray(-Float.greatestFiniteMagnitude, dtype: peScores.dtype))
+            }
+
+            // MLA attention with two-path optimization
+            if L == 1 {
+                // Decode path: work in latent space (cheaper)
+                qNope = embedQ(qNope)
+                let attnOut = mlaAttention(
+                    queries: qNope, keys: kvLatent, values: kvLatent,
+                    scale: scale, peMask: peScores)
+                output = unembedOut(attnOut)
+            } else {
+                // Prefill path: project K and V from latent space
+                let k = embedQ(kvLatent, transpose: false)
+                let v = unembedOut(kvLatent)
+                output = mlaAttention(
+                    queries: qNope, keys: k, values: v,
+                    scale: scale, peMask: peScores)
+            }
         }
 
         let reshaped = output.transposed(0, 2, 1, 3).reshaped(B, L, -1)
         return oProj(reshaped)
+    }
+
+    /// Context length at which prefill switches from dense top-k-masked attention to
+    /// sparseGatherAttention. Below this the gather's fixed overhead loses to dense
+    /// attention (upstream-measured crossover ~14k on M-series GPUs); above it the
+    /// sparse path wins and the gap grows with context (mlx-lm PR #1454: ~9x
+    /// attention-op at 32k, 1.39x end-to-end prefill at 41k).
+    /// `var` (not `let`) so the parity test can force each path on identical inputs.
+    static var sparsePrefillMinContext = 16_384
+
+    /// Sparse prefill attention over the indexTopk selected KV per query.
+    ///
+    /// Absorbed-latent form mirroring the L == 1 decode path: embedQ absorbs into the
+    /// query, attention runs in latent space over only the gathered keys, and
+    /// unembedOut projects the output. Mathematically identical to the dense
+    /// top-k-masked path (it attends over the same selected set). The causal
+    /// constraint is reconstructed from key positions, so no [.., L, S] mask is ever
+    /// materialized. Ported from mlx-lm PR #1454 (_sparse_gather_attention).
+    private func sparseGatherAttention(
+        qNope: MLXArray, qPe: MLXArray, kvLatent: MLXArray, kPe: MLXArray,
+        topkIndices: MLXArray, causal: Bool, offset: Int
+    ) -> MLXArray {
+        let b = qNope.dim(0)
+        let length = qNope.dim(2)
+        let qLatent = embedQ(qNope)  // [B, H, L, kvLoraRank]
+
+        // topkIndices: [B, 1, L, K] — one index group shared across heads.
+        // Gather the selected KV rows per query position, per batch element:
+        // kvLatent [B, 1, S, kvLoraRank] → kvg [B, L, K, kvLoraRank].
+        var kvgSlices = [MLXArray]()
+        var kpegSlices = [MLXArray]()
+        for i in 0 ..< b {
+            let ti = topkIndices[i, 0]  // [L, K]
+            kvgSlices.append(take(kvLatent[i, 0], ti, axis: 0))
+            kpegSlices.append(take(kPe[i, 0], ti, axis: 0))
+        }
+        let kvg = stacked(kvgSlices)   // [B, L, K, kvLoraRank]
+        let kpeg = stacked(kpegSlices) // [B, L, K, qkRopeHeadDim]
+
+        let qn = qLatent.transposed(0, 2, 1, 3)  // [B, L, H, kvLoraRank]
+        let qp = qPe.transposed(0, 2, 1, 3)      // [B, L, H, qkRopeHeadDim]
+        var scores = matmul(qn, kvg.swappedAxes(-1, -2))
+        scores = (scores + matmul(qp, kpeg.swappedAxes(-1, -2))) * scale  // [B, L, H, K]
+
+        if causal {
+            // Key at index ti is causally valid for query l iff ti <= offset + l.
+            let qPos = MLXArray(Int32(offset) ..< Int32(offset + length))
+                .reshaped(1, 1, length, 1)
+            let cmask = (topkIndices .<= qPos).squeezed(axis: 1)  // [B, L, K]
+            scores = MLX.where(
+                expandedDimensions(cmask, axis: 2), scores,
+                MLXArray(-Float.greatestFiniteMagnitude, dtype: scores.dtype))
+        }
+
+        let weights = softmax(scores.asType(.float32), axis: -1).asType(kvg.dtype)
+        let outLatent = matmul(weights, kvg).transposed(0, 2, 1, 3)  // [B, H, L, kvLoraRank]
+        return unembedOut(outLatent)  // [B, H, L, vHeadDim]
     }
 
     /// Manual scaled dot-product attention with additive PE mask
