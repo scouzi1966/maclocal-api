@@ -206,11 +206,13 @@ class GLM5MoeDsaAttention: Module {
     @ModuleInfo(key: "embed_q") var embedQ: GLM5MoeDsaMultiLinear
     @ModuleInfo(key: "unembed_out") var unembedOut: GLM5MoeDsaMultiLinear
     @ModuleInfo(key: "o_proj") var oProj: Linear
-    @ModuleInfo(key: "indexer") var indexer: GLM5MoeDsaIndexer
+    /// nil on "shared" layers (indexer_types) — they reuse the previous full
+    /// layer's top-k indices and the checkpoint has no indexer weights for them.
+    @ModuleInfo(key: "indexer") var indexer: GLM5MoeDsaIndexer?
 
     let rope: RoPE
 
-    init(_ config: GLM5MoeDsaConfiguration) {
+    init(_ config: GLM5MoeDsaConfiguration, layerIdx: Int) {
         self.config = config
         self.numHeads = config.numAttentionHeads
         self.qLoraRank = config.qLoraRank
@@ -249,7 +251,8 @@ class GLM5MoeDsaAttention: Module {
         self._oProj.wrappedValue = Linear(
             numHeads * vHeadDim, config.hiddenSize, bias: config.attentionBias)
 
-        self._indexer.wrappedValue = GLM5MoeDsaIndexer(config)
+        let isShared = config.indexerTypes.map { $0[layerIdx] == "shared" } ?? false
+        self._indexer.wrappedValue = isShared ? nil : GLM5MoeDsaIndexer(config)
 
         // Handle rope_scaling mscale for scale adjustment
         if let ropeScaling = config.ropeScaling,
@@ -270,9 +273,12 @@ class GLM5MoeDsaAttention: Module {
         super.init()
     }
 
+    /// Returns (attention output, top-k indices used). On "full" layers the indices
+    /// come from this layer's indexer; on "shared" layers `prevTopkIndices` is used
+    /// and passed through. nil indices = dense attention (context <= indexTopk).
     func callAsFunction(
-        _ x: MLXArray, mask: MLXArray?, cache: KVCache?
-    ) -> MLXArray {
+        _ x: MLXArray, mask: MLXArray?, cache: KVCache?, prevTopkIndices: MLXArray?
+    ) -> (MLXArray, MLXArray?) {
         let B = x.dim(0)
         let L = x.dim(1)
 
@@ -320,9 +326,15 @@ class GLM5MoeDsaAttention: Module {
             kPe = updatedKPe
         }
 
-        // Dynamic Sparse Attention via indexer
+        // Dynamic Sparse Attention: run this layer's indexer ("full"), or reuse the
+        // previous full layer's selection ("shared" — no indexer weights exist).
         var currentMask = mask
-        let topkIndices = indexer(x, qr: qr, mask: currentMask, cache: indexerCache)
+        let topkIndices: MLXArray?
+        if let indexer {
+            topkIndices = indexer(x, qr: qr, mask: currentMask, cache: indexerCache)
+        } else {
+            topkIndices = prevTopkIndices
+        }
 
         var useSparseGather = false
         if let topkIndices {
@@ -410,7 +422,7 @@ class GLM5MoeDsaAttention: Module {
         }
 
         let reshaped = output.transposed(0, 2, 1, 3).reshaped(B, L, -1)
-        return oProj(reshaped)
+        return (oProj(reshaped), topkIndices)
     }
 
     /// Context length at which prefill switches from dense top-k-masked attention to
@@ -609,7 +621,7 @@ class GLM5MoeDsaDecoderLayer: Module {
     @ModuleInfo(key: "post_attention_layernorm") var postAttentionLayerNorm: RMSNorm
 
     init(_ config: GLM5MoeDsaConfiguration, layerIdx: Int) {
-        self._attention.wrappedValue = GLM5MoeDsaAttention(config)
+        self._attention.wrappedValue = GLM5MoeDsaAttention(config, layerIdx: layerIdx)
 
         let useMoe = config.nRoutedExperts != nil
             && layerIdx >= config.firstKDenseReplace
@@ -622,13 +634,16 @@ class GLM5MoeDsaDecoderLayer: Module {
             dimensions: config.hiddenSize, eps: config.rmsNormEps)
     }
 
+    /// Returns (hidden states, top-k indices) — indices propagate to the next
+    /// layer so "shared" indexer layers can reuse the last full layer's selection.
     func callAsFunction(
-        _ x: MLXArray, mask: MLXArray?, cache: KVCache?
-    ) -> MLXArray {
-        let r = attention(inputLayerNorm(x), mask: mask, cache: cache)
+        _ x: MLXArray, mask: MLXArray?, cache: KVCache?, prevTopkIndices: MLXArray?
+    ) -> (MLXArray, MLXArray?) {
+        let (r, topkIndices) = attention(
+            inputLayerNorm(x), mask: mask, cache: cache, prevTopkIndices: prevTopkIndices)
         let h = x + r
         let r2 = mlp(postAttentionLayerNorm(h))
-        return h + r2
+        return (h + r2, topkIndices)
     }
 }
 
@@ -664,8 +679,12 @@ class GLM5MoeDsaModelInner: Module {
         }()
         let mask: MLXArray? = createBoolMask(h: h, cache: firstMainCache)
 
+        // Top-k indices flow forward: "full" layers refresh them, "shared" layers
+        // consume and pass them through (GLM-5.2 cross-layer indexer sharing).
+        var topkIndices: MLXArray? = nil
         for (i, layer) in layers.enumerated() {
-            h = layer(h, mask: mask, cache: cache?[i])
+            (h, topkIndices) = layer(
+                h, mask: mask, cache: cache?[i], prevTopkIndices: topkIndices)
         }
 
         return norm(h)
@@ -866,6 +885,10 @@ public struct GLM5MoeDsaConfiguration: Codable, Sendable {
     var indexHeadDim: Int
     var indexNHeads: Int
     var indexTopk: Int
+    /// Per-layer indexer kind: "full" runs its own indexer; "shared" reuses the top-k
+    /// indices from the most recent "full" layer (GLM-5.2 has indexer weights on only
+    /// 21 of 78 layers). nil (DeepSeek-V3.2) means every layer is "full".
+    var indexerTypes: [String]?
 
     enum CodingKeys: String, CodingKey {
         case modelType = "model_type"
@@ -900,6 +923,7 @@ public struct GLM5MoeDsaConfiguration: Codable, Sendable {
         case indexHeadDim = "index_head_dim"
         case indexNHeads = "index_n_heads"
         case indexTopk = "index_topk"
+        case indexerTypes = "indexer_types"
     }
 
     /// Separate key for GLM-5's rope_parameters field (not a stored property)
@@ -942,15 +966,22 @@ public struct GLM5MoeDsaConfiguration: Codable, Sendable {
         indexHeadDim = try c.decode(Int.self, forKey: .indexHeadDim)
         indexNHeads = try c.decode(Int.self, forKey: .indexNHeads)
         indexTopk = try c.decode(Int.self, forKey: .indexTopk)
+        indexerTypes = try c.decodeIfPresent([String].self, forKey: .indexerTypes)
 
         // Handle rope_parameters → ropeScaling + ropeTheta mapping (GLM-5 specific)
         // GLM-5 uses "rope_parameters" in config.json instead of "rope_scaling"/"rope_theta"
         let extra = try decoder.container(keyedBy: ExtraCodingKeys.self)
         if let ropeParams = try extra.decodeIfPresent([String: StringOrNumber].self, forKey: .ropeParameters) {
             self.ropeScaling = ropeParams
-            if case .float(let theta) = ropeParams["rope_theta"] {
+            // StringOrNumber decodes whole JSON numbers as .int first (GLM-5.2 ships
+            // "rope_theta": 8000000), so both cases must be handled — matching only
+            // .float silently fell back to the 1M default and scrambled RoPE at depth.
+            switch ropeParams["rope_theta"] {
+            case .float(let theta):
                 self.ropeTheta = theta
-            } else {
+            case .int(let theta):
+                self.ropeTheta = Float(theta)
+            default:
                 self.ropeTheta = try c.decodeIfPresent(Float.self, forKey: .ropeTheta) ?? 1_000_000.0
             }
         } else {

@@ -36,7 +36,8 @@ public class GLM5DsaTests: XCTestCase {
               "v_head_dim": 32,
               "num_experts_per_tok": 2,
               "n_routed_experts": 4,
-              "rope_theta": 10000.0,
+              "rope_parameters": {"rope_theta": 8000000, "rope_type": "default"},
+              "indexer_types": ["full", "shared"],
               "index_head_dim": 32,
               "index_n_heads": 4,
               "index_topk": 32
@@ -51,6 +52,16 @@ public class GLM5DsaTests: XCTestCase {
         let rowIdx = MLXArray(0 ..< length).reshaped(length, 1) + offset
         let colIdx = MLXArray(0 ..< (length + offset)).reshaped(1, length + offset)
         return rowIdx .>= colIdx
+    }
+
+    /// GLM-5.2 ships "rope_parameters": {"rope_theta": 8000000} — a whole JSON number,
+    /// which StringOrNumber decodes as .int. A .float-only match silently fell back to
+    /// the 1M default and scrambled RoPE at depth. indexer_types gates per-layer
+    /// indexer creation ("shared" layers have no indexer weights in the checkpoint).
+    func testConfigParsesRopeParametersAndIndexerTypes() throws {
+        let config = try tinyConfig()
+        XCTAssertEqual(config.ropeTheta, 8_000_000)
+        XCTAssertEqual(config.indexerTypes, ["full", "shared"])
     }
 
     func testIndexerHeadReductionEquivalence() {
@@ -73,7 +84,7 @@ public class GLM5DsaTests: XCTestCase {
     func testSparseGatherMatchesDenseMaskedPrefill() throws {
         let config = try tinyConfig()
         MLXRandom.seed(42)
-        let attention = GLM5MoeDsaAttention(config)
+        let attention = GLM5MoeDsaAttention(config, layerIdx: 0)
 
         // embedQ/unembedOut (GLM5MoeDsaMultiLinear) init with SCALAR placeholders —
         // real tensors normally arrive from the checkpoint. Inject random weights so
@@ -103,10 +114,11 @@ public class GLM5DsaTests: XCTestCase {
 
             let cache = CacheList(KVCacheSimple(), KVCacheSimple())
             _ = attention(
-                priorX, mask: boolCausalMask(length: priorLength, offset: 0), cache: cache)
-            let out = attention(
+                priorX, mask: boolCausalMask(length: priorLength, offset: 0), cache: cache,
+                prevTopkIndices: nil)
+            let (out, _) = attention(
                 chunkX, mask: boolCausalMask(length: chunkLength, offset: priorLength),
-                cache: cache)
+                cache: cache, prevTopkIndices: nil)
             eval(out)
             return out
         }
