@@ -41,14 +41,20 @@ class GLM5MoeDsaMultiLinear: Module {
     }
 
     func callAsFunction(_ x: MLXArray, transpose: Bool = true) -> MLXArray {
-        if let scales, let biases, scales.size > 1 {
+        if let scales, scales.size > 1 {
             // Quantization is always along the last weight dim (= inputDims)
             let dims = inputDims
             let bits = (weight.dim(-1) * 32) / dims
             let groupSize = dims / scales.dim(-1)
+            // Affine checkpoints ship a full-size biases tensor; mxfp4 checkpoints
+            // (e.g. GLM-5.2-mxfp4) ship none, leaving biases at its scalar
+            // placeholder. Passing that placeholder into an affine quantizedMatmul
+            // aborts with a shape mismatch, so switch on its presence.
+            let hasBiases = (biases?.size ?? 0) > 1
             return quantizedMatmul(
-                x, weight, scales: scales, biases: biases,
-                transpose: transpose, groupSize: groupSize, bits: bits)
+                x, weight, scales: scales, biases: hasBiases ? biases : nil,
+                transpose: transpose, groupSize: groupSize, bits: bits,
+                mode: hasBiases ? .affine : .mxfp4)
         } else {
             if transpose {
                 return matmul(x, weight.swappedAxes(-1, -2))
@@ -768,14 +774,16 @@ public class GLM5MoeDsaModel: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
                 if isQuantized {
                     let kvBScales = sanitized.removeValue(
                         forKey: "\(attnPrefix).kv_b_proj.scales")!
+                    // mxfp4 checkpoints have no biases tensors (see MultiLinear above).
                     let kvBBiases = sanitized.removeValue(
-                        forKey: "\(attnPrefix).kv_b_proj.biases")!
+                        forKey: "\(attnPrefix).kv_b_proj.biases")
                     let dims = configuration.kvLoraRank
                     let bits = (kvBWeight.dim(-1) * 32) / dims
                     let groupSize = dims / kvBScales.dim(-1)
                     v = dequantized(
                         kvBWeight, scales: kvBScales, biases: kvBBiases,
-                        groupSize: groupSize, bits: bits)
+                        groupSize: groupSize, bits: bits,
+                        mode: kvBBiases == nil ? .mxfp4 : .affine)
                 } else {
                     v = kvBWeight
                 }

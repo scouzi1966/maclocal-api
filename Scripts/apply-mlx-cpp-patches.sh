@@ -463,11 +463,13 @@ else:
   # Patch the qmv() function: change the fast path to prefer wide when possible
   # Original:  bool fast = N % bn == 0 && K % 512 == 0;
   # After:     bool fast = N % bn == 0 && K % 512 == 0;
-  #            bool wide = fast && K % 1024 == 0 && bits == 4;
+  #            bool wide = fast && K % 1024 == 0 && bits == 4 && mode == "affine";
+  # (mode gate: the wide kernels exist only in the affine family — quantized.h;
+  #  fp modes like mxfp4 would JIT-fail on fp_gather_qmv_fast_wide)
   sed -i '' '/^void qmv(/,/^}/ {
     /bool fast = N % bn == 0 && K % 512 == 0;/ {
       a\
-\  bool wide = fast \&\& K % 1024 == 0 \&\& bits == 4;
+\  bool wide = fast \&\& K % 1024 == 0 \&\& bits == 4 \&\& mode == "affine";
     }
     s/mode + (fast ? "_qmv_fast_" : "_qmv_")/mode + (wide ? "_qmv_fast_wide_" : fast ? "_qmv_fast_" : "_qmv_")/
     s/(fast ? "qmv_fast" : "qmv")/(wide ? "qmv_fast_wide" : fast ? "qmv_fast" : "qmv")/
@@ -477,7 +479,7 @@ else:
   sed -i '' '/^void gather_qmv(/,/^}/ {
     /bool fast = N % bn == 0 && K % 512 == 0;/ {
       a\
-\  bool wide = fast \&\& K % 1024 == 0 \&\& bits == 4;
+\  bool wide = fast \&\& K % 1024 == 0 \&\& bits == 4 \&\& mode == "affine";
     }
     s/mode + (fast ? "_gather_qmv_fast_" : "_gather_qmv_")/mode + (wide ? "_gather_qmv_fast_wide_" : fast ? "_gather_qmv_fast_" : "_gather_qmv_")/
     s/(fast ? "gather_qmv_fast" : "gather_qmv")/(wide ? "gather_qmv_fast_wide" : fast ? "gather_qmv_fast" : "gather_qmv")/
