@@ -60,19 +60,25 @@ for idx, (d, code) in enumerate(sorted(codes.items()), 1):
                     "messages": [{"role": "user", "content": q}]}).encode(),
         {"Content-Type": "application/json"})
     t0 = time.time()
-    r = json.load(urllib.request.urlopen(req, timeout=7200))
+    # 6h/question: baseline dense prefill at 128k runs ~9.7 tok/s => >5h/question.
+    r = json.load(urllib.request.urlopen(req, timeout=21600))
     m = r["choices"][0]["message"]
     text = (m.get("reasoning_content") or "") + (m.get("content") or "")
     hit = code in text
     ok += hit
-    print(f"  depth {int(d*100)}%: {'HIT ' if hit else 'MISS'} ({time.time()-t0:.0f}s)")
-print(f"RECALL {ok}/5")
+    # flush: stdout is block-buffered when redirected — without it, hours of results
+    # sit in the buffer and are lost if the run is killed (learned the hard way).
+    print(f"  depth {int(d*100)}%: {'HIT ' if hit else 'MISS'} ({time.time()-t0:.0f}s)", flush=True)
+print(f"RECALL {ok}/5", flush=True)
 EOF
 kill $PID 2>/dev/null; wait $PID 2>/dev/null
 ```
 
-`chmod +x /tmp/needle.sh`. Note: the FIRST question pays full prefill; later ones reuse the
-prompt cache (shared prefix), so a 5-question round is much cheaper than 5 full prefills.
+`chmod +x /tmp/needle.sh`. Note: afm's prompt cache is DISABLED for CacheList models
+(`[PrefixCache] outcome=disabled` — DSA models carry two caches per layer), so every
+question re-pays the full prefill. A 5-question round costs 5 full prefills; budget
+accordingly (baseline at 128k: >5h per question). Fixing prefix reuse for CacheList
+is a known afm follow-up.
 
 ## 2. Recall at 32k and 128k (default prefill step)
 
@@ -108,6 +114,27 @@ done
 The zeroing bug needs indexer score tensors ≥2³⁴ elements: 32 index heads × 4096-chunk ×
 131072 context. Force the 4096 prefill step:
 
+**Memory prerequisite (512 GB machine):** the trigger-sized score transients (~34-52 GB
+each, 2-3 live under lazy eval) on top of 342 GB resident weights exceed the default MLX
+wired limit (0.9 × recommendedMaxWorkingSetSize ≈ 417 GiB) — both binaries die mid-prefill
+with `kIOGPUCommandBufferCallbackErrorOutOfMemory`. Raise the OS ceiling first
+(reversible, resets on reboot):
+
+```bash
+sudo sysctl iogpu.wired_limit_mb=507904   # 496 GB -> afm wired ~446 GB
+```
+
+Even then the baseline leg (fused sum holds ~3 copies live) may not fit. A reduced
+variant keeps the same 2³⁴-element trigger with far less pressure: ~65k tokens at
+`--prefill-step-size 8192` (32 × 8192 × 65536 = 2³⁴):
+
+```bash
+/tmp/needle.sh /tmp/afm-baseline 46000 9999 --prefill-step-size 8192
+/tmp/needle.sh /tmp/afm-dsa      46000 9999 --prefill-step-size 8192
+```
+
+Original full-scale form:
+
 ```bash
 /tmp/needle.sh /tmp/afm-baseline 131072 9999 --prefill-step-size 4096
 /tmp/needle.sh /tmp/afm-dsa      131072 9999 --prefill-step-size 4096
@@ -128,3 +155,35 @@ Record per test: binary, context size, recall n/5, first-question seconds. Updat
 `glm5-dsa-1454-port` memory / PR with results. If all pass: merge the branch. If upstream
 mlx-lm #1454 changed since 2026-07-04, diff against the port first
 (`gh pr diff 1454 --repo ml-explore/mlx-lm`).
+
+## Results — 2026-07-05..07, M3 Ultra 512 GB
+
+Binaries: dsa = branch @ 2136f8a; baseline = tmp-baseline (main + bdc658b + 2136f8a
+cherry-picked, i.e. all correctness fixes but NO #1454 port). "ctx" is the needle
+parameter; real token counts are ~1.41× (32000 → 45k, 128000 → 180k).
+
+| Test | dsa | baseline | verdict |
+|---|---|---|---|
+| 2. recall 32k | **5/5** (~575 s/q) | **5/5** (~1170 s/q) | pass |
+| 2. recall 128k | **5/5** (~4040 s/q, 45 tok/s pp) | incomplete¹ | dsa pass |
+| 3. prefill A/B 40k, pair 1 | first-q 712 s | first-q 1745 s | **2.45×** |
+| 3. prefill A/B 40k, pair 2 | first-q 716 s | first-q 1828 s | **2.55×** |
+| 4. mlx#3784 trigger 131k/4096 | OOM² | OOM² | not runnable at default wired limit |
+
+¹ Baseline 128k: first attempt hit the harness's old 2 h/question timeout; rerun (6 h
+timeout) measured **pp 9.7 tok/s, ~5.1 h/question** (server STATS), i.e. a ~4.6× dsa
+prefill advantage at 128k — the gap widens with context as upstream claimed — but the
+host rebooted during question 5 and the buffered recall lines were lost (hence the
+flush=True fix above). Re-run pending.
+
+² Both legs died mid-prefill on the Metal wired limit (417 GiB default); see the memory
+prerequisite in section 4. Retry with the raised limit / reduced variant pending. Fix #1
+(indexer-sum workaround) currently rests on testIndexerHeadReductionEquivalence and
+upstream's repro rather than an on-box collapse demonstration.
+
+Bugs found and fixed by this campaign (all required before ANY GLM-5.2-mxfp4 inference
+worked at depth): mxfp4 MultiLinear biases crash + qmv_fast_wide affine gate (bdc658b);
+rope_theta .int decode (1M-vs-8M) + indexer_types cross-layer sharing (2136f8a). Known
+afm follow-ups: prompt-cache disabled for CacheList models; server hard-aborts
+(std::runtime_error) instead of failing the request on Metal OOM; Swift Jinja parser
+rejects `content.0` numeric attribute access (worked around in the model cache).
