@@ -289,8 +289,14 @@ final class MLXModelService: @unchecked Sendable {
         }
     }
 
-    static func shouldStopSerialGenerationAfterStructuredToolCall(hasTools: Bool) -> Bool {
-        hasTools
+    /// Producer-side early stop after a structured tool call. Stopping while
+    /// parallel tool calls are allowed (default) would truncate multi-call
+    /// turns, so only stop when the request explicitly disabled them.
+    static func shouldStopSerialGenerationAfterStructuredToolCall(
+        hasTools: Bool,
+        parallelToolCalls: Bool?
+    ) -> Bool {
+        hasTools && parallelToolCalls == false
     }
 
     static func effectiveChatTemplateToolCallParser(
@@ -1691,6 +1697,7 @@ final class MLXModelService: @unchecked Sendable {
         logprobs: Bool? = nil,
         topLogprobs: Int? = nil,
         tools: [RequestTool]? = nil,
+        parallelToolCalls: Bool? = nil,
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
         chatTemplateKwargs: [String: AnyCodable]? = nil
@@ -1839,7 +1846,7 @@ final class MLXModelService: @unchecked Sendable {
                 seed: normalizedSeed(seed),
                 computeLogprobs: false,
                 topLogprobsCount: 0,
-                stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: requestHasTools),
+                stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: requestHasTools, parallelToolCalls: parallelToolCalls),
                 prefillStepSize: self.prefillStepSize
             )
             params.extraProcessor = nil
@@ -2032,7 +2039,7 @@ final class MLXModelService: @unchecked Sendable {
                 seed: normalizedSeed(seed),
                 computeLogprobs: wantLogprobs,
                 topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
-                stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: requestHasTools),
+                stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: requestHasTools, parallelToolCalls: parallelToolCalls),
                 prefillStepSize: self.prefillStepSize
             )
             var collectedLogprobs = [TokenLogprobData]()
@@ -2577,6 +2584,7 @@ final class MLXModelService: @unchecked Sendable {
         logprobs: Bool? = nil,
         topLogprobs: Int? = nil,
         tools: [RequestTool]? = nil,
+        parallelToolCalls: Bool? = nil,
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
         chatTemplateKwargs: [String: AnyCodable]? = nil,
@@ -2635,7 +2643,7 @@ final class MLXModelService: @unchecked Sendable {
             seed: normalizedSeed(seed),
             computeLogprobs: wantLogprobs,
             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
-            stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: streamRequestHasTools),
+            stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: streamRequestHasTools, parallelToolCalls: parallelToolCalls),
             prefillStepSize: self.prefillStepSize
         )
 
@@ -2906,7 +2914,7 @@ final class MLXModelService: @unchecked Sendable {
                             seed: normalizedSeed(seed),
                             computeLogprobs: wantLogprobs,
                             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
-                            stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: !(tools?.isEmpty ?? true)),
+                            stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: !(tools?.isEmpty ?? true), parallelToolCalls: parallelToolCalls),
                             prefillStepSize: self.prefillStepSize
                         )
                         // Grammar constraint setup — see non-streaming path for details.
@@ -3550,7 +3558,9 @@ final class MLXModelService: @unchecked Sendable {
         }
         let keys = orderedKeys(Array(dict.keys), preferred: preferred)
         let parts = keys.compactMap { key -> String? in
-            guard let value = dict[key], !(value is NSNull) else { return nil }
+            guard let value = dict[key] else { return nil }
+            // Preserve explicit JSON nulls (e.g. "const": null) — dropping them
+            // changes schema meaning and diverges from Python's json.dumps.
             return "\(jsonStringLiteral(key)): \(pythonStyleJSONValue(value, parentKey: key))"
         }
         return "{\(parts.joined(separator: ", "))}"
@@ -4018,7 +4028,7 @@ final class MLXModelService: @unchecked Sendable {
     /// Handles <tool_call><function=name><parameter=key>value</parameter></function></tool_call>
     /// and <tool_call>{"name":"func","arguments":{...}}</tool_call> patterns.
     /// Returns extracted ToolCalls and remaining non-tool-call content.
-    static func extractToolCallsFallback(from text: String, tools: [RequestTool]? = nil) -> ([ToolCall], String) {
+    static func extractToolCallsFallback(from text: String, tools: [RequestTool]? = nil, allowMalformedRepair: Bool = false) -> ([ToolCall], String) {
         var toolCalls = [ToolCall]()
         var remaining = text
 
@@ -4090,7 +4100,9 @@ final class MLXModelService: @unchecked Sendable {
 
             // Try malformed Qwen JSON/XML hybrids observed in Qwen3.6 MoE:
             // {"name="tool", "arguments": {...}} or {"function="tool", "path="..."}
-            if let tc = parseQwenMalformedToolCall(inner) {
+            // Repair-mode only: default native/parity mode must not coerce
+            // malformed output into tool calls (docs/mlx-tool-calling.md).
+            if allowMalformedRepair, let tc = parseQwenMalformedToolCall(inner) {
                 if debugLogging {
                     print("[\(ts())] [ToolCallParser] Qwen malformed hybrid: \(tc.function.name)(\(tc.function.arguments.keys.joined(separator: ", ")))")
                 }
@@ -4658,7 +4670,6 @@ final class MLXModelService: @unchecked Sendable {
             }
             let key = String(chars[i..<j])
             var v = j + 1
-            let rawValue: String
             if v < n, chars[v] == "\"" || chars[v] == "'" {
                 let quote = chars[v]
                 v += 1
@@ -4673,7 +4684,13 @@ final class MLXModelService: @unchecked Sendable {
                     }
                     v += 1
                 }
-                rawValue = String(chars[valueStart..<Swift.min(valueEnd, n)])
+                // Quoted values are exact — the delimiters are known, so code
+                // content like a trailing `}` in new_string must survive
+                // untouched by cleanValue's junk trimming.
+                let value = String(chars[valueStart..<Swift.min(valueEnd, n)])
+                if !value.isEmpty {
+                    fields[key] = value
+                }
                 i = Swift.min(v, n)
             } else {
                 // Unquoted value: runs until the next boundary-preceded key marker.
@@ -4693,12 +4710,11 @@ final class MLXModelService: @unchecked Sendable {
                     }
                     k += 1
                 }
-                rawValue = String(chars[valueStart..<valueEnd])
+                let value = cleanValue(String(chars[valueStart..<valueEnd]))
+                if !value.isEmpty {
+                    fields[key] = value
+                }
                 i = valueEnd
-            }
-            let value = cleanValue(rawValue)
-            if !value.isEmpty {
-                fields[key] = value
             }
         }
         return fields

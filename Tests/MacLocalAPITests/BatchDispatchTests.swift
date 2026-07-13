@@ -96,7 +96,7 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
         model: String, messages: [Message], temperature: Double?, maxTokens: Int?,
         topP: Double?, repetitionPenalty: Double?, topK: Int?, minP: Double?,
         presencePenalty: Double?, seed: Int?, logprobs: Bool?, topLogprobs: Int?,
-        tools: [RequestTool]?, stop: [String]?, responseFormat: ResponseFormat?,
+        tools: [RequestTool]?, parallelToolCalls: Bool?, stop: [String]?, responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
     ) async throws -> ChatGenerationResult {
         (modelID: model, content: "Hello", promptTokens: 10, completionTokens: 5,
@@ -108,7 +108,7 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
         model: String, messages: [Message], temperature: Double?, maxTokens: Int?,
         topP: Double?, repetitionPenalty: Double?, topK: Int?, minP: Double?,
         presencePenalty: Double?, seed: Int?, logprobs: Bool?, topLogprobs: Int?,
-        tools: [RequestTool]?, stop: [String]?, responseFormat: ResponseFormat?,
+        tools: [RequestTool]?, parallelToolCalls: Bool?, stop: [String]?, responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
     ) async throws -> ChatStreamingResult {
         _lock.withLock {
@@ -131,6 +131,7 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
         logprobs: Bool?,
         topLogprobs: Int?,
         tools: [RequestTool]?,
+        parallelToolCalls: Bool?,
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?,
@@ -150,6 +151,7 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
             logprobs: logprobs,
             topLogprobs: topLogprobs,
             tools: tools,
+            parallelToolCalls: parallelToolCalls,
             stop: stop,
             responseFormat: responseFormat,
             chatTemplateKwargs: chatTemplateKwargs

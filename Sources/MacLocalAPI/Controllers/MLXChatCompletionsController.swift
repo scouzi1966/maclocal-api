@@ -262,6 +262,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     logprobs: chatRequest.logprobs,
                     topLogprobs: chatRequest.topLogprobs,
                     tools: effectiveTools,
+                    parallelToolCalls: chatRequest.parallelToolCalls,
                     stop: effectiveStop,
                     responseFormat: effectiveResponseFormat,
                     chatTemplateKwargs: chatRequest.chatTemplateKwargs,
@@ -374,6 +375,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     logprobs: chatRequest.logprobs,
                     topLogprobs: chatRequest.topLogprobs,
                     tools: effectiveTools,
+                    parallelToolCalls: chatRequest.parallelToolCalls,
                     stop: effectiveStop,
                     responseFormat: effectiveResponseFormat,
                     chatTemplateKwargs: chatRequest.chatTemplateKwargs
@@ -596,6 +598,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     logprobs: chatRequest.logprobs,
                     topLogprobs: chatRequest.topLogprobs,
                     tools: effectiveTools,
+                    parallelToolCalls: chatRequest.parallelToolCalls,
                     stop: effectiveStop,
                     responseFormat: effectiveResponseFormat,
                     chatTemplateKwargs: chatRequest.chatTemplateKwargs,

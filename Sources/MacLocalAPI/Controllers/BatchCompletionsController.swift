@@ -200,6 +200,7 @@ struct BatchCompletionsController: RouteCollection {
                 logprobs: chatReq.logprobs,
                 topLogprobs: chatReq.topLogprobs,
                 tools: chatReq.tools,
+                parallelToolCalls: chatReq.parallelToolCalls,
                 stop: chatReq.stop,
                 responseFormat: effectiveResponseFormat,
                 chatTemplateKwargs: chatReq.chatTemplateKwargs

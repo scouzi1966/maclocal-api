@@ -44,6 +44,29 @@ struct IssueRegressionTests {
         #expect(patched == "{%- for tool in tools %}{{- tool.__python_json__ }}{%- endfor %}")
     }
 
+    @Test("python-style tool JSON preserves explicit nulls")
+    func pythonStyleToolJSONPreservesNulls() {
+        let tool = RequestTool(
+            type: "function",
+            function: RequestToolFunction(
+                name: "set_flag",
+                description: "Set a flag",
+                parameters: AnyCodable([
+                    "type": "object",
+                    "properties": [
+                        "value": ["type": "null", "const": NSNull()],
+                    ],
+                    "required": ["value"],
+                ] as [String: Any]),
+                strict: nil
+            )
+        )
+        let json = MLXModelService.pythonStyleToolJSON(tool)
+        // Dropping "const": null would change the schema's meaning and diverge
+        // from Python json.dumps output.
+        #expect(json.contains(#""const": null"#))
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // MARK: - #103 — Foundation server `--guided-json` fallback
     // ═══════════════════════════════════════════════════════════════════
