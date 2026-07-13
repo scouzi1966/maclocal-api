@@ -190,6 +190,34 @@ struct XMLToolCallParsingTests {
         #expect(remaining.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
+    @Test("malformed equals fields: quoted values containing assignments are not split")
+    func quotedValuesWithAssignmentsSurvive() {
+        let text = """
+        <tool_call>
+        {"function="edit_file", "path="csv.go", "old_string="x=1", "new_string="x=2"}
+        </tool_call>
+        """
+        let (calls, _) = MLXModelService.extractToolCallsFallback(from: text)
+        #expect(calls.count == 1)
+        #expect(calls[0].function.name == "edit_file")
+        #expect(calls[0].function.arguments["path"]?.anyValue as? String == "csv.go")
+        #expect(calls[0].function.arguments["old_string"]?.anyValue as? String == "x=1")
+        #expect(calls[0].function.arguments["new_string"]?.anyValue as? String == "x=2")
+    }
+
+    @Test("malformed equals fields: nested arguments payload keeps embedded command intact")
+    func nestedArgumentsPayloadParsed() {
+        let text = """
+        <tool_call>
+        {"function="run_command", "arguments="cmd="ls -la""}
+        </tool_call>
+        """
+        let (calls, _) = MLXModelService.extractToolCallsFallback(from: text)
+        #expect(calls.count == 1)
+        #expect(calls[0].function.name == "run_command")
+        #expect(calls[0].function.arguments["cmd"]?.anyValue as? String == "ls -la")
+    }
+
     @Test("decodes XML entities in parameter values via XMLParser")
     func decodesEntitiesInValues() {
         let text = """

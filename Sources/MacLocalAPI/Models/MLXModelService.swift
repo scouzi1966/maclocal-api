@@ -310,7 +310,10 @@ final class MLXModelService: @unchecked Sendable {
         parser?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "none"
     }
 
-    private var toolCallParserDisabled: Bool {
+    /// Raw mode (`--tool-call-parser none`): every extraction path — streaming
+    /// runtime, scheduler runtime, and post-generation fallback — must be gated
+    /// on this so tool markup reaches the client as plain content.
+    var toolCallParserDisabled: Bool {
         Self.isToolCallParserDisabled(toolCallParser)
     }
 
@@ -2653,7 +2656,7 @@ final class MLXModelService: @unchecked Sendable {
             let tConstraint = debugLogging ? Date() : Date.distantPast
 
             let toolRuntimeConfig: BatchScheduler.ToolCallRuntimeConfiguration?
-            if let tools, !tools.isEmpty {
+            if let tools, !tools.isEmpty, !toolCallParserDisabled {
                 let format = withStateLock({ currentToolCallFormat })
                 if let format {
                     switch format {
@@ -2664,6 +2667,9 @@ final class MLXModelService: @unchecked Sendable {
                             parser: self.resolvedToolCallParser(logBypass: false),
                             tools: tools
                         )
+                    case .none:
+                        // Raw mode: no scheduler-side tool extraction
+                        toolRuntimeConfig = nil
                     default:
                         let parser = format.createParser()
                         toolRuntimeConfig = .init(
@@ -3359,13 +3365,16 @@ final class MLXModelService: @unchecked Sendable {
 
         // Derive tool call start/end tags for streaming detection
         let toolTags: (start: String, end: String)?
-        if let tools, !tools.isEmpty {
+        if let tools, !tools.isEmpty, !toolCallParserDisabled {
             let format = withStateLock({ currentToolCallFormat })
             if let format {
                 switch format {
                 case .xmlFunction:
                     // XMLFunctionParser has nil tags; chat template wraps in <tool_call>
                     toolTags = ("<tool_call>", "</tool_call>")
+                case .none:
+                    // Raw mode: no tags → controller never builds a tool runtime
+                    toolTags = nil
                 default:
                     let parser = format.createParser()
                     toolTags = (parser.startTag ?? "<tool_call>", parser.endTag ?? "</tool_call>")
@@ -4523,6 +4532,11 @@ final class MLXModelService: @unchecked Sendable {
     private static func parseQwenMalformedToolCall(_ content: String) -> ToolCall? {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        // Every malformed hybrid this parser targets opens with `{`. Plain XML
+        // bodies (e.g. an unterminated <function=...> at stream end) must fall
+        // through to the runtime's own salvage path, which closes tags properly.
+        guard trimmed.hasPrefix("{") else { return nil }
+
         if trimmed.contains(#"{"function>"#),
            let nameStart = trimmed.range(of: "<name>"),
            let nameEnd = trimmed.range(of: "</name>", range: nameStart.upperBound..<trimmed.endIndex) {
@@ -4587,30 +4601,102 @@ final class MLXModelService: @unchecked Sendable {
         return ToolCall(function: .init(name: name, arguments: arguments))
     }
 
+    /// Quote-aware `key=value` field scanner for malformed Qwen tool calls.
+    ///
+    /// A naive global `identifier=` regex splits values that themselves contain
+    /// assignments — `old_string="x=1"` would be broken at the inner `x=`,
+    /// corrupting code-edit arguments. Keys are therefore only recognized at
+    /// field boundaries, and a value that opens with a quote is consumed
+    /// through its closing quote (backslash escapes honored) before the scan
+    /// looks for the next key.
     private static func parseMalformedEqualsFields(_ content: String) -> [String: String] {
-        let markerRegex = try! NSRegularExpression(
-            pattern: #""?([a-zA-Z_][a-zA-Z0-9_]*)="#,
-            options: []
-        )
-        let matches = markerRegex.matches(in: content, range: NSRange(content.startIndex..., in: content))
-        guard !matches.isEmpty else { return [:] }
-
+        let chars = Array(content)
+        let n = chars.count
         var fields: [String: String] = [:]
-        for (idx, match) in matches.enumerated() {
-            guard let keyRange = Range(match.range(at: 1), in: content),
-                  let valueStart = Range(match.range, in: content)?.upperBound else { continue }
-            let key = String(content[keyRange])
-            let valueEnd = idx + 1 < matches.count
-                ? content.index(content.startIndex, offsetBy: matches[idx + 1].range.location)
-                : content.endIndex
-            var value = String(content[valueStart..<valueEnd])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+        var i = 0
+
+        func isIdentifierStart(_ c: Character) -> Bool {
+            (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c == "_"
+        }
+        func isIdentifierChar(_ c: Character) -> Bool {
+            isIdentifierStart(c) || (c >= "0" && c <= "9")
+        }
+        // Characters that may legitimately precede a key marker in the
+        // malformed grammar ({"key="v", key=v, <parameter=...).
+        func isKeyBoundary(_ c: Character) -> Bool {
+            c.isWhitespace || "{},\"'<>".contains(c)
+        }
+        // A quote inside a value only terminates it when what follows reads as
+        // a field boundary; `cmd="ls -la"` embedded in a value stays intact.
+        func isClosingQuote(after index: Int) -> Bool {
+            var k = index + 1
+            while k < n, chars[k] == " " || chars[k] == "\t" { k += 1 }
+            if k >= n { return true }
+            return ",}\"'<\n".contains(chars[k])
+        }
+        func cleanValue(_ raw: String) -> String {
+            var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             value = value.replacingOccurrences(
                 of: #"</?(tool_call|function|parameter)[^>]*>"#,
                 with: "",
                 options: .regularExpression
             )
-            value = value.trimmingCharacters(in: CharacterSet(charactersIn: " \n\r\t,}\"{"))
+            return value.trimmingCharacters(in: CharacterSet(charactersIn: " \n\r\t,}\"{"))
+        }
+
+        while i < n {
+            guard isIdentifierStart(chars[i]),
+                  i == 0 || isKeyBoundary(chars[i - 1]) else {
+                i += 1
+                continue
+            }
+            var j = i
+            while j < n, isIdentifierChar(chars[j]) { j += 1 }
+            guard j < n, chars[j] == "=" else {
+                i = j
+                continue
+            }
+            let key = String(chars[i..<j])
+            var v = j + 1
+            let rawValue: String
+            if v < n, chars[v] == "\"" || chars[v] == "'" {
+                let quote = chars[v]
+                v += 1
+                let valueStart = v
+                var valueEnd = n
+                while v < n {
+                    if chars[v] == "\\" { v += 2; continue }
+                    if chars[v] == quote, isClosingQuote(after: v) {
+                        valueEnd = v
+                        v += 1
+                        break
+                    }
+                    v += 1
+                }
+                rawValue = String(chars[valueStart..<Swift.min(valueEnd, n)])
+                i = Swift.min(v, n)
+            } else {
+                // Unquoted value: runs until the next boundary-preceded key marker.
+                let valueStart = v
+                var valueEnd = n
+                var k = v
+                while k < n {
+                    if isIdentifierStart(chars[k]), k > valueStart, isKeyBoundary(chars[k - 1]) {
+                        var m = k
+                        while m < n, isIdentifierChar(chars[m]) { m += 1 }
+                        if m < n, chars[m] == "=" {
+                            valueEnd = k
+                            break
+                        }
+                        k = m
+                        continue
+                    }
+                    k += 1
+                }
+                rawValue = String(chars[valueStart..<valueEnd])
+                i = valueEnd
+            }
+            let value = cleanValue(rawValue)
             if !value.isEmpty {
                 fields[key] = value
             }

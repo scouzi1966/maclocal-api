@@ -311,7 +311,9 @@ struct MLXChatCompletionsController: RouteCollection {
                 // Fallback tool call parsing: if no tool calls were detected by
                 // streaming runtime but content contains tool call patterns, try
                 // full-text parsing (handles missing <tool_call> wrapper, etc.)
-                if finalToolCalls == nil && chatRequest.tools != nil && !fullText.isEmpty {
+                // Raw mode (--tool-call-parser none) skips this entirely.
+                if finalToolCalls == nil && chatRequest.tools != nil && !fullText.isEmpty
+                    && !MLXModelService.isToolCallParserDisabled(service.toolCallParser) {
                     let trimmed = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
                     let parserName = self.service.resolvedToolCallParser(logBypass: false) ?? "auto"
                     let looksLikeToolCall =
@@ -992,7 +994,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 let trimmedFull = fullContent.trimmingCharacters(in: .whitespacesAndNewlines)
                 let looksLikeBareJsonToolCall = trimmedFull.hasPrefix("{") && trimmedFull.contains("\"name\"")
                 let parserName = self.service.toolCallParser ?? "auto"
-                if !hasToolCalls && (
+                if !hasToolCalls && !MLXModelService.isToolCallParserDisabled(service.toolCallParser) && (
                     (toolCallStartTag != nil && fullContent.contains(toolCallStartTag!)) ||
                     fullContent.contains("[TOOL_CALLS]") ||
                     fullContent.contains("[ARGS]") ||
