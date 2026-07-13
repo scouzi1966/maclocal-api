@@ -1345,10 +1345,16 @@ struct MLXChatCompletionsController: RouteCollection {
         Self.resolveEffectiveMaxTokens(requested: requested, serverDefault: maxTokens)
     }
 
+    /// Fallback when neither the request nor the server sets max_tokens.
+    /// Deliberately larger than mlx_lm.server's 512 so interactive clients that
+    /// omit max_tokens don't get truncated thinking/code output; parity
+    /// benchmarks should pass an explicit max_tokens on both servers.
+    static let defaultMaxCompletionTokens = 4096
+
     static func resolveEffectiveMaxTokens(requested: Int?, serverDefault: Int?) -> Int {
         if let requested, requested > 0 { return requested }
         if let serverDefault, serverDefault > 0 { return serverDefault }
-        return 512
+        return Self.defaultMaxCompletionTokens
     }
 
     private func sanitizeDegenerateTail(_ text: String) -> String {

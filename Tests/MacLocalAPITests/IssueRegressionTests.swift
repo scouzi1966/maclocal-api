@@ -6,10 +6,11 @@ import Testing
 /// Regression tests for fixed issues. Each case names the issue it covers.
 struct IssueRegressionTests {
 
-    @Test("MLX default max_tokens matches mlx_lm.server when request and CLI omit it")
-    func mlxDefaultMaxTokensMatchesPythonServer() {
-        #expect(MLXChatCompletionsController.resolveEffectiveMaxTokens(requested: nil, serverDefault: nil) == 512)
-        #expect(MLXChatCompletionsController.resolveEffectiveMaxTokens(requested: 0, serverDefault: nil) == 512)
+    @Test("MLX max_tokens fallback applies when request and CLI omit it")
+    func mlxDefaultMaxTokensFallback() {
+        #expect(MLXChatCompletionsController.resolveEffectiveMaxTokens(requested: nil, serverDefault: nil) == MLXChatCompletionsController.defaultMaxCompletionTokens)
+        #expect(MLXChatCompletionsController.resolveEffectiveMaxTokens(requested: 0, serverDefault: nil) == MLXChatCompletionsController.defaultMaxCompletionTokens)
+        #expect(MLXChatCompletionsController.defaultMaxCompletionTokens == 4096)
         #expect(MLXChatCompletionsController.resolveEffectiveMaxTokens(requested: nil, serverDefault: 1024) == 1024)
         #expect(MLXChatCompletionsController.resolveEffectiveMaxTokens(requested: 2048, serverDefault: 1024) == 2048)
     }
