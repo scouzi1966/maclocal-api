@@ -125,6 +125,10 @@ public struct GenerateParameters: Sendable {
     /// Applied AFTER the built-in processors in the chain.
     public var extraProcessor: LogitProcessor?
 
+    /// Stop generation from the producer after yielding a complete structured
+    /// tool call, so consumers can drain normal completion metadata.
+    public var stopAfterToolCall: Bool
+
     public init(
         maxTokens: Int? = nil,
         maxKVSize: Int? = nil,
@@ -141,6 +145,7 @@ public struct GenerateParameters: Sendable {
         seed: UInt64? = nil,
         computeLogprobs: Bool = false,
         topLogprobsCount: Int = 0,
+        stopAfterToolCall: Bool = false,
         prefillStepSize: Int = 512
     ) {
         self.maxTokens = maxTokens
@@ -158,6 +163,7 @@ public struct GenerateParameters: Sendable {
         self.seed = seed
         self.computeLogprobs = computeLogprobs
         self.topLogprobsCount = min(max(topLogprobsCount, 0), 20)
+        self.stopAfterToolCall = stopAfterToolCall
         self.prefillStepSize = prefillStepSize
     }
 
@@ -1269,7 +1275,8 @@ public func generate(
         promptTokenCount: input.text.tokens.size,
         modelConfiguration: context.configuration,
         tokenizer: context.tokenizer,
-        iterator: iterator)
+        iterator: iterator,
+        stopAfterToolCall: parameters.stopAfterToolCall)
     return stream
 }
 
@@ -1305,7 +1312,8 @@ public func generateTask(
     promptTokenCount: Int,
     modelConfiguration: ModelConfiguration,
     tokenizer: Tokenizer,
-    iterator: consuming TokenIterator
+    iterator: consuming TokenIterator,
+    stopAfterToolCall: Bool = false
 ) -> (AsyncStream<Generation>, Task<Void, Never>) {
 
     let (stream, continuation) = AsyncStream<Generation>.makeStream()
@@ -1339,6 +1347,7 @@ public func generateTask(
         let perfEnabled = TokenIterator.perfEnabled
         var perfDetokNs: UInt64 = 0
         var perfLoopOverheadNs: UInt64 = 0
+        var stoppedAfterToolCall = false
 
         while true {
             let tLoopTop: UInt64 = perfEnabled ? DispatchTime.now().uptimeNanoseconds : 0
@@ -1391,6 +1400,10 @@ public func generateTask(
                     if case .terminated = continuation.yield(.toolCall(toolCall)) {
                         break
                     }
+                    if stopAfterToolCall {
+                        stoppedAfterToolCall = true
+                        break
+                    }
                 }
             }
             if perfEnabled {
@@ -1407,6 +1420,10 @@ public func generateTask(
             print("[PERF] Loop overhead: detokenize+yield=\(String(format: "%.1f", detokMs))ms (\(String(format: "%.2f", detokMs / Double(iterator.perfTokenCount)))ms/tok)")
         }
         iterator.printPerfSummary()
+
+        if stoppedAfterToolCall {
+            Stream.gpu.synchronize()
+        }
 
         // Explicitly release iterator-held GPU arrays (cache, last token, state)
         // before synchronizing. This ensures no stale references survive into
