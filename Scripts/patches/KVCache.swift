@@ -51,6 +51,11 @@ public protocol KVCache: Evaluatable, Updatable {
     /// get the current state for serialization
     var state: [MLXArray] { get set }
 
+    /// Number of state arrays this cache contributes once populated (0 = unknown).
+    /// Containers restoring into freshly-created children split by this when the
+    /// child's current state is empty. See CacheList.state.
+    var stateArity: Int { get }
+
     /// get/set metadata state as string array for serialization
     var metaState: [String] { get set }
 
@@ -77,6 +82,11 @@ public protocol KVCache: Evaluatable, Updatable {
     func makeMask(
         n: Int, windowSize: Int?, returnArray: Bool
     ) -> MLXFast.ScaledDotProductAttentionMaskMode
+}
+
+extension KVCache {
+    /// Default for conformers that don't declare an arity (0 = unknown/variable).
+    public var stateArity: Int { 0 }
 }
 
 /// Protocol for caches that support efficient quantized operations
@@ -151,6 +161,13 @@ open class BaseKVCache: KVCache {
             }
         }
     }
+
+    /// Number of state arrays this cache contributes once populated. A FRESH cache
+    /// returns `state == []`, so containers (CacheList) restoring a saved state into
+    /// newly-created children cannot use `state.count` to split the flat array — they
+    /// split by arity instead. 0 means "unknown/variable" (e.g. ArraysCache), which
+    /// makes restore-into-fresh refuse loudly rather than silently drop state.
+    open var stateArity: Int { 0 }
 
     open var metaState: [String] {
         get {
@@ -464,6 +481,8 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
             }
         }
     }
+
+    public override var stateArity: Int { 2 }
 
     public override var isTrimmable: Bool { true }
 
@@ -1263,14 +1282,31 @@ public class CacheList: BaseKVCache {
     public override var state: [MLXArray] {
         get { caches.flatMap { $0.state } }
         set {
-            let stateLengths = caches.map { $0.state.count }
+            if newValue.isEmpty { return }
+            // A fresh child reports state == [], so splitting the flat array by
+            // current counts would silently drop everything (prefix-cache restore
+            // creates the target via model.newCache()). Fall back to stateArity.
             var start = 0
             for i in 0 ..< caches.count {
-                let length = stateLengths[i]
+                // Children that were empty at save time contribute no arrays; when the
+                // flat state is exhausted the remaining children stay fresh (GLM-5 DSA:
+                // "shared" layers never populate their indexer sub-cache).
+                if start == newValue.count { break }
+                let current = caches[i].state.count
+                let length = current > 0 ? current : caches[i].stateArity
+                guard length > 0, start + length <= newValue.count else {
+                    fatalError(
+                        "CacheList restore: child \(i) (\(type(of: caches[i]))) expects "
+                        + "\(length) state arrays at offset \(start), have \(newValue.count) total")
+                }
                 caches[i].state = Array(newValue[start ..< (start + length)])
                 start += length
             }
         }
+    }
+
+    public override var stateArity: Int {
+        caches.reduce(0) { $0 + $1.stateArity }
     }
 
     public override var metaState: [String] {

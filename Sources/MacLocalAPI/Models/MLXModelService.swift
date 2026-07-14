@@ -5214,7 +5214,18 @@ final class MLXModelService: @unchecked Sendable {
     }
 
     private func hasRecurrentLayers(_ cache: [KVCache]) -> Bool {
-        cache.contains { $0 is ArraysCache || $0 is CacheList }
+        cache.contains { isRecurrent($0) }
+    }
+
+    /// Recurrent state (Mamba/GatedDeltaNet in ArraysCache) is not replay-safe for
+    /// exact full-prefix restores. A CacheList is only recurrent if a child is —
+    /// GLM-5 DSA's CacheList(KVCacheSimple, KVCacheSimple) is pure attention state
+    /// and restores fine; FalconH1's CacheList(MambaCache, KVCacheSimple) is not.
+    private func isRecurrent(_ cache: KVCache) -> Bool {
+        if let list = cache as? CacheList {
+            return (0..<list.count).contains { isRecurrent(list[$0]) }
+        }
+        return cache is ArraysCache
     }
 
     private func unsafeExactReplaySuffix() -> Int? {

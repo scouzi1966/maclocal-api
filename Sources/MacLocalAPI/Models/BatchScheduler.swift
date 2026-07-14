@@ -196,7 +196,19 @@ actor BatchScheduler {
     private var totalTokensGenerated = 0
 
     private func hasRecurrentLayers(_ cache: [KVCache]) -> Bool {
-        cache.contains { $0 is ArraysCache || $0 is CacheList }
+        cache.contains { Self.cacheIsRecurrent($0) }
+    }
+
+    /// Recurrent state (Mamba/GatedDeltaNet) is not replay-safe for exact
+    /// full-prefix restores. A CacheList is only recurrent if a child is:
+    /// GLM-5 DSA (KVCacheSimple x2) restores fine; FalconH1 (MambaCache child)
+    /// does not. Static so non-isolated call sites can use it without sending
+    /// the non-Sendable cache across an actor boundary.
+    static func cacheIsRecurrent(_ cache: KVCache) -> Bool {
+        if let list = cache as? CacheList {
+            return (0..<list.count).contains { cacheIsRecurrent(list[$0]) }
+        }
+        return cache is ArraysCache
     }
 
     private func unsafeExactReplaySuffix() -> Int? {
@@ -883,10 +895,10 @@ actor BatchScheduler {
             cacheLookupTime = tLookup1 - tLookup0
             let forcedSuffix = unsafeExactReplaySuffix()
             let effectivePrefix: Int
-            // Inlined hasRecurrentLayers(cache): an actor-isolated call would make
+            // Static (non-isolated) helper: an actor-isolated call would make
             // the compiler treat the non-Sendable `cache` as "sent", conflicting
-            // with its later in-actor uses. Inlining keeps it in one region.
-            let recurrent = cache.contains { $0 is ArraysCache || $0 is CacheList }
+            // with its later in-actor uses.
+            let recurrent = cache.contains { Self.cacheIsRecurrent($0) }
             if prefixLen == inputTokens.count && recurrent && forcedSuffix == nil {
                 effectivePrefix = 0
                 if prefixLen > 0 {

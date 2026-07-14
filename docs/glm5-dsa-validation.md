@@ -74,11 +74,12 @@ EOF
 kill $PID 2>/dev/null; wait $PID 2>/dev/null
 ```
 
-`chmod +x /tmp/needle.sh`. Note: afm's prompt cache is DISABLED for CacheList models
-(`[PrefixCache] outcome=disabled` — DSA models carry two caches per layer), so every
-question re-pays the full prefill. A 5-question round costs 5 full prefills; budget
-accordingly (baseline at 128k: >5h per question). Fixing prefix reuse for CacheList
-is a known afm follow-up.
+`chmod +x /tmp/needle.sh`. Note: pass `--enable-prefix-caching` to the server and
+questions 2-5 reuse the shared-haystack prefix (~1s prompt_time instead of a full
+prefill). Without the flag every question re-pays the full prefill (baseline at 128k:
+>5h per question). CacheList prefix caching requires the stateArity restore fix
+(2026-07-14); on older binaries the flag is unsafe for GLM-5 (silent empty-cache
+restore).
 
 ## 2. Recall at 32k and 128k (default prefill step)
 
@@ -184,6 +185,27 @@ upstream's repro rather than an on-box collapse demonstration.
 Bugs found and fixed by this campaign (all required before ANY GLM-5.2-mxfp4 inference
 worked at depth): mxfp4 MultiLinear biases crash + qmv_fast_wide affine gate (bdc658b);
 rope_theta .int decode (1M-vs-8M) + indexer_types cross-layer sharing (2136f8a). Known
-afm follow-ups: prompt-cache disabled for CacheList models; server hard-aborts
-(std::runtime_error) instead of failing the request on Metal OOM; Swift Jinja parser
-rejects `content.0` numeric attribute access (worked around in the model cache).
+afm follow-ups: server hard-aborts (std::runtime_error) instead of failing the request
+on Metal OOM; Swift Jinja parser rejects `content.0` numeric attribute access (worked
+around in the model cache); DSA decode drops ~8x once context exceeds index_topk
+(per-token indexer + gather — separate investigation).
+
+## Full-feature enablement — 2026-07-14, M3 Ultra 512 GB
+
+GLM-5.2 (CacheList models generally) now works with afm's prefix cache and the
+concurrent/batch path:
+
+- **Prefix cache** (`--enable-prefix-caching`): CacheList restore-into-fresh was a
+  silent no-op (CacheList.state split by current — empty — child counts); fixed via
+  stateArity. Radix tree also gained a subtree fallback (edge-split branch nodes hold
+  no entry — sibling conversations sharing a system prompt always missed) and an
+  exact-duplicate insert dedupe (~5s wasted snapshot per repeat request). Measured:
+  4k-token shared prefix, cold 23.9s prompt_time -> warm 0.9s (26x), retrieval from
+  restored KV correct, exact replay correct (hasRecurrentLayers now recurses:
+  CacheList-of-attention is replay-safe; Mamba children still bypass).
+- **Concurrent/batch** (`--concurrent N`): two zero-width crashes fixed
+  (BatchKVCacheSimple.filter take on [B,H,S,0] values at slot finish;
+  BatchCacheList.extract rank-1 empties into KVCacheSimple.state for never-updated
+  shared-layer indexer sub-caches). Measured: batch endpoint B=4 4/4 known-answer
+  correct; 3 simultaneous chat completions 3/3, wall time = slowest request (true
+  parallel decode); batched prefill B=3 in scheduler log.

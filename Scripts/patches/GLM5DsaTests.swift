@@ -64,6 +64,56 @@ public class GLM5DsaTests: XCTestCase {
         XCTAssertEqual(config.indexerTypes, ["full", "shared"])
     }
 
+    /// Prefix-cache restore creates the target via model.newCache() — fresh children
+    /// report state == [], so CacheList.state's setter must split the flat saved
+    /// state by stateArity, not by current counts (which silently dropped everything).
+    /// Shared DSA layers save only the main sub-cache's 2 arrays (indexer empty):
+    /// the restore must fill child 0 and leave child 1 fresh.
+    func testCacheListStateRestoreIntoFreshCache() {
+        MLXRandom.seed(11)
+        let b = 1, heads = 1, tokens = 6, kDim = 8
+
+        // Full layer: both sub-caches populated (indexer stores zero-width values).
+        let source = CacheList(KVCacheSimple(), KVCacheSimple())
+        _ = source[0].update(
+            keys: MLXRandom.normal([b, heads, tokens, kDim]),
+            values: MLXRandom.normal([b, heads, tokens, kDim]))
+        _ = source[1].update(
+            keys: MLXRandom.normal([b, heads, tokens, kDim]),
+            values: MLXArray.zeros([b, heads, tokens, 0]))
+        let savedFull = source.state
+        XCTAssertEqual(savedFull.count, 4)
+
+        let freshFull = CacheList(KVCacheSimple(), KVCacheSimple())
+        freshFull.state = savedFull
+        XCTAssertEqual(freshFull.offset, tokens)
+        XCTAssertEqual(freshFull[0].offset, tokens)
+        XCTAssertEqual(freshFull[1].offset, tokens)
+        let roundtrip = freshFull.state
+        XCTAssertEqual(roundtrip.count, 4)
+        XCTAssertEqual(
+            abs(roundtrip[0] - savedFull[0]).max().item(Float.self), 0,
+            "restored keys must be identical")
+
+        // Shared layer: indexer sub-cache never touched — saved state is 2 arrays.
+        let sourceShared = CacheList(KVCacheSimple(), KVCacheSimple())
+        _ = sourceShared[0].update(
+            keys: MLXRandom.normal([b, heads, tokens, kDim]),
+            values: MLXRandom.normal([b, heads, tokens, kDim]))
+        let savedShared = sourceShared.state
+        XCTAssertEqual(savedShared.count, 2)
+
+        let freshShared = CacheList(KVCacheSimple(), KVCacheSimple())
+        freshShared.state = savedShared
+        XCTAssertEqual(freshShared[0].offset, tokens)
+        XCTAssertEqual(freshShared[1].offset, 0, "empty indexer child must stay fresh")
+
+        // Trim proxies to both children (prefix shorter than stored state).
+        freshFull.trim(2)
+        XCTAssertEqual(freshFull[0].offset, tokens - 2)
+        XCTAssertEqual(freshFull[1].offset, tokens - 2)
+    }
+
     func testIndexerHeadReductionEquivalence() {
         MLXRandom.seed(3)
         let nHeads = 8

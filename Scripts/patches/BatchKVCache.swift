@@ -222,7 +222,14 @@ public class BatchKVCacheSimple: BaseKVCache {
 
         let indices = MLXArray(keepIndices.map { Int32($0) })
         keys = k[indices]
-        values = v[indices]
+        // Zero-width values ([B, H, S, 0] — GLM-5 DSA indexer stores keys only) have
+        // zero elements, and mlx take aborts on them. Rebuild the placeholder instead.
+        if v.dim(3) > 0 {
+            values = v[indices]
+        } else {
+            values = MLXArray.zeros(
+                [keepIndices.count, v.dim(1), v.dim(2), 0], dtype: v.dtype)
+        }
         perSeqOffset = perSeqOffset[indices]
         leftPadding = leftPadding[indices]
         batchSize = keepIndices.count
@@ -838,7 +845,14 @@ public class BatchRotatingKVCache: BaseKVCache {
 
         let indices = MLXArray(keepIndices.map { Int32($0) })
         keys = k[indices]
-        values = v[indices]
+        // Zero-width values ([B, H, S, 0] — GLM-5 DSA indexer stores keys only) have
+        // zero elements, and mlx take aborts on them. Rebuild the placeholder instead.
+        if v.dim(3) > 0 {
+            values = v[indices]
+        } else {
+            values = MLXArray.zeros(
+                [keepIndices.count, v.dim(1), v.dim(2), 0], dtype: v.dtype)
+        }
         perSeqOffset = perSeqOffset[indices]
         leftPadding = leftPadding[indices]
         batchSize = keepIndices.count
@@ -1000,9 +1014,14 @@ public class BatchCacheList: CacheList {
     public func extract(_ index: Int) -> CacheList {
         let extracted: [KVCache] = batchedCaches.map { subCache in
             if let bkv = subCache as? BatchKVCacheSimple {
-                let (k, v, _) = bkv.extract(index)
+                let (k, v, tokenCount) = bkv.extract(index)
                 let individual = KVCacheSimple()
-                individual.state = [k, v]
+                // A never-updated sub-cache (GLM-5 DSA: "shared" layers' indexer)
+                // extracts as rank-1 empties — assigning those to state would read
+                // dim(2) out of range. Leave the individual cache fresh instead.
+                if tokenCount > 0 {
+                    individual.state = [k, v]
+                }
                 return individual as KVCache
             } else if let ac = subCache as? ArraysCache {
                 let individual = MambaCache()

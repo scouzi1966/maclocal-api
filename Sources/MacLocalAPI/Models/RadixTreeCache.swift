@@ -72,6 +72,11 @@ final class RadixTreeCache: @unchecked Sendable {
         var matched = 0
         var lastCachedNode: RadixNode? = nil
         var lastCachedLen = 0
+        // Deepest node whose entire subtree shares tokens[0..<matched]. If traversal
+        // ends past all entry-bearing nodes (e.g. it stops at an edge-split branch
+        // node, which holds no entry itself), ANY descendant's entry still covers the
+        // walked prefix — the caller trims restored state down to prefixLen anyway.
+        var subtreeFallback: RadixNode? = nil
 
         while matched < tokens.count {
             let nextToken = tokens[matched]
@@ -80,6 +85,7 @@ final class RadixTreeCache: @unchecked Sendable {
                     let childKeys = node.children.keys.sorted()
                     print("[PrefixCache] Radix traversal: matched \(matched) tokens, no child for token \(nextToken) at pos \(matched) (children: \(childKeys))")
                 }
+                subtreeFallback = node !== root ? node : nil
                 break
             }
 
@@ -105,11 +111,26 @@ final class RadixTreeCache: @unchecked Sendable {
                 if debugLogging {
                     print("[PrefixCache] Radix traversal: matched \(matched) tokens, diverged at pos \(matched): input=\(tokens[matched]) vs cached=\(edge[edgePos])")
                 }
+                if edgePos > 0 { subtreeFallback = child }
                 break
             }
 
             // Full edge matched
             node = child
+        }
+
+        // Divergence below the deepest entry: borrow the nearest descendant entry
+        // (its tokens necessarily start with the walked prefix) and report only the
+        // matched length. Restores the "shared system prompt, sibling conversations"
+        // pattern that plain node-entry tracking misses after an edge split.
+        if matched > lastCachedLen, let start = subtreeFallback {
+            if let descendant = nearestDescendantEntry(start) {
+                lastCachedNode = descendant
+                lastCachedLen = matched
+                if debugLogging {
+                    print("[PrefixCache] Radix subtree fallback: borrowing entry with \(descendant.cacheEntry?.tokens.count ?? 0) tokens for \(matched)-token prefix")
+                }
+            }
         }
 
         if let cached = lastCachedNode {
@@ -133,6 +154,19 @@ final class RadixTreeCache: @unchecked Sendable {
             }
         }
         return (0, nil, nil)
+    }
+
+    /// Breadth-first search for the shallowest cache entry in a subtree. Shallow
+    /// entries cover fewer surplus tokens, so the caller's restore-then-trim
+    /// discards less work.
+    private func nearestDescendantEntry(_ start: RadixNode) -> RadixNode? {
+        var queue: [RadixNode] = [start]
+        while !queue.isEmpty {
+            let node = queue.removeFirst()
+            if node.hasCachedState { return node }
+            queue.append(contentsOf: node.children.values)
+        }
+        return nil
     }
 
     /// Insert a cached prefix into the tree.
@@ -212,7 +246,17 @@ final class RadixTreeCache: @unchecked Sendable {
             node = child
         }
 
-        // Exact match — update existing node
+        // Exact match — an entry with identical tokens already holds equivalent
+        // state (temp-0-independent: KV state is a function of the prompt tokens).
+        // Re-snapshotting would eval + copy the full per-layer state for nothing
+        // (measured ~5s at 4k tokens x 78 layers on GLM-5.2).
+        if let existing = node.cacheEntry, existing.tokens.count == tokens.count {
+            existing.touch()
+            if debugLogging {
+                print("[PrefixCache] Radix insert (dedupe): entry for \(tokens.count) tokens already present")
+            }
+            return
+        }
         if node.cacheEntry == nil { entryCount += 1 }
         node.cacheEntry = KVCacheEntry(
             tokens: tokens,
