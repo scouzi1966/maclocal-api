@@ -182,18 +182,76 @@ class Gemma4VLRMSNormZeroShift: Module {
 // ============================================================================
 
 /// Linear layer with output scaling (for per-layer model projection).
-class Gemma4VLScaledLinear: Module {
+///
+/// Quantizable: E-series (MatFormer) quantized checkpoints ship
+/// per_layer_model_projection as quantized weight + scales + biases, so this
+/// layer must participate in the quantize(model:) pass or loading fails with
+/// unhandledKeys(["biases", "scales"]).
+class Gemma4VLScaledLinear: Module, Quantizable {
     @ParameterInfo(key: "weight") var weight: MLXArray
     let scalar: Float
+    let inputDims: Int
+    let outputDims: Int
 
     init(inputDims: Int, outputDims: Int, scalar: Float) {
         self.scalar = scalar
+        self.inputDims = inputDims
+        self.outputDims = outputDims
         self._weight.wrappedValue = MLXArray.zeros([outputDims, inputDims])
+        super.init()
+    }
+
+    /// Initializer for subclasses to provide the (possibly quantized) weight directly.
+    init(inputDims: Int, outputDims: Int, scalar: Float, weight: MLXArray) {
+        self.scalar = scalar
+        self.inputDims = inputDims
+        self.outputDims = outputDims
+        self._weight.wrappedValue = weight
         super.init()
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
         return (x.matmul(weight.T)) * scalar
+    }
+
+    func toQuantized(groupSize: Int, bits: Int, mode: QuantizationMode) -> Module {
+        QuantizedGemma4VLScaledLinear(self, groupSize: groupSize, bits: bits, mode: mode)
+    }
+}
+
+/// Quantized variant of ``Gemma4VLScaledLinear``.
+class QuantizedGemma4VLScaledLinear: Gemma4VLScaledLinear, Quantized {
+    @ParameterInfo(key: "scales") var scales: MLXArray
+    @ParameterInfo(key: "biases") var biases: MLXArray?
+
+    let groupSize: Int
+    let bits: Int
+    let mode: QuantizationMode
+
+    init(
+        _ other: Gemma4VLScaledLinear, groupSize: Int = 64, bits: Int = 4,
+        mode: QuantizationMode = .affine
+    ) {
+        self.groupSize = groupSize
+        self.bits = bits
+        self.mode = mode
+
+        let (quantizedWeight, scales, biases) = MLX.quantized(
+            other.weight, groupSize: groupSize, bits: bits, mode: mode)
+        self._scales.wrappedValue = scales
+        self._biases.wrappedValue = biases
+
+        super.init(
+            inputDims: other.inputDims, outputDims: other.outputDims,
+            scalar: other.scalar, weight: quantizedWeight)
+        self.freeze()
+    }
+
+    override func callAsFunction(_ x: MLXArray) -> MLXArray {
+        let y = quantizedMM(
+            x, weight, scales: scales, biases: biases, transpose: true,
+            groupSize: groupSize, bits: bits, mode: mode)
+        return y * scalar
     }
 }
 
