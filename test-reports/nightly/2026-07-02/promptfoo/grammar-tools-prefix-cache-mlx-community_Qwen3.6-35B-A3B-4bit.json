@@ -1,0 +1,3406 @@
+{
+  "evalId": "eval-6e8-2026-07-03T02:47:16",
+  "results": {
+    "version": 3,
+    "timestamp": "2026-07-03T02:47:16.870Z",
+    "prompts": [
+      {
+        "id": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "raw": "{{prompt}}",
+        "label": "{{prompt}}",
+        "provider": "afm-grammar-enabled-tools",
+        "metrics": {
+          "score": 7,
+          "testPassCount": 7,
+          "testFailCount": 0,
+          "testErrorCount": 0,
+          "assertPassCount": 18,
+          "assertFailCount": 0,
+          "totalLatencyMs": 14522,
+          "tokenUsage": {
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "total": 0,
+            "numRequests": 7,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            },
+            "assertions": {
+              "total": 0,
+              "prompt": 0,
+              "completion": 0,
+              "cached": 0,
+              "numRequests": 0,
+              "completionDetails": {
+                "reasoning": 0,
+                "acceptedPrediction": 0,
+                "rejectedPrediction": 0,
+                "cacheReadInputTokens": 0,
+                "cacheCreationInputTokens": 0
+              }
+            }
+          },
+          "namedScores": {},
+          "namedScoresCount": {},
+          "namedScoreWeights": {},
+          "cost": 0
+        }
+      }
+    ],
+    "results": [
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"get_weather\""
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"location\""
+              }
+            }
+          ]
+        },
+        "id": "bca5cef2-f0bd-4c1e-a761-2744ee35fd32",
+        "latencyMs": 2742,
+        "namedScores": {},
+        "prompt": {
+          "raw": "What is the weather in Paris?",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-grammar-enabled-tools"
+        },
+        "response": {
+          "output": "[{\"id\":\"call_cOvygptDgCkgec4SOW2Pmdw9\",\"function\":{\"name\":\"get_weather\",\"arguments\":{\"location\":\"Paris\"}},\"type\":\"function\",\"index\":0}]",
+          "latencyMs": 2742,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "What is the weather in Paris?"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "description": "Get weather for a location",
+                    "strict": true,
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "location": {
+                          "type": "string"
+                        },
+                        "unit": {
+                          "type": "string",
+                          "enum": [
+                            "celsius",
+                            "fahrenheit"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "location"
+                      ]
+                    }
+                  }
+                }
+              ],
+              "tool_choice": "required"
+            },
+            "responseBody": {
+              "created": 1783046839,
+              "usage": {
+                "prompt_tokens_per_second": 532.1,
+                "completion_time": 2.12,
+                "total_time": 2.64,
+                "prompt_time": 0.53,
+                "completion_tokens": 156,
+                "prompt_tokens": 280,
+                "peak_memory_gib": 19.6,
+                "completion_tokens_per_second": 73.67,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "total_tokens": 436
+              },
+              "timings": {
+                "prompt_n": 280,
+                "prompt_ms": 526.2129306793213,
+                "predicted_ms": 2117.6440715789795,
+                "predicted_n": 156
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "id": "chatcmpl-A5585BB3",
+              "choices": [
+                {
+                  "finish_reason": "tool_calls",
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "id": "call_cOvygptDgCkgec4SOW2Pmdw9",
+                        "function": {
+                          "name": "get_weather",
+                          "arguments": "{\"location\":\"Paris\"}"
+                        },
+                        "type": "function",
+                        "index": 0
+                      }
+                    ]
+                  },
+                  "index": 0
+                }
+              ],
+              "object": "chat.completion"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "821",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Jul 2026 02:47:19 GMT",
+              "openai-request-id": "req_6363bd876d2f",
+              "x-request-id": "req_6363bd876d2f"
+            },
+            "usage": {
+              "prompt_tokens_per_second": 532.1,
+              "completion_time": 2.12,
+              "total_time": 2.64,
+              "prompt_time": 0.53,
+              "completion_tokens": 156,
+              "prompt_tokens": 280,
+              "peak_memory_gib": 19.6,
+              "completion_tokens_per_second": 73.67,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 436
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "tool strict:true — single tool, required param",
+          "vars": {
+            "prompt": "What is the weather in Paris?",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "strict": true,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      },
+                      "unit": {
+                        "type": "string",
+                        "enum": [
+                          "celsius",
+                          "fahrenheit"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "required"
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"get_weather\""
+            },
+            {
+              "type": "contains",
+              "value": "\"location\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 0,
+        "tokenUsage": {
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "total": 0,
+          "numRequests": 1,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          },
+          "assertions": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 1,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            }
+          }
+        },
+        "vars": {
+          "prompt": "What is the weather in Paris?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    },
+                    "unit": {
+                      "type": "string",
+                      "enum": [
+                        "celsius",
+                        "fahrenheit"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "required"
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "What is the weather in Paris?"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "strict": true,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      },
+                      "unit": {
+                        "type": "string",
+                        "enum": [
+                          "celsius",
+                          "fahrenheit"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "required"
+          },
+          "responseBody": {
+            "created": 1783046839,
+            "usage": {
+              "prompt_tokens_per_second": 532.1,
+              "completion_time": 2.12,
+              "total_time": 2.64,
+              "prompt_time": 0.53,
+              "completion_tokens": 156,
+              "prompt_tokens": 280,
+              "peak_memory_gib": 19.6,
+              "completion_tokens_per_second": 73.67,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "total_tokens": 436
+            },
+            "timings": {
+              "prompt_n": 280,
+              "prompt_ms": 526.2129306793213,
+              "predicted_ms": 2117.6440715789795,
+              "predicted_n": 156
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "id": "chatcmpl-A5585BB3",
+            "choices": [
+              {
+                "finish_reason": "tool_calls",
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "id": "call_cOvygptDgCkgec4SOW2Pmdw9",
+                      "function": {
+                        "name": "get_weather",
+                        "arguments": "{\"location\":\"Paris\"}"
+                      },
+                      "type": "function",
+                      "index": 0
+                    }
+                  ]
+                },
+                "index": 0
+              }
+            ],
+            "object": "chat.completion"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "821",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Jul 2026 02:47:19 GMT",
+            "openai-request-id": "req_6363bd876d2f",
+            "x-request-id": "req_6363bd876d2f"
+          },
+          "usage": {
+            "prompt_tokens_per_second": 532.1,
+            "completion_time": 2.12,
+            "total_time": 2.64,
+            "prompt_time": 0.53,
+            "completion_tokens": 156,
+            "prompt_tokens": 280,
+            "peak_memory_gib": 19.6,
+            "completion_tokens_per_second": 73.67,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "total_tokens": 436
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"search_code\""
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"query\""
+              }
+            }
+          ]
+        },
+        "id": "07a21810-b2d4-4b3b-a7bf-a33c4e2b2ced",
+        "latencyMs": 2338,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Search for 'grammar constraints' case-sensitively, return max 3 results.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-grammar-enabled-tools"
+        },
+        "response": {
+          "output": "[{\"type\":\"function\",\"id\":\"call_wTmDMWadhtffwyuTPScg6rwm\",\"index\":0,\"function\":{\"arguments\":{\"case_sensitive\":true,\"max_results\":3,\"query\":\"grammar constraints\"},\"name\":\"search_code\"}}]",
+          "latencyMs": 2338,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Search for 'grammar constraints' case-sensitively, return max 3 results."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "search_code",
+                    "description": "Search codebase for a pattern",
+                    "strict": true,
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "query": {
+                          "type": "string"
+                        },
+                        "case_sensitive": {
+                          "type": "boolean"
+                        },
+                        "max_results": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "query",
+                        "case_sensitive",
+                        "max_results"
+                      ]
+                    }
+                  }
+                }
+              ],
+              "tool_choice": "required"
+            },
+            "responseBody": {
+              "object": "chat.completion",
+              "usage": {
+                "prompt_tokens_details": {
+                  "cached_tokens": 24
+                },
+                "prompt_tokens": 298,
+                "total_tokens": 427,
+                "peak_memory_gib": 19.7,
+                "prompt_tokens_per_second": 590.24,
+                "completion_time": 1.75,
+                "prompt_time": 0.5,
+                "completion_tokens": 129,
+                "total_time": 2.26,
+                "completion_tokens_per_second": 73.7
+              },
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "created": 1783046841,
+              "timings": {
+                "prompt_n": 298,
+                "predicted_n": 129,
+                "predicted_ms": 1750.312089920044,
+                "prompt_ms": 504.8799514770508
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+              "id": "chatcmpl-98D8A83B",
+              "choices": [
+                {
+                  "finish_reason": "tool_calls",
+                  "index": 0,
+                  "message": {
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "type": "function",
+                        "id": "call_wTmDMWadhtffwyuTPScg6rwm",
+                        "index": 0,
+                        "function": {
+                          "arguments": "{\"case_sensitive\":true,\"max_results\":3,\"query\":\"grammar constraints\"}",
+                          "name": "search_code"
+                        }
+                      }
+                    ],
+                    "role": "assistant"
+                  }
+                }
+              ]
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "873",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Jul 2026 02:47:21 GMT",
+              "openai-request-id": "req_206b15994730",
+              "x-request-id": "req_206b15994730"
+            },
+            "usage": {
+              "prompt_tokens_details": {
+                "cached_tokens": 24
+              },
+              "prompt_tokens": 298,
+              "total_tokens": 427,
+              "peak_memory_gib": 19.7,
+              "prompt_tokens_per_second": 590.24,
+              "completion_time": 1.75,
+              "prompt_time": 0.5,
+              "completion_tokens": 129,
+              "total_time": 2.26,
+              "completion_tokens_per_second": 73.7
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "tool strict:true — multi-param with typed args",
+          "vars": {
+            "prompt": "Search for 'grammar constraints' case-sensitively, return max 3 results.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "search_code",
+                  "description": "Search codebase for a pattern",
+                  "strict": true,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      },
+                      "case_sensitive": {
+                        "type": "boolean"
+                      },
+                      "max_results": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "query",
+                      "case_sensitive",
+                      "max_results"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "required"
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"search_code\""
+            },
+            {
+              "type": "contains",
+              "value": "\"query\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 1,
+        "tokenUsage": {
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "total": 0,
+          "numRequests": 1,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          },
+          "assertions": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 1,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            }
+          }
+        },
+        "vars": {
+          "prompt": "Search for 'grammar constraints' case-sensitively, return max 3 results.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "search_code",
+                "description": "Search codebase for a pattern",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    },
+                    "case_sensitive": {
+                      "type": "boolean"
+                    },
+                    "max_results": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "query",
+                    "case_sensitive",
+                    "max_results"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "required"
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Search for 'grammar constraints' case-sensitively, return max 3 results."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "search_code",
+                  "description": "Search codebase for a pattern",
+                  "strict": true,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      },
+                      "case_sensitive": {
+                        "type": "boolean"
+                      },
+                      "max_results": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "query",
+                      "case_sensitive",
+                      "max_results"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "required"
+          },
+          "responseBody": {
+            "object": "chat.completion",
+            "usage": {
+              "prompt_tokens_details": {
+                "cached_tokens": 24
+              },
+              "prompt_tokens": 298,
+              "total_tokens": 427,
+              "peak_memory_gib": 19.7,
+              "prompt_tokens_per_second": 590.24,
+              "completion_time": 1.75,
+              "prompt_time": 0.5,
+              "completion_tokens": 129,
+              "total_time": 2.26,
+              "completion_tokens_per_second": 73.7
+            },
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "created": 1783046841,
+            "timings": {
+              "prompt_n": 298,
+              "predicted_n": 129,
+              "predicted_ms": 1750.312089920044,
+              "prompt_ms": 504.8799514770508
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+            "id": "chatcmpl-98D8A83B",
+            "choices": [
+              {
+                "finish_reason": "tool_calls",
+                "index": 0,
+                "message": {
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "type": "function",
+                      "id": "call_wTmDMWadhtffwyuTPScg6rwm",
+                      "index": 0,
+                      "function": {
+                        "arguments": "{\"case_sensitive\":true,\"max_results\":3,\"query\":\"grammar constraints\"}",
+                        "name": "search_code"
+                      }
+                    }
+                  ],
+                  "role": "assistant"
+                }
+              }
+            ]
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "873",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Jul 2026 02:47:21 GMT",
+            "openai-request-id": "req_206b15994730",
+            "x-request-id": "req_206b15994730"
+          },
+          "usage": {
+            "prompt_tokens_details": {
+              "cached_tokens": 24
+            },
+            "prompt_tokens": 298,
+            "total_tokens": 427,
+            "peak_memory_gib": 19.7,
+            "prompt_tokens_per_second": 590.24,
+            "completion_time": 1.75,
+            "prompt_time": 0.5,
+            "completion_tokens": 129,
+            "total_time": 2.26,
+            "completion_tokens_per_second": 73.7
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"get_time\""
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"timezone\""
+              }
+            }
+          ]
+        },
+        "id": "c59f8f15-b46e-4897-9ff7-f6c67fc376bf",
+        "latencyMs": 2258,
+        "namedScores": {},
+        "prompt": {
+          "raw": "What time is it in New York right now?",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-grammar-enabled-tools"
+        },
+        "response": {
+          "output": "[{\"type\":\"function\",\"index\":0,\"function\":{\"name\":\"get_time\",\"arguments\":{\"timezone\":\"America/New_York\"}},\"id\":\"call_lBgrIUq2KBAdITPQZZFsDrpj\"}]",
+          "latencyMs": 2258,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "What time is it in New York right now?"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "description": "Get weather for a location",
+                    "strict": true,
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "location": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "location"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "get_time",
+                    "description": "Get current time for a timezone",
+                    "strict": true,
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "timezone": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "timezone"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "responseBody": {
+              "object": "chat.completion",
+              "usage": {
+                "prompt_tokens_details": {
+                  "cached_tokens": 44
+                },
+                "prompt_tokens": 311,
+                "total_tokens": 433,
+                "peak_memory_gib": 19.7,
+                "prompt_tokens_per_second": 617.53,
+                "completion_time": 1.67,
+                "prompt_time": 0.5,
+                "completion_tokens": 122,
+                "total_time": 2.18,
+                "completion_tokens_per_second": 72.85
+              },
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "created": 1783046844,
+              "timings": {
+                "prompt_n": 311,
+                "predicted_n": 122,
+                "predicted_ms": 1674.5710372924805,
+                "prompt_ms": 503.62300872802734
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+              "id": "chatcmpl-2F323059",
+              "choices": [
+                {
+                  "finish_reason": "tool_calls",
+                  "index": 0,
+                  "message": {
+                    "role": "assistant",
+                    "tool_calls": [
+                      {
+                        "type": "function",
+                        "index": 0,
+                        "function": {
+                          "name": "get_time",
+                          "arguments": "{\"timezone\":\"America\\/New_York\"}"
+                        },
+                        "id": "call_lBgrIUq2KBAdITPQZZFsDrpj"
+                      }
+                    ],
+                    "content": null
+                  }
+                }
+              ]
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "834",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Jul 2026 02:47:24 GMT",
+              "openai-request-id": "req_f2fb72db05f0",
+              "x-request-id": "req_f2fb72db05f0"
+            },
+            "usage": {
+              "prompt_tokens_details": {
+                "cached_tokens": 44
+              },
+              "prompt_tokens": 311,
+              "total_tokens": 433,
+              "peak_memory_gib": 19.7,
+              "prompt_tokens_per_second": 617.53,
+              "completion_time": 1.67,
+              "prompt_time": 0.5,
+              "completion_tokens": 122,
+              "total_time": 2.18,
+              "completion_tokens_per_second": 72.85
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "tool strict:true — two tools, correct selection",
+          "vars": {
+            "prompt": "What time is it in New York right now?",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "strict": true,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_time",
+                  "description": "Get current time for a timezone",
+                  "strict": true,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "timezone": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "timezone"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"get_time\""
+            },
+            {
+              "type": "contains",
+              "value": "\"timezone\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 2,
+        "tokenUsage": {
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "total": 0,
+          "numRequests": 1,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          },
+          "assertions": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 1,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            }
+          }
+        },
+        "vars": {
+          "prompt": "What time is it in New York right now?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "get_time",
+                "description": "Get current time for a timezone",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "timezone": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "timezone"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "What time is it in New York right now?"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "strict": true,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_time",
+                  "description": "Get current time for a timezone",
+                  "strict": true,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "timezone": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "timezone"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "responseBody": {
+            "object": "chat.completion",
+            "usage": {
+              "prompt_tokens_details": {
+                "cached_tokens": 44
+              },
+              "prompt_tokens": 311,
+              "total_tokens": 433,
+              "peak_memory_gib": 19.7,
+              "prompt_tokens_per_second": 617.53,
+              "completion_time": 1.67,
+              "prompt_time": 0.5,
+              "completion_tokens": 122,
+              "total_time": 2.18,
+              "completion_tokens_per_second": 72.85
+            },
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "created": 1783046844,
+            "timings": {
+              "prompt_n": 311,
+              "predicted_n": 122,
+              "predicted_ms": 1674.5710372924805,
+              "prompt_ms": 503.62300872802734
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+            "id": "chatcmpl-2F323059",
+            "choices": [
+              {
+                "finish_reason": "tool_calls",
+                "index": 0,
+                "message": {
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "type": "function",
+                      "index": 0,
+                      "function": {
+                        "name": "get_time",
+                        "arguments": "{\"timezone\":\"America\\/New_York\"}"
+                      },
+                      "id": "call_lBgrIUq2KBAdITPQZZFsDrpj"
+                    }
+                  ],
+                  "content": null
+                }
+              }
+            ]
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "834",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Jul 2026 02:47:24 GMT",
+            "openai-request-id": "req_f2fb72db05f0",
+            "x-request-id": "req_f2fb72db05f0"
+          },
+          "usage": {
+            "prompt_tokens_details": {
+              "cached_tokens": 44
+            },
+            "prompt_tokens": 311,
+            "total_tokens": 433,
+            "peak_memory_gib": 19.7,
+            "prompt_tokens_per_second": 617.53,
+            "completion_time": 1.67,
+            "prompt_time": 0.5,
+            "completion_tokens": 122,
+            "total_time": 2.18,
+            "completion_tokens_per_second": 72.85
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"get_weather\""
+              }
+            }
+          ]
+        },
+        "id": "e2c737b7-a0e8-42ba-b05e-8fb77824db53",
+        "latencyMs": 1201,
+        "namedScores": {},
+        "prompt": {
+          "raw": "What is the weather in Tokyo?",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-grammar-enabled-tools"
+        },
+        "response": {
+          "output": "[{\"type\":\"function\",\"id\":\"call_Z3tYEhldizBymTBplu02Mc9T\",\"index\":0,\"function\":{\"name\":\"get_weather\",\"arguments\":{\"location\":\"Tokyo\"}}}]",
+          "latencyMs": 1201,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "What is the weather in Tokyo?"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "description": "Get weather for a location",
+                    "strict": false,
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "location": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "location"
+                      ]
+                    }
+                  }
+                }
+              ],
+              "tool_choice": "required"
+            },
+            "responseBody": {
+              "object": "chat.completion",
+              "usage": {
+                "prompt_tokens_details": {
+                  "cached_tokens": 60
+                },
+                "prompt_tokens": 266,
+                "total_tokens": 338,
+                "peak_memory_gib": 19.6,
+                "prompt_tokens_per_second": 660.21,
+                "completion_time": 0.79,
+                "prompt_time": 0.4,
+                "completion_tokens": 72,
+                "total_time": 1.19,
+                "completion_tokens_per_second": 91.31
+              },
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "created": 1783046845,
+              "timings": {
+                "prompt_n": 266,
+                "predicted_n": 72,
+                "predicted_ms": 788.4860038757324,
+                "prompt_ms": 402.9040336608887
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+              "id": "chatcmpl-26143641",
+              "choices": [
+                {
+                  "finish_reason": "tool_calls",
+                  "index": 0,
+                  "message": {
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "type": "function",
+                        "id": "call_Z3tYEhldizBymTBplu02Mc9T",
+                        "index": 0,
+                        "function": {
+                          "name": "get_weather",
+                          "arguments": "{\"location\":\"Tokyo\"}"
+                        }
+                      }
+                    ],
+                    "role": "assistant"
+                  }
+                }
+              ]
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "819",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Jul 2026 02:47:25 GMT",
+              "openai-request-id": "req_3f151df00da1",
+              "x-request-id": "req_3f151df00da1"
+            },
+            "usage": {
+              "prompt_tokens_details": {
+                "cached_tokens": 60
+              },
+              "prompt_tokens": 266,
+              "total_tokens": 338,
+              "peak_memory_gib": 19.6,
+              "prompt_tokens_per_second": 660.21,
+              "completion_time": 0.79,
+              "prompt_time": 0.4,
+              "completion_tokens": 72,
+              "total_time": 1.19,
+              "completion_tokens_per_second": 91.31
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "tool strict:false — no grammar activation (control)",
+          "vars": {
+            "prompt": "What is the weather in Tokyo?",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "required"
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"get_weather\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 3,
+        "tokenUsage": {
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "total": 0,
+          "numRequests": 1,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          },
+          "assertions": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 1,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            }
+          }
+        },
+        "vars": {
+          "prompt": "What is the weather in Tokyo?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "strict": false,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "required"
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "What is the weather in Tokyo?"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "strict": false,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "required"
+          },
+          "responseBody": {
+            "object": "chat.completion",
+            "usage": {
+              "prompt_tokens_details": {
+                "cached_tokens": 60
+              },
+              "prompt_tokens": 266,
+              "total_tokens": 338,
+              "peak_memory_gib": 19.6,
+              "prompt_tokens_per_second": 660.21,
+              "completion_time": 0.79,
+              "prompt_time": 0.4,
+              "completion_tokens": 72,
+              "total_time": 1.19,
+              "completion_tokens_per_second": 91.31
+            },
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "created": 1783046845,
+            "timings": {
+              "prompt_n": 266,
+              "predicted_n": 72,
+              "predicted_ms": 788.4860038757324,
+              "prompt_ms": 402.9040336608887
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+            "id": "chatcmpl-26143641",
+            "choices": [
+              {
+                "finish_reason": "tool_calls",
+                "index": 0,
+                "message": {
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "type": "function",
+                      "id": "call_Z3tYEhldizBymTBplu02Mc9T",
+                      "index": 0,
+                      "function": {
+                        "name": "get_weather",
+                        "arguments": "{\"location\":\"Tokyo\"}"
+                      }
+                    }
+                  ],
+                  "role": "assistant"
+                }
+              }
+            ]
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "819",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Jul 2026 02:47:25 GMT",
+            "openai-request-id": "req_3f151df00da1",
+            "x-request-id": "req_3f151df00da1"
+          },
+          "usage": {
+            "prompt_tokens_details": {
+              "cached_tokens": 60
+            },
+            "prompt_tokens": 266,
+            "total_tokens": 338,
+            "peak_memory_gib": 19.6,
+            "prompt_tokens_per_second": 660.21,
+            "completion_time": 0.79,
+            "prompt_time": 0.4,
+            "completion_tokens": 72,
+            "total_time": 1.19,
+            "completion_tokens_per_second": 91.31
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"get_weather\""
+              }
+            }
+          ]
+        },
+        "id": "acb2294b-b9b5-4166-ab4a-7ac2418c23dd",
+        "latencyMs": 816,
+        "namedScores": {},
+        "prompt": {
+          "raw": "What is the weather in London?",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-grammar-enabled-tools"
+        },
+        "response": {
+          "output": "[{\"type\":\"function\",\"id\":\"call_MxGScscLJaiDFT75W9LZljjv\",\"index\":0,\"function\":{\"arguments\":{\"location\":\"London\"},\"name\":\"get_weather\"}}]",
+          "latencyMs": 816,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "What is the weather in London?"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "description": "Get weather for a location",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "location": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "location"
+                      ]
+                    }
+                  }
+                }
+              ],
+              "tool_choice": "required"
+            },
+            "responseBody": {
+              "object": "chat.completion",
+              "usage": {
+                "prompt_tokens_details": {
+                  "cached_tokens": 250
+                },
+                "prompt_tokens": 266,
+                "total_tokens": 334,
+                "peak_memory_gib": 19.3,
+                "prompt_tokens_per_second": 3978.52,
+                "completion_time": 0.74,
+                "prompt_time": 0.07,
+                "completion_tokens": 68,
+                "total_time": 0.81,
+                "completion_tokens_per_second": 91.87
+              },
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "created": 1783046846,
+              "timings": {
+                "prompt_n": 266,
+                "predicted_n": 68,
+                "predicted_ms": 740.1690483093262,
+                "prompt_ms": 66.85900688171387
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+              "id": "chatcmpl-E2B522F2",
+              "choices": [
+                {
+                  "finish_reason": "tool_calls",
+                  "index": 0,
+                  "message": {
+                    "tool_calls": [
+                      {
+                        "type": "function",
+                        "id": "call_MxGScscLJaiDFT75W9LZljjv",
+                        "index": 0,
+                        "function": {
+                          "arguments": "{\"location\":\"London\"}",
+                          "name": "get_weather"
+                        }
+                      }
+                    ],
+                    "content": null,
+                    "role": "assistant"
+                  }
+                }
+              ]
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "823",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Jul 2026 02:47:26 GMT",
+              "openai-request-id": "req_3ff94ce4855e",
+              "x-request-id": "req_3ff94ce4855e"
+            },
+            "usage": {
+              "prompt_tokens_details": {
+                "cached_tokens": 250
+              },
+              "prompt_tokens": 266,
+              "total_tokens": 334,
+              "peak_memory_gib": 19.3,
+              "prompt_tokens_per_second": 3978.52,
+              "completion_time": 0.74,
+              "prompt_time": 0.07,
+              "completion_tokens": 68,
+              "total_time": 0.81,
+              "completion_tokens_per_second": 91.87
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "tool no strict field — no grammar activation (control)",
+          "vars": {
+            "prompt": "What is the weather in London?",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "required"
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"get_weather\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 4,
+        "tokenUsage": {
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "total": 0,
+          "numRequests": 1,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          },
+          "assertions": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 1,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            }
+          }
+        },
+        "vars": {
+          "prompt": "What is the weather in London?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "required"
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "What is the weather in London?"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "required"
+          },
+          "responseBody": {
+            "object": "chat.completion",
+            "usage": {
+              "prompt_tokens_details": {
+                "cached_tokens": 250
+              },
+              "prompt_tokens": 266,
+              "total_tokens": 334,
+              "peak_memory_gib": 19.3,
+              "prompt_tokens_per_second": 3978.52,
+              "completion_time": 0.74,
+              "prompt_time": 0.07,
+              "completion_tokens": 68,
+              "total_time": 0.81,
+              "completion_tokens_per_second": 91.87
+            },
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "created": 1783046846,
+            "timings": {
+              "prompt_n": 266,
+              "predicted_n": 68,
+              "predicted_ms": 740.1690483093262,
+              "prompt_ms": 66.85900688171387
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+            "id": "chatcmpl-E2B522F2",
+            "choices": [
+              {
+                "finish_reason": "tool_calls",
+                "index": 0,
+                "message": {
+                  "tool_calls": [
+                    {
+                      "type": "function",
+                      "id": "call_MxGScscLJaiDFT75W9LZljjv",
+                      "index": 0,
+                      "function": {
+                        "arguments": "{\"location\":\"London\"}",
+                        "name": "get_weather"
+                      }
+                    }
+                  ],
+                  "content": null,
+                  "role": "assistant"
+                }
+              }
+            ]
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "823",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Jul 2026 02:47:26 GMT",
+            "openai-request-id": "req_3ff94ce4855e",
+            "x-request-id": "req_3ff94ce4855e"
+          },
+          "usage": {
+            "prompt_tokens_details": {
+              "cached_tokens": 250
+            },
+            "prompt_tokens": 266,
+            "total_tokens": 334,
+            "peak_memory_gib": 19.3,
+            "prompt_tokens_per_second": 3978.52,
+            "completion_time": 0.74,
+            "prompt_time": 0.07,
+            "completion_tokens": 68,
+            "total_time": 0.81,
+            "completion_tokens_per_second": 91.87
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"get_weather\""
+              }
+            }
+          ]
+        },
+        "id": "abef554e-2b49-4266-9608-ac0f060f4833",
+        "latencyMs": 1072,
+        "namedScores": {},
+        "prompt": {
+          "raw": "What is the weather in Berlin?",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-grammar-enabled-tools"
+        },
+        "response": {
+          "output": "[{\"type\":\"function\",\"id\":\"call_ZiEHQEjyXEujKLrRyCEcloxa\",\"index\":0,\"function\":{\"name\":\"get_weather\",\"arguments\":{\"location\":\"Berlin\"}}}]",
+          "latencyMs": 1072,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "What is the weather in Berlin?"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "description": "Get weather for a location",
+                    "strict": true,
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "location": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "location"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "get_time",
+                    "description": "Get current time for a timezone",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "timezone": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "timezone"
+                      ]
+                    }
+                  }
+                }
+              ],
+              "tool_choice": "required"
+            },
+            "responseBody": {
+              "object": "chat.completion",
+              "usage": {
+                "prompt_tokens_details": {
+                  "cached_tokens": 292
+                },
+                "prompt_tokens": 308,
+                "total_tokens": 376,
+                "peak_memory_gib": 19.3,
+                "prompt_tokens_per_second": 4216.98,
+                "completion_time": 0.92,
+                "prompt_time": 0.07,
+                "completion_tokens": 68,
+                "total_time": 0.99,
+                "completion_tokens_per_second": 74.07
+              },
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "created": 1783046847,
+              "timings": {
+                "prompt_n": 308,
+                "predicted_n": 68,
+                "predicted_ms": 918.0580377578735,
+                "prompt_ms": 73.03798198699951
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+              "id": "chatcmpl-3F3C0399",
+              "choices": [
+                {
+                  "finish_reason": "tool_calls",
+                  "index": 0,
+                  "message": {
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "type": "function",
+                        "id": "call_ZiEHQEjyXEujKLrRyCEcloxa",
+                        "index": 0,
+                        "function": {
+                          "name": "get_weather",
+                          "arguments": "{\"location\":\"Berlin\"}"
+                        }
+                      }
+                    ],
+                    "role": "assistant"
+                  }
+                }
+              ]
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "823",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Jul 2026 02:47:27 GMT",
+              "openai-request-id": "req_17e8f2140843",
+              "x-request-id": "req_17e8f2140843"
+            },
+            "usage": {
+              "prompt_tokens_details": {
+                "cached_tokens": 292
+              },
+              "prompt_tokens": 308,
+              "total_tokens": 376,
+              "peak_memory_gib": 19.3,
+              "prompt_tokens_per_second": 4216.98,
+              "completion_time": 0.92,
+              "prompt_time": 0.07,
+              "completion_tokens": 68,
+              "total_time": 0.99,
+              "completion_tokens_per_second": 74.07
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "mixed strict tools — one strict:true, one without",
+          "vars": {
+            "prompt": "What is the weather in Berlin?",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "strict": true,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_time",
+                  "description": "Get current time for a timezone",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "timezone": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "timezone"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "required"
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"get_weather\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 5,
+        "tokenUsage": {
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "total": 0,
+          "numRequests": 1,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          },
+          "assertions": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 1,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            }
+          }
+        },
+        "vars": {
+          "prompt": "What is the weather in Berlin?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "get_time",
+                "description": "Get current time for a timezone",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "timezone": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "timezone"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "required"
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "What is the weather in Berlin?"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "strict": true,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_time",
+                  "description": "Get current time for a timezone",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "timezone": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "timezone"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "required"
+          },
+          "responseBody": {
+            "object": "chat.completion",
+            "usage": {
+              "prompt_tokens_details": {
+                "cached_tokens": 292
+              },
+              "prompt_tokens": 308,
+              "total_tokens": 376,
+              "peak_memory_gib": 19.3,
+              "prompt_tokens_per_second": 4216.98,
+              "completion_time": 0.92,
+              "prompt_time": 0.07,
+              "completion_tokens": 68,
+              "total_time": 0.99,
+              "completion_tokens_per_second": 74.07
+            },
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "created": 1783046847,
+            "timings": {
+              "prompt_n": 308,
+              "predicted_n": 68,
+              "predicted_ms": 918.0580377578735,
+              "prompt_ms": 73.03798198699951
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+            "id": "chatcmpl-3F3C0399",
+            "choices": [
+              {
+                "finish_reason": "tool_calls",
+                "index": 0,
+                "message": {
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "type": "function",
+                      "id": "call_ZiEHQEjyXEujKLrRyCEcloxa",
+                      "index": 0,
+                      "function": {
+                        "name": "get_weather",
+                        "arguments": "{\"location\":\"Berlin\"}"
+                      }
+                    }
+                  ],
+                  "role": "assistant"
+                }
+              }
+            ]
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "823",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Jul 2026 02:47:27 GMT",
+            "openai-request-id": "req_17e8f2140843",
+            "x-request-id": "req_17e8f2140843"
+          },
+          "usage": {
+            "prompt_tokens_details": {
+              "cached_tokens": 292
+            },
+            "prompt_tokens": 308,
+            "total_tokens": 376,
+            "peak_memory_gib": 19.3,
+            "prompt_tokens_per_second": 4216.98,
+            "completion_time": 0.92,
+            "prompt_time": 0.07,
+            "completion_tokens": 68,
+            "total_time": 0.99,
+            "completion_tokens_per_second": 74.07
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"create_tasks\""
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "contains",
+                "value": "\"tasks\""
+              }
+            }
+          ]
+        },
+        "id": "30c732a4-3f24-4870-a6d0-a92e260d655c",
+        "latencyMs": 4095,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Create a task list with items: fix bug, write tests, update docs.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-grammar-enabled-tools"
+        },
+        "response": {
+          "output": "[{\"index\":0,\"type\":\"function\",\"id\":\"call_Y5jWrS9fW23BDw7Adi8oJ25Y\",\"function\":{\"arguments\":{\"tasks\":[{\"priority\":\"high\",\"title\":\"fix bug\"},{\"priority\":\"medium\",\"title\":\"write tests\"},{\"priority\":\"medium\",\"title\":\"update docs\"}]},\"name\":\"create_tasks\"}}]",
+          "latencyMs": 4095,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Create a task list with items: fix bug, write tests, update docs."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "create_tasks",
+                    "description": "Create multiple tasks at once",
+                    "strict": true,
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "tasks": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "title": {
+                                "type": "string"
+                              },
+                              "priority": {
+                                "type": "string",
+                                "enum": [
+                                  "low",
+                                  "medium",
+                                  "high"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "title",
+                              "priority"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "tasks"
+                      ]
+                    }
+                  }
+                }
+              ],
+              "tool_choice": "required"
+            },
+            "responseBody": {
+              "object": "chat.completion",
+              "usage": {
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_tokens": 310,
+                "total_tokens": 565,
+                "peak_memory_gib": 19.9,
+                "prompt_tokens_per_second": 558.85,
+                "completion_time": 3.46,
+                "prompt_time": 0.55,
+                "completion_tokens": 255,
+                "total_time": 4.02,
+                "completion_tokens_per_second": 73.67
+              },
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "created": 1783046851,
+              "timings": {
+                "predicted_ms": 3461.4208936691284,
+                "prompt_n": 310,
+                "prompt_ms": 554.7151565551758,
+                "predicted_n": 255
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+              "id": "chatcmpl-7755118F",
+              "choices": [
+                {
+                  "index": 0,
+                  "finish_reason": "tool_calls",
+                  "message": {
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "type": "function",
+                        "id": "call_Y5jWrS9fW23BDw7Adi8oJ25Y",
+                        "function": {
+                          "arguments": "{\"tasks\":[{\"priority\":\"high\",\"title\":\"fix bug\"},{\"priority\":\"medium\",\"title\":\"write tests\"},{\"priority\":\"medium\",\"title\":\"update docs\"}]}",
+                          "name": "create_tasks"
+                        }
+                      }
+                    ],
+                    "content": null,
+                    "role": "assistant"
+                  }
+                }
+              ]
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "962",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Jul 2026 02:47:31 GMT",
+              "openai-request-id": "req_8519d67f71c8",
+              "x-request-id": "req_8519d67f71c8"
+            },
+            "usage": {
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens": 310,
+              "total_tokens": 565,
+              "peak_memory_gib": 19.9,
+              "prompt_tokens_per_second": 558.85,
+              "completion_time": 3.46,
+              "prompt_time": 0.55,
+              "completion_tokens": 255,
+              "total_time": 4.02,
+              "completion_tokens_per_second": 73.67
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "tool strict:true — array argument",
+          "vars": {
+            "prompt": "Create a task list with items: fix bug, write tests, update docs.",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "create_tasks",
+                  "description": "Create multiple tasks at once",
+                  "strict": true,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "tasks": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "title": {
+                              "type": "string"
+                            },
+                            "priority": {
+                              "type": "string",
+                              "enum": [
+                                "low",
+                                "medium",
+                                "high"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "title",
+                            "priority"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "tasks"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "required"
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "contains",
+              "value": "\"create_tasks\""
+            },
+            {
+              "type": "contains",
+              "value": "\"tasks\""
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 6,
+        "tokenUsage": {
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "total": 0,
+          "numRequests": 1,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          },
+          "assertions": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 1,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            }
+          }
+        },
+        "vars": {
+          "prompt": "Create a task list with items: fix bug, write tests, update docs.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "create_tasks",
+                "description": "Create multiple tasks at once",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "tasks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "title": {
+                            "type": "string"
+                          },
+                          "priority": {
+                            "type": "string",
+                            "enum": [
+                              "low",
+                              "medium",
+                              "high"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "title",
+                          "priority"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "tasks"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "required"
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Create a task list with items: fix bug, write tests, update docs."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "create_tasks",
+                  "description": "Create multiple tasks at once",
+                  "strict": true,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "tasks": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "title": {
+                              "type": "string"
+                            },
+                            "priority": {
+                              "type": "string",
+                              "enum": [
+                                "low",
+                                "medium",
+                                "high"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "title",
+                            "priority"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "tasks"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "required"
+          },
+          "responseBody": {
+            "object": "chat.completion",
+            "usage": {
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_tokens": 310,
+              "total_tokens": 565,
+              "peak_memory_gib": 19.9,
+              "prompt_tokens_per_second": 558.85,
+              "completion_time": 3.46,
+              "prompt_time": 0.55,
+              "completion_tokens": 255,
+              "total_time": 4.02,
+              "completion_tokens_per_second": 73.67
+            },
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "created": 1783046851,
+            "timings": {
+              "predicted_ms": 3461.4208936691284,
+              "prompt_n": 310,
+              "prompt_ms": 554.7151565551758,
+              "predicted_n": 255
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+            "id": "chatcmpl-7755118F",
+            "choices": [
+              {
+                "index": 0,
+                "finish_reason": "tool_calls",
+                "message": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "type": "function",
+                      "id": "call_Y5jWrS9fW23BDw7Adi8oJ25Y",
+                      "function": {
+                        "arguments": "{\"tasks\":[{\"priority\":\"high\",\"title\":\"fix bug\"},{\"priority\":\"medium\",\"title\":\"write tests\"},{\"priority\":\"medium\",\"title\":\"update docs\"}]}",
+                        "name": "create_tasks"
+                      }
+                    }
+                  ],
+                  "content": null,
+                  "role": "assistant"
+                }
+              }
+            ]
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "962",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Jul 2026 02:47:31 GMT",
+            "openai-request-id": "req_8519d67f71c8",
+            "x-request-id": "req_8519d67f71c8"
+          },
+          "usage": {
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "prompt_tokens": 310,
+            "total_tokens": 565,
+            "peak_memory_gib": 19.9,
+            "prompt_tokens_per_second": 558.85,
+            "completion_time": 3.46,
+            "prompt_time": 0.55,
+            "completion_tokens": 255,
+            "total_time": 4.02,
+            "completion_tokens_per_second": 73.67
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      }
+    ],
+    "stats": {
+      "successes": 7,
+      "failures": 0,
+      "errors": 0,
+      "tokenUsage": {
+        "prompt": 0,
+        "completion": 0,
+        "cached": 0,
+        "total": 0,
+        "numRequests": 7,
+        "completionDetails": {
+          "reasoning": 0,
+          "acceptedPrediction": 0,
+          "rejectedPrediction": 0,
+          "cacheReadInputTokens": 0,
+          "cacheCreationInputTokens": 0
+        },
+        "assertions": {
+          "total": 0,
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "numRequests": 0,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          }
+        }
+      },
+      "durationMs": 14558,
+      "evaluationDurationMs": 14558
+    }
+  },
+  "config": {
+    "tags": {},
+    "description": "AFM grammar-constraints strict wiring — tool call tests",
+    "prompts": [
+      "{{prompt}}"
+    ],
+    "providers": [
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-no-grammar-tools",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_DEFAULT",
+          "modelEnv": "AFM_MODEL",
+          "extract": "tool_calls"
+        }
+      },
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-grammar-enabled-tools",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_GRAMMAR",
+          "modelEnv": "AFM_MODEL",
+          "extract": "tool_calls"
+        }
+      }
+    ],
+    "tests": [
+      {
+        "description": "tool strict:true — single tool, required param",
+        "vars": {
+          "prompt": "What is the weather in Paris?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    },
+                    "unit": {
+                      "type": "string",
+                      "enum": [
+                        "celsius",
+                        "fahrenheit"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "required"
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"get_weather\""
+          },
+          {
+            "type": "contains",
+            "value": "\"location\""
+          }
+        ]
+      },
+      {
+        "description": "tool strict:true — multi-param with typed args",
+        "vars": {
+          "prompt": "Search for 'grammar constraints' case-sensitively, return max 3 results.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "search_code",
+                "description": "Search codebase for a pattern",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    },
+                    "case_sensitive": {
+                      "type": "boolean"
+                    },
+                    "max_results": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "query",
+                    "case_sensitive",
+                    "max_results"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "required"
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"search_code\""
+          },
+          {
+            "type": "contains",
+            "value": "\"query\""
+          }
+        ]
+      },
+      {
+        "description": "tool strict:true — two tools, correct selection",
+        "vars": {
+          "prompt": "What time is it in New York right now?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "get_time",
+                "description": "Get current time for a timezone",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "timezone": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "timezone"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"get_time\""
+          },
+          {
+            "type": "contains",
+            "value": "\"timezone\""
+          }
+        ]
+      },
+      {
+        "description": "tool strict:false — no grammar activation (control)",
+        "vars": {
+          "prompt": "What is the weather in Tokyo?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "strict": false,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "required"
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"get_weather\""
+          }
+        ]
+      },
+      {
+        "description": "tool no strict field — no grammar activation (control)",
+        "vars": {
+          "prompt": "What is the weather in London?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "required"
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"get_weather\""
+          }
+        ]
+      },
+      {
+        "description": "mixed strict tools — one strict:true, one without",
+        "vars": {
+          "prompt": "What is the weather in Berlin?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "get_time",
+                "description": "Get current time for a timezone",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "timezone": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "timezone"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "required"
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"get_weather\""
+          }
+        ]
+      },
+      {
+        "description": "tool strict:true — array argument",
+        "vars": {
+          "prompt": "Create a task list with items: fix bug, write tests, update docs.",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "create_tasks",
+                "description": "Create multiple tasks at once",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "tasks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "title": {
+                            "type": "string"
+                          },
+                          "priority": {
+                            "type": "string",
+                            "enum": [
+                              "low",
+                              "medium",
+                              "high"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "title",
+                          "priority"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "tasks"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "required"
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "contains",
+            "value": "\"create_tasks\""
+          },
+          {
+            "type": "contains",
+            "value": "\"tasks\""
+          }
+        ]
+      }
+    ],
+    "env": {},
+    "outputPath": [
+      "/Volumes/Crucial4TB/promptfoo/data/maclocal-api/current/grammar-tools-prefix-cache-mlx-community_Qwen3.6-35B-A3B-4bit.json"
+    ],
+    "extensions": [],
+    "metadata": {},
+    "evaluateOptions": {}
+  },
+  "shareableUrl": null,
+  "metadata": {
+    "promptfooVersion": "0.121.17",
+    "nodeVersion": "v24.0.1",
+    "platform": "darwin",
+    "arch": "arm64",
+    "exportedAt": "2026-07-03T02:47:31.551Z",
+    "evaluationCreatedAt": "2026-07-03T02:47:16.870Z"
+  },
+  "vars": [
+    "prompt",
+    "tools",
+    "tool_choice"
+  ],
+  "runtimeOptions": {
+    "eventSource": "cli",
+    "showProgressBar": true,
+    "repeat": 1,
+    "maxConcurrency": 1,
+    "cache": true,
+    "providerFilter": "^afm-grammar-enabled-tools$"
+  }
+}

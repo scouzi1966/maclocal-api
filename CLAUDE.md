@@ -45,9 +45,19 @@ Commands: `--check` (verify), `--revert` (restore originals), no flag (apply).
 
 The Swift patches above target the `vendor/mlx-swift-lm` submodule. The low-level MLX **C++/Metal**
 code lives in a *different* tree — the `mlx-swift` remote SwiftPM dependency at
-`.build/checkouts/mlx-swift` (ephemeral; wiped by `swift package clean`/re-resolve). Two scripts
+`.build/checkouts/mlx-swift` (ephemeral; wiped by `swift package clean`/re-resolve). Three scripts
 patch it, applied by `build.sh` after `swift package resolve` and before the metallib rebuild:
 
+- `Scripts/apply-mlx-qmv-wide-backport.sh` — backports mlx **PR #3764's `qmv_wide`** small-batch
+  quantized matvec (affine int4/int8 only, GPU gen 15+): each weight group is dequantized once and
+  reused across streamed input vectors. Gated to **M ≥ 3** (not upstream's 2) so the MTP/EAGLE3
+  M=2 verify forwards stay on the same kernel as M=1 decode (M=2 near-tie logit shifts measurably
+  cut MTP acceptance and shifted greedy trajectories). Measured on Qwen3.6-27B-4bit/M4 Pro:
+  **batch B=4 +32%, B=8 +29% aggregate decode; MTP and single-stream bit-identical/unchanged**.
+  Source files in `Scripts/patches/mlx-cpp-qmv-wide/`. Quantized kernels are JIT-compiled from
+  `mlx-generated/quantized.cpp` (the runtime-authoritative copy this script also patches) — no
+  metallib rebuild needed for this one. FULL-FILE replacement: **must run BEFORE
+  apply-mlx-cpp-patches.sh** (build.sh enforces the order; the script refuses to apply out of order).
 - `Scripts/apply-mlx-cpp-patches.sh` — `qmv_fast_wide` quantized matvec kernels.
 - `Scripts/apply-mlx-sdpa-backport.sh` — backports mlx-swift **0.31.3's adaptive-block 2-pass SDPA**
   into the pinned 0.30.3 tree. 0.30.3 hardcodes the split-K count `blocks=32`; 0.31.3 makes it a

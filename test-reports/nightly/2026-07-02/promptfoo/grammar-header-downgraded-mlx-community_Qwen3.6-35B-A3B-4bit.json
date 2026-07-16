@@ -1,0 +1,958 @@
+{
+  "evalId": "eval-zQR-2026-07-03T02:47:38",
+  "results": {
+    "version": 3,
+    "timestamp": "2026-07-03T02:47:38.690Z",
+    "prompts": [
+      {
+        "id": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "raw": "{{prompt}}",
+        "label": "{{prompt}}",
+        "provider": "afm-no-grammar-header",
+        "metrics": {
+          "score": 2,
+          "testPassCount": 2,
+          "testFailCount": 0,
+          "testErrorCount": 0,
+          "assertPassCount": 4,
+          "assertFailCount": 0,
+          "totalLatencyMs": 1849,
+          "tokenUsage": {
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "total": 0,
+            "numRequests": 2,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            },
+            "assertions": {
+              "total": 0,
+              "prompt": 0,
+              "completion": 0,
+              "cached": 0,
+              "numRequests": 0,
+              "completionDetails": {
+                "reasoning": 0,
+                "acceptedPrediction": 0,
+                "rejectedPrediction": 0,
+                "cacheReadInputTokens": 0,
+                "cacheCreationInputTokens": 0
+              }
+            }
+          },
+          "namedScores": {},
+          "namedScoresCount": {},
+          "namedScoreWeights": {},
+          "cost": 0
+        }
+      }
+    ],
+    "results": [
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Header absent (grammar active or not requested)",
+              "assertion": {
+                "type": "javascript",
+                "value": "file://judges/assert-grammar-header.mjs",
+                "config": {
+                  "expectDowngraded": true
+                }
+              }
+            }
+          ]
+        },
+        "id": "45129950-f62b-44a6-af62-08171852f4a1",
+        "latencyMs": 597,
+        "namedScores": {},
+        "prompt": {
+          "raw": "Return a color record for blue, hex #0000FF.",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-no-grammar-header"
+        },
+        "response": {
+          "output": "{\"model\":\"mlx-community/Qwen3.6-35B-A3B-4bit\",\"usage\":{\"completion_tokens_per_second\":92.84,\"total_time\":0.58,\"prompt_tokens_details\":{\"cached_tokens\":0},\"prompt_time\":0.28,\"prompt_tokens\":104,\"peak_memory_gib\":19.1,\"prompt_tokens_per_second\":367.23,\"completion_time\":0.3,\"completion_tokens\":28,\"total_tokens\":132},\"system_fingerprint\":\"afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit\",\"created\":1783046859,\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"{\\n  \\\"color\\\": \\\"blue\\\",\\n  \\\"hex\\\": \\\"#0000FF\\\"\\n}\"}}],\"object\":\"chat.completion\",\"timings\":{\"predicted_ms\":301.5789985656738,\"predicted_n\":28,\"prompt_ms\":283.20300579071045,\"prompt_n\":104},\"id\":\"chatcmpl-F328AF15\"}",
+          "latencyMs": 597,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Return a color record for blue, hex #0000FF."
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                  "name": "color_record",
+                  "strict": true,
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "color": {
+                        "type": "string"
+                      },
+                      "hex": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "color",
+                      "hex"
+                    ]
+                  }
+                }
+              }
+            },
+            "responseBody": {
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "usage": {
+                "completion_tokens_per_second": 92.84,
+                "total_time": 0.58,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_time": 0.28,
+                "prompt_tokens": 104,
+                "peak_memory_gib": 19.1,
+                "prompt_tokens_per_second": 367.23,
+                "completion_time": 0.3,
+                "completion_tokens": 28,
+                "total_tokens": 132
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+              "created": 1783046859,
+              "choices": [
+                {
+                  "finish_reason": "stop",
+                  "index": 0,
+                  "message": {
+                    "role": "assistant",
+                    "content": "{\n  \"color\": \"blue\",\n  \"hex\": \"#0000FF\"\n}"
+                  }
+                }
+              ],
+              "object": "chat.completion",
+              "timings": {
+                "predicted_ms": 301.5789985656738,
+                "predicted_n": 28,
+                "prompt_ms": 283.20300579071045,
+                "prompt_n": 104
+              },
+              "id": "chatcmpl-F328AF15"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "708",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Jul 2026 02:47:39 GMT",
+              "openai-request-id": "req_9ee06a1e92a1",
+              "x-grammar-constraints": "downgraded",
+              "x-request-id": "req_9ee06a1e92a1"
+            },
+            "usage": {
+              "completion_tokens_per_second": 92.84,
+              "total_time": 0.58,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_time": 0.28,
+              "prompt_tokens": 104,
+              "peak_memory_gib": 19.1,
+              "prompt_tokens_per_second": 367.23,
+              "completion_time": 0.3,
+              "completion_tokens": 28,
+              "total_tokens": 132
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "header downgraded — json_schema strict:true",
+          "vars": {
+            "prompt": "Return a color record for blue, hex #0000FF.",
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "color_record",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "color": {
+                      "type": "string"
+                    },
+                    "hex": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "color",
+                    "hex"
+                  ]
+                }
+              }
+            }
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "javascript",
+              "value": "file://judges/assert-grammar-header.mjs",
+              "config": {
+                "expectDowngraded": true
+              }
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 0,
+        "tokenUsage": {
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "total": 0,
+          "numRequests": 1,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          },
+          "assertions": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 1,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            }
+          }
+        },
+        "vars": {
+          "prompt": "Return a color record for blue, hex #0000FF.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "color_record",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "color": {
+                    "type": "string"
+                  },
+                  "hex": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "color",
+                  "hex"
+                ]
+              }
+            }
+          }
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Return a color record for blue, hex #0000FF."
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "response_format": {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "color_record",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "color": {
+                      "type": "string"
+                    },
+                    "hex": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "color",
+                    "hex"
+                  ]
+                }
+              }
+            }
+          },
+          "responseBody": {
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "usage": {
+              "completion_tokens_per_second": 92.84,
+              "total_time": 0.58,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_time": 0.28,
+              "prompt_tokens": 104,
+              "peak_memory_gib": 19.1,
+              "prompt_tokens_per_second": 367.23,
+              "completion_time": 0.3,
+              "completion_tokens": 28,
+              "total_tokens": 132
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+            "created": 1783046859,
+            "choices": [
+              {
+                "finish_reason": "stop",
+                "index": 0,
+                "message": {
+                  "role": "assistant",
+                  "content": "{\n  \"color\": \"blue\",\n  \"hex\": \"#0000FF\"\n}"
+                }
+              }
+            ],
+            "object": "chat.completion",
+            "timings": {
+              "predicted_ms": 301.5789985656738,
+              "predicted_n": 28,
+              "prompt_ms": 283.20300579071045,
+              "prompt_n": 104
+            },
+            "id": "chatcmpl-F328AF15"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "708",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Jul 2026 02:47:39 GMT",
+            "openai-request-id": "req_9ee06a1e92a1",
+            "x-grammar-constraints": "downgraded",
+            "x-request-id": "req_9ee06a1e92a1"
+          },
+          "usage": {
+            "completion_tokens_per_second": 92.84,
+            "total_time": 0.58,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "prompt_time": 0.28,
+            "prompt_tokens": 104,
+            "peak_memory_gib": 19.1,
+            "prompt_tokens_per_second": 367.23,
+            "completion_time": 0.3,
+            "completion_tokens": 28,
+            "total_tokens": 132
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      },
+      {
+        "cost": 0,
+        "gradingResult": {
+          "pass": true,
+          "score": 1,
+          "reason": "All assertions passed",
+          "namedScores": {},
+          "tokensUsed": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 0
+          },
+          "componentResults": [
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Assertion passed",
+              "assertion": {
+                "type": "is-json"
+              }
+            },
+            {
+              "pass": true,
+              "score": 1,
+              "reason": "Header absent (grammar active or not requested)",
+              "assertion": {
+                "type": "javascript",
+                "value": "file://judges/assert-grammar-header.mjs",
+                "config": {
+                  "expectDowngraded": true
+                }
+              }
+            }
+          ]
+        },
+        "id": "b4976db1-1e65-4e02-8ce0-a457e24e52ec",
+        "latencyMs": 1252,
+        "namedScores": {},
+        "prompt": {
+          "raw": "What is the weather in Sydney?",
+          "label": "{{prompt}}",
+          "config": {}
+        },
+        "promptId": "effa18501e44aafd9bc42a2f64ffc9b6350f94025520ca2ed382f9bdc4b6e982",
+        "promptIdx": 0,
+        "provider": {
+          "id": "providers/afm_provider.mjs",
+          "label": "afm-no-grammar-header"
+        },
+        "response": {
+          "output": "{\"model\":\"mlx-community/Qwen3.6-35B-A3B-4bit\",\"usage\":{\"completion_tokens_per_second\":92.81,\"total_time\":1.24,\"prompt_tokens_details\":{\"cached_tokens\":0},\"prompt_time\":0.48,\"prompt_tokens\":266,\"peak_memory_gib\":19.4,\"prompt_tokens_per_second\":555.79,\"completion_time\":0.76,\"completion_tokens\":71,\"total_tokens\":337},\"system_fingerprint\":\"afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit\",\"created\":1783046860,\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_grONCwCWwgW6W8iX2Zk0YHhG\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"location\\\":\\\"Sydney\\\"}\"},\"type\":\"function\",\"index\":0}]},\"finish_reason\":\"tool_calls\"}],\"object\":\"chat.completion\",\"timings\":{\"predicted_ms\":764.9739980697632,\"prompt_ms\":478.6020517349243,\"predicted_n\":71,\"prompt_n\":266},\"id\":\"chatcmpl-6A0E1F4D\"}",
+          "latencyMs": 1252,
+          "metadata": {
+            "transport": "api",
+            "baseUrl": "http://127.0.0.1:9999/v1",
+            "requestBody": {
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "What is the weather in Sydney?"
+                }
+              ],
+              "max_tokens": 400,
+              "temperature": 0,
+              "stream": false,
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "description": "Get weather for a location",
+                    "strict": true,
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "location": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "location"
+                      ]
+                    }
+                  }
+                }
+              ],
+              "tool_choice": "required"
+            },
+            "responseBody": {
+              "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+              "usage": {
+                "completion_tokens_per_second": 92.81,
+                "total_time": 1.24,
+                "prompt_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "prompt_time": 0.48,
+                "prompt_tokens": 266,
+                "peak_memory_gib": 19.4,
+                "prompt_tokens_per_second": 555.79,
+                "completion_time": 0.76,
+                "completion_tokens": 71,
+                "total_tokens": 337
+              },
+              "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+              "created": 1783046860,
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "id": "call_grONCwCWwgW6W8iX2Zk0YHhG",
+                        "function": {
+                          "name": "get_weather",
+                          "arguments": "{\"location\":\"Sydney\"}"
+                        },
+                        "type": "function",
+                        "index": 0
+                      }
+                    ]
+                  },
+                  "finish_reason": "tool_calls"
+                }
+              ],
+              "object": "chat.completion",
+              "timings": {
+                "predicted_ms": 764.9739980697632,
+                "prompt_ms": 478.6020517349243,
+                "predicted_n": 71,
+                "prompt_n": 266
+              },
+              "id": "chatcmpl-6A0E1F4D"
+            },
+            "responseHeaders": {
+              "access-control-allow-origin": "*",
+              "connection": "keep-alive",
+              "content-length": "820",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 03 Jul 2026 02:47:40 GMT",
+              "openai-request-id": "req_c0b27be7af8b",
+              "x-grammar-constraints": "downgraded",
+              "x-request-id": "req_c0b27be7af8b"
+            },
+            "usage": {
+              "completion_tokens_per_second": 92.81,
+              "total_time": 1.24,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_time": 0.48,
+              "prompt_tokens": 266,
+              "peak_memory_gib": 19.4,
+              "prompt_tokens_per_second": 555.79,
+              "completion_time": 0.76,
+              "completion_tokens": 71,
+              "total_tokens": 337
+            }
+          }
+        },
+        "score": 1,
+        "success": true,
+        "testCase": {
+          "description": "header downgraded — tool strict:true",
+          "vars": {
+            "prompt": "What is the weather in Sydney?",
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "strict": true,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "required"
+          },
+          "assert": [
+            {
+              "type": "is-json"
+            },
+            {
+              "type": "javascript",
+              "value": "file://judges/assert-grammar-header.mjs",
+              "config": {
+                "expectDowngraded": true
+              }
+            }
+          ],
+          "options": {},
+          "metadata": {}
+        },
+        "testIdx": 1,
+        "tokenUsage": {
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "total": 0,
+          "numRequests": 1,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          },
+          "assertions": {
+            "total": 0,
+            "prompt": 0,
+            "completion": 0,
+            "cached": 0,
+            "numRequests": 1,
+            "completionDetails": {
+              "reasoning": 0,
+              "acceptedPrediction": 0,
+              "rejectedPrediction": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0
+            }
+          }
+        },
+        "vars": {
+          "prompt": "What is the weather in Sydney?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "required"
+        },
+        "metadata": {
+          "transport": "api",
+          "baseUrl": "http://127.0.0.1:9999/v1",
+          "requestBody": {
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "messages": [
+              {
+                "role": "user",
+                "content": "What is the weather in Sydney?"
+              }
+            ],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": false,
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "description": "Get weather for a location",
+                  "strict": true,
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "location"
+                    ]
+                  }
+                }
+              }
+            ],
+            "tool_choice": "required"
+          },
+          "responseBody": {
+            "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+            "usage": {
+              "completion_tokens_per_second": 92.81,
+              "total_time": 1.24,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_time": 0.48,
+              "prompt_tokens": 266,
+              "peak_memory_gib": 19.4,
+              "prompt_tokens_per_second": 555.79,
+              "completion_time": 0.76,
+              "completion_tokens": 71,
+              "total_tokens": 337
+            },
+            "system_fingerprint": "afm_mlx__mlx-community__Qwen3.6-35B-A3B-4bit",
+            "created": 1783046860,
+            "choices": [
+              {
+                "index": 0,
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "id": "call_grONCwCWwgW6W8iX2Zk0YHhG",
+                      "function": {
+                        "name": "get_weather",
+                        "arguments": "{\"location\":\"Sydney\"}"
+                      },
+                      "type": "function",
+                      "index": 0
+                    }
+                  ]
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "object": "chat.completion",
+            "timings": {
+              "predicted_ms": 764.9739980697632,
+              "prompt_ms": 478.6020517349243,
+              "predicted_n": 71,
+              "prompt_n": 266
+            },
+            "id": "chatcmpl-6A0E1F4D"
+          },
+          "responseHeaders": {
+            "access-control-allow-origin": "*",
+            "connection": "keep-alive",
+            "content-length": "820",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 03 Jul 2026 02:47:40 GMT",
+            "openai-request-id": "req_c0b27be7af8b",
+            "x-grammar-constraints": "downgraded",
+            "x-request-id": "req_c0b27be7af8b"
+          },
+          "usage": {
+            "completion_tokens_per_second": 92.81,
+            "total_time": 1.24,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "prompt_time": 0.48,
+            "prompt_tokens": 266,
+            "peak_memory_gib": 19.4,
+            "prompt_tokens_per_second": 555.79,
+            "completion_time": 0.76,
+            "completion_tokens": 71,
+            "total_tokens": 337
+          },
+          "_promptfooFileMetadata": {}
+        },
+        "failureReason": 0
+      }
+    ],
+    "stats": {
+      "successes": 2,
+      "failures": 0,
+      "errors": 0,
+      "tokenUsage": {
+        "prompt": 0,
+        "completion": 0,
+        "cached": 0,
+        "total": 0,
+        "numRequests": 2,
+        "completionDetails": {
+          "reasoning": 0,
+          "acceptedPrediction": 0,
+          "rejectedPrediction": 0,
+          "cacheReadInputTokens": 0,
+          "cacheCreationInputTokens": 0
+        },
+        "assertions": {
+          "total": 0,
+          "prompt": 0,
+          "completion": 0,
+          "cached": 0,
+          "numRequests": 0,
+          "completionDetails": {
+            "reasoning": 0,
+            "acceptedPrediction": 0,
+            "rejectedPrediction": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0
+          }
+        }
+      },
+      "durationMs": 1866,
+      "evaluationDurationMs": 1866
+    }
+  },
+  "config": {
+    "tags": {},
+    "description": "AFM grammar-constraints — X-Grammar-Constraints: downgraded header assertion",
+    "prompts": [
+      "{{prompt}}"
+    ],
+    "providers": [
+      {
+        "id": "providers/afm_provider.mjs",
+        "label": "afm-no-grammar-header",
+        "config": {
+          "transport": "api",
+          "baseUrlEnv": "AFM_BASE_URL_DEFAULT",
+          "modelEnv": "AFM_MODEL",
+          "extract": "full_response"
+        }
+      }
+    ],
+    "tests": [
+      {
+        "description": "header downgraded — json_schema strict:true",
+        "vars": {
+          "prompt": "Return a color record for blue, hex #0000FF.",
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "color_record",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "color": {
+                    "type": "string"
+                  },
+                  "hex": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "color",
+                  "hex"
+                ]
+              }
+            }
+          }
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "javascript",
+            "value": "file://judges/assert-grammar-header.mjs",
+            "config": {
+              "expectDowngraded": true
+            }
+          }
+        ]
+      },
+      {
+        "description": "header downgraded — tool strict:true",
+        "vars": {
+          "prompt": "What is the weather in Sydney?",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "strict": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "location"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "required"
+        },
+        "assert": [
+          {
+            "type": "is-json"
+          },
+          {
+            "type": "javascript",
+            "value": "file://judges/assert-grammar-header.mjs",
+            "config": {
+              "expectDowngraded": true
+            }
+          }
+        ]
+      }
+    ],
+    "env": {},
+    "outputPath": [
+      "/Volumes/Crucial4TB/promptfoo/data/maclocal-api/current/grammar-header-downgraded-mlx-community_Qwen3.6-35B-A3B-4bit.json"
+    ],
+    "extensions": [],
+    "metadata": {},
+    "evaluateOptions": {}
+  },
+  "shareableUrl": null,
+  "metadata": {
+    "promptfooVersion": "0.121.17",
+    "nodeVersion": "v24.0.1",
+    "platform": "darwin",
+    "arch": "arm64",
+    "exportedAt": "2026-07-03T02:47:40.605Z",
+    "evaluationCreatedAt": "2026-07-03T02:47:38.690Z"
+  },
+  "vars": [
+    "prompt",
+    "response_format",
+    "tools",
+    "tool_choice"
+  ],
+  "runtimeOptions": {
+    "eventSource": "cli",
+    "showProgressBar": true,
+    "repeat": 1,
+    "maxConcurrency": 1,
+    "cache": true
+  }
+}

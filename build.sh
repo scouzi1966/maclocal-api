@@ -278,9 +278,16 @@ swift package resolve
 # These patch the EPHEMERAL .build/checkouts/mlx-swift C++ tree (wiped by clean/re-resolve),
 # so they must run AFTER `swift package resolve` and BEFORE the metallib rebuild (which compiles
 # the patched kernels) and `swift build` (which compiles the patched dispatch C++).
+#   - apply-mlx-qmv-wide-backport.sh : mlx#3764 qmv_wide small-batch matvec (spec-decode verify,
+#                                      batch B=2-8). FULL-FILE replacement — MUST run before
+#                                      apply-mlx-cpp-patches.sh, which edits the same files.
 #   - apply-mlx-cpp-patches.sh    : qmv_fast_wide quantized matvec kernels
 #   - apply-mlx-sdpa-backport.sh  : 0.31.3 adaptive-block SDPA (decode@16k ~+10%, correct)
 if $DO_PATCHES; then
+  if [ -x "$SCRIPTS_DIR/apply-mlx-qmv-wide-backport.sh" ]; then
+    log_step "Applying MLX qmv_wide backport (mlx#3764)"
+    "$SCRIPTS_DIR/apply-mlx-qmv-wide-backport.sh"
+  fi
   if [ -x "$SCRIPTS_DIR/apply-mlx-cpp-patches.sh" ]; then
     log_step "Applying MLX C++ kernel patches (qmv_fast_wide)"
     "$SCRIPTS_DIR/apply-mlx-cpp-patches.sh"
@@ -390,7 +397,9 @@ fi
 # -Xlinker __info_plist -Xlinker Sources/MacLocalAPI/Info.plist) must be preserved.
 INFO_PLIST_SECTION=$(otool -l "$FINAL_BIN" 2>/dev/null | grep -A2 '__info_plist' | head -3)
 if echo "$INFO_PLIST_SECTION" | grep -q '__info_plist'; then
-  if strings "$FINAL_BIN" | grep -q 'NSSpeechRecognitionUsageDescription'; then
+  # No `grep -q` here: -q closes the pipe on first hit, which SIGPIPEs `strings` (exit 141)
+  # and — under `set -o pipefail` — fails the check even though the key IS present.
+  if [ "$(strings "$FINAL_BIN" | grep -c 'NSSpeechRecognitionUsageDescription')" -gt 0 ]; then
     log_info "Info.plist embedded OK (NSSpeechRecognitionUsageDescription present)"
   else
     log_error "Info.plist section present but NSSpeechRecognitionUsageDescription key is missing"
