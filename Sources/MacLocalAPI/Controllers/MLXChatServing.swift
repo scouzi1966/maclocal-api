@@ -30,6 +30,9 @@ protocol MLXChatServing: Sendable {
     var thinkStartTag: String? { get }
     var thinkEndTag: String? { get }
     var harmonyChannels: Bool { get }
+    /// Structural wrapper tokens to strip from extracted output (e.g. Cohere
+    /// `<|START_TEXT|>`/`<|END_TEXT|>`). Empty for most models. (#148)
+    var structuralStripTags: [String] { get }
     var fixToolArgs: Bool { get }
     var enableGrammarConstraints: Bool { get }
     var defaultGuidedJsonSchema: ResponseFormat? { get }
@@ -89,6 +92,7 @@ protocol MLXChatServing: Sendable {
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?,
+        preserveStructuralTags: Bool,
         requestId: String?
     ) async throws -> ChatStreamingResult
 }
@@ -96,6 +100,7 @@ protocol MLXChatServing: Sendable {
 extension MLXChatServing {
     var defaultGuidedJsonSchema: ResponseFormat? { nil }
     var harmonyChannels: Bool { false }
+    var structuralStripTags: [String] { [] }
 
     func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? {
         requestFormat ?? defaultGuidedJsonSchema
@@ -138,7 +143,7 @@ extension MLXChatServing {
             topP: topP, repetitionPenalty: repetitionPenalty, topK: topK, minP: minP,
             presencePenalty: presencePenalty, seed: seed, logprobs: logprobs, topLogprobs: topLogprobs,
             tools: tools, parallelToolCalls: parallelToolCalls, stop: stop, responseFormat: responseFormat,
-            chatTemplateKwargs: chatTemplateKwargs, requestId: nil
+            chatTemplateKwargs: chatTemplateKwargs, preserveStructuralTags: false, requestId: nil
         )
     }
 }

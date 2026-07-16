@@ -135,6 +135,7 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?,
+        preserveStructuralTags: Bool,
         requestId: String?
     ) async throws -> ChatStreamingResult {
         try await generateStreaming(

@@ -377,6 +377,11 @@ final class MLXModelService: @unchecked Sendable {
     /// cohere2_moe ends each answer with the special token `<|END_TEXT|>` (then EOS), which
     /// otherwise leaks into the decoded output. Merged into the request stop list. Set at load.
     private(set) var implicitStopSequences: [String] = []
+    /// Structural special tokens the model emits around its answer that are neither think
+    /// tags nor stop sequences — e.g. Cohere cohere2_moe wraps the answer in
+    /// `<|START_TEXT|>…<|END_TEXT|>` after the thinking block. Stripped from content and
+    /// reasoning whenever think extraction is active (left intact in raw-output mode).
+    private(set) var structuralStripTags: [String] = []
     /// Force serial generation (no BatchScheduler) for model architectures whose batched
     /// attention path is not yet validated — e.g. cohere2_moe (mixed sliding/full attention
     /// with NoPE on full layers) produces garbled output under batching. Requests still run
@@ -1381,6 +1386,7 @@ final class MLXModelService: @unchecked Sendable {
                     ("<think>", "</think>"),
                     ("<|think|>", "<|/think|>"),
                     ("<reasoning>", "</reasoning>"),
+                    ("<|START_THINKING|>", "<|END_THINKING|>"),  // Cohere (North / cohere2_moe)
                 ]
                 // Check if a string is a single token in the vocabulary (not decomposed into subwords)
                 func isSingleToken(_ s: String, _ tokenizer: any Tokenizer) -> Bool {
@@ -1429,6 +1435,7 @@ final class MLXModelService: @unchecked Sendable {
             // subsequent load whose config.json is missing/unparsable can't inherit the
             // previous model's stops (e.g. cohere2_moe's <|END_TEXT|>).
             self.implicitStopSequences = []
+            self.structuralStripTags = []
             if let modelDir = self.resolver.localModelDirectory(repoId: modelID) {
                 let configURL = modelDir.appendingPathComponent("config.json")
                 if let data = try? Data(contentsOf: configURL),
@@ -1445,6 +1452,26 @@ final class MLXModelService: @unchecked Sendable {
                     if modelType == "cohere2_moe" {
                         self.builtinChatTemplate = Self.cohere2MoeTemplate
                         self.implicitStopSequences = ["<|END_TEXT|>"]
+                        // The model wraps its answer in <|START_TEXT|>…<|END_TEXT|> after the
+                        // thinking block; <|START_TEXT|> would otherwise leak into content. (#148)
+                        self.structuralStripTags = ["<|START_TEXT|>", "<|END_TEXT|>"]
+                        // Cohere reasoning models are trained to always think: with the
+                        // template's thinking block pre-closed they still reason, but as
+                        // plain text followed by a stray <|END_THINKING|><|START_TEXT|>
+                        // re-emission that corrupts content. Default thinking on so the
+                        // model emits <|START_THINKING|> itself and reasoning is extracted
+                        // cleanly — same rationale as the Gemma 4 channel auto-enable
+                        // above. Explicit enable_thinking=false still pre-closes. (#148)
+                        if self.thinkStartTag == "<|START_THINKING|>" {
+                            var kwargs = self.defaultChatTemplateKwargs ?? [:]
+                            if kwargs["enable_thinking"] == nil {
+                                kwargs["enable_thinking"] = true
+                                self.defaultChatTemplateKwargs = kwargs
+                                if debugLogging {
+                                    print("[\(ts())] [Think] Auto-enabled Cohere thinking (cohere2_moe)")
+                                }
+                            }
+                        }
                         // cohere2_moe's mixed sliding/full attention (RotatingKVCache on the
                         // sliding layers, NoPE on the full layers) is corrupted by batched decode
                         // under BatchScheduler: output degenerates into repeated "thinking" text
@@ -2588,6 +2615,7 @@ final class MLXModelService: @unchecked Sendable {
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
         chatTemplateKwargs: [String: AnyCodable]? = nil,
+        preserveStructuralTags: Bool = false,
         requestId: String? = nil
     ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int, toolCallStartTag: String?, toolCallEndTag: String?, thinkStartTag: String?, thinkEndTag: String?) {
         let reqId = requestId ?? ""
@@ -3123,14 +3151,28 @@ final class MLXModelService: @unchecked Sendable {
                                 }
                                 if case .tokenLogprobs(let lps) = piece {
                                     pendingLogprobs = lps
-                                } else if case .chunk(let text) = piece {
+                                } else if case .chunk(let rawText) = piece {
                                     if firstTokenTime == nil { firstTokenTime = Date() }
-                                    let resolved: [ResolvedLogprob]?
+                                    var resolved: [ResolvedLogprob]?
                                     if let lps = pendingLogprobs {
                                         resolved = self.resolveLogprobs(lps, tokenizer: context.tokenizer)
                                     } else {
                                         resolved = nil
                                     }
+
+                                    // Drop structural wrapper tokens (e.g. Cohere <|START_TEXT|>) at the
+                                    // source, where chunks are still per-token and the tag is atomic —
+                                    // the stopBuffer flush below can split a tag mid-string, defeating
+                                    // any downstream per-piece strip. Tags that double as stop strings
+                                    // are kept so string-level stop matching still sees them. (#148)
+                                    let text = preserveStructuralTags || self.structuralStripTags.isEmpty ? rawText : {
+                                        var t = rawText
+                                        for tag in self.structuralStripTags
+                                        where !activeStops.contains(tag) && t.contains(tag) {
+                                            t = t.replacingOccurrences(of: tag, with: "")
+                                        }
+                                        return t
+                                    }()
 
                                     // Track think boundaries for stop sequence scoping
                                     let wasInsideThink = insideThink
@@ -3138,8 +3180,14 @@ final class MLXModelService: @unchecked Sendable {
                                     if let te = self.thinkEndTag, text.contains(te) { insideThink = false }
 
                                     if !activeStops.isEmpty && !insideThink {
-                                        // If we just transitioned out of think, only buffer text after end tag
+                                        // If we just transitioned out of think, pass the reasoning tail +
+                                        // end tag through (the controller needs the end tag to close the
+                                        // think block — swallowing it left the stream inside reasoning
+                                        // forever, #148); only the visible text after it is stop-scoped.
                                         if wasInsideThink, let te = self.thinkEndTag, let thinkEndRange = text.range(of: te) {
+                                            let throughEnd = String(text[..<thinkEndRange.upperBound])
+                                            continuation.yield(StreamChunk(text: throughEnd, logprobs: resolved))
+                                            resolved = nil
                                             let afterThink = String(text[thinkEndRange.upperBound...])
                                             if !afterThink.isEmpty {
                                                 stopBuffer += afterThink
@@ -6055,11 +6103,14 @@ final class MLXModelService: @unchecked Sendable {
     /// Minimal Cohere `cohere2_moe` chat template. Cohere's official 262-line template uses
     /// block-`set`, `namespace()`, and macros that swift-jinja cannot parse. This emits the
     /// same control tokens for plain chat: per-turn `<|START_OF_TURN_TOKEN|>` + role token +
-    /// `<|START_TEXT|>…<|END_TEXT|>`, and primes the assistant turn with an empty thinking
-    /// block (reasoning off) followed by `<|START_TEXT|>` so the model writes the answer
-    /// directly. Tool/document/RAG features of the official template are not reproduced.
+    /// `<|START_TEXT|>…<|END_TEXT|>`. With thinking enabled (the load-time default for
+    /// cohere2_moe) the assistant turn is left open so the model emits
+    /// `<|START_THINKING|>…<|END_THINKING|><|START_TEXT|>answer` itself and reasoning is
+    /// extracted via the think-tag pipeline; with enable_thinking=false the turn is primed
+    /// with an empty thinking block + `<|START_TEXT|>` so the model answers directly. (#148)
+    /// Tool/document/RAG features of the official template are not reproduced.
     static let cohere2MoeTemplate = """
-    {{ '<BOS_TOKEN>' }}{%- for message in messages -%}{{ '<|START_OF_TURN_TOKEN|>' }}{%- if message['role'] == 'system' -%}{{ '<|SYSTEM_TOKEN|>' }}{%- elif message['role'] == 'user' -%}{{ '<|USER_TOKEN|>' }}{%- else -%}{{ '<|CHATBOT_TOKEN|>' }}{%- endif -%}{{ '<|START_TEXT|>' }}{{ message['content'] }}{{ '<|END_TEXT|>' }}{{ '<|END_OF_TURN_TOKEN|>' }}{%- endfor -%}{%- if add_generation_prompt -%}{{ '<|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|><|START_THINKING|><|END_THINKING|><|START_TEXT|>' }}{%- endif -%}
+    {{ '<BOS_TOKEN>' }}{%- for message in messages -%}{{ '<|START_OF_TURN_TOKEN|>' }}{%- if message['role'] == 'system' -%}{{ '<|SYSTEM_TOKEN|>' }}{%- elif message['role'] == 'user' -%}{{ '<|USER_TOKEN|>' }}{%- else -%}{{ '<|CHATBOT_TOKEN|>' }}{%- endif -%}{{ '<|START_TEXT|>' }}{{ message['content'] }}{{ '<|END_TEXT|>' }}{{ '<|END_OF_TURN_TOKEN|>' }}{%- endfor -%}{%- if add_generation_prompt -%}{{ '<|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|>' }}{%- if not enable_thinking -%}{{ '<|START_THINKING|><|END_THINKING|><|START_TEXT|>' }}{%- endif -%}{%- endif -%}
     """
 
     // MARK: - Tool call parser templates
