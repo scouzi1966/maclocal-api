@@ -92,6 +92,7 @@ protocol MLXChatServing: Sendable {
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?,
+        preserveStructuralTags: Bool,
         requestId: String?
     ) async throws -> ChatStreamingResult
 }
@@ -142,7 +143,7 @@ extension MLXChatServing {
             topP: topP, repetitionPenalty: repetitionPenalty, topK: topK, minP: minP,
             presencePenalty: presencePenalty, seed: seed, logprobs: logprobs, topLogprobs: topLogprobs,
             tools: tools, parallelToolCalls: parallelToolCalls, stop: stop, responseFormat: responseFormat,
-            chatTemplateKwargs: chatTemplateKwargs, requestId: nil
+            chatTemplateKwargs: chatTemplateKwargs, preserveStructuralTags: false, requestId: nil
         )
     }
 }

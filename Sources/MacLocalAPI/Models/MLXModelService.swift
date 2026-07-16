@@ -2615,6 +2615,7 @@ final class MLXModelService: @unchecked Sendable {
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
         chatTemplateKwargs: [String: AnyCodable]? = nil,
+        preserveStructuralTags: Bool = false,
         requestId: String? = nil
     ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int, toolCallStartTag: String?, toolCallEndTag: String?, thinkStartTag: String?, thinkEndTag: String?) {
         let reqId = requestId ?? ""
@@ -3164,7 +3165,7 @@ final class MLXModelService: @unchecked Sendable {
                                     // the stopBuffer flush below can split a tag mid-string, defeating
                                     // any downstream per-piece strip. Tags that double as stop strings
                                     // are kept so string-level stop matching still sees them. (#148)
-                                    let text = self.structuralStripTags.isEmpty ? rawText : {
+                                    let text = preserveStructuralTags || self.structuralStripTags.isEmpty ? rawText : {
                                         var t = rawText
                                         for tag in self.structuralStripTags
                                         where !activeStops.contains(tag) && t.contains(tag) {

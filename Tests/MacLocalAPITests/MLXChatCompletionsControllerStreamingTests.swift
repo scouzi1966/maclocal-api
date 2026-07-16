@@ -47,6 +47,33 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         }
     }
 
+    func testRawOutputPreservesStructuralTagsAtGenerationSource() async throws {
+        let service = FakeMLXChatService(
+            streamingResult: makeStreamingResult(chunks: [
+                StreamChunk(text: "<|START_TEXT|>answer<|END_TEXT|>"),
+                StreamChunk(text: "", promptTokens: 4, completionTokens: 3, cachedTokens: 0, promptTime: 0.01, generateTime: 0.01),
+            ])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil,
+            rawOutput: true
+        ).boot(routes: app)
+
+        let body = try requestBody(stream: true)
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+        headers.replaceOrAdd(name: .contentLength, value: body.readableBytes.description)
+
+        try await app.testable(method: .running(port: 0)).test(.POST, "/v1/chat/completions", headers: headers, body: body) { res async in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertContains(res.body.string, "<|START_TEXT|>answer<|END_TEXT|>")
+        }
+        XCTAssertEqual(service.recordedPreserveStructuralTags, [true])
+    }
+
     func testStreamingControllerSerializesCompletedBatchToolCalls() async throws {
         let toolCall = ResponseToolCall(
             index: 0,
@@ -690,6 +717,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
     private let stateLock = NSLock()
     private(set) var recordedGenerateToolNames: [[String]] = []
     private(set) var recordedStreamingToolNames: [[String]] = []
+    private(set) var recordedPreserveStructuralTags: [Bool] = []
 
     init(
         maxConcurrent: Int = 1,
@@ -833,9 +861,11 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?,
+        preserveStructuralTags: Bool,
         requestId: String?
     ) async throws -> ChatStreamingResult {
-        try await generateStreaming(
+        recordPreserveStructuralTags(preserveStructuralTags)
+        return try await generateStreaming(
             model: model,
             messages: messages,
             temperature: temperature,
@@ -865,6 +895,12 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
     private func recordStreamingTools(_ tools: [RequestTool]?) {
         stateLock.lock()
         recordedStreamingToolNames.append(tools?.map(\.function.name) ?? [])
+        stateLock.unlock()
+    }
+
+    private func recordPreserveStructuralTags(_ preserve: Bool) {
+        stateLock.lock()
+        recordedPreserveStructuralTags.append(preserve)
         stateLock.unlock()
     }
 

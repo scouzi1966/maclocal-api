@@ -266,6 +266,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     stop: effectiveStop,
                     responseFormat: effectiveResponseFormat,
                     chatTemplateKwargs: chatRequest.chatTemplateKwargs,
+                    preserveStructuralTags: !extractThinking,
                     requestId: reqId
                 )
 
@@ -604,6 +605,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     stop: effectiveStop,
                     responseFormat: effectiveResponseFormat,
                     chatTemplateKwargs: chatRequest.chatTemplateKwargs,
+                    preserveStructuralTags: !extractThinking,
                     requestId: streamReqId
                 )
                 // Emit an initial assistant delta so clients always open a response container.
@@ -1710,14 +1712,19 @@ struct MLXChatCompletionsController: RouteCollection {
                 // emitting the start tag (the template opened or pre-closed the block —
                 // e.g. cohere2_moe under enable_thinking=false). The text before it has
                 // already streamed as content, so just drop the literal tag. (#148)
-                if let endRange, startRange == nil || endRange.lowerBound < startRange!.lowerBound {
+                if let startRange {
+                    if let endRange, endRange.lowerBound < startRange.lowerBound {
+                        content += String(buffer[buffer.startIndex..<endRange.lowerBound])
+                        buffer = String(buffer[endRange.upperBound...])
+                    } else {
+                        let before = String(buffer[buffer.startIndex..<startRange.lowerBound])
+                        content += before
+                        buffer = String(buffer[startRange.upperBound...])
+                        insideThinkBlock = true
+                    }
+                } else if let endRange {
                     content += String(buffer[buffer.startIndex..<endRange.lowerBound])
                     buffer = String(buffer[endRange.upperBound...])
-                } else if let startRange {
-                    let before = String(buffer[buffer.startIndex..<startRange.lowerBound])
-                    content += before
-                    buffer = String(buffer[startRange.upperBound...])
-                    insideThinkBlock = true
                 } else {
                     // Same eager-emit optimization for the pre-think content path: withhold only a
                     // partial start- or end-tag prefix, not a fixed startTagLen.
