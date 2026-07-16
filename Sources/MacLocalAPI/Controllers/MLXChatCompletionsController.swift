@@ -382,9 +382,10 @@ struct MLXChatCompletionsController: RouteCollection {
             let generateTime = result.generateTime
             let tokPerSec = generateTime > 0 ? Double(completionTok) / generateTime : 0
             let promptTokPerSec = promptTime > 0 ? Double(result.promptTokens) / promptTime : 0
+            let structuralStripTags = extractThinking ? service.structuralStripTags : []
             let sanitizeContent: (String) -> String = {
                 Self.sanitizeStructuredOutput(
-                    self.sanitizeDegenerateTail($0),
+                    self.sanitizeDegenerateTail(Self.stripStructuralTags($0, tags: structuralStripTags)),
                     responseFormat: effectiveResponseFormat
                 )
             }
@@ -561,9 +562,10 @@ struct MLXChatCompletionsController: RouteCollection {
             let effectiveSeed = chatRequest.seed ?? self.seed
             let effectiveStop = self.mergeStopSequences(cliStop: self.stop, apiStop: chatRequest.stop)
             let deferStructuredOutputContent = Self.requiresStructuredOutputSanitization(effectiveResponseFormat)
+            let structuralStripTags = extractThinking ? service.structuralStripTags : []
             let sanitizeContent: (String) -> String = {
                 Self.sanitizeStructuredOutput(
-                    self.sanitizeDegenerateTail($0),
+                    self.sanitizeDegenerateTail(Self.stripStructuralTags($0, tags: structuralStripTags)),
                     responseFormat: effectiveResponseFormat
                 )
             }
@@ -853,6 +855,10 @@ struct MLXChatCompletionsController: RouteCollection {
                             break
                         }
                     } else if extractThinking {
+                        // Drop structural wrapper tokens (e.g. Cohere <|START_TEXT|>) before
+                        // buffering. Safe per-piece: special tokens detokenize atomically,
+                        // the same assumption the start-tag comparison below relies on. (#148)
+                        let piece = Self.stripStructuralTags(piece, tags: structuralStripTags)
                         // If the piece is exactly the think start tag (template-injected or
                         // model-generated), just flip the state without adding the literal
                         // tag to the buffer. Prevents double-tag leaks when the template
@@ -860,7 +866,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         let trimmedPiece = piece.trimmingCharacters(in: .whitespacesAndNewlines)
                         if let tst = thinkStartTag, trimmedPiece == tst && !insideThinkBlock {
                             insideThinkBlock = true
-                        } else {
+                        } else if !piece.isEmpty {
                             thinkBuffer += piece
                         }
 
@@ -1645,6 +1651,18 @@ struct MLXChatCompletionsController: RouteCollection {
         return 0
     }
 
+    /// Remove structural wrapper tokens (service.structuralStripTags — e.g. Cohere's
+    /// `<|START_TEXT|>`/`<|END_TEXT|>`) that are neither think tags nor stop sequences
+    /// but would otherwise leak into content/reasoning. No-op for the empty list. (#148)
+    static func stripStructuralTags(_ text: String, tags: [String]) -> String {
+        guard !tags.isEmpty, !text.isEmpty else { return text }
+        var out = text
+        for tag in tags where out.contains(tag) {
+            out = out.replacingOccurrences(of: tag, with: "")
+        }
+        return out
+    }
+
     static func extractThinkTags(
         buffer: inout String,
         insideThinkBlock: inout Bool,
@@ -1675,15 +1693,27 @@ struct MLXChatCompletionsController: RouteCollection {
                     break
                 }
             } else {
-                if let startRange = buffer.range(of: startTag) {
+                let startRange = buffer.range(of: startTag)
+                let endRange = buffer.range(of: endTag)
+                // Orphan end tag with no preceding start tag: the model reasoned without
+                // emitting the start tag (the template opened or pre-closed the block —
+                // e.g. cohere2_moe under enable_thinking=false). The text before it has
+                // already streamed as content, so just drop the literal tag. (#148)
+                if let endRange, startRange == nil || endRange.lowerBound < startRange!.lowerBound {
+                    content += String(buffer[buffer.startIndex..<endRange.lowerBound])
+                    buffer = String(buffer[endRange.upperBound...])
+                } else if let startRange {
                     let before = String(buffer[buffer.startIndex..<startRange.lowerBound])
                     content += before
                     buffer = String(buffer[startRange.upperBound...])
                     insideThinkBlock = true
                 } else {
                     // Same eager-emit optimization for the pre-think content path: withhold only a
-                    // partial start-tag prefix, not a fixed startTagLen.
-                    let hb = Self.partialBoundaryHoldback(buffer, startTag)
+                    // partial start- or end-tag prefix, not a fixed startTagLen.
+                    let hb = Swift.max(
+                        Self.partialBoundaryHoldback(buffer, startTag),
+                        Self.partialBoundaryHoldback(buffer, endTag)
+                    )
                     if buffer.count > hb {
                         let safeEnd = buffer.index(buffer.endIndex, offsetBy: -hb)
                         content += String(buffer[buffer.startIndex..<safeEnd])
@@ -1706,7 +1736,20 @@ struct MLXChatCompletionsController: RouteCollection {
 
     /// Extract think tags from a complete (non-streaming) response.
     static func extractThinkContent(from text: String, startTag: String = "<think>", endTag: String = "</think>") -> (content: String, reasoning: String?) {
-        guard text.contains(startTag) else { return (text, nil) }
+        guard text.contains(startTag) else {
+            // Orphan end tag with no start tag: the template opened (or pre-closed) the
+            // thinking block, but the model reasoned anyway and only emitted the end tag
+            // (observed with Cohere cohere2_moe under enable_thinking=false). Everything
+            // before the first end tag is reasoning. (#148)
+            if let endRange = text.range(of: endTag) {
+                let reasoning = String(text[..<endRange.lowerBound])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let content = String(text[endRange.upperBound...])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return (content, reasoning.isEmpty ? nil : reasoning)
+            }
+            return (text, nil)
+        }
         var buffer = text
         var inside = false
         var allReasoning = ""

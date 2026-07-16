@@ -30,6 +30,9 @@ protocol MLXChatServing: Sendable {
     var thinkStartTag: String? { get }
     var thinkEndTag: String? { get }
     var harmonyChannels: Bool { get }
+    /// Structural wrapper tokens to strip from extracted output (e.g. Cohere
+    /// `<|START_TEXT|>`/`<|END_TEXT|>`). Empty for most models. (#148)
+    var structuralStripTags: [String] { get }
     var fixToolArgs: Bool { get }
     var enableGrammarConstraints: Bool { get }
     var defaultGuidedJsonSchema: ResponseFormat? { get }
@@ -94,6 +97,7 @@ protocol MLXChatServing: Sendable {
 extension MLXChatServing {
     var defaultGuidedJsonSchema: ResponseFormat? { nil }
     var harmonyChannels: Bool { false }
+    var structuralStripTags: [String] { [] }
 
     func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? {
         requestFormat ?? defaultGuidedJsonSchema
