@@ -354,6 +354,10 @@ public final class VLMModelFactory: ModelFactory {
             "mistral3": "Mistral3Processor",
             "qwen3_5": "Qwen3VLProcessor",
             "qwen3_5_moe": "Qwen3VLProcessor",
+            // Gemma 4 repos ship processor_config.json without a top-level
+            // processor_class (only image_processor.image_processor_type),
+            // so the processor must be selected by model type.
+            "gemma4": "Gemma4Processor",
         ]
         let processorType =
             processorTypeOverrides[baseConfig.modelType] ?? baseProcessorConfig.processorClass
