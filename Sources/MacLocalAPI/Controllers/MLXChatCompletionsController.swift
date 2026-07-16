@@ -262,6 +262,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     logprobs: chatRequest.logprobs,
                     topLogprobs: chatRequest.topLogprobs,
                     tools: effectiveTools,
+                    parallelToolCalls: chatRequest.parallelToolCalls,
                     stop: effectiveStop,
                     responseFormat: effectiveResponseFormat,
                     chatTemplateKwargs: chatRequest.chatTemplateKwargs,
@@ -311,7 +312,9 @@ struct MLXChatCompletionsController: RouteCollection {
                 // Fallback tool call parsing: if no tool calls were detected by
                 // streaming runtime but content contains tool call patterns, try
                 // full-text parsing (handles missing <tool_call> wrapper, etc.)
-                if finalToolCalls == nil && chatRequest.tools != nil && !fullText.isEmpty {
+                // Raw mode (--tool-call-parser none) skips this entirely.
+                if finalToolCalls == nil && chatRequest.tools != nil && !fullText.isEmpty
+                    && !MLXModelService.isToolCallParserDisabled(service.toolCallParser) {
                     let trimmed = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
                     let parserName = self.service.resolvedToolCallParser(logBypass: false) ?? "auto"
                     let looksLikeToolCall =
@@ -372,6 +375,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     logprobs: chatRequest.logprobs,
                     topLogprobs: chatRequest.topLogprobs,
                     tools: effectiveTools,
+                    parallelToolCalls: chatRequest.parallelToolCalls,
                     stop: effectiveStop,
                     responseFormat: effectiveResponseFormat,
                     chatTemplateKwargs: chatRequest.chatTemplateKwargs
@@ -594,6 +598,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     logprobs: chatRequest.logprobs,
                     topLogprobs: chatRequest.topLogprobs,
                     tools: effectiveTools,
+                    parallelToolCalls: chatRequest.parallelToolCalls,
                     stop: effectiveStop,
                     responseFormat: effectiveResponseFormat,
                     chatTemplateKwargs: chatRequest.chatTemplateKwargs,
@@ -992,7 +997,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 let trimmedFull = fullContent.trimmingCharacters(in: .whitespacesAndNewlines)
                 let looksLikeBareJsonToolCall = trimmedFull.hasPrefix("{") && trimmedFull.contains("\"name\"")
                 let parserName = self.service.toolCallParser ?? "auto"
-                if !hasToolCalls && (
+                if !hasToolCalls && !MLXModelService.isToolCallParserDisabled(service.toolCallParser) && (
                     (toolCallStartTag != nil && fullContent.contains(toolCallStartTag!)) ||
                     fullContent.contains("[TOOL_CALLS]") ||
                     fullContent.contains("[ARGS]") ||
@@ -1340,13 +1345,19 @@ struct MLXChatCompletionsController: RouteCollection {
     }
 
     private func normalizedMaxTokens(_ requested: Int?) -> Int {
-        if let requested, requested > 0 {
-            return requested
-        }
-        if let maxTokens, maxTokens > 0 {
-            return maxTokens
-        }
-        return 4096
+        Self.resolveEffectiveMaxTokens(requested: requested, serverDefault: maxTokens)
+    }
+
+    /// Fallback when neither the request nor the server sets max_tokens.
+    /// Deliberately larger than mlx_lm.server's 512 so interactive clients that
+    /// omit max_tokens don't get truncated thinking/code output; parity
+    /// benchmarks should pass an explicit max_tokens on both servers.
+    static let defaultMaxCompletionTokens = 4096
+
+    static func resolveEffectiveMaxTokens(requested: Int?, serverDefault: Int?) -> Int {
+        if let requested, requested > 0 { return requested }
+        if let serverDefault, serverDefault > 0 { return serverDefault }
+        return Self.defaultMaxCompletionTokens
     }
 
     private func sanitizeDegenerateTail(_ text: String) -> String {

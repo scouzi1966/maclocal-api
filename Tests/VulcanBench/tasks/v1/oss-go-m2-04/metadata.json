@@ -1,0 +1,32 @@
+{
+  "id": "oss-go-m2-04",
+  "category": "bug_fix",
+  "languages": [
+    "go"
+  ],
+  "difficulty": "easy",
+  "task_complexity": "localized",
+  "created": "2026-06-04",
+  "repo_scale": "small",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Vendored Go m2pkg4 slice. Hand-authored benchmark scaffold inspired by OSS patterns; not vendored from a pinned upstream commit.",
+  "tests": {
+    "fail_to_pass": [
+      {
+        "name": "double",
+        "cmd": "go test -run '^TestDouble$' ./..."
+      }
+    ],
+    "pass_to_pass": [
+      {
+        "name": "id",
+        "cmd": "go test -run '^TestID$' ./..."
+      }
+    ]
+  },
+  "test_timeout_s": 120,
+  "agent_hints": {
+    "suggested_max_steps": 60
+  }
+}

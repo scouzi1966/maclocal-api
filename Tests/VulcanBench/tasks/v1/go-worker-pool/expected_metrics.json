@@ -1,0 +1,4 @@
+{
+  "functional": 1.0,
+  "notes": "Gold dispatches all len(inputs) jobs (fixes the off-by-one); workers write distinct result indices so it stays race-free under go test -race."
+}

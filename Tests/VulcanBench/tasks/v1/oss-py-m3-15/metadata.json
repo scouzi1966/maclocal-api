@@ -1,0 +1,36 @@
+{
+  "id": "oss-py-m3-15",
+  "category": "bug_fix",
+  "languages": [
+    "python"
+  ],
+  "difficulty": "medium",
+  "task_complexity": "localized",
+  "created": "2026-06-04",
+  "repo_scale": "small",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Vendored pkg15 slice (oss-py-m3-15). Hand-authored benchmark scaffold inspired by OSS patterns; not vendored from a pinned upstream commit.",
+  "tests": {
+    "fail_to_pass": [
+      {
+        "name": "run",
+        "cmd": "python -m pytest test_service.py::test_run -q"
+      }
+    ],
+    "pass_to_pass": [
+      {
+        "name": "import",
+        "cmd": "python -m pytest test_service.py::test_import_api -q"
+      }
+    ]
+  },
+  "test_timeout_s": 120,
+  "agent_hints": {
+    "suggested_max_steps": 100,
+    "entry_paths": [
+      "pkg15/service.py"
+    ],
+    "suggested_timeout_s": 1200
+  }
+}

@@ -1,0 +1,67 @@
+diff --git a/src/debounce.ts b/src/debounce.ts
+index 50adff1..18986fc 100644
+--- a/src/debounce.ts
++++ b/src/debounce.ts
+@@ -1,9 +1,6 @@
+ /**
+  * Debounce a function: delay invoking `fn` until `wait` ms have elapsed since
+- * the last call.
+- *
+- * NOTE: this is an unimplemented skeleton — see issue.md. It returns a callable
+- * with a `cancel` method, but it never actually invokes `fn`.
++ * the last call. Supports leading/trailing edges and cancellation.
+  */
+ 
+ export interface DebounceOptions {
+@@ -24,11 +21,45 @@ export function debounce<A extends unknown[]>(
+   wait: number,
+   options: DebounceOptions = {},
+ ): Debounced<A> {
+-  // TODO: implement leading/trailing debouncing and cancel().
+-  void fn;
+-  void wait;
+-  void options;
+-  const debounced = ((..._args: A): void => {}) as Debounced<A>;
+-  debounced.cancel = (): void => {};
++  const leading = options.leading ?? false;
++  const trailing = options.trailing ?? true;
++
++  let timer: ReturnType<typeof setTimeout> | undefined;
++  let lastArgs: A | undefined;
++  let callsInWindow = 0;
++
++  const onTimeout = (): void => {
++    timer = undefined;
++    // Only fire the trailing edge if there was a call that the leading edge
++    // did not already handle.
++    if (trailing && lastArgs !== undefined && callsInWindow > (leading ? 1 : 0)) {
++      fn(...lastArgs);
++    }
++    lastArgs = undefined;
++    callsInWindow = 0;
++  };
++
++  const debounced = ((...args: A): void => {
++    lastArgs = args;
++    callsInWindow += 1;
++    const startingWindow = timer === undefined;
++    if (startingWindow && leading) {
++      fn(...args);
++    }
++    if (timer !== undefined) {
++      clearTimeout(timer);
++    }
++    timer = setTimeout(onTimeout, wait);
++  }) as Debounced<A>;
++
++  debounced.cancel = (): void => {
++    if (timer !== undefined) {
++      clearTimeout(timer);
++      timer = undefined;
++    }
++    lastArgs = undefined;
++    callsInWindow = 0;
++  };
++
+   return debounced;
+ }

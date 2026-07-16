@@ -1,0 +1,32 @@
+{
+  "id": "oss-ty-m3-08",
+  "category": "bug_fix",
+  "languages": [
+    "typescript"
+  ],
+  "difficulty": "easy",
+  "task_complexity": "localized",
+  "created": "2026-06-04",
+  "repo_scale": "small",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Vendored TS lib8 slice. Hand-authored benchmark scaffold inspired by OSS patterns; not vendored from a pinned upstream commit.",
+  "tests": {
+    "fail_to_pass": [
+      {
+        "name": "run",
+        "cmd": "node --experimental-strip-types --test --test-name-pattern='^run$' lib8.test.ts"
+      }
+    ],
+    "pass_to_pass": [
+      {
+        "name": "types",
+        "cmd": "node --experimental-strip-types --test --test-name-pattern='^types$' lib8.test.ts"
+      }
+    ]
+  },
+  "test_timeout_s": 120,
+  "agent_hints": {
+    "suggested_max_steps": 60
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "id": "ts-debounce",
+  "category": "feature",
+  "languages": ["typescript"],
+  "difficulty": "medium",
+  "task_complexity": "localized",
+  "created": "2026-06-01",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Original scenario authored for VulcanBench on 2026-06-01; not derived from any public repository, issue, or dataset, so it post-dates all model training cutoffs.",
+  "tests": {
+    "fail_to_pass": [
+      {"name": "trailing_latest_args", "cmd": "node --experimental-strip-types --test --test-name-pattern='^invokes once on the trailing edge with the latest args$' tests/debounce.test.ts"},
+      {"name": "not_before_wait", "cmd": "node --experimental-strip-types --test --test-name-pattern='^does not invoke before the wait elapses$' tests/debounce.test.ts"},
+      {"name": "collapses_burst", "cmd": "node --experimental-strip-types --test --test-name-pattern='^collapses a burst of calls into one$' tests/debounce.test.ts"},
+      {"name": "leading_edge", "cmd": "node --experimental-strip-types --test --test-name-pattern='^leading invokes immediately and not on the trailing edge$' tests/debounce.test.ts"},
+      {"name": "cancel", "cmd": "node --experimental-strip-types --test --test-name-pattern='^cancel discards a pending call but the debouncer still works after$' tests/debounce.test.ts"}
+    ],
+    "pass_to_pass": [
+      {"name": "returns_callable", "cmd": "node --experimental-strip-types --test --test-name-pattern='^returns a callable$' tests/debounce.test.ts"},
+      {"name": "has_cancel", "cmd": "node --experimental-strip-types --test --test-name-pattern='^exposes a cancel method$' tests/debounce.test.ts"}
+    ]
+  }
+}

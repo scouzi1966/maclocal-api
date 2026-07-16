@@ -1,0 +1,41 @@
+{
+  "id": "oss-pilot-acme-retry",
+  "category": "refactor",
+  "languages": [
+    "python"
+  ],
+  "difficulty": "medium",
+  "task_complexity": "localized",
+  "created": "2026-06-04",
+  "repo_scale": "small",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Pilot medium OSS slice; retry helper bug across http/db. Hand-authored benchmark scaffold inspired by OSS patterns; not vendored from a pinned upstream commit.",
+  "tests": {
+    "fail_to_pass": [
+      {
+        "name": "attempts",
+        "cmd": "python -m pytest test_acme_retry.py::test_retry_attempt_count -q"
+      },
+      {
+        "name": "cap",
+        "cmd": "python -m pytest test_acme_retry.py::test_retry_respects_max_delay -q"
+      }
+    ],
+    "pass_to_pass": [
+      {
+        "name": "imports",
+        "cmd": "python -m pytest test_acme_retry.py::test_clients_import -q"
+      }
+    ]
+  },
+  "test_timeout_s": 120,
+  "agent_hints": {
+    "suggested_max_steps": 100,
+    "entry_paths": [
+      "acme/retry.py",
+      "acme/http.py"
+    ],
+    "suggested_timeout_s": 1200
+  }
+}

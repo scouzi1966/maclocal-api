@@ -27,7 +27,9 @@ let package = Package(
         // resolve it. RECONFIRMED 2026-05-31: 0.31.3 still produces garbage/empty at >1500 tok
         // (afm decode@16k deficit vs newer-MLX engines is the price of correct long-context output).
         .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.30.3"),
-        // Jinja (transitive via swift-transformers) — exposed for test target
+        // Jinja (transitive via swift-transformers) — exposed for test target.
+        // 2.4.0 broke swift-transformers ≤1.3.3 (ObjectKey change in Hub/Config.swift);
+        // 2.4.1 restored source compatibility upstream, so no cap is needed.
         .package(url: "https://github.com/huggingface/swift-jinja.git", from: "2.0.0")
     ],
     targets: [

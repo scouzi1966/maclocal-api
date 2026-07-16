@@ -1,0 +1,24 @@
+{
+  "id": "go-csv-quoting",
+  "category": "bug_fix",
+  "languages": ["go"],
+  "difficulty": "medium",
+  "task_complexity": "localized",
+  "created": "2026-06-01",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Original scenario written for VulcanBench on 2026-06-01; not derived from any public repository or issue, so it post-dates all model training cutoffs.",
+  "tests": {
+    "fail_to_pass": [
+      {"name": "escaped_quote", "cmd": "go test -run '^TestEscapedQuote$' ./..."},
+      {"name": "escaped_quote_in_context", "cmd": "go test -run '^TestEscapedQuoteInContext$' ./..."},
+      {"name": "only_escaped_quotes", "cmd": "go test -run '^TestOnlyEscapedQuotes$' ./..."}
+    ],
+    "pass_to_pass": [
+      {"name": "simple_record", "cmd": "go test -run '^TestSimpleRecord$' ./..."},
+      {"name": "quoted_comma", "cmd": "go test -run '^TestQuotedFieldWithComma$' ./..."},
+      {"name": "quoted_newline", "cmd": "go test -run '^TestQuotedFieldWithNewline$' ./..."},
+      {"name": "multiple_records", "cmd": "go test -run '^TestMultipleRecords$' ./..."}
+    ]
+  }
+}

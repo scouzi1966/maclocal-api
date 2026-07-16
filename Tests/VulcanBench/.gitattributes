@@ -1,0 +1,12 @@
+# .gitattributes - LFS for large repo snapshots
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Git LFS tracking for task repo snapshots (GitHub supports free LFS for public OSS)
+# Add more patterns as tasks are added (e.g. large test fixtures)
+tasks/v1/**/*.tar.gz filter=lfs diff=lfs merge=lfs -text
+tasks/v1/**/repo_snapshot* filter=lfs diff=lfs merge=lfs -text
+*.tar.gz filter=lfs diff=lfs merge=lfs -text
+
+# Large binary assets if any (traces can be large but we keep JSONL text)
+# runs/ is gitignored entirely

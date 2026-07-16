@@ -1,0 +1,24 @@
+{
+  "id": "py-topo-sort-cycle",
+  "category": "bug_fix",
+  "languages": ["python"],
+  "difficulty": "medium",
+  "task_complexity": "localized",
+  "created": "2026-06-01",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Original scenario written for VulcanBench on 2026-06-01; not derived from any public repository or issue, so it post-dates all model training cutoffs.",
+  "tests": {
+    "fail_to_pass": [
+      {"name": "ready_smallest_first", "cmd": "python -m pytest test_order.py::test_ready_nodes_emitted_smallest_first -q"},
+      {"name": "diamond_deterministic", "cmd": "python -m pytest test_order.py::test_diamond_is_deterministic -q"},
+      {"name": "two_cycle_raises", "cmd": "python -m pytest test_order.py::test_two_cycle_raises -q"},
+      {"name": "self_loop_raises", "cmd": "python -m pytest test_order.py::test_self_loop_raises -q"},
+      {"name": "cycle_with_tail_raises", "cmd": "python -m pytest test_order.py::test_cycle_with_tail_raises -q"}
+    ],
+    "pass_to_pass": [
+      {"name": "basic", "cmd": "python -m pytest test_basic.py -q"},
+      {"name": "linear_chain", "cmd": "python -m pytest test_order.py::test_linear_chain -q"}
+    ]
+  }
+}

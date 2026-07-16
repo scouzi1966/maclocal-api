@@ -1,0 +1,4 @@
+{
+  "functional": 1.0,
+  "notes": "Gold schedules with setTimeout/clearTimeout, fires the latest args on the trailing edge, supports leading and cancel, and collapses bursts into one call."
+}

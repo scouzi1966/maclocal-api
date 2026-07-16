@@ -1,0 +1,36 @@
+{
+  "id": "oss-go-metrics-labels",
+  "category": "bug_fix",
+  "languages": [
+    "go"
+  ],
+  "difficulty": "medium",
+  "task_complexity": "localized",
+  "created": "2026-06-04",
+  "repo_scale": "small",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Metrics label key slice. Hand-authored benchmark scaffold inspired by OSS patterns; not vendored from a pinned upstream commit.",
+  "tests": {
+    "fail_to_pass": [
+      {
+        "name": "stable",
+        "cmd": "go test -run '^TestLabelKeyStable$' ./..."
+      }
+    ],
+    "pass_to_pass": [
+      {
+        "name": "inc",
+        "cmd": "go test -run '^TestInc$' ./..."
+      }
+    ]
+  },
+  "test_timeout_s": 120,
+  "agent_hints": {
+    "suggested_max_steps": 100,
+    "entry_paths": [
+      "metrics/labels.go"
+    ],
+    "suggested_timeout_s": 1200
+  }
+}

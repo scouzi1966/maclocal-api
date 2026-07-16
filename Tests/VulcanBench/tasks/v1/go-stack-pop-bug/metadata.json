@@ -1,0 +1,20 @@
+{
+  "id": "go-stack-pop-bug",
+  "category": "bug_fix",
+  "languages": ["go"],
+  "difficulty": "easy",
+  "task_complexity": "localized",
+  "created": "2026-05-30",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Original scenario written for VulcanBench on 2026-05-30; not derived from any public repository or issue, so it post-dates all model training cutoffs.",
+  "tests": {
+    "fail_to_pass": [
+      {"name": "pop_lifo", "cmd": "go test -run '^TestPopLIFO$' ./..."},
+      {"name": "pop_shrinks", "cmd": "go test -run '^TestPopShrinks$' ./..."}
+    ],
+    "pass_to_pass": [
+      {"name": "push_len", "cmd": "go test -run '^TestPushLen$' ./..."}
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+diff --git a/src/validatelib.ts b/src/validatelib.ts
+index d827dcc..ecc4b2e 100644
+--- a/src/validatelib.ts
++++ b/src/validatelib.ts
+@@ -1 +1 @@
+-export function run(x: number) { return x + 1; }
++export function run(x: number) { return x * 2; }

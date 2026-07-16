@@ -1,0 +1,36 @@
+{
+  "id": "oss-ts-router-params",
+  "category": "bug_fix",
+  "languages": [
+    "typescript"
+  ],
+  "difficulty": "medium",
+  "task_complexity": "localized",
+  "created": "2026-06-04",
+  "repo_scale": "small",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Router param decoding slice. Hand-authored benchmark scaffold inspired by OSS patterns; not vendored from a pinned upstream commit.",
+  "tests": {
+    "fail_to_pass": [
+      {
+        "name": "decode",
+        "cmd": "node --experimental-strip-types --test --test-name-pattern='^decodeParam$' router.test.ts"
+      }
+    ],
+    "pass_to_pass": [
+      {
+        "name": "static",
+        "cmd": "node --experimental-strip-types --test --test-name-pattern='^staticSegment$' router.test.ts"
+      }
+    ]
+  },
+  "test_timeout_s": 120,
+  "agent_hints": {
+    "suggested_max_steps": 100,
+    "entry_paths": [
+      "src/router.ts"
+    ],
+    "suggested_timeout_s": 1200
+  }
+}

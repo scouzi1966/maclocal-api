@@ -1,0 +1,45 @@
+diff --git a/src/validate.ts b/src/validate.ts
+index 039f1a4..9806f4f 100644
+--- a/src/validate.ts
++++ b/src/validate.ts
+@@ -5,13 +5,36 @@ import type { Schema, ValidationError } from "./types.ts";
+  *
+  * Returns a list of {@link ValidationError}; an empty list means the object is
+  * valid. See issue.md for the exact semantics this should implement.
+- *
+- * NOTE: this is currently a stub that accepts everything.
+  */
+ export function validate(
+   obj: Record<string, unknown>,
+   schema: Schema,
+ ): ValidationError[] {
+-  // TODO: implement required-field and field-type checks.
+-  return [];
++  const errors: ValidationError[] = [];
++
++  for (const field of Object.keys(schema)) {
++    const spec = schema[field];
++    const present = Object.prototype.hasOwnProperty.call(obj, field);
++
++    if (!present) {
++      if (spec.required) {
++        errors.push({
++          field,
++          kind: "missing",
++          message: `required field "${field}" is missing`,
++        });
++      }
++      continue;
++    }
++
++    if (typeof obj[field] !== spec.type) {
++      errors.push({
++        field,
++        kind: "type",
++        message: `field "${field}" must be of type ${spec.type}, got ${typeof obj[field]}`,
++      });
++    }
++  }
++
++  return errors;
+ }

@@ -1,0 +1,28 @@
+{
+  "id": "py-jsonpointer",
+  "category": "feature",
+  "languages": ["python"],
+  "difficulty": "hard",
+  "task_complexity": "localized",
+  "created": "2026-06-01",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Original scenario written for VulcanBench on 2026-06-01; implements the public RFC 6901 specification but the task framing, repo, and tests are not derived from any existing repository, so they post-date all model training cutoffs.",
+  "tests": {
+    "fail_to_pass": [
+      {"name": "escape_slash", "cmd": "python -m pytest test_rfc6901.py::test_escape_slash -q"},
+      {"name": "escape_tilde", "cmd": "python -m pytest test_rfc6901.py::test_escape_tilde -q"},
+      {"name": "escape_combined_order", "cmd": "python -m pytest test_rfc6901.py::test_escape_combined_order -q"},
+      {"name": "array_index", "cmd": "python -m pytest test_rfc6901.py::test_array_index -q"},
+      {"name": "array_nested_in_object", "cmd": "python -m pytest test_rfc6901.py::test_array_nested_in_object -q"},
+      {"name": "missing_member_raises", "cmd": "python -m pytest test_rfc6901.py::test_missing_member_raises -q"},
+      {"name": "array_out_of_range_raises", "cmd": "python -m pytest test_rfc6901.py::test_array_index_out_of_range_raises -q"},
+      {"name": "array_dash_raises", "cmd": "python -m pytest test_rfc6901.py::test_array_dash_raises -q"},
+      {"name": "array_leading_zero_raises", "cmd": "python -m pytest test_rfc6901.py::test_array_leading_zero_raises -q"},
+      {"name": "descend_into_scalar_raises", "cmd": "python -m pytest test_rfc6901.py::test_descend_into_scalar_raises -q"}
+    ],
+    "pass_to_pass": [
+      {"name": "basic", "cmd": "python -m pytest test_basic.py -q"}
+    ]
+  }
+}

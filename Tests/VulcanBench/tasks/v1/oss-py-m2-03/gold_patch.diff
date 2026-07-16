@@ -1,0 +1,8 @@
+diff --git a/m2pkg3/service.py b/m2pkg3/service.py
+index 2ef7788..e3e6d09 100644
+--- a/m2pkg3/service.py
++++ b/m2pkg3/service.py
+@@ -1,2 +1,2 @@
+ def run(x):
+-    return x + 1
++    return x * 2

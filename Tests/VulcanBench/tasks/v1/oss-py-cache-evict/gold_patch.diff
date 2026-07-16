@@ -1,0 +1,8 @@
+diff --git a/cachelib/service.py b/cachelib/service.py
+index 66617d5..e3e6d09 100644
+--- a/cachelib/service.py
++++ b/cachelib/service.py
+@@ -1,2 +1,2 @@
+ def run(x):
+-    return x - 1
++    return x * 2

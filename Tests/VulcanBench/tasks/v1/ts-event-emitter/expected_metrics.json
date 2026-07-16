@@ -1,0 +1,4 @@
+{
+  "functional": 1.0,
+  "notes": "Gold implements off (splice by reference) and once (self-removing wrapper); emit iterates a snapshot so once-listeners can unsubscribe mid-emit."
+}

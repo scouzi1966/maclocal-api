@@ -1,0 +1,4 @@
+{
+  "functional": 1.0,
+  "notes": "Gold tracks recency with container/list (front=MRU, back=LRU); Get/Put move to front and Put evicts the back when over capacity."
+}

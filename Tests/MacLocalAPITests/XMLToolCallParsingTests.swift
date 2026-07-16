@@ -11,6 +11,106 @@ import Testing
 struct XMLToolCallParsingTests {
 // dimensions: tool_call_format=xmlFunction
 
+    @Test("auto-detected XML format uses narrow Qwen XML parser without explicit override")
+    func autoDetectedXMLUsesNarrowQwenXMLParserWithoutExplicitOverride() {
+        let parser = MLXModelService.effectiveToolCallParser(
+            configuredParser: nil,
+            detectedFormat: .xmlFunction
+        )
+        #expect(parser == "qwen3_xml")
+    }
+
+    @Test("auto-detected XML format does not force chat template override")
+    func autoDetectedXMLDoesNotForceChatTemplateOverride() {
+        let parser = MLXModelService.effectiveChatTemplateToolCallParser(
+            configuredParser: nil,
+            detectedFormat: .xmlFunction
+        )
+        #expect(parser == nil)
+    }
+
+    @Test("explicit none parser disables auto-detected adaptive XML parser")
+    func explicitNoneParserDisablesAutoDetectedAdaptiveXMLParser() {
+        let parser = MLXModelService.effectiveToolCallParser(
+            configuredParser: "none",
+            detectedFormat: .xmlFunction
+        )
+        #expect(parser == nil)
+    }
+
+    @Test("explicit none parser disables chat template override")
+    func explicitNoneParserDisablesChatTemplateOverride() {
+        let parser = MLXModelService.effectiveChatTemplateToolCallParser(
+            configuredParser: "none",
+            detectedFormat: .xmlFunction
+        )
+        #expect(parser == nil)
+    }
+
+    @Test("none tool call format passes tagged tool text through unchanged")
+    func noneToolCallFormatPassesTaggedToolTextThroughUnchanged() {
+        let processor = ToolCallProcessor(format: .none)
+        let text = #"<tool_call>{"name":"search","arguments":{"query":"x"}}</tool_call>"#
+        #expect(processor.processChunk(text) == text)
+        #expect(processor.toolCalls.isEmpty)
+    }
+
+    @Test("XML function parser rejects malformed function names")
+    func xmlFunctionParserRejectsMalformedFunctionNames() {
+        let parser = XMLFunctionParser()
+        let malformed = """
+        <function=edit_file
+        <(parameter=path>
+        csv.go
+        </parameter>
+        </function>
+        """
+        #expect(parser.parse(content: malformed, tools: nil) == nil)
+    }
+
+    @Test("explicit parser override still controls chat template override")
+    func explicitParserOverrideControlsChatTemplateOverride() {
+        let parser = MLXModelService.effectiveChatTemplateToolCallParser(
+            configuredParser: "afm_adaptive_xml",
+            detectedFormat: .xmlFunction
+        )
+        #expect(parser == "afm_adaptive_xml")
+    }
+
+    @Test("explicit parser override takes precedence over auto-detected XML format")
+    func explicitParserOverrideTakesPrecedence() {
+        let parser = MLXModelService.effectiveToolCallParser(
+            configuredParser: "qwen3_xml",
+            detectedFormat: .xmlFunction
+        )
+        #expect(parser == "qwen3_xml")
+    }
+
+    @Test("Gemma 4 bypass still suppresses adaptive parser override")
+    func gemma4BypassStillSuppressesAdaptiveOverride() {
+        let parser = MLXModelService.effectiveToolCallParser(
+            configuredParser: "afm_adaptive_xml",
+            detectedFormat: .gemma4
+        )
+        #expect(parser == nil)
+    }
+
+    @Test("producer stops after structured tool call only when parallel calls are disabled")
+    func serialGenerationStopsAfterStructuredToolCallWhenToolsArePresent() {
+        // Producer-side stop must not truncate multi-call turns: only stop when
+        // the request explicitly disabled parallel tool calls.
+        #expect(MLXModelService.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: true, parallelToolCalls: false))
+        #expect(!MLXModelService.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: true, parallelToolCalls: nil))
+        #expect(!MLXModelService.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: true, parallelToolCalls: true))
+        #expect(!MLXModelService.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: false, parallelToolCalls: false))
+    }
+
+    @Test("generate parameters keep producer-side tool stop explicit")
+    func generateParametersKeepProducerSideToolStopExplicit() {
+        #expect(!GenerateParameters().stopAfterToolCall)
+        #expect(GenerateParameters(stopAfterToolCall: true).stopAfterToolCall)
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // MARK: - decodeXMLEntities
     // ═══════════════════════════════════════════════════════════════════
@@ -92,6 +192,66 @@ struct XMLToolCallParsingTests {
         let city = calls[0].function.arguments["city"]?.anyValue as? String
         #expect(city == "Berlin")
         #expect(remaining.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    @Test("malformed equals fields: quoted values containing assignments are not split")
+    func quotedValuesWithAssignmentsSurvive() {
+        let text = """
+        <tool_call>
+        {"function="edit_file", "path="csv.go", "old_string="x=1", "new_string="x=2"}
+        </tool_call>
+        """
+        let (calls, _) = MLXModelService.extractToolCallsFallback(from: text, allowMalformedRepair: true)
+        #expect(calls.count == 1)
+        #expect(calls[0].function.name == "edit_file")
+        #expect(calls[0].function.arguments["path"]?.anyValue as? String == "csv.go")
+        #expect(calls[0].function.arguments["old_string"]?.anyValue as? String == "x=1")
+        #expect(calls[0].function.arguments["new_string"]?.anyValue as? String == "x=2")
+    }
+
+    @Test("malformed equals fields: nested arguments payload keeps embedded command intact")
+    func nestedArgumentsPayloadParsed() {
+        let text = """
+        <tool_call>
+        {"function="run_command", "arguments="cmd="ls -la""}
+        </tool_call>
+        """
+        let (calls, _) = MLXModelService.extractToolCallsFallback(from: text, allowMalformedRepair: true)
+        #expect(calls.count == 1)
+        #expect(calls[0].function.name == "run_command")
+        #expect(calls[0].function.arguments["cmd"]?.anyValue as? String == "ls -la")
+    }
+
+    @Test("malformed equals fields: quoted values keep legitimate braces exactly")
+    func quotedValuesKeepBraces() {
+        let text = """
+        <tool_call>
+        {"function="edit_file", "path="a.go", "old_string="x", "new_string="x}"}
+        </tool_call>
+        """
+        let (calls, _) = MLXModelService.extractToolCallsFallback(from: text, allowMalformedRepair: true)
+        #expect(calls.count == 1)
+        #expect(calls[0].function.arguments["new_string"]?.anyValue as? String == "x}")
+    }
+
+    @Test("malformed repair is gated on repair mode")
+    func malformedRepairGatedOnRepairMode() {
+        let text = """
+        <tool_call>
+        {"function="edit_file", "path="csv.go", "old_string="x=1", "new_string="x=2"}
+        </tool_call>
+        """
+        // Default native/parity mode: malformed output stays unrepaired.
+        let (defaultCalls, _) = MLXModelService.extractToolCallsFallback(from: text)
+        #expect(defaultCalls.isEmpty)
+        let (nativeCalls, _) = ToolCallStreamingRuntime.parseCompletedToolCalls(
+            from: text, toolCallParser: "qwen3_xml", tools: nil)
+        #expect(nativeCalls.isEmpty)
+        // Repair mode opts in.
+        let (repairCalls, _) = ToolCallStreamingRuntime.parseCompletedToolCalls(
+            from: text, toolCallParser: "afm_adaptive_xml", tools: nil)
+        #expect(repairCalls.count == 1)
+        #expect(repairCalls[0].function.name == "edit_file")
     }
 
     @Test("decodes XML entities in parameter values via XMLParser")
@@ -521,6 +681,66 @@ struct XMLToolCallParsingTests {
         #expect(calls.count == 2)
         #expect(calls[0].function.name == "read_file")
         #expect(calls[1].function.name == "write_file")
+    }
+
+    @Test("parses Qwen malformed JSON name equals tool call")
+    func parsesQwenMalformedJSONNameEquals() {
+        let text = #"""
+        <tool_call>
+        {"name="edit_file", "arguments": {"path": "src/parse.ts", "old_string": "old", "new_string": "new"}}
+        </tool_call>
+        """#
+        let (calls, remaining) = MLXModelService.extractToolCallsFallback(from: text, allowMalformedRepair: true)
+        #expect(calls.count == 1)
+        #expect(calls[0].function.name == "edit_file")
+        #expect(calls[0].function.arguments["path"]?.anyValue as? String == "src/parse.ts")
+        #expect(remaining.isEmpty)
+    }
+
+    @Test("parses Qwen malformed flat function equals tool call")
+    func parsesQwenMalformedFlatFunctionEquals() {
+        let text = #"""
+        <tool_call>
+        {"function="edit_file", "path="dag/graph.py", "old_string="old", "new_string="new"}}
+        </tool_call>
+        """#
+        let (calls, _) = MLXModelService.extractToolCallsFallback(from: text, allowMalformedRepair: true)
+        #expect(calls.count == 1)
+        #expect(calls[0].function.name == "edit_file")
+        #expect(calls[0].function.arguments["path"]?.anyValue as? String == "dag/graph.py")
+        #expect(calls[0].function.arguments["old_string"]?.anyValue as? String == "old")
+        #expect(calls[0].function.arguments["new_string"]?.anyValue as? String == "new")
+    }
+
+    @Test("parses Qwen malformed function element opener")
+    func parsesQwenMalformedFunctionElementOpener() {
+        let text = #"""
+        <tool_call>
+        {"function>
+        <name>edit_file</name>
+        <parameter=path>stack/pop.go</parameter>
+        <parameter=old_string>old</parameter>
+        <parameter=new_string>new</parameter>
+        </function>
+        </tool_call>
+        """#
+        let (calls, _) = MLXModelService.extractToolCallsFallback(from: text, allowMalformedRepair: true)
+        #expect(calls.count == 1)
+        #expect(calls[0].function.name == "edit_file")
+        #expect(calls[0].function.arguments["path"]?.anyValue as? String == "stack/pop.go")
+    }
+
+    @Test("parses Qwen malformed nested arguments equals tool call")
+    func parsesQwenMalformedNestedArgumentsEquals() {
+        let text = #"""
+        <tool_call>
+        {"function="run_command", "arguments="cmd="find . -name '*.rs'"}}
+        </tool_call>
+        """#
+        let (calls, _) = MLXModelService.extractToolCallsFallback(from: text, allowMalformedRepair: true)
+        #expect(calls.count == 1)
+        #expect(calls[0].function.name == "run_command")
+        #expect(calls[0].function.arguments["cmd"]?.anyValue as? String == "find . -name '*.rs'")
     }
 
     @Test("empty <tool_call></tool_call> block returns no calls")
@@ -1234,6 +1454,34 @@ struct XMLToolCallParsingTests {
         #expect((args?["query"] as? String) == "files")
         #expect((args?["maxResults"] as? Int) == 5)
         #expect(args?["max_results"] == nil)
+    }
+
+    @Test("normalizeToolCall splits malformed parameter payload into schema arguments")
+    func normalizeToolCallSplitsMalformedParameterPayload() {
+        let tool = makeRequestTool(name: "edit_file", properties: [
+            "path": ["type": "string"],
+            "old_string": ["type": "string"],
+            "new_string": ["type": "string"]
+        ], required: ["path", "old_string", "new_string"])
+        let toolCall = ToolCall(function: .init(
+            name: "edit_file",
+            arguments: [
+                "parameter": #"new_string>\n\t// Take the last element.\n\tv := s.items[len(s.items)-1]", "old_string": "\t// Take the first element.\n\tv := s.items[0]", "path": "stack/pop.go"#
+            ]
+        ))
+
+        let result = MLXModelService.normalizeToolCall(
+            toolCall,
+            index: 0,
+            tools: [tool],
+            fixToolArgs: true
+        )
+
+        let args = parseArgs(result.function.arguments)
+        #expect((args?["path"] as? String) == "stack/pop.go")
+        #expect((args?["old_string"] as? String)?.contains("s.items[0]") == true)
+        #expect((args?["new_string"] as? String)?.contains("s.items[len(s.items)-1]") == true)
+        #expect(args?["parameter"] == nil)
     }
 
     @Test("normalizeToolCalls assigns sequential indices from startIndex")

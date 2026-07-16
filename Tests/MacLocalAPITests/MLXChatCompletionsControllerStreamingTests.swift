@@ -783,6 +783,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
         logprobs: Bool?,
         topLogprobs: Int?,
         tools: [RequestTool]?,
+        parallelToolCalls: Bool?,
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
@@ -805,6 +806,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
         logprobs: Bool?,
         topLogprobs: Int?,
         tools: [RequestTool]?,
+        parallelToolCalls: Bool?,
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
@@ -827,6 +829,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
         logprobs: Bool?,
         topLogprobs: Int?,
         tools: [RequestTool]?,
+        parallelToolCalls: Bool?,
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?,
@@ -846,6 +849,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
             logprobs: logprobs,
             topLogprobs: topLogprobs,
             tools: tools,
+            parallelToolCalls: parallelToolCalls,
             stop: stop,
             responseFormat: responseFormat,
             chatTemplateKwargs: chatTemplateKwargs

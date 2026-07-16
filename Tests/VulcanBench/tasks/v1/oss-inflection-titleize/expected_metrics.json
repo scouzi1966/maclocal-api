@@ -1,0 +1,4 @@
+{
+  "functional": 1.0,
+  "notes": "Gold patch is the upstream fix (commit e32443bb): broaden the titleize capitalization regex from [a-z] to \\w and apply .title(), so accented leading letters are capitalized."
+}

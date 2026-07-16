@@ -1,0 +1,65 @@
+diff --git a/jsonptr/pointer.py b/jsonptr/pointer.py
+index 46a3331..b97ee59 100644
+--- a/jsonptr/pointer.py
++++ b/jsonptr/pointer.py
+@@ -1,23 +1,51 @@
+-"""Resolve a JSON Pointer (RFC 6901) against a decoded JSON document.
+-
+-NOTE: this implementation is incomplete — see ``issue.md``. It walks object
+-members but does not handle escaping, arrays, or the error cases the RFC
+-requires.
+-"""
++"""Resolve a JSON Pointer (RFC 6901) against a decoded JSON document."""
+ from __future__ import annotations
+ 
++import re
+ from typing import Any
+ 
+ from jsonptr.errors import JSONPointerError
+ 
++# An array index is "0" or a non-zero digit followed by digits (no leading zeros).
++_ARRAY_INDEX = re.compile(r"0|[1-9][0-9]*")
++
++
++def _unescape(token: str) -> str:
++    """Decode a reference token: ``~1`` -> ``/`` then ``~0`` -> ``~`` (order matters)."""
++    return token.replace("~1", "/").replace("~0", "~")
++
+ 
+ def resolve(document: Any, pointer: str) -> Any:
+-    """Return the value in ``document`` referenced by ``pointer``."""
++    """Return the value in ``document`` referenced by ``pointer``.
++
++    ``pointer`` is an RFC 6901 JSON Pointer. The empty string refers to the
++    whole document. Raises :class:`JSONPointerError` for a malformed pointer or
++    one that does not resolve (missing member, out-of-range or malformed array
++    index, ``-``, or descent into a scalar).
++    """
+     if pointer == "":
+         return document
+     if not pointer.startswith("/"):
+         raise JSONPointerError(f"invalid JSON Pointer {pointer!r}: must be empty or start with '/'")
++
+     current = document
+-    for token in pointer.split("/")[1:]:
+-        current = current[token]
++    for raw in pointer.split("/")[1:]:
++        token = _unescape(raw)
++        if isinstance(current, list):
++            if token == "-":
++                raise JSONPointerError("'-' refers to the element after the array end")
++            if not _ARRAY_INDEX.fullmatch(token):
++                raise JSONPointerError(f"invalid array index {token!r}")
++            idx = int(token)
++            if idx >= len(current):
++                raise JSONPointerError(f"array index {idx} out of range (length {len(current)})")
++            current = current[idx]
++        elif isinstance(current, dict):
++            if token not in current:
++                raise JSONPointerError(f"object has no member {token!r}")
++            current = current[token]
++        else:
++            raise JSONPointerError(
++                f"cannot descend into {type(current).__name__} with token {token!r}"
++            )
+     return current

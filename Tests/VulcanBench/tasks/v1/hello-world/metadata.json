@@ -1,0 +1,11 @@
+{
+  "id": "hello-world",
+  "category": "synthetic",
+  "languages": ["python"],
+  "difficulty": "trivial",
+  "task_complexity": "localized",
+  "created": "2026-05-28",
+  "source": "vulcanbench-internal",
+  "decontamination_notes": "Synthetic task generated after all model cutoffs. Not from any public repo.",
+  "base_commit": "HEAD"
+}

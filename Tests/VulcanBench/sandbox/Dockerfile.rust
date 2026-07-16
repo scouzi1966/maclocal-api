@@ -1,0 +1,47 @@
+# VulcanBench Rust sandbox image.
+#
+# Build:  docker build -t vulcanbench/sandbox:rust -f sandbox/Dockerfile.rust .
+# Use:    vulcanbench run --task <id> --model <m> --sandbox docker --image vulcanbench/sandbox:rust
+#
+# Extends the base image with a pinned Rust stable toolchain, clippy, rustfmt,
+# and cargo-audit. Rust tasks reference this image via per-task metadata
+# ("image": "vulcanbench/sandbox:rust") or `--image vulcanbench/sandbox:rust`.
+#
+# Pinned versions keep the sandbox reproducible.
+FROM vulcanbench/sandbox:base
+
+ARG RUST_VERSION=1.87.0
+ARG CARGO_AUDIT_VERSION=0.21.2
+
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+
+RUN set -eux; \
+    ARCH="$(dpkg --print-architecture)"; \
+    case "$ARCH" in \
+      amd64) RUST_ARCH=x86_64 ;; \
+      arm64) RUST_ARCH=aarch64 ;; \
+      *) RUST_ARCH="$ARCH" ;; \
+    esac; \
+    RUSTUP_URL="https://static.rust-lang.org/rustup/archive/1.28.2/${RUST_ARCH}-unknown-linux-gnu/rustup-init"; \
+    curl -fsSL "$RUSTUP_URL" -o /tmp/rustup-init; \
+    chmod +x /tmp/rustup-init; \
+    /tmp/rustup-init -y --no-modify-path --profile minimal \
+      --default-toolchain "$RUST_VERSION" \
+      --default-host "${RUST_ARCH}-unknown-linux-gnu"; \
+    rm /tmp/rustup-init; \
+    rustup component add clippy rustfmt; \
+    cargo install cargo-audit --version "$CARGO_AUDIT_VERSION" --locked; \
+    rustup default "$RUST_VERSION"; \
+    rustc --version; \
+    cargo --version; \
+    cargo clippy --version; \
+    cargo fmt --version; \
+    cargo audit --version
+
+WORKDIR /workspace
+
+# The container runs as the invoking host UID/GID (set at `docker run` time) so
+# bind-mounted files stay writable and the process is never root.
+CMD ["sleep", "infinity"]

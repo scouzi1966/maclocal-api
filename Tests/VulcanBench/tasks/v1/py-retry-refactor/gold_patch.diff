@@ -1,0 +1,125 @@
+diff --git a/resilient/backoff.py b/resilient/backoff.py
+new file mode 100644
+index 0000000..94b2974
+--- /dev/null
++++ b/resilient/backoff.py
+@@ -0,0 +1,33 @@
++"""Shared retry-with-exponential-backoff helper used by every client."""
++from __future__ import annotations
++
++from typing import Callable, TypeVar
++
++T = TypeVar("T")
++
++
++def retry(
++    operation: Callable[[], T],
++    *,
++    max_attempts: int,
++    base_delay: float,
++    max_delay: float,
++    sleep: Callable[[float], None],
++) -> T:
++    """Call ``operation`` up to ``max_attempts`` times, returning its result.
++
++    Before the k-th retry (k = 1, 2, …) it sleeps ``min(base_delay * 2**(k-1),
++    max_delay)``. If every attempt fails, the last exception is re-raised.
++    """
++    if max_attempts < 1:
++        raise ValueError("max_attempts must be >= 1")
++    last_exc: BaseException | None = None
++    for attempt in range(max_attempts):
++        if attempt > 0:
++            sleep(min(base_delay * 2 ** (attempt - 1), max_delay))
++        try:
++            return operation()
++        except Exception as exc:  # noqa: BLE001 — retry on any operation failure
++            last_exc = exc
++    assert last_exc is not None
++    raise last_exc
+diff --git a/resilient/db_client.py b/resilient/db_client.py
+index 525fbad..6696945 100644
+--- a/resilient/db_client.py
++++ b/resilient/db_client.py
+@@ -1,9 +1,11 @@
+-"""DB client with its own (slightly different) copy of the retry loop."""
++"""DB client built on the shared retry helper."""
+ from __future__ import annotations
+ 
+ import time
+ from typing import Callable, TypeVar
+ 
++from resilient.backoff import retry
++
+ T = TypeVar("T")
+ 
+ 
+@@ -24,17 +26,11 @@ class DbClient:
+         self._sleep = sleep
+ 
+     def query_with_retry(self, operation: Callable[[], T]) -> T:
+-        """Call ``operation`` up to ``max_attempts`` times; return its result.
+-
+-        Re-raises the last exception if every attempt fails.
+-        """
+-        last_exc: BaseException | None = None
+-        for attempt in range(self.max_attempts - 1):
+-            if attempt > 0:
+-                self._sleep(min(self.base_delay * 2 ** (attempt - 1), self.max_delay))
+-            try:
+-                return operation()
+-            except Exception as exc:  # noqa: BLE001 — retry on any operation failure
+-                last_exc = exc
+-        assert last_exc is not None
+-        raise last_exc
++        """Call ``operation`` up to ``max_attempts`` times; return its result."""
++        return retry(
++            operation,
++            max_attempts=self.max_attempts,
++            base_delay=self.base_delay,
++            max_delay=self.max_delay,
++            sleep=self._sleep,
++        )
+diff --git a/resilient/http_client.py b/resilient/http_client.py
+index dfd0f13..5e2905b 100644
+--- a/resilient/http_client.py
++++ b/resilient/http_client.py
+@@ -1,9 +1,11 @@
+-"""HTTP client with its own copy of the retry-with-backoff loop."""
++"""HTTP client built on the shared retry helper."""
+ from __future__ import annotations
+ 
+ import time
+ from typing import Callable, TypeVar
+ 
++from resilient.backoff import retry
++
+ T = TypeVar("T")
+ 
+ 
+@@ -24,17 +26,11 @@ class HttpClient:
+         self._sleep = sleep
+ 
+     def request_with_retry(self, operation: Callable[[], T]) -> T:
+-        """Call ``operation`` up to ``max_attempts`` times; return its result.
+-
+-        Re-raises the last exception if every attempt fails.
+-        """
+-        last_exc: BaseException | None = None
+-        for attempt in range(self.max_attempts):
+-            if attempt > 0:
+-                self._sleep(self.base_delay * 2 ** (attempt - 1))
+-            try:
+-                return operation()
+-            except Exception as exc:  # noqa: BLE001 — retry on any operation failure
+-                last_exc = exc
+-        assert last_exc is not None
+-        raise last_exc
++        """Call ``operation`` up to ``max_attempts`` times; return its result."""
++        return retry(
++            operation,
++            max_attempts=self.max_attempts,
++            base_delay=self.base_delay,
++            max_delay=self.max_delay,
++            sleep=self._sleep,
++        )

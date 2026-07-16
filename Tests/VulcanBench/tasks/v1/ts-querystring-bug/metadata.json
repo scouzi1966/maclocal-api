@@ -1,0 +1,23 @@
+{
+  "id": "ts-querystring-bug",
+  "category": "bug_fix",
+  "languages": ["typescript"],
+  "difficulty": "easy",
+  "task_complexity": "localized",
+  "created": "2026-05-30",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Original scenario written for VulcanBench on 2026-05-30; not derived from any public repository or issue, so it post-dates all model training cutoffs.",
+  "tests": {
+    "fail_to_pass": [
+      {"name": "decodes spaces", "cmd": "node --experimental-strip-types --test --test-name-pattern='^decodes spaces$' tests/query.test.ts"},
+      {"name": "decodes plus as space", "cmd": "node --experimental-strip-types --test --test-name-pattern='^decodes plus as space$' tests/query.test.ts"},
+      {"name": "collects repeated keys into array", "cmd": "node --experimental-strip-types --test --test-name-pattern='^collects repeated keys into array$' tests/query.test.ts"},
+      {"name": "repeated keys keep decoded values", "cmd": "node --experimental-strip-types --test --test-name-pattern='^repeated keys keep decoded values$' tests/query.test.ts"}
+    ],
+    "pass_to_pass": [
+      {"name": "single key=value", "cmd": "node --experimental-strip-types --test --test-name-pattern='^single key=value$' tests/query.test.ts"},
+      {"name": "strips leading question mark", "cmd": "node --experimental-strip-types --test --test-name-pattern='^strips leading question mark$' tests/query.test.ts"}
+    ]
+  }
+}
