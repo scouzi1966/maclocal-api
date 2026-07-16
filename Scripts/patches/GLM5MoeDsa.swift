@@ -377,15 +377,16 @@ class GLM5MoeDsaAttention: Module {
             }
         }
 
-        // Create dependency edge to keep indexer cache in the computation graph
-        // This prevents the graph from growing too large during generation
-        if var mainCacheMut = cacheList?[0], let indexerCache = cacheList?[1] {
-            var mainState = mainCacheMut.state
-            if mainState.count >= 1, indexerCache.state.count >= 2 {
-                mainState[0] = depends(
-                    input: mainState[0],
-                    dependencies: [indexerCache.state[0], indexerCache.state[1]])
-                mainCacheMut.state = mainState
+        // Keep the indexer cache tied into the evaluated graph so it doesn't grow
+        // unbounded (upstream: cache[0].keys = mx.depends(cache[0].keys, ...)).
+        // Wire onto the RAW buffers via addGraphDependency — routing through the
+        // `state` property round-trip replaced the main cache's preallocated
+        // buffers with sliced views every token, forcing an O(S) realloc+copy per
+        // layer per step (measured: decode degrading 19 -> 0.5 tok/s on GLM-5.2).
+        if let mainCache, let indexerCache {
+            let indexerArrays = indexerCache.innerState()
+            if !indexerArrays.isEmpty {
+                mainCache.addGraphDependency(on: indexerArrays)
             }
         }
 

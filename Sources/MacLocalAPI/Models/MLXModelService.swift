@@ -350,12 +350,26 @@ final class MLXModelService: @unchecked Sendable {
         gpuInitialized = true
 
         let totalMemoryGB = ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024)
+        // MLX buffer-cache (recycling) limit. Too small forces every decode step's
+        // transients back to the OS and re-allocates fresh zeroed pages; under
+        // sustained load with a huge wired model this drains the kernel free-page
+        // pool and decode stalls GPU-idle (measured on GLM-5.2-mxfp4 @ M3 Ultra
+        // 512GB: fresh server 19 tok/s degrading to 0.5 tok/s, recovering when
+        // idle — the 1GB cap starved buffer recycling). Scale with RAM; override
+        // with AFM_GPU_CACHE_MB for tuning.
         let cacheMB: Int
-        switch totalMemoryGB {
-        case 0..<12:  cacheMB = 128
-        case 12..<24: cacheMB = 256
-        case 24..<48: cacheMB = 512
-        default:      cacheMB = 1024
+        if let env = ProcessInfo.processInfo.environment["AFM_GPU_CACHE_MB"],
+           let override = Int(env), override >= 0 {
+            cacheMB = override
+        } else {
+            switch totalMemoryGB {
+            case 0..<12:    cacheMB = 128
+            case 12..<24:   cacheMB = 256
+            case 24..<48:   cacheMB = 512
+            case 48..<128:  cacheMB = 2048
+            case 128..<256: cacheMB = 4096
+            default:        cacheMB = 8192
+            }
         }
         Memory.cacheLimit = cacheMB * 1024 * 1024
 

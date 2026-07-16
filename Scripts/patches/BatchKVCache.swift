@@ -46,6 +46,12 @@ public class BatchKVCacheSimple: BaseKVCache {
     public override var maxSize: Int? { nil }
     public override var isTrimmable: Bool { true }
 
+    /// See KVCacheSimple.addGraphDependency — wraps the raw batch keys buffer.
+    public override func addGraphDependency(on dependencies: [MLXArray]) {
+        guard let k = keys, !dependencies.isEmpty else { return }
+        keys = depends(input: k, dependencies: dependencies)
+    }
+
     public override var allOffsetsEqual: Bool {
         if let cached = _allOffsetsEqual { return cached }
         let result = batchSize <= 1 || (perSeqOffset .== perSeqOffset[0]).all().item(Bool.self)

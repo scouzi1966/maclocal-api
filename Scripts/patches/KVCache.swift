@@ -56,6 +56,14 @@ public protocol KVCache: Evaluatable, Updatable {
     /// child's current state is empty. See CacheList.state.
     var stateArity: Int { get }
 
+    /// Wire a lazy-graph dependency onto this cache's raw backing arrays so the
+    /// dependencies are materialized whenever the cache is (mirrors upstream
+    /// mlx-lm `cache.keys = mx.depends(cache.keys, ...)`). Must NOT go through the
+    /// `state` property: its getter slices to offset and assigning that back
+    /// replaces the preallocated buffers, forcing an O(S) realloc+copy on every
+    /// subsequent update (measured on GLM-5.2: decode degrading 19 -> 0.5 tok/s).
+    func addGraphDependency(on dependencies: [MLXArray])
+
     /// get/set metadata state as string array for serialization
     var metaState: [String] { get set }
 
@@ -87,6 +95,10 @@ public protocol KVCache: Evaluatable, Updatable {
 extension KVCache {
     /// Default for conformers that don't declare an arity (0 = unknown/variable).
     public var stateArity: Int { 0 }
+
+    /// Default: no-op. Caches that participate in dependency wiring override this
+    /// to wrap their raw buffers (KVCacheSimple, BatchKVCacheSimple).
+    public func addGraphDependency(on dependencies: [MLXArray]) {}
 }
 
 /// Protocol for caches that support efficient quantized operations
@@ -168,6 +180,11 @@ open class BaseKVCache: KVCache {
     /// split by arity instead. 0 means "unknown/variable" (e.g. ArraysCache), which
     /// makes restore-into-fresh refuse loudly rather than silently drop state.
     open var stateArity: Int { 0 }
+
+    /// Base no-op; overridden by caches that wire graph dependencies onto their
+    /// raw buffers. Declared on the base class so subclass overrides dispatch
+    /// dynamically through `any KVCache`.
+    open func addGraphDependency(on dependencies: [MLXArray]) {}
 
     open var metaState: [String] {
         get {
@@ -483,6 +500,13 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
     }
 
     public override var stateArity: Int { 2 }
+
+    /// Wrap the raw keys buffer (full preallocated capacity, offset untouched) —
+    /// the dependencies materialize whenever this cache's keys do.
+    public override func addGraphDependency(on dependencies: [MLXArray]) {
+        guard let k = keys, !dependencies.isEmpty else { return }
+        keys = depends(input: k, dependencies: dependencies)
+    }
 
     public override var isTrimmable: Bool { true }
 
