@@ -1,0 +1,17 @@
+diff --git a/stack/pop.go b/stack/pop.go
+index e9ae5bf..a4af863 100644
+--- a/stack/pop.go
++++ b/stack/pop.go
+@@ -7,8 +7,9 @@ func (s *Stack) Pop() (int, bool) {
+ 	if len(s.items) == 0 {
+ 		return 0, false
+ 	}
+-	// Take the first element and drop it from the front.
+-	v := s.items[0]
+-	s.items = s.items[1:]
++	// Take the last element (top of the stack) and drop it from the end.
++	i := len(s.items) - 1
++	v := s.items[i]
++	s.items = s.items[:i]
+ 	return v, true
+ }

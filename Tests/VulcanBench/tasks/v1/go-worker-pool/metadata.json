@@ -1,0 +1,22 @@
+{
+  "id": "go-worker-pool",
+  "category": "concurrency",
+  "languages": ["go"],
+  "difficulty": "hard",
+  "task_complexity": "localized",
+  "created": "2026-06-01",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Original scenario written for VulcanBench on 2026-06-01; not derived from any public repository or issue, so it post-dates all model training cutoffs.",
+  "tests": {
+    "fail_to_pass": [
+      {"name": "all_results", "cmd": "go test -race -run '^TestMapReturnsAllResults$' ./..."},
+      {"name": "concurrent_stress", "cmd": "go test -race -run '^TestMapConcurrentStress$' ./..."}
+    ],
+    "pass_to_pass": [
+      {"name": "length_matches", "cmd": "go test -run '^TestMapLengthMatchesInput$' ./..."},
+      {"name": "empty", "cmd": "go test -run '^TestMapEmpty$' ./..."},
+      {"name": "first_element", "cmd": "go test -run '^TestMapFirstElement$' ./..."}
+    ]
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "id": "oss-py-ledger-rounding",
+  "category": "bug_fix",
+  "languages": [
+    "python"
+  ],
+  "difficulty": "medium",
+  "task_complexity": "localized",
+  "created": "2026-06-04",
+  "repo_scale": "small",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Ledger allocate() slice. Hand-authored benchmark scaffold inspired by OSS patterns; not vendored from a pinned upstream commit.",
+  "tests": {
+    "fail_to_pass": [
+      {
+        "name": "alloc",
+        "cmd": "python -m pytest test_ledger.py::test_allocate_preserves_total -q"
+      }
+    ],
+    "pass_to_pass": [
+      {
+        "name": "bal",
+        "cmd": "python -m pytest test_ledger.py::test_balance -q"
+      }
+    ]
+  },
+  "test_timeout_s": 120,
+  "agent_hints": {
+    "suggested_max_steps": 90,
+    "entry_paths": [
+      "ledger/core.py"
+    ],
+    "suggested_timeout_s": 1200
+  }
+}

@@ -1,0 +1,4 @@
+{
+  "functional": 1.0,
+  "notes": "Gold uses a min-heap of ready nodes (deterministic order) and raises CycleError when not all nodes can be placed."
+}

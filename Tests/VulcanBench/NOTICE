@@ -1,0 +1,31 @@
+VulcanBench
+Copyright 2026 The VulcanBench Authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+------------------------------------------------------------------------------
+Provider terms & data usage
+------------------------------------------------------------------------------
+
+VulcanBench is an independent evaluation harness. It is not affiliated with,
+sponsored by, or endorsed by any model provider.
+
+- Bring your own keys. VulcanBench never bundles or shares API credentials.
+  Each run is made under your own account and your own commercial/API agreement
+  with the provider, using the keys in your environment. You are responsible for
+  complying with your provider's terms and usage policies.
+
+- Outputs are for evaluation, not training. Recorded run artifacts (traces,
+  patches, summaries) capture model outputs solely for scoring, inspection, and
+  reproducibility. OpenAI and Anthropic prohibit using their outputs to develop
+  or train competing AI models; do not use VulcanBench artifacts, or any
+  published corpus of them, for that purpose.
+
+------------------------------------------------------------------------------
+Trademarks
+------------------------------------------------------------------------------
+
+"OpenAI" and "GPT" are trademarks of OpenAI. "Anthropic" and "Claude" are
+trademarks of Anthropic. All other product and company names are the property of
+their respective owners. These names are used in VulcanBench solely to identify
+the systems under test and do not imply any affiliation or endorsement.

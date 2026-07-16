@@ -1,0 +1,27 @@
+{
+  "id": "py-csv-export-feature",
+  "category": "feature",
+  "languages": ["python"],
+  "difficulty": "easy",
+  "task_complexity": "localized",
+  "created": "2026-05-30",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Original scenario written for VulcanBench on 2026-05-30; not derived from any public repository or issue, so it post-dates all model training cutoffs.",
+  "tests": {
+    "fail_to_pass": [
+      {"name": "header_and_simple_rows", "cmd": "python -m pytest test_csv.py::test_header_and_simple_rows -q"},
+      {"name": "field_with_comma_is_quoted", "cmd": "python -m pytest test_csv.py::test_field_with_comma_is_quoted -q"},
+      {"name": "double_quote_is_doubled", "cmd": "python -m pytest test_csv.py::test_double_quote_is_doubled_and_quoted -q"},
+      {"name": "newline_in_field_is_quoted", "cmd": "python -m pytest test_csv.py::test_newline_in_field_is_quoted -q"},
+      {"name": "carriage_return_in_field_is_quoted", "cmd": "python -m pytest test_csv.py::test_carriage_return_in_field_is_quoted -q"},
+      {"name": "none_is_empty_field", "cmd": "python -m pytest test_csv.py::test_none_is_empty_field -q"},
+      {"name": "integer_value_is_stringified", "cmd": "python -m pytest test_csv.py::test_integer_value_is_stringified -q"},
+      {"name": "columns_follow_first_row_order", "cmd": "python -m pytest test_csv.py::test_columns_follow_first_row_order -q"},
+      {"name": "empty_rows_is_empty_string", "cmd": "python -m pytest test_csv.py::test_empty_rows_is_empty_string -q"}
+    ],
+    "pass_to_pass": [
+      {"name": "json", "cmd": "python -m pytest test_json.py -q"}
+    ]
+  }
+}

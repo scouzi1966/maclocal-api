@@ -68,6 +68,7 @@ protocol MLXChatServing: Sendable {
         logprobs: Bool?,
         topLogprobs: Int?,
         tools: [RequestTool]?,
+        parallelToolCalls: Bool?,
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
@@ -87,6 +88,7 @@ protocol MLXChatServing: Sendable {
         logprobs: Bool?,
         topLogprobs: Int?,
         tools: [RequestTool]?,
+        parallelToolCalls: Bool?,
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?,
@@ -132,14 +134,14 @@ extension MLXChatServing {
         model: String, messages: [Message], temperature: Double?, maxTokens: Int?,
         topP: Double?, repetitionPenalty: Double?, topK: Int?, minP: Double?,
         presencePenalty: Double?, seed: Int?, logprobs: Bool?, topLogprobs: Int?,
-        tools: [RequestTool]?, stop: [String]?, responseFormat: ResponseFormat?,
+        tools: [RequestTool]?, parallelToolCalls: Bool?, stop: [String]?, responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
     ) async throws -> ChatStreamingResult {
         try await generateStreaming(
             model: model, messages: messages, temperature: temperature, maxTokens: maxTokens,
             topP: topP, repetitionPenalty: repetitionPenalty, topK: topK, minP: minP,
             presencePenalty: presencePenalty, seed: seed, logprobs: logprobs, topLogprobs: topLogprobs,
-            tools: tools, stop: stop, responseFormat: responseFormat,
+            tools: tools, parallelToolCalls: parallelToolCalls, stop: stop, responseFormat: responseFormat,
             chatTemplateKwargs: chatTemplateKwargs, requestId: nil
         )
     }

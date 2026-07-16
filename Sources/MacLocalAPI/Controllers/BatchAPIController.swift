@@ -287,6 +287,7 @@ struct BatchAPIController: RouteCollection {
                 logprobs: chatReq.logprobs,
                 topLogprobs: chatReq.topLogprobs,
                 tools: chatReq.tools,
+                parallelToolCalls: chatReq.parallelToolCalls,
                 stop: chatReq.stop,
                 responseFormat: chatReq.responseFormat,
                 chatTemplateKwargs: chatReq.chatTemplateKwargs

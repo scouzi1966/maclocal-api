@@ -52,6 +52,27 @@ struct StrictGrammarWiringTests {
         #expect(MLXModelService.hasStrictTools(tools) == true)
     }
 
+    @Test func lockFreeGenerationEligible_plainTextNoTools_returnsTrue() {
+        #expect(MLXModelService.isLockFreeGenerationEligible(
+            hasRadixCache: false,
+            wantLogprobs: false,
+            responseFormat: nil,
+            tools: nil,
+            isTextOnlyInput: true
+        ))
+    }
+
+    @Test func lockFreeGenerationEligible_toolsPresent_returnsFalse() {
+        let tools = [makeTool(name: "read_file", strict: false)]
+        #expect(!MLXModelService.isLockFreeGenerationEligible(
+            hasRadixCache: false,
+            wantLogprobs: false,
+            responseFormat: nil,
+            tools: tools,
+            isTextOnlyInput: true
+        ))
+    }
+
     // MARK: - RequestToolFunction strict field decoding
 
     @Test func requestToolFunction_decodesStrictTrue() throws {

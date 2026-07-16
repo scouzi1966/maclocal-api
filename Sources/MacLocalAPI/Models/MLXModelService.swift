@@ -268,14 +268,83 @@ final class MLXModelService: @unchecked Sendable {
         )
     }
 
-    func resolvedToolCallParser(logBypass: Bool = false) -> String? {
-        guard shouldBypassAdaptiveXMLParserForCurrentModel() else {
-            return toolCallParser
+    static func effectiveToolCallParser(
+        configuredParser: String?,
+        detectedFormat: ToolCallFormat?
+    ) -> String? {
+        if isToolCallParserDisabled(configuredParser) {
+            return nil
         }
-        if logBypass {
+        if shouldBypassAdaptiveXMLParser(parser: configuredParser, format: detectedFormat) {
+            return nil
+        }
+        if let configuredParser {
+            return configuredParser
+        }
+        switch detectedFormat {
+        case .xmlFunction:
+            return "qwen3_xml"
+        default:
+            return nil
+        }
+    }
+
+    /// Producer-side early stop after a structured tool call. Stopping while
+    /// parallel tool calls are allowed (default) would truncate multi-call
+    /// turns, so only stop when the request explicitly disabled them.
+    static func shouldStopSerialGenerationAfterStructuredToolCall(
+        hasTools: Bool,
+        parallelToolCalls: Bool?
+    ) -> Bool {
+        hasTools && parallelToolCalls == false
+    }
+
+    static func effectiveChatTemplateToolCallParser(
+        configuredParser: String?,
+        detectedFormat: ToolCallFormat?
+    ) -> String? {
+        if isToolCallParserDisabled(configuredParser) {
+            return nil
+        }
+        if shouldBypassAdaptiveXMLParser(parser: configuredParser, format: detectedFormat) {
+            return nil
+        }
+        return configuredParser
+    }
+
+    static func isToolCallParserDisabled(_ parser: String?) -> Bool {
+        parser?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "none"
+    }
+
+    /// Raw mode (`--tool-call-parser none`): every extraction path — streaming
+    /// runtime, scheduler runtime, and post-generation fallback — must be gated
+    /// on this so tool markup reaches the client as plain content.
+    var toolCallParserDisabled: Bool {
+        Self.isToolCallParserDisabled(toolCallParser)
+    }
+
+    func resolvedToolCallParser(logBypass: Bool = false) -> String? {
+        let format = withStateLock({ currentToolCallFormat })
+        let parser = Self.effectiveToolCallParser(
+            configuredParser: toolCallParser,
+            detectedFormat: format
+        )
+        if parser == nil, Self.shouldBypassAdaptiveXMLParser(parser: toolCallParser, format: format), logBypass {
             print("[\(ts())] [ToolCallParser] \(Self.gemma4AdaptiveXMLBypassLog)")
         }
-        return nil
+        return parser
+    }
+
+    func resolvedChatTemplateToolCallParser(logBypass: Bool = false) -> String? {
+        let format = withStateLock({ currentToolCallFormat })
+        let parser = Self.effectiveChatTemplateToolCallParser(
+            configuredParser: toolCallParser,
+            detectedFormat: format
+        )
+        if parser == nil, Self.shouldBypassAdaptiveXMLParser(parser: toolCallParser, format: format), logBypass {
+            print("[\(ts())] [ToolCallParser] \(Self.gemma4AdaptiveXMLBypassLog)")
+        }
+        return parser
     }
     /// Path to write a Metal GPU trace (.gputrace) — captures the first request only, then resets to nil.
     /// Auto-limits max tokens to 5 to keep trace size manageable.
@@ -301,6 +370,9 @@ final class MLXModelService: @unchecked Sendable {
     /// cohere2_moe template uses block-`set`/`namespace`/macros). nil = use the
     /// model's own template. Set at load time from model_type.
     private(set) var builtinChatTemplate: String? = nil
+    /// Native chat template patched only to preserve Python/HF `tojson` spacing for tools.
+    /// nil = use the model's own template unchanged.
+    private(set) var nativeToolJSONChatTemplate: String? = nil
     /// Extra stop strings implied by the model's format that aren't its EOS — e.g. Cohere
     /// cohere2_moe ends each answer with the special token `<|END_TEXT|>` (then EOS), which
     /// otherwise leaks into the decoded output. Merged into the request stop list. Set at load.
@@ -1211,7 +1283,9 @@ final class MLXModelService: @unchecked Sendable {
         }
         // --tool-call-parser override: force format for the specified parser
         if let parser = toolCallParser {
-            if Self.shouldBypassAdaptiveXMLParser(parser: parser, format: detectedFormat) {
+            if Self.isToolCallParserDisabled(parser) {
+                detectedFormat = ToolCallFormat.none
+            } else if Self.shouldBypassAdaptiveXMLParser(parser: parser, format: detectedFormat) {
                 print("[\(ts())] [ToolCallParser] \(Self.gemma4AdaptiveXMLBypassLog)")
             } else {
                 switch parser {
@@ -1355,6 +1429,7 @@ final class MLXModelService: @unchecked Sendable {
             // and <|channel|>final|message|> ... <|return|>/<|end|> to content. (#121)
             self.harmonyChannels = false
             self.builtinChatTemplate = nil
+            self.nativeToolJSONChatTemplate = Self.nativeToolJSONChatTemplate(directory: directory)
             self.forceSerialGeneration = false
             // Reset implicit stops here (not only in the model_type else-branch) so a
             // subsequent load whose config.json is missing/unparsable can't inherit the
@@ -1649,6 +1724,7 @@ final class MLXModelService: @unchecked Sendable {
         logprobs: Bool? = nil,
         topLogprobs: Int? = nil,
         tools: [RequestTool]? = nil,
+        parallelToolCalls: Bool? = nil,
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
         chatTemplateKwargs: [String: AnyCodable]? = nil
@@ -1674,12 +1750,13 @@ final class MLXModelService: @unchecked Sendable {
                 StatsAggregator.shared.requestCompleted()
             }
         }
+        let requestHasTools = !(tools?.isEmpty ?? true)
 
         let modelID = try await ensureLoaded(model: model, countOperation: false)
         guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
 
         let promptText = buildPrompt(from: messages)
-        let toolSpecs = convertToToolSpecs(tools)
+        let toolSpecs = convertToToolSpecs(tools, includePythonJSON: shouldUseNativePythonToolJSONTemplate(for: tools))
         let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat, chatTemplateKwargs: chatTemplateKwargs)
         defer { cleanupTempFiles(mediaTempFiles) }
         let wantLogprobs = logprobs == true
@@ -1773,6 +1850,206 @@ final class MLXModelService: @unchecked Sendable {
             }
         }
 
+        let lockFreeGenerationEligible = Self.isLockFreeGenerationEligible(
+            hasRadixCache: self.radixCache != nil,
+            wantLogprobs: wantLogprobs,
+            responseFormat: responseFormat,
+            tools: tools,
+            isTextOnlyInput: self.isTextOnlyInput(messages)
+        )
+        if lockFreeGenerationEligible {
+            var params = GenerateParameters(
+                maxTokens: effectiveMaxTokens,
+                kvBits: self.kvBits,
+                kvGroupSize: 64,
+                quantizedKVStart: 0,
+                temperature: normalizedTemperature(temperature),
+                topP: normalizedTopP(topP),
+                repetitionPenalty: normalizedRepetitionPenalty(repetitionPenalty),
+                repetitionContextSize: 64,
+                topK: normalizedTopK(topK),
+                minP: normalizedMinP(minP),
+                presencePenalty: normalizedPresencePenalty(presencePenalty),
+                seed: normalizedSeed(seed),
+                computeLogprobs: false,
+                topLogprobsCount: 0,
+                stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: requestHasTools, parallelToolCalls: parallelToolCalls),
+                prefillStepSize: self.prefillStepSize
+            )
+            params.extraProcessor = nil
+
+            let input = try await container.prepare(input: scratch.userInput)
+            let inputTokens = self.extractTokenArray(input)
+            let tokenizer = await container.tokenizer
+            let thinkStart = self.thinkStartTag
+            let tokens = input.text.tokens
+            let ndim = tokens.ndim
+            let seqLen = tokens.dim(ndim - 1)
+            var generated = ""
+            var templateInjectedThink = false
+            if let thinkStart, seqLen >= 2 {
+                let flat = tokens.reshaped(-1)
+                let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
+                let decoded = tokenizer.decode(tokens: lastTwo)
+                if decoded.contains(thinkStart) {
+                    generated = thinkStart
+                    templateInjectedThink = true
+                }
+            }
+
+            self.logCachePrefill(
+                mode: "non-streaming",
+                outcome: "disabled",
+                inputTokenCount: inputTokens.count,
+                cachedTokenCount: 0,
+                suffixTokenCount: inputTokens.count,
+                radixEntryCount: nil,
+                cache: []
+            )
+
+            let activeStops = ((stop ?? []) + self.implicitStopSequences).filter { !$0.isEmpty }
+            var insideThink = templateInjectedThink
+            var visibleContentStart: String.Index? = nil
+            var collectedToolCalls = [ToolCall]()
+            var completionInfo: GenerateCompletionInfo? = nil
+            var stoppedBySequence = false
+            let (generationStream, generationTask) = try await container.generateTask(input: input, parameters: params)
+            defer {
+                generationTask.cancel()
+            }
+            try await withTaskCancellationHandler {
+                for await piece in generationStream {
+                    if Task.isCancelled {
+                        if debugLogging {
+                            print("[\(ts())] [MLX] Non-streaming generation cancelled by client")
+                        }
+                        throw CancellationError()
+                    }
+                    if case .chunk(let text) = piece {
+                        if let ts = thinkStart, text.contains(ts) { insideThink = true }
+                        if let te = self.thinkEndTag, text.contains(te) { insideThink = false }
+                        generated += text
+                        if !insideThink && visibleContentStart == nil {
+                            if let te = self.thinkEndTag, let thinkEnd = generated.range(of: te) {
+                                visibleContentStart = thinkEnd.upperBound
+                            } else {
+                                visibleContentStart = generated.startIndex
+                            }
+                        }
+                        if !activeStops.isEmpty && !insideThink, let vcStart = visibleContentStart {
+                            let visibleContent = String(generated[vcStart...])
+                            if let match = activeStops.first(where: { visibleContent.contains($0) }) {
+                                if let range = visibleContent.range(of: match) {
+                                    let keepEnd = generated.index(vcStart, offsetBy: visibleContent.distance(from: visibleContent.startIndex, to: range.lowerBound))
+                                    generated = String(generated[..<keepEnd])
+                                }
+                                stoppedBySequence = true
+                                break
+                            }
+                        }
+                    } else if case .toolCall(let tc) = piece {
+                        collectedToolCalls.append(tc)
+                    } else if case .info(let info) = piece {
+                        completionInfo = info
+                    }
+                }
+            } onCancel: {
+                generationTask.cancel()
+            }
+
+            if capturing, let path = capturePath {
+                endGPUCapture(path: path)
+            }
+            if tracing {
+                endGPUTrace()
+            }
+            if gpuProfile {
+                let pTok = completionInfo?.promptTokenCount ?? estimateTokens(promptText)
+                let cTok = completionInfo?.generationTokenCount ?? estimateTokens(generated)
+                let pTime = completionInfo?.promptTime ?? 0
+                let gTime = completionInfo?.generateTime ?? 0
+                printGPUProfileFooter(promptTokens: pTok, completionTokens: cTok, promptTime: pTime, generateTime: gTime)
+            }
+
+            var finalToolCalls = collectedToolCalls
+            var finalContent = generated
+            if finalToolCalls.isEmpty && tools != nil && !self.toolCallParserDisabled {
+                let (parsed, remaining) = ToolCallStreamingRuntime.parseCompletedToolCalls(
+                    from: generated,
+                    toolCallParser: self.resolvedToolCallParser(logBypass: false),
+                    tools: tools
+                )
+                if !parsed.isEmpty {
+                    finalToolCalls = parsed
+                    finalContent = remaining
+                }
+            }
+
+            let responseToolCalls: [ResponseToolCall]? = finalToolCalls.isEmpty
+                ? nil
+                : Self.normalizeToolCalls(
+                    finalToolCalls,
+                    tools: tools,
+                    fixToolArgs: self.fixToolArgs
+                )
+            let promptTokens = inputTokens.count > 0
+                ? inputTokens.count
+                : (completionInfo?.promptTokenCount ?? estimateTokens(promptText))
+            let completionTokens = completionInfo?.generationTokenCount ?? estimateTokens(generated)
+            let promptTime = completionInfo?.promptTime ?? 0
+            let generateTime = completionInfo?.generateTime ?? 0
+            self.logCacheProfile(
+                phase: "restore",
+                mode: "non-streaming",
+                outcome: "disabled",
+                inputTokenCount: inputTokens.count,
+                cachedTokenCount: 0,
+                promptTime: promptTime
+            )
+            self.logCacheProfile(
+                phase: "save",
+                mode: "non-streaming",
+                outcome: "skip",
+                inputTokenCount: inputTokens.count,
+                cachedTokenCount: 0,
+                promptTime: promptTime
+            )
+
+            let completedAt = Date()
+            let firstTokenAt: Date? = (completionTokens > 0 && promptTime >= 0)
+                ? serialQueuedAt.addingTimeInterval(promptTime)
+                : nil
+            StatsAggregator.shared.addPromptTokens(promptTokens)
+            StatsAggregator.shared.addGenTokens(completionTokens)
+            StatsAggregator.shared.observeRequest(
+                StatsAggregator.RequestObservation(
+                    queuedAt: serialQueuedAt.timeIntervalSince1970,
+                    startedAt: serialQueuedAt.timeIntervalSince1970,
+                    firstTokenAt: firstTokenAt?.timeIntervalSince1970,
+                    completedAt: completedAt.timeIntervalSince1970,
+                    promptTokens: promptTokens,
+                    generationTokens: completionTokens,
+                    paramsN: 1,
+                    paramsBestOf: 1
+                )
+            )
+            let serialFinishedReason: String
+            if stoppedBySequence {
+                serialFinishedReason = "stop"
+            } else if completionTokens >= effectiveMaxTokens {
+                serialFinishedReason = "length"
+            } else if responseToolCalls?.isEmpty == false {
+                serialFinishedReason = "tool_calls"
+            } else {
+                serialFinishedReason = "stop"
+            }
+            StatsAggregator.shared.requestSucceeded(reason: serialFinishedReason)
+            StatsAggregator.shared.requestCompleted()
+            serialRequestRecorded = true
+
+            return (modelID, finalContent, promptTokens, completionTokens, nil, responseToolCalls, 0, promptTime, generateTime, stoppedBySequence)
+        }
+
         let generated: String = try await container.perform { context in
             var params = GenerateParameters(
                 maxTokens: effectiveMaxTokens,
@@ -1789,6 +2066,7 @@ final class MLXModelService: @unchecked Sendable {
                 seed: normalizedSeed(seed),
                 computeLogprobs: wantLogprobs,
                 topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
+                stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: requestHasTools, parallelToolCalls: parallelToolCalls),
                 prefillStepSize: self.prefillStepSize
             )
             var collectedLogprobs = [TokenLogprobData]()
@@ -2040,8 +2318,15 @@ final class MLXModelService: @unchecked Sendable {
                 }
                 fflush(stdout)
             }
+            try Task.checkCancellation()
             do {
                 for await piece in try MLXLMCommon.generate(input: generateInput, cache: generationCache, parameters: params, context: context) {
+                    if Task.isCancelled {
+                        if debugLogging {
+                            print("[\(ts())] [MLX] Non-streaming generation cancelled by client")
+                        }
+                        throw CancellationError()
+                    }
                     if debugLogging {
                         print("[\(ts())] [DEBUG] Generation piece: \(piece)")
                     }
@@ -2220,7 +2505,7 @@ final class MLXModelService: @unchecked Sendable {
         // the vendor's XMLFunctionParser misses (regex doesn't match multiline content).
         var finalToolCalls = collectedToolCalls
         var finalContent = generated
-        if finalToolCalls.isEmpty && tools != nil {
+        if finalToolCalls.isEmpty && tools != nil && !self.toolCallParserDisabled {
             if debugLogging {
                 print("[\(ts())] [ToolCallParser] Vendor parser found 0 tool calls, trying fallback on \(generated.count) chars")
             }
@@ -2326,6 +2611,7 @@ final class MLXModelService: @unchecked Sendable {
         logprobs: Bool? = nil,
         topLogprobs: Int? = nil,
         tools: [RequestTool]? = nil,
+        parallelToolCalls: Bool? = nil,
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
         chatTemplateKwargs: [String: AnyCodable]? = nil,
@@ -2347,7 +2633,7 @@ final class MLXModelService: @unchecked Sendable {
         guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
 
         let promptText = buildPrompt(from: messages)
-        let toolSpecs = convertToToolSpecs(tools)
+        let toolSpecs = convertToToolSpecs(tools, includePythonJSON: shouldUseNativePythonToolJSONTemplate(for: tools))
         // -VV: Log tool schemas as sent to model's Jinja template
         if trace, let toolSpecs {
             for spec in toolSpecs {
@@ -2362,6 +2648,7 @@ final class MLXModelService: @unchecked Sendable {
         let promptTokens = estimateTokens(promptText)
         let wantLogprobs = logprobs == true
         let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
+        let streamRequestHasTools = !(tools?.isEmpty ?? true)
 
         // /metrics: streaming-path queue timestamp. The actual
         // requestStarted/observe calls happen ONLY in the serial-path
@@ -2383,6 +2670,7 @@ final class MLXModelService: @unchecked Sendable {
             seed: normalizedSeed(seed),
             computeLogprobs: wantLogprobs,
             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
+            stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: streamRequestHasTools, parallelToolCalls: parallelToolCalls),
             prefillStepSize: self.prefillStepSize
         )
 
@@ -2403,7 +2691,7 @@ final class MLXModelService: @unchecked Sendable {
             let tConstraint = debugLogging ? Date() : Date.distantPast
 
             let toolRuntimeConfig: BatchScheduler.ToolCallRuntimeConfiguration?
-            if let tools, !tools.isEmpty {
+            if let tools, !tools.isEmpty, !toolCallParserDisabled {
                 let format = withStateLock({ currentToolCallFormat })
                 if let format {
                     switch format {
@@ -2414,6 +2702,9 @@ final class MLXModelService: @unchecked Sendable {
                             parser: self.resolvedToolCallParser(logBypass: false),
                             tools: tools
                         )
+                    case .none:
+                        // Raw mode: no scheduler-side tool extraction
+                        toolRuntimeConfig = nil
                     default:
                         let parser = format.createParser()
                         toolRuntimeConfig = .init(
@@ -2650,6 +2941,7 @@ final class MLXModelService: @unchecked Sendable {
                             seed: normalizedSeed(seed),
                             computeLogprobs: wantLogprobs,
                             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
+                            stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: !(tools?.isEmpty ?? true), parallelToolCalls: parallelToolCalls),
                             prefillStepSize: self.prefillStepSize
                         )
                         // Grammar constraint setup — see non-streaming path for details.
@@ -3128,13 +3420,16 @@ final class MLXModelService: @unchecked Sendable {
 
         // Derive tool call start/end tags for streaming detection
         let toolTags: (start: String, end: String)?
-        if let tools, !tools.isEmpty {
+        if let tools, !tools.isEmpty, !toolCallParserDisabled {
             let format = withStateLock({ currentToolCallFormat })
             if let format {
                 switch format {
                 case .xmlFunction:
                     // XMLFunctionParser has nil tags; chat template wraps in <tool_call>
                     toolTags = ("<tool_call>", "</tool_call>")
+                case .none:
+                    // Raw mode: no tags → controller never builds a tool runtime
+                    toolTags = nil
                 default:
                     let parser = format.createParser()
                     toolTags = (parser.startTag ?? "<tool_call>", parser.endTag ?? "</tool_call>")
@@ -3196,7 +3491,7 @@ final class MLXModelService: @unchecked Sendable {
     // MARK: - Tool conversion helpers
 
     /// Convert OpenAI-format RequestTool array to vendor ToolSpec array.
-    private func convertToToolSpecs(_ tools: [RequestTool]?) -> [ToolSpec]? {
+    private func convertToToolSpecs(_ tools: [RequestTool]?, includePythonJSON: Bool = false) -> [ToolSpec]? {
         guard let tools, !tools.isEmpty else { return nil }
         return tools.map { tool -> ToolSpec in
             var funcDict: [String: any Sendable] = [
@@ -3208,11 +3503,127 @@ final class MLXModelService: @unchecked Sendable {
             if let params = tool.function.parameters {
                 funcDict["parameters"] = params.toJinjaCompatible()
             }
-            return [
+            var spec: ToolSpec = [
                 "type": tool.type,
                 "function": funcDict
             ]
+            if includePythonJSON {
+                spec["__python_json__"] = Self.pythonStyleToolJSON(tool)
+            }
+            return spec
         }
+    }
+
+    private func shouldUseNativePythonToolJSONTemplate(for tools: [RequestTool]?) -> Bool {
+        guard let tools, !tools.isEmpty else { return false }
+        guard nativeToolJSONChatTemplate != nil else { return false }
+        guard builtinChatTemplate == nil else { return false }
+        return resolvedChatTemplateToolCallParser(logBypass: false) == nil
+    }
+
+    private static func nativeToolJSONChatTemplate(directory: URL) -> String? {
+        let templateURL = directory.appendingPathComponent("chat_template.jinja")
+        guard let template = try? String(contentsOf: templateURL, encoding: .utf8) else { return nil }
+        let patched = patchNativeTemplateForPythonToolJSON(template)
+        return patched == template ? nil : patched
+    }
+
+    static func patchNativeTemplateForPythonToolJSON(_ template: String) -> String {
+        template
+            .replacingOccurrences(of: "{{- tool | tojson }}", with: "{{- tool.__python_json__ }}")
+            .replacingOccurrences(of: "{{ tool | tojson }}", with: "{{ tool.__python_json__ }}")
+            .replacingOccurrences(of: "{{- tool|tojson }}", with: "{{- tool.__python_json__ }}")
+            .replacingOccurrences(of: "{{ tool|tojson }}", with: "{{ tool.__python_json__ }}")
+    }
+
+    static func pythonStyleToolJSON(_ tool: RequestTool) -> String {
+        var functionPairs: [(String, Any)] = [("name", tool.function.name)]
+        if let description = tool.function.description {
+            functionPairs.append(("description", description))
+        }
+        if let parameters = tool.function.parameters {
+            functionPairs.append(("parameters", parameters.value.toAny()))
+        }
+        if let strict = tool.function.strict {
+            functionPairs.append(("strict", strict))
+        }
+        let functionValue = orderedJSONObject(functionPairs)
+        return "{\(jsonStringLiteral("type")): \(jsonStringLiteral(tool.type)), \(jsonStringLiteral("function")): \(functionValue)}"
+    }
+
+    private static func orderedJSONObject(_ pairs: [(String, Any)]) -> String {
+        let parts = pairs.compactMap { key, value -> String? in
+            if value is NSNull { return nil }
+            return "\(jsonStringLiteral(key)): \(pythonStyleJSONValue(value, parentKey: key))"
+        }
+        return "{\(parts.joined(separator: ", "))}"
+    }
+
+    private static func pythonStyleJSONValue(_ value: Any, parentKey: String? = nil) -> String {
+        if let value = value as? AnyCodableValue {
+            return pythonStyleJSONValue(value.toAny(), parentKey: parentKey)
+        }
+        if let value = value as? String {
+            return jsonStringLiteral(value)
+        }
+        if let value = value as? Bool {
+            return value ? "true" : "false"
+        }
+        if let value = value as? Int {
+            return String(value)
+        }
+        if let value = value as? Double {
+            return String(value)
+        }
+        if let value = value as? [Any] {
+            return "[\(value.map { pythonStyleJSONValue($0) }.joined(separator: ", "))]"
+        }
+        if let value = value as? [String] {
+            return "[\(value.map { jsonStringLiteral($0) }.joined(separator: ", "))]"
+        }
+        if let value = value as? [String: Any] {
+            return pythonStyleJSONObject(value, parentKey: parentKey)
+        }
+        if let value = value as? [String: any Sendable] {
+            return pythonStyleJSONObject(value, parentKey: parentKey)
+        }
+        if value is NSNull {
+            return "null"
+        }
+        return jsonStringLiteral(String(describing: value))
+    }
+
+    private static func pythonStyleJSONObject(_ dict: [String: Any], parentKey: String?) -> String {
+        let preferred: [String]
+        switch parentKey {
+        case "parameters":
+            preferred = ["type", "properties", "required"]
+        case "properties":
+            preferred = ["path", "old_string", "new_string", "dir", "recursive", "start_line", "limit", "query", "glob", "semantic", "cmd", "cwd", "timeout"]
+        default:
+            preferred = ["type", "default", "description", "properties", "required"]
+        }
+        let keys = orderedKeys(Array(dict.keys), preferred: preferred)
+        let parts = keys.compactMap { key -> String? in
+            guard let value = dict[key] else { return nil }
+            // Preserve explicit JSON nulls (e.g. "const": null) — dropping them
+            // changes schema meaning and diverges from Python's json.dumps.
+            return "\(jsonStringLiteral(key)): \(pythonStyleJSONValue(value, parentKey: key))"
+        }
+        return "{\(parts.joined(separator: ", "))}"
+    }
+
+    private static func orderedKeys(_ keys: [String], preferred: [String]) -> [String] {
+        let keySet = Set(keys)
+        let first = preferred.filter { keySet.contains($0) }
+        let rest = keys.filter { !preferred.contains($0) }.sorted()
+        return first + rest
+    }
+
+    private static func jsonStringLiteral(_ value: String) -> String {
+        let data = try? JSONSerialization.data(withJSONObject: [value])
+        let encoded = data.flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
+        return String(encoded.dropFirst().dropLast())
     }
 
     /// Convert a vendor ToolCall to an OpenAI-compatible ResponseToolCall.
@@ -3328,7 +3739,10 @@ final class MLXModelService: @unchecked Sendable {
     static func remapResponseToolCallArguments(_ rtc: ResponseToolCall, tools: [RequestTool]?) -> ResponseToolCall {
         guard let tools, !tools.isEmpty else { return rtc }
         guard let data = rtc.function.arguments.data(using: .utf8),
-              let argsDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return rtc }
+              var argsDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return rtc }
+        if let repaired = repairSingleParameterPayload(argsDict, toolName: rtc.function.name, tools: tools) {
+            argsDict = repaired
+        }
         var sendableArgs = [String: any Sendable]()
         for (key, value) in argsDict { sendableArgs[key] = Self.asSendableJSON(value) }
         let remapped = remapArgumentKeys(sendableArgs, toolName: rtc.function.name, tools: tools)
@@ -3341,6 +3755,74 @@ final class MLXModelService: @unchecked Sendable {
             type: rtc.type,
             function: ResponseToolCallFunction(name: rtc.function.name, arguments: newString)
         )
+    }
+
+    private static func repairSingleParameterPayload(
+        _ arguments: [String: Any],
+        toolName: String,
+        tools: [RequestTool]
+    ) -> [String: Any]? {
+        guard arguments.count == 1,
+              let payload = arguments["parameter"] as? String,
+              let tool = tools.first(where: { $0.function.name == toolName }),
+              let paramsAny = tool.function.parameters?.toSendable() as? [String: Any],
+              let props = paramsAny["properties"] as? [String: Any] else {
+            return nil
+        }
+
+        let schemaKeys = Array(props.keys)
+        guard !schemaKeys.isEmpty else { return nil }
+
+        let keyAlternation = schemaKeys
+            .map { NSRegularExpression.escapedPattern(for: $0) }
+            .joined(separator: "|")
+        guard let markerRegex = try? NSRegularExpression(
+            pattern: #"(?:"("# + keyAlternation + #")"\s*:\s*|(?:^|[,{]\s*)("?("# + keyAlternation + #")>))"#,
+            options: []
+        ) else { return nil }
+        let matches = markerRegex.matches(in: payload, range: NSRange(payload.startIndex..., in: payload))
+        guard !matches.isEmpty else { return nil }
+
+        var markers: [(key: String, start: String.Index, valueStart: String.Index)] = []
+        for match in matches {
+            let keyRange = Range(match.range(at: 1), in: payload) ?? Range(match.range(at: 3), in: payload)
+            guard let keyRange,
+                  let fullRange = Range(match.range, in: payload) else { continue }
+            var valueStart = fullRange.upperBound
+            while valueStart < payload.endIndex, payload[valueStart].isWhitespace {
+                valueStart = payload.index(after: valueStart)
+            }
+            if valueStart < payload.endIndex, payload[valueStart] == "\"" {
+                valueStart = payload.index(after: valueStart)
+            }
+            markers.append((String(payload[keyRange]), fullRange.lowerBound, valueStart))
+        }
+        markers.sort { $0.start < $1.start }
+        guard !markers.isEmpty else { return nil }
+
+        var repaired = [String: Any]()
+        for (idx, marker) in markers.enumerated() {
+            let end = idx + 1 < markers.count ? markers[idx + 1].start : payload.endIndex
+            guard marker.valueStart <= end else { continue }
+            var value = String(payload[marker.valueStart..<end])
+                .trimmingCharacters(in: CharacterSet(charactersIn: " \n\r\t,\"{}"))
+            value = value.replacingOccurrences(
+                of: #"</?(tool_call|function|parameter)[^>]*>"#,
+                with: "",
+                options: .regularExpression
+            )
+            value = decodeJSONEscapes(decodeXMLEntities(value))
+            if !value.isEmpty {
+                repaired[marker.key] = value
+            }
+        }
+
+        guard !repaired.isEmpty else { return nil }
+        if debugLogging {
+            let names = repaired.keys.sorted().joined(separator: ", ")
+            print("[\(ts())] [ToolCallParser] repaired single parameter payload for \(toolName): \(names)")
+        }
+        return repaired
     }
 
     /// Remap tool call argument keys to match the original tool schema.
@@ -3593,7 +4075,7 @@ final class MLXModelService: @unchecked Sendable {
     /// Handles <tool_call><function=name><parameter=key>value</parameter></function></tool_call>
     /// and <tool_call>{"name":"func","arguments":{...}}</tool_call> patterns.
     /// Returns extracted ToolCalls and remaining non-tool-call content.
-    static func extractToolCallsFallback(from text: String, tools: [RequestTool]? = nil) -> ([ToolCall], String) {
+    static func extractToolCallsFallback(from text: String, tools: [RequestTool]? = nil, allowMalformedRepair: Bool = false) -> ([ToolCall], String) {
         var toolCalls = [ToolCall]()
         var remaining = text
 
@@ -3655,6 +4137,21 @@ final class MLXModelService: @unchecked Sendable {
             if let tc = parseJSONToolCall(inner) {
                 if debugLogging {
                     print("[\(ts())] [ToolCallParser] JSON-in-XML: \(tc.function.name)(\(tc.function.arguments.keys.joined(separator: ", ")))")
+                }
+                toolCalls.insert(tc, at: 0)
+                if let fullRange = Range(match.range, in: remaining) {
+                    remaining.removeSubrange(fullRange)
+                }
+                continue
+            }
+
+            // Try malformed Qwen JSON/XML hybrids observed in Qwen3.6 MoE:
+            // {"name="tool", "arguments": {...}} or {"function="tool", "path="..."}
+            // Repair-mode only: default native/parity mode must not coerce
+            // malformed output into tool calls (docs/mlx-tool-calling.md).
+            if allowMalformedRepair, let tc = parseQwenMalformedToolCall(inner) {
+                if debugLogging {
+                    print("[\(ts())] [ToolCallParser] Qwen malformed hybrid: \(tc.function.name)(\(tc.function.arguments.keys.joined(separator: ", ")))")
                 }
                 toolCalls.insert(tc, at: 0)
                 if let fullRange = Range(match.range, in: remaining) {
@@ -4084,6 +4581,192 @@ final class MLXModelService: @unchecked Sendable {
         return ToolCall(function: .init(name: name, arguments: arguments))
     }
 
+    /// Parse malformed Qwen3.6 MoE tool calls seen under XML tool prompting.
+    ///
+    /// Examples:
+    /// - `{"name="edit_file", "arguments": {...}}`
+    /// - `{"function="edit_file", "path="file", "old_string="...", "new_string="..."}`
+    /// - `{"function="run_command", "arguments="cmd="..."}`
+    /// - `{"function><name>edit_file</name><parameter=path>...</parameter></function>`
+    private static func parseQwenMalformedToolCall(_ content: String) -> ToolCall? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Every malformed hybrid this parser targets opens with `{`. Plain XML
+        // bodies (e.g. an unterminated <function=...> at stream end) must fall
+        // through to the runtime's own salvage path, which closes tags properly.
+        guard trimmed.hasPrefix("{") else { return nil }
+
+        if trimmed.contains(#"{"function>"#),
+           let nameStart = trimmed.range(of: "<name>"),
+           let nameEnd = trimmed.range(of: "</name>", range: nameStart.upperBound..<trimmed.endIndex) {
+            let name = String(trimmed[nameStart.upperBound..<nameEnd.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { return nil }
+            let bodyStart = nameEnd.upperBound
+            let normalized = "<function=\(name)>" + trimmed[bodyStart...]
+            return parseXMLFunctionRegex(String(normalized), funcName: name)
+        }
+
+        if let tc = parseQwenMalformedNameEqualsWithJSONArguments(trimmed) {
+            return tc
+        }
+
+        let fields = parseMalformedEqualsFields(trimmed)
+        guard let name = fields["name"] ?? fields["function"], !name.isEmpty else {
+            return nil
+        }
+
+        var arguments: [String: any Sendable] = [:]
+        for (key, value) in fields where key != "name" && key != "function" && key != "arguments" {
+            arguments[key] = decodeJSONEscapes(decodeXMLEntities(value))
+        }
+        if arguments.isEmpty, let nested = fields["arguments"] {
+            for (key, value) in parseMalformedEqualsFields(nested) where key != "arguments" {
+                arguments[key] = decodeJSONEscapes(decodeXMLEntities(value))
+            }
+        }
+
+        guard !arguments.isEmpty else { return nil }
+        return ToolCall(function: .init(name: name, arguments: arguments))
+    }
+
+    private static func parseQwenMalformedNameEqualsWithJSONArguments(_ content: String) -> ToolCall? {
+        let regex = try! NSRegularExpression(
+            pattern: #"^\s*\{\s*"(?:name|function)=["']?([a-zA-Z_][a-zA-Z0-9_]*)["']?\s*,\s*"arguments"\s*:\s*(\{[\s\S]*\})\s*\}+\s*$"#,
+            options: []
+        )
+        guard let match = regex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
+              let nameRange = Range(match.range(at: 1), in: content),
+              let argsRange = Range(match.range(at: 2), in: content) else {
+            return nil
+        }
+        let name = String(content[nameRange])
+        var argsStr = String(content[argsRange])
+        var parsed: [String: Any]?
+        for _ in 0..<4 {
+            if let data = argsStr.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                parsed = obj
+                break
+            }
+            guard argsStr.hasSuffix("}") else { break }
+            argsStr.removeLast()
+        }
+        guard let parsed else { return nil }
+        var arguments: [String: any Sendable] = [:]
+        for (key, value) in parsed {
+            arguments[key] = Self.asSendableJSON(value)
+        }
+        return ToolCall(function: .init(name: name, arguments: arguments))
+    }
+
+    /// Quote-aware `key=value` field scanner for malformed Qwen tool calls.
+    ///
+    /// A naive global `identifier=` regex splits values that themselves contain
+    /// assignments — `old_string="x=1"` would be broken at the inner `x=`,
+    /// corrupting code-edit arguments. Keys are therefore only recognized at
+    /// field boundaries, and a value that opens with a quote is consumed
+    /// through its closing quote (backslash escapes honored) before the scan
+    /// looks for the next key.
+    private static func parseMalformedEqualsFields(_ content: String) -> [String: String] {
+        let chars = Array(content)
+        let n = chars.count
+        var fields: [String: String] = [:]
+        var i = 0
+
+        func isIdentifierStart(_ c: Character) -> Bool {
+            (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c == "_"
+        }
+        func isIdentifierChar(_ c: Character) -> Bool {
+            isIdentifierStart(c) || (c >= "0" && c <= "9")
+        }
+        // Characters that may legitimately precede a key marker in the
+        // malformed grammar ({"key="v", key=v, <parameter=...).
+        func isKeyBoundary(_ c: Character) -> Bool {
+            c.isWhitespace || "{},\"'<>".contains(c)
+        }
+        // A quote inside a value only terminates it when what follows reads as
+        // a field boundary; `cmd="ls -la"` embedded in a value stays intact.
+        func isClosingQuote(after index: Int) -> Bool {
+            var k = index + 1
+            while k < n, chars[k] == " " || chars[k] == "\t" { k += 1 }
+            if k >= n { return true }
+            return ",}\"'<\n".contains(chars[k])
+        }
+        func cleanValue(_ raw: String) -> String {
+            var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            value = value.replacingOccurrences(
+                of: #"</?(tool_call|function|parameter)[^>]*>"#,
+                with: "",
+                options: .regularExpression
+            )
+            return value.trimmingCharacters(in: CharacterSet(charactersIn: " \n\r\t,}\"{"))
+        }
+
+        while i < n {
+            guard isIdentifierStart(chars[i]),
+                  i == 0 || isKeyBoundary(chars[i - 1]) else {
+                i += 1
+                continue
+            }
+            var j = i
+            while j < n, isIdentifierChar(chars[j]) { j += 1 }
+            guard j < n, chars[j] == "=" else {
+                i = j
+                continue
+            }
+            let key = String(chars[i..<j])
+            var v = j + 1
+            if v < n, chars[v] == "\"" || chars[v] == "'" {
+                let quote = chars[v]
+                v += 1
+                let valueStart = v
+                var valueEnd = n
+                while v < n {
+                    if chars[v] == "\\" { v += 2; continue }
+                    if chars[v] == quote, isClosingQuote(after: v) {
+                        valueEnd = v
+                        v += 1
+                        break
+                    }
+                    v += 1
+                }
+                // Quoted values are exact — the delimiters are known, so code
+                // content like a trailing `}` in new_string must survive
+                // untouched by cleanValue's junk trimming.
+                let value = String(chars[valueStart..<Swift.min(valueEnd, n)])
+                if !value.isEmpty {
+                    fields[key] = value
+                }
+                i = Swift.min(v, n)
+            } else {
+                // Unquoted value: runs until the next boundary-preceded key marker.
+                let valueStart = v
+                var valueEnd = n
+                var k = v
+                while k < n {
+                    if isIdentifierStart(chars[k]), k > valueStart, isKeyBoundary(chars[k - 1]) {
+                        var m = k
+                        while m < n, isIdentifierChar(chars[m]) { m += 1 }
+                        if m < n, chars[m] == "=" {
+                            valueEnd = k
+                            break
+                        }
+                        k = m
+                        continue
+                    }
+                    k += 1
+                }
+                let value = cleanValue(String(chars[valueStart..<valueEnd]))
+                if !value.isEmpty {
+                    fields[key] = value
+                }
+                i = valueEnd
+            }
+        }
+        return fields
+    }
+
     // MARK: - Private helpers
 
     private func beginOperation() throws {
@@ -4177,6 +4860,23 @@ final class MLXModelService: @unchecked Sendable {
     /// Check whether any tool in the request has `strict: true`.
     static func hasStrictTools(_ tools: [RequestTool]?) -> Bool {
         tools?.contains { $0.function.strict == true } ?? false
+    }
+
+    /// The lock-free path is for plain text generation only. Tool requests use
+    /// the serialized path so structured generation, cache lifecycle, and GPU
+    /// synchronization follow the mature MLX Python-parity path.
+    static func isLockFreeGenerationEligible(
+        hasRadixCache: Bool,
+        wantLogprobs: Bool,
+        responseFormat: ResponseFormat?,
+        tools: [RequestTool]?,
+        isTextOnlyInput: Bool
+    ) -> Bool {
+        !hasRadixCache
+            && !wantLogprobs
+            && responseFormat == nil
+            && (tools?.isEmpty ?? true)
+            && isTextOnlyInput
     }
 
     /// Check whether a response_format has json_schema with strict: true.
@@ -4852,9 +5552,12 @@ final class MLXModelService: @unchecked Sendable {
         }
 
         var input = UserInput(chat: chatMessages, processing: .init(resize: .init(width: 1024, height: 1024)), tools: tools)
+        let hasTools = tools != nil && !tools!.isEmpty
+        var appliedChatTemplateOverride = false
 
-        // When --tool-call-parser is set and tools are present, override the chat template
-        if let parser = resolvedToolCallParser(logBypass: true), tools != nil, !tools!.isEmpty {
+        // When --tool-call-parser is explicitly set and tools are present, override the chat template.
+        // Auto-detected parsers are used for parsing only; the model's native template is closer to mlx_lm.server.
+        if let parser = resolvedChatTemplateToolCallParser(logBypass: true), hasTools {
             let templateOverride: String?
             switch parser {
             case "qwen3_xml", "afm_adaptive_xml":
@@ -4875,10 +5578,17 @@ final class MLXModelService: @unchecked Sendable {
             if let tpl = templateOverride {
                 input.additionalContext = (input.additionalContext ?? [:])
                 input.additionalContext?["chatTemplateOverride"] = tpl
+                appliedChatTemplateOverride = true
             }
             if debugLogging {
                 print("[\(ts())] [ToolCallParser] Using \(parser) chat template override")
             }
+        }
+
+        if !appliedChatTemplateOverride, hasTools, let nativeToolJSONChatTemplate {
+            input.additionalContext = (input.additionalContext ?? [:])
+            input.additionalContext?["chatTemplateOverride"] = nativeToolJSONChatTemplate
+            appliedChatTemplateOverride = true
         }
 
         // Built-in template override for models whose own chat_template.jinja swift-jinja
@@ -4887,6 +5597,7 @@ final class MLXModelService: @unchecked Sendable {
         if let builtin = self.builtinChatTemplate {
             input.additionalContext = (input.additionalContext ?? [:])
             input.additionalContext?["chatTemplateOverride"] = builtin
+            appliedChatTemplateOverride = true
         }
 
         // Merge chat template kwargs: server defaults first, then request-level overrides.
@@ -5332,6 +6043,20 @@ final class MLXModelService: @unchecked Sendable {
     /// Check if the LMInput contains multimodal content (images/video) which we don't cache.
     private func isMultimodalInput(_ input: LMInput) -> Bool {
         input.image != nil || input.video != nil
+    }
+
+    /// Check the OpenAI request shape before preparing UserInput, so multimodal/audio
+    /// inputs can stay on the legacy container.perform path.
+    private func isTextOnlyInput(_ messages: [Message]) -> Bool {
+        for message in messages {
+            guard let content = message.content else { continue }
+            if case .parts(let parts) = content {
+                if parts.contains(where: { $0.type != "text" }) {
+                    return false
+                }
+            }
+        }
+        return true
     }
 
     private func normalizedRepetitionPenalty(_ value: Double?) -> Float? {

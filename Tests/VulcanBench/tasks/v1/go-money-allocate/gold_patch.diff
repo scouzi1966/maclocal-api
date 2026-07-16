@@ -1,0 +1,42 @@
+diff --git a/money/allocate.go b/money/allocate.go
+index 8c3d236..aa6dd56 100644
+--- a/money/allocate.go
++++ b/money/allocate.go
+@@ -1,9 +1,34 @@
+ package money
+ 
+ // Allocate splits the amount into n parts as evenly as possible, without
+-// losing or inventing any cents. See issue.md for the exact semantics.
++// losing or inventing any cents.
+ //
+-// TODO: not implemented yet.
++// Every part receives the base share (cents / n). The leftover cents,
++// r = cents mod n, are distributed one extra cent each to the first r parts,
++// so the parts are in non-increasing order, differ by at most one cent, and
++// sum exactly to the original amount. n must be >= 1.
+ func (m Money) Allocate(n int) []Money {
+-	return nil
++	if n < 1 {
++		panic("money: Allocate requires n >= 1")
++	}
++
++	base := m.cents / int64(n)
++	r := m.cents % int64(n)
++	// Go's % can be negative for negative amounts; normalize so that exactly
++	// abs(r) parts get an extra unit in the direction of the sign.
++	step := int64(1)
++	if r < 0 {
++		r = -r
++		step = -1
++	}
++
++	parts := make([]Money, n)
++	for i := 0; i < n; i++ {
++		c := base
++		if int64(i) < r {
++			c += step
++		}
++		parts[i] = Money{cents: c}
++	}
++	return parts
+ }

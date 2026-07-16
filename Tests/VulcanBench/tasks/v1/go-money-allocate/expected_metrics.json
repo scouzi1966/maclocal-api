@@ -1,0 +1,4 @@
+{
+  "functional": 1.0,
+  "notes": "Gold patch implements Money.Allocate so all fail_to_pass tests pass while the Add/String pass_to_pass tests keep passing."
+}

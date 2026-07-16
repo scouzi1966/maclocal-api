@@ -1,0 +1,22 @@
+diff --git a/pool/pool.go b/pool/pool.go
+index 1400b21..5a6df71 100644
+--- a/pool/pool.go
++++ b/pool/pool.go
+@@ -7,8 +7,6 @@ import "sync"
+ // Map applies fn to every element of inputs using up to `workers` goroutines
+ // and returns the results in the same order as inputs. A workers value below 1
+ // is treated as 1.
+-//
+-// NOTE: this implementation has a bug — see issue.md.
+ func Map(inputs []int, workers int, fn func(int) int) []int {
+ 	if workers < 1 {
+ 		workers = 1
+@@ -27,7 +25,7 @@ func Map(inputs []int, workers int, fn func(int) int) []int {
+ 		}()
+ 	}
+ 
+-	for i := 0; i < len(inputs)-1; i++ {
++	for i := 0; i < len(inputs); i++ {
+ 		jobs <- i
+ 	}
+ 	close(jobs)

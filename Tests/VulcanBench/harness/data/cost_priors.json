@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "generated_at": "2026-06-22",
+  "judges": true,
+  "by_model_task": {
+    "openai:gpt-5.5": {
+      "py-topo-sort-cycle": {"low": 0.025, "mid": 0.045, "high": 0.08, "n": 12},
+      "py-retry-refactor": {"low": 0.03, "mid": 0.05, "high": 0.09, "n": 12},
+      "py-jsonpointer": {"low": 0.025, "mid": 0.04, "high": 0.075, "n": 12},
+      "go-stack-pop-bug": {"low": 0.02, "mid": 0.035, "high": 0.065, "n": 12},
+      "go-lru-cache": {"low": 0.025, "mid": 0.04, "high": 0.08, "n": 12},
+      "go-worker-pool": {"low": 0.03, "mid": 0.05, "high": 0.09, "n": 12},
+      "ts-querystring-bug": {"low": 0.02, "mid": 0.035, "high": 0.07, "n": 12},
+      "ts-deep-merge": {"low": 0.025, "mid": 0.045, "high": 0.085, "n": 12},
+      "ts-schema-validate": {"low": 0.03, "mid": 0.05, "high": 0.095, "n": 12},
+      "rs-borrow-split": {"low": 0.03, "mid": 0.05, "high": 0.09, "n": 12},
+      "rs-feature-gate": {"low": 0.03, "mid": 0.055, "high": 0.1, "n": 12},
+      "oss-inflection-titleize": {"low": 0.035, "mid": 0.06, "high": 0.11, "n": 12}
+    },
+    "anthropic:claude-opus-4-8": {
+      "py-topo-sort-cycle": {"low": 0.0214, "mid": 0.0386, "high": 0.0686, "n": 12},
+      "py-retry-refactor": {"low": 0.0257, "mid": 0.0429, "high": 0.0771, "n": 12},
+      "py-jsonpointer": {"low": 0.0214, "mid": 0.0343, "high": 0.0643, "n": 12},
+      "go-stack-pop-bug": {"low": 0.0171, "mid": 0.03, "high": 0.0557, "n": 12},
+      "go-lru-cache": {"low": 0.0214, "mid": 0.0343, "high": 0.0686, "n": 12},
+      "go-worker-pool": {"low": 0.0257, "mid": 0.0429, "high": 0.0771, "n": 12},
+      "ts-querystring-bug": {"low": 0.0171, "mid": 0.03, "high": 0.06, "n": 12},
+      "ts-deep-merge": {"low": 0.0214, "mid": 0.0386, "high": 0.0729, "n": 12},
+      "ts-schema-validate": {"low": 0.0257, "mid": 0.0429, "high": 0.0814, "n": 12},
+      "rs-borrow-split": {"low": 0.0257, "mid": 0.0429, "high": 0.0771, "n": 12},
+      "rs-feature-gate": {"low": 0.0257, "mid": 0.0471, "high": 0.0857, "n": 12},
+      "oss-inflection-titleize": {"low": 0.03, "mid": 0.0514, "high": 0.0943, "n": 12}
+    },
+    "zai:glm-5.2": {
+      "py-topo-sort-cycle": {"low": 0.0041, "mid": 0.0075, "high": 0.0133, "n": 12},
+      "py-retry-refactor": {"low": 0.005, "mid": 0.0083, "high": 0.015, "n": 12},
+      "py-jsonpointer": {"low": 0.0041, "mid": 0.0066, "high": 0.0125, "n": 12},
+      "go-stack-pop-bug": {"low": 0.0033, "mid": 0.0058, "high": 0.0108, "n": 12},
+      "go-lru-cache": {"low": 0.0041, "mid": 0.0066, "high": 0.0133, "n": 12},
+      "go-worker-pool": {"low": 0.005, "mid": 0.0083, "high": 0.015, "n": 12},
+      "ts-querystring-bug": {"low": 0.0033, "mid": 0.0058, "high": 0.0117, "n": 12},
+      "ts-deep-merge": {"low": 0.0041, "mid": 0.0075, "high": 0.0142, "n": 12},
+      "ts-schema-validate": {"low": 0.005, "mid": 0.0083, "high": 0.0158, "n": 12},
+      "rs-borrow-split": {"low": 0.005, "mid": 0.0083, "high": 0.015, "n": 12},
+      "rs-feature-gate": {"low": 0.005, "mid": 0.0092, "high": 0.0167, "n": 12},
+      "oss-inflection-titleize": {"low": 0.0058, "mid": 0.01, "high": 0.0183, "n": 12}
+    }
+  },
+  "by_model_scale": {
+    "openai:gpt-5.5": {
+      "micro": {"low": 0.02, "mid": 0.035, "high": 0.07, "n": 40},
+      "small": {"low": 0.03, "mid": 0.05, "high": 0.1, "n": 40},
+      "medium": {"low": 0.05, "mid": 0.09, "high": 0.18, "n": 20},
+      "large": {"low": 0.08, "mid": 0.15, "high": 0.3, "n": 12}
+    },
+    "anthropic:claude-opus-4-8": {
+      "micro": {"low": 0.0171, "mid": 0.03, "high": 0.06, "n": 40},
+      "small": {"low": 0.0257, "mid": 0.0429, "high": 0.0857, "n": 40},
+      "medium": {"low": 0.0429, "mid": 0.0771, "high": 0.1543, "n": 20},
+      "large": {"low": 0.0686, "mid": 0.1286, "high": 0.2571, "n": 12}
+    },
+    "zai:glm-5.2": {
+      "micro": {"low": 0.0033, "mid": 0.0058, "high": 0.0117, "n": 40},
+      "small": {"low": 0.005, "mid": 0.0083, "high": 0.0167, "n": 40},
+      "medium": {"low": 0.0083, "mid": 0.015, "high": 0.03, "n": 20},
+      "large": {"low": 0.0133, "mid": 0.025, "high": 0.05, "n": 12}
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "id": "ts-deep-merge",
+  "category": "bug_fix",
+  "languages": ["typescript"],
+  "difficulty": "hard",
+  "task_complexity": "localized",
+  "created": "2026-06-01",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Original scenario authored for VulcanBench on 2026-06-01; not derived from any public repository, issue, or dataset, so it post-dates all model training cutoffs.",
+  "tests": {
+    "fail_to_pass": [
+      {"name": "arrays_replaced", "cmd": "node --experimental-strip-types --test --test-name-pattern='^arrays are replaced, not merged element-by-element$' tests/merge.test.ts"},
+      {"name": "no_mutation", "cmd": "node --experimental-strip-types --test --test-name-pattern='^does not mutate the target object$' tests/merge.test.ts"},
+      {"name": "no_proto_pollution", "cmd": "node --experimental-strip-types --test --test-name-pattern='^a __proto__ payload does not pollute Object.prototype$' tests/merge.test.ts"}
+    ],
+    "pass_to_pass": [
+      {"name": "merges_nested", "cmd": "node --experimental-strip-types --test --test-name-pattern='^merges nested plain objects$' tests/merge.test.ts"},
+      {"name": "primitive_overwrite", "cmd": "node --experimental-strip-types --test --test-name-pattern='^source primitives overwrite target$' tests/merge.test.ts"},
+      {"name": "adds_new_keys", "cmd": "node --experimental-strip-types --test --test-name-pattern='^new keys from source are added$' tests/merge.test.ts"}
+    ]
+  }
+}

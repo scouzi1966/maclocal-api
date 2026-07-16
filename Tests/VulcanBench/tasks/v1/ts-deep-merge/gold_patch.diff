@@ -1,0 +1,56 @@
+diff --git a/src/merge.ts b/src/merge.ts
+index 8ee8fe1..49daea8 100644
+--- a/src/merge.ts
++++ b/src/merge.ts
+@@ -1,30 +1,37 @@
+ /**
+- * Recursively merge `source` into `target`.
++ * Recursively merge `source` into a new object based on `target`.
+  *
+- * NOTE: this implementation is buggy — see issue.md. It merges arrays
+- * element-by-element, mutates its inputs, and copies dangerous keys such as
+- * `__proto__`.
++ * - Plain objects are merged recursively; for any other value (arrays,
++ *   primitives) the source value replaces the target value.
++ * - Inputs are never mutated; a fresh object is returned.
++ * - The keys `__proto__`, `constructor`, and `prototype` are never copied from
++ *   the source, so a malicious payload cannot pollute `Object.prototype`.
+  */
+ 
+-function isObject(v: unknown): v is Record<string, unknown> {
+-  return typeof v === "object" && v !== null;
++const FORBIDDEN = new Set(["__proto__", "constructor", "prototype"]);
++
++function isPlainObject(v: unknown): v is Record<string, unknown> {
++  if (typeof v !== "object" || v === null) return false;
++  const proto = Object.getPrototypeOf(v);
++  return proto === Object.prototype || proto === null;
+ }
+ 
+ export function deepMerge(
+   target: Record<string, unknown>,
+   source: Record<string, unknown>,
+ ): Record<string, unknown> {
++  const out: Record<string, unknown> = isPlainObject(target) ? { ...target } : {};
+   for (const key of Object.keys(source)) {
++    if (FORBIDDEN.has(key)) continue;
+     const sv = (source as Record<string, unknown>)[key];
+-    const tv = (target as Record<string, unknown>)[key];
+-    if (isObject(sv) && isObject(tv)) {
+-      (target as Record<string, unknown>)[key] = deepMerge(
+-        tv as Record<string, unknown>,
+-        sv as Record<string, unknown>,
+-      );
++    const tv = out[key];
++    if (isPlainObject(sv) && isPlainObject(tv)) {
++      out[key] = deepMerge(tv as Record<string, unknown>, sv as Record<string, unknown>);
++    } else if (isPlainObject(sv)) {
++      out[key] = deepMerge({}, sv as Record<string, unknown>);
+     } else {
+-      (target as Record<string, unknown>)[key] = sv;
++      out[key] = sv;
+     }
+   }
+-  return target;
++  return out;
+ }

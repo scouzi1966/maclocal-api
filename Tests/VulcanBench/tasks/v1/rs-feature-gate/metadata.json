@@ -1,0 +1,29 @@
+{
+  "id": "rs-feature-gate",
+  "category": "bug_fix",
+  "languages": ["rust"],
+  "difficulty": "medium",
+  "task_complexity": "localized",
+  "created": "2026-06-10",
+  "repo_scale": "small",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Original scenario written for VulcanBench on 2026-06-10; not derived from any public repository or issue, so it post-dates all model training cutoffs.",
+  "tests": {
+    "fail_to_pass": [
+      {"name": "hashable_no_default", "cmd": "cargo test -p lib --no-default-features --test test_feature_gate test_hashable_without_crypto_feature"},
+      {"name": "record_no_default", "cmd": "cargo test -p lib --no-default-features --test test_feature_gate test_record_new"}
+    ],
+    "pass_to_pass": [
+      {"name": "default_features", "cmd": "cargo test -p lib"}
+    ]
+  },
+  "test_timeout_s": 300,
+  "agent_hints": {
+    "suggested_max_steps": 60,
+    "suggested_timeout_s": 600,
+    "entry_paths": ["lib/src/lib.rs", "lib/Cargo.toml", "Cargo.toml"]
+  },
+  "setup": [{"name": "build-tests", "cmd": "cargo build --tests"}],
+  "setup_timeout_s": 600
+}

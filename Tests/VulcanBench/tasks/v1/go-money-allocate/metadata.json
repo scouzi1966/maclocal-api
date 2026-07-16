@@ -1,0 +1,23 @@
+{
+  "id": "go-money-allocate",
+  "category": "feature",
+  "languages": ["go"],
+  "difficulty": "easy",
+  "task_complexity": "localized",
+  "created": "2026-05-30",
+  "source": "hand-authored",
+  "decontaminated": true,
+  "decontamination_notes": "Original scenario written for VulcanBench on 2026-05-30; the money package, its API, and the hidden tests are invented for this benchmark and are not derived from any public repository or issue, so it post-dates all model training cutoffs.",
+  "tests": {
+    "fail_to_pass": [
+      {"name": "allocate_uneven", "cmd": "go test -run '^TestAllocateUnevenRemainder$' ./..."},
+      {"name": "allocate_even", "cmd": "go test -run '^TestAllocateEvenSplit$' ./..."},
+      {"name": "allocate_preserves_total", "cmd": "go test -run '^TestAllocatePreservesTotal$' ./..."},
+      {"name": "allocate_largest_remainder_first", "cmd": "go test -run '^TestAllocateLargestRemainderFirst$' ./..."},
+      {"name": "allocate_single", "cmd": "go test -run '^TestAllocateSinglePart$' ./..."}
+    ],
+    "pass_to_pass": [
+      {"name": "money_add_string", "cmd": "go test -run '^TestMoney.*$' ./..."}
+    ]
+  }
+}

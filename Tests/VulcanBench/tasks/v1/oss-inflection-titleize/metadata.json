@@ -1,0 +1,30 @@
+{
+  "id": "oss-inflection-titleize",
+  "category": "bug_fix",
+  "languages": ["python"],
+  "difficulty": "medium",
+  "task_complexity": "localized",
+  "created": "2026-06-01",
+  "source": "oss",
+  "base_commit": "1969b3a06a9ff06d023863e388cf8af01978d297",
+  "upstream": {
+    "url": "https://github.com/jpvanhal/inflection",
+    "issue": "https://github.com/jpvanhal/inflection/issues/33",
+    "pr": "",
+    "fix_commit": "e32443bb7dc1ba91a15336b5baab908d25f4b93a"
+  },
+  "repo_scale": "small",
+  "decontaminated": false,
+  "decontamination_notes": "Sourced from the MIT-licensed `inflection` library (https://github.com/jpvanhal/inflection). repo/inflection.py is the verbatim upstream file at commit 1969b3a06a9ff06d023863e388cf8af01978d297, with its LICENSE preserved. The bug (titleize() only capitalizing words that start with an ASCII a-z letter) is upstream issue #33 (https://github.com/jpvanhal/inflection/issues/33), fixed in commit e32443bb7dc1ba91a15336b5baab908d25f4b93a on 2020-04-06. NOT DECONTAMINATED: this fix predates the training cutoffs of the models under evaluation, so a model may reproduce it from memory rather than reason it out; scores on this task must be read with that caveat (the report's integrity section flags runs scored against it).",
+  "tests": {
+    "fail_to_pass": [
+      {"name": "leading_accented_word", "cmd": "python -m pytest test_titleize.py::test_titleize_leading_accented_word -q"},
+      {"name": "already_titlecased_accented", "cmd": "python -m pytest test_titleize.py::test_titleize_already_titlecased_accented_word -q"}
+    ],
+    "pass_to_pass": [
+      {"name": "ascii_phrase", "cmd": "python -m pytest test_titleize.py::test_titleize_ascii_phrase -q"},
+      {"name": "camelcase", "cmd": "python -m pytest test_titleize.py::test_titleize_camelcase -q"},
+      {"name": "midword_accent", "cmd": "python -m pytest test_titleize.py::test_titleize_midword_accent -q"}
+    ]
+  }
+}

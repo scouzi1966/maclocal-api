@@ -6,6 +6,67 @@ import Testing
 /// Regression tests for fixed issues. Each case names the issue it covers.
 struct IssueRegressionTests {
 
+    @Test("MLX max_tokens fallback applies when request and CLI omit it")
+    func mlxDefaultMaxTokensFallback() {
+        #expect(MLXChatCompletionsController.resolveEffectiveMaxTokens(requested: nil, serverDefault: nil) == MLXChatCompletionsController.defaultMaxCompletionTokens)
+        #expect(MLXChatCompletionsController.resolveEffectiveMaxTokens(requested: 0, serverDefault: nil) == MLXChatCompletionsController.defaultMaxCompletionTokens)
+        #expect(MLXChatCompletionsController.defaultMaxCompletionTokens == 4096)
+        #expect(MLXChatCompletionsController.resolveEffectiveMaxTokens(requested: nil, serverDefault: 1024) == 1024)
+        #expect(MLXChatCompletionsController.resolveEffectiveMaxTokens(requested: 2048, serverDefault: 1024) == 2048)
+    }
+
+    @Test("MLX native tool template patch preserves Python tojson spacing")
+    func mlxNativeToolTemplatePatchPreservesPythonToJSONSpacing() {
+        let tool = RequestTool(
+            type: "function",
+            function: RequestToolFunction(
+                name: "list_files",
+                description: "List files in a directory",
+                parameters: AnyCodable([
+                    "type": "object",
+                    "properties": [
+                        "dir": ["type": "string", "default": "."],
+                        "recursive": ["type": "boolean", "default": false],
+                    ],
+                    "required": [],
+                ] as [String: Any]),
+                strict: nil
+            )
+        )
+
+        let json = MLXModelService.pythonStyleToolJSON(tool)
+        #expect(json.contains(#"{"type": "function", "function": {"name": "list_files""#))
+        #expect(json.contains(#""properties": {"dir": {"type": "string", "default": "."}, "recursive": {"type": "boolean", "default": false}}"#))
+        #expect(!json.contains(#"{"type":"function""#))
+
+        let template = "{%- for tool in tools %}{{- tool | tojson }}{%- endfor %}"
+        let patched = MLXModelService.patchNativeTemplateForPythonToolJSON(template)
+        #expect(patched == "{%- for tool in tools %}{{- tool.__python_json__ }}{%- endfor %}")
+    }
+
+    @Test("python-style tool JSON preserves explicit nulls")
+    func pythonStyleToolJSONPreservesNulls() {
+        let tool = RequestTool(
+            type: "function",
+            function: RequestToolFunction(
+                name: "set_flag",
+                description: "Set a flag",
+                parameters: AnyCodable([
+                    "type": "object",
+                    "properties": [
+                        "value": ["type": "null", "const": NSNull()],
+                    ],
+                    "required": ["value"],
+                ] as [String: Any]),
+                strict: nil
+            )
+        )
+        let json = MLXModelService.pythonStyleToolJSON(tool)
+        // Dropping "const": null would change the schema's meaning and diverge
+        // from Python json.dumps output.
+        #expect(json.contains(#""const": null"#))
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // MARK: - #103 — Foundation server `--guided-json` fallback
     // ═══════════════════════════════════════════════════════════════════

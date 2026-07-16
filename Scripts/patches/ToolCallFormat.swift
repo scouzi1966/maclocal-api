@@ -70,6 +70,10 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
     /// Example: `<invoke name="f"><parameter name="k">v</parameter></invoke>`
     case minimaxM2 = "minimax_m2"
 
+    /// Raw mode: tool-call extraction disabled. Generated tool markup passes
+    /// through as ordinary text and no `ToolCall` values are ever produced.
+    case none
+
     // MARK: - Factory Methods
 
     /// Create the appropriate parser for this format.
@@ -92,6 +96,8 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
             return KimiK2ToolCallParser()
         case .minimaxM2:
             return MiniMaxM2ToolCallParser()
+        case .none:
+            return NoneToolCallParser()
         }
     }
 
@@ -124,5 +130,23 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
         default:
             return nil
         }
+    }
+}
+
+// MARK: - NoneToolCallParser
+
+/// Parser for ``ToolCallFormat/none``: never matches anything.
+///
+/// With `startTag`/`endTag` nil the processor treats every chunk as inline
+/// content, and `parse` always failing means text is returned verbatim and
+/// no tool calls are ever extracted.
+public struct NoneToolCallParser: ToolCallParser, Sendable {
+    public var startTag: String? { nil }
+    public var endTag: String? { nil }
+
+    public init() {}
+
+    public func parse(content: String, tools: [[String: any Sendable]]?) -> ToolCall? {
+        nil
     }
 }

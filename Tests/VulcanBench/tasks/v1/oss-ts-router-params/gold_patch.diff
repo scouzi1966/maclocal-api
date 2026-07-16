@@ -1,0 +1,15 @@
+diff --git a/src/router.ts b/src/router.ts
+index 8630eea..709e690 100644
+--- a/src/router.ts
++++ b/src/router.ts
+@@ -6,8 +6,8 @@ export function match(pattern: string, path: string): Params | null {
+   if (pp.length !== ps.length) return null;
+   const out: Params = {};
+   for (let i = 0; i < pp.length; i++) {
+-    if (pp[i].startsWith(':')) out[pp[i].slice(1)] = ps[i];
+-    else if (pp[i] !== ps[i]) return null;
++    if (pp[i].startsWith(':')) out[pp[i].slice(1)] = decodeURIComponent(ps[i]);
++    else if (pp[i] !== decodeURIComponent(ps[i])) return null;
+   }
+   return out;
+ }

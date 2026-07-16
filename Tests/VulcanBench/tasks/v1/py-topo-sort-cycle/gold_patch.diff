@@ -1,0 +1,44 @@
+diff --git a/dag/graph.py b/dag/graph.py
+index 997362d..c6212ee 100644
+--- a/dag/graph.py
++++ b/dag/graph.py
+@@ -4,6 +4,7 @@ An edge ``u -> v`` means *u must come before v* in the output order.
+ """
+ from __future__ import annotations
+ 
++import heapq
+ from typing import Hashable
+ 
+ from dag.errors import CycleError
+@@ -30,7 +31,9 @@ class Graph:
+     def topological_order(self) -> list[Hashable]:
+         """Return the nodes in dependency order (Kahn's algorithm).
+ 
+-        See ``issue.md`` — this implementation is buggy.
++        Among the nodes that are ready at each step (in-degree 0), the smallest
++        is emitted first, so the order is deterministic. Raises
++        :class:`CycleError` if the graph contains a cycle.
+         """
+         indegree = {n: 0 for n in self._nodes}
+         for src in self._nodes:
+@@ -38,12 +41,17 @@ class Graph:
+                 indegree[dst] += 1
+ 
+         ready = [n for n in self._nodes if indegree[n] == 0]
++        heapq.heapify(ready)  # smallest-ready-first for a stable, reproducible order
+         order: list[Hashable] = []
+         while ready:
+-            node = ready.pop()  # take the most-recently-added ready node
++            node = heapq.heappop(ready)
+             order.append(node)
+-            for dst in self._succ[node]:
++            for dst in sorted(self._succ[node]):
+                 indegree[dst] -= 1
+                 if indegree[dst] == 0:
+-                    ready.append(dst)
++                    heapq.heappush(ready, dst)
++
++        if len(order) != len(self._nodes):
++            cyclic = sorted(n for n in self._nodes if indegree[n] > 0)
++            raise CycleError(f"graph has a cycle involving: {cyclic}")
+         return order
