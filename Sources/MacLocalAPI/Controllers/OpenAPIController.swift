@@ -60,7 +60,7 @@ struct OpenAPIController: RouteCollection {
       "openapi": "3.1.0",
       "info": {
         "title": "afm — local OpenAI-compatible API",
-        "version": "0.9.13",
+        "version": "0.9.14",
         "description": "OpenAI-compatible local LLM server for Apple Silicon. Backs both Apple Foundation Models and HuggingFace MLX models. See docs/clients/ for per-agent recipes.",
         "license": { "name": "MIT" }
       },
