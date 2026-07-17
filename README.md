@@ -11,32 +11,6 @@ If you find this useful, please ⭐ the repo! &nbsp; Also check out [Vesta AI Ex
 | **pip** | `pip install macafm` | `pip install --extra-index-url https://maclocal-ai.pages.dev/afm/wheels/simple/ macafm-next` |
 | **Release notes** | [v0.9.14](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.14) | [v0.9.14-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260703-33e60dd) |
 
-### 🔨 Build from source — one command
-
-Clone and build everything (submodules, patches, WebUI, release binary) with a single script. It checks your toolchain, auto-installs what it can (Node via Homebrew), and tells you what to install manually (Xcode Command Line Tools) — no AI agent or project knowledge required. The script initializes submodules for you, so a plain `git clone` is all you need.
-
-```bash
-git clone https://github.com/scouzi1966/maclocal-api.git
-cd maclocal-api
-./build.sh
-```
-
-That's it. The `afm` binary lands in `.build/release/afm`. Add `--install` to also install it to `/usr/local/bin` (on your `PATH` by default; uses `sudo` if needed):
-
-```bash
-./build.sh --install
-```
-
-Run `./build.sh --help` for all options (`--debug`, `--skip-webui`, `--yes` for non-interactive/CI).
-
-> [!TIP]
-> **Switching between stable and nightly:**
-> ```bash
-> brew unlink afm && brew install scouzi1966/afm/afm-next   # switch to nightly
-> brew unlink afm-next && brew link afm                      # switch back to stable
-> ASSUMES you did a brew install scouzi1966/afm/afm previously
-> ```
-
 ### Install a previous version
 
 Older stable releases are kept as pinned formulae in the Homebrew tap and as version-pinned wheels on PyPI. Useful for reproducing an issue against a specific build or rolling back without waiting for a new release.
@@ -63,6 +37,32 @@ pip install macafm==0.9.10                  # previous stable
 pip install --extra-index-url https://maclocal-ai.pages.dev/afm/wheels/simple/ \
   macafm-next==0.9.14.dev20260703           # pinned nightly
 ```
+
+### 🔨 Build from source — one command
+
+Clone and build everything (submodules, patches, WebUI, release binary) with a single script. It checks your toolchain, auto-installs what it can (Node via Homebrew), and tells you what to install manually (Xcode Command Line Tools) — no AI agent or project knowledge required. The script initializes submodules for you, so a plain `git clone` is all you need.
+
+```bash
+git clone https://github.com/scouzi1966/maclocal-api.git
+cd maclocal-api
+./build.sh
+```
+
+That's it. The `afm` binary lands in `.build/release/afm`. Add `--install` to also install it to `/usr/local/bin` (on your `PATH` by default; uses `sudo` if needed):
+
+```bash
+./build.sh --install
+```
+
+Run `./build.sh --help` for all options (`--debug`, `--skip-webui`, `--yes` for non-interactive/CI).
+
+> [!TIP]
+> **Switching between stable and nightly:**
+> ```bash
+> brew unlink afm && brew install scouzi1966/afm/afm-next   # switch to nightly
+> brew unlink afm-next && brew link afm                      # switch back to stable
+> ASSUMES you did a brew install scouzi1966/afm/afm previously
+> ```
 
 > [!NOTE]
 >
