@@ -552,6 +552,13 @@ public final class LLMModelFactory: ModelFactory {
         var mutableConfiguration = configuration
         mutableConfiguration.eosTokenIds = eosTokenIds
 
+        // Preserve upstream parser selection when the caller did not request a format.
+        // This is required for GLM4, LFM2, and the other model-type mappings defined by
+        // ToolCallFormat.infer(from:).
+        if mutableConfiguration.toolCallFormat == nil {
+            mutableConfiguration.toolCallFormat = ToolCallFormat.infer(from: baseConfig.modelType)
+        }
+
         // Load tokenizer and weights in parallel using async let.
         async let tokenizerTask = loadTokenizer(configuration: configuration, hub: hub)
 
