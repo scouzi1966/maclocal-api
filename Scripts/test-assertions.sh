@@ -4117,9 +4117,9 @@ if should_run_section 16 && min_tier standard; then
   # Test 16.5: streaming parity — same seed must produce same content
   t0=$(now_ms)
   NS=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d '{"model":"m","messages":[{"role":"user","content":"Say yes"}],"max_tokens":3,"temperature":0,"seed":42,"stream":false}' 2>&1)
+    -d '{"model":"m","messages":[{"role":"user","content":"Say yes"}],"max_tokens":3,"temperature":0,"seed":42,"stream":false,"chat_template_kwargs":{"enable_thinking":false}}' 2>&1)
   S=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d '{"model":"m","messages":[{"role":"user","content":"Say yes"}],"max_tokens":3,"temperature":0,"seed":42,"stream":true}' 2>&1)
+    -d '{"model":"m","messages":[{"role":"user","content":"Say yes"}],"max_tokens":3,"temperature":0,"seed":42,"stream":true,"chat_template_kwargs":{"enable_thinking":false}}' 2>&1)
   dur=$(($(now_ms) - t0))
   NS_C=$(echo "$NS" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null)
   S_C=$(echo "$S" | python3 -c "
@@ -4145,9 +4145,9 @@ print(content.strip())
   # Test 16.6: cache idempotency — same request twice must match
   t0=$(now_ms)
   R1=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d '{"model":"m","messages":[{"role":"user","content":"Color"}],"max_tokens":3,"temperature":0,"seed":99}' 2>&1)
+    -d '{"model":"m","messages":[{"role":"user","content":"Color"}],"max_tokens":3,"temperature":0,"seed":99,"chat_template_kwargs":{"enable_thinking":false}}' 2>&1)
   R2=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d '{"model":"m","messages":[{"role":"user","content":"Color"}],"max_tokens":3,"temperature":0,"seed":99}' 2>&1)
+    -d '{"model":"m","messages":[{"role":"user","content":"Color"}],"max_tokens":3,"temperature":0,"seed":99,"chat_template_kwargs":{"enable_thinking":false}}' 2>&1)
   dur=$(($(now_ms) - t0))
   C1=$(echo "$R1" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'])" 2>/dev/null)
   C2=$(echo "$R2" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'])" 2>/dev/null)
