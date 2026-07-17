@@ -107,14 +107,14 @@ struct RadixTreeCacheTests {
         #expect(states != nil)
     }
 
-    @Test("findPrefix: traverses nodes but no cached node found")
-    func findTraversedButNoCachedNode() {
+    @Test("findPrefix: split node reuses trimmable descendant state")
+    func findSplitNodeDescendantState() {
         let cache = RadixTreeCache(modelID: "test", maxEntries: 64)
         cache.insert(tokens: [1, 2, 3, 4, 5], layerStates: fakeLayers(seqLen: 5))
         cache.insert(tokens: [1, 2, 3, 9, 8], layerStates: fakeLayers(seqLen: 5))
         let (prefixLen, states, _) = cache.findPrefix([1, 2, 3, 7, 7])
-        #expect(prefixLen == 0)
-        #expect(states == nil)
+        #expect(prefixLen == 3)
+        #expect(states != nil)
     }
 
     @Test("findPrefix: query shorter than cached edge")
@@ -149,8 +149,8 @@ struct RadixTreeCacheTests {
         let _ = cache.findPrefix([1, 2, 3, 4, 9])
     }
 
-    @Test("findPrefix: miss with matched > 0 and debugLogging")
-    func findMissMatchedWithDebug() {
+    @Test("findPrefix: split-node descendant hit with debugLogging")
+    func findSplitNodeHitWithDebug() {
         let cache = RadixTreeCache(modelID: "test", maxEntries: 64, debugLogging: true)
         cache.insert(tokens: [1, 2, 3, 4, 5], layerStates: fakeLayers(seqLen: 5))
         cache.insert(tokens: [1, 2, 3, 9, 8], layerStates: fakeLayers(seqLen: 5))
@@ -381,7 +381,7 @@ struct RadixTreeCacheTests {
     // MARK: - Conversation fork scenario
     // ═══════════════════════════════════════════════════════════════════
 
-    @Test("Conversation fork: both branches survive and are findable")
+    @Test("Conversation fork: branches and their shared prefix remain reusable")
     func conversationFork() {
         let cache = RadixTreeCache(modelID: "test", maxEntries: 64)
         cache.insert(tokens: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
@@ -393,6 +393,6 @@ struct RadixTreeCacheTests {
         let (lenB, _, _) = cache.findPrefix([1, 2, 3, 4, 5, 20, 21, 22])
         #expect(lenB == 8)
         let (lenC, _, _) = cache.findPrefix([1, 2, 3, 4, 5, 99])
-        #expect(lenC == 0)
+        #expect(lenC == 5)
     }
 }

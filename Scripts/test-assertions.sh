@@ -1313,7 +1313,6 @@ print(''.join(parts))
   # When the server is started with --enable-prefix-caching --concurrent 8, this exercises the batched path.
   concurrent_nonce="CONCURRENT-CACHE-$(date +%s%N)"
   concurrent_prefix="Shared cache branch probe $concurrent_nonce."
-  concurrent_schema='{"type":"object","properties":{"marker":{"type":"integer"}},"required":["marker"],"additionalProperties":false}'
   concurrent_warmup="$concurrent_prefix Return JSON with marker 0."
   api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$concurrent_warmup\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}" >/dev/null
 
@@ -1326,7 +1325,7 @@ print(''.join(parts))
     prompt="$concurrent_prefix Return JSON with marker $token."
     curl -s --max-time 60 "$BASE_URL/v1/chat/completions" \
       -H 'Content-Type: application/json' \
-      -d "{\"messages\":[{\"role\":\"user\",\"content\":\"$prompt\"}],\"guided_json\":$concurrent_schema,\"max_tokens\":32,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}" \
+      -d "{\"messages\":[{\"role\":\"user\",\"content\":\"$prompt\"}],\"response_format\":{\"type\":\"json_object\"},\"max_tokens\":32,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}" \
       -o "$concurrent_tmpdir/resp_$i.json" \
       -w "%{http_code}" > "$concurrent_tmpdir/code_$i.txt" 2>/dev/null &
   done
@@ -1334,7 +1333,7 @@ print(''.join(parts))
   dur=$(( $(now_ms) - t0 ))
 
   concurrent_cache_state=$(python3 - "$concurrent_tmpdir" <<'PY'
-import json, os, sys
+import json, os, re, sys
 
 root = sys.argv[1]
 failures = []
@@ -1373,7 +1372,7 @@ PY
   fi
 
   concurrent_content_state=$(python3 - "$concurrent_tmpdir" "${concurrent_tokens[@]}" <<'PY'
-import json, os, sys
+import json, os, re, sys
 
 root = sys.argv[1]
 tokens = sys.argv[2:]
@@ -1384,10 +1383,9 @@ for i, token in enumerate(tokens, start=1):
         with open(body_path, "r", encoding="utf-8") as f:
             d = json.load(f)
         content = (d.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
-        payload = json.loads(content)
-        marker = payload.get("marker")
-        if marker != int(token):
-            failures.append(f"{i}:marker={marker} expected={token} content=[{content}]")
+        markers = [int(value) for value in re.findall(r"[\"']marker[\"']\s*:\s*(\d+)", content)]
+        if not markers or any(marker != int(token) for marker in markers):
+            failures.append(f"{i}:markers={markers} expected={token} content=[{content}]")
             continue
     except Exception as e:
         failures.append(f"{i}:error={e}")

@@ -622,16 +622,15 @@ actor BatchScheduler {
                 }
 
                 if accepted.count > 1 {
-                    // Batch all non-multimodal requests together. Prefix cache hits
-                    // are skipped inside prefillBatch (fresh caches only). The batch
-                    // speedup from a single B=N forward pass outweighs small partial
-                    // cache hits (e.g. shared chat template prefix).
+                    // Batch only cold, non-multimodal requests. A batched prefill starts
+                    // from fresh caches, so routing a reusable radix hit through it would
+                    // silently discard the cached prefix and misreport cached_tokens=0.
                     var batchEligible: [PendingRequest] = []
                     var individual: [PendingRequest] = []
 
                     for req in accepted {
                         let isMultimodal = req.input.image != nil || req.input.video != nil
-                        if isMultimodal {
+                        if isMultimodal || hasReusableCachedPrefix(for: req) {
                             individual.append(req)
                         } else {
                             batchEligible.append(req)
@@ -688,6 +687,14 @@ actor BatchScheduler {
 
             // Kick off async evaluation — GPU starts computing current step
             asyncEval(tokenArrays)
+            // Grammar processors are stateful: the mask for token N+1 must be
+            // updated from token N before the next sampling graph is built.
+            // Waiting for the deferred dispatch below leaves the grammar one token
+            // behind. Materialize constrained samples now and advance their matcher;
+            // unconstrained slots retain the pipelined CPU/GPU overlap.
+            for i in 0..<activeB where slots[i].constraintRuntime != nil {
+                slots[i].processor?.didSample(token: tokenArrays[i])
+            }
             if debugTiming {
                 modelTimeAccum += Date().timeIntervalSince(modelStart)
             }
@@ -726,7 +733,11 @@ actor BatchScheduler {
                     let tokenArray = prevTokens[j]
 
                     let token = tokenArray.item(Int.self)
-                    slot.processor?.didSample(token: tokenArray)
+                    // Constrained processors were advanced immediately after
+                    // sampling so the next token used the current grammar mask.
+                    if slot.constraintRuntime == nil {
+                        slot.processor?.didSample(token: tokenArray)
+                    }
 
                     // Promote pending logprobs (one token behind — describes THIS token being dispatched)
                     let logprobsForThisToken: [ResolvedLogprob]?
@@ -820,7 +831,9 @@ actor BatchScheduler {
                 guard let i = slots.firstIndex(where: { $0.id == prevIDs[j] }) else { continue }
                 let slot = slots[i]
                 let token = prevTokens[j].item(Int.self)
-                slot.processor?.didSample(token: prevTokens[j])
+                if slot.constraintRuntime == nil {
+                    slot.processor?.didSample(token: prevTokens[j])
+                }
 
                 // Promote pending logprobs for this token
                 let logprobsForToken: [ResolvedLogprob]?
@@ -857,6 +870,44 @@ actor BatchScheduler {
 
     // MARK: - Prefill
 
+    /// Returns the prefix length that can actually be restored after applying the
+    /// same replay-safety rules used by `prefillOne`.
+    static func effectiveCachedPrefixLength(
+        matchedPrefix: Int,
+        inputTokenCount: Int,
+        hasRecurrentLayers: Bool,
+        forcedSuffix: Int?
+    ) -> Int {
+        if matchedPrefix == inputTokenCount && hasRecurrentLayers && forcedSuffix == nil {
+            return 0
+        }
+        if matchedPrefix == inputTokenCount, let forcedSuffix {
+            return max(0, inputTokenCount - forcedSuffix)
+        }
+        let minSuffix = 16
+        return min(matchedPrefix, max(0, inputTokenCount - minSuffix))
+    }
+
+    /// Probe whether a request must use individual prefill to preserve a reusable
+    /// radix entry. This is called only from the actor's serialized generation loop.
+    private func hasReusableCachedPrefix(for req: PendingRequest) -> Bool {
+        guard let radix = radixCache else { return false }
+        let inputTokens = req.input.text.tokens.reshaped(-1).asArray(Int.self)
+        guard !inputTokens.isEmpty else { return false }
+
+        let (prefixLen, states, _) = radix.findPrefix(inputTokens)
+        guard prefixLen > 0, states != nil else { return false }
+
+        let cache = model.newCache(parameters: req.parameters)
+        let recurrent = cache.contains { $0 is ArraysCache || $0 is CacheList }
+        return Self.effectiveCachedPrefixLength(
+            matchedPrefix: prefixLen,
+            inputTokenCount: inputTokens.count,
+            hasRecurrentLayers: recurrent,
+            forcedSuffix: unsafeExactReplaySuffix()
+        ) > 0
+    }
+
     /// Prefill a single request (B=1), then merge its cache into the batch.
     private func prefillOne(_ req: PendingRequest) {
         var cache = model.newCache(parameters: req.parameters)
@@ -882,21 +933,18 @@ actor BatchScheduler {
             let tLookup1 = Date.timeIntervalSinceReferenceDate
             cacheLookupTime = tLookup1 - tLookup0
             let forcedSuffix = unsafeExactReplaySuffix()
-            let effectivePrefix: Int
             // Inlined hasRecurrentLayers(cache): an actor-isolated call would make
             // the compiler treat the non-Sendable `cache` as "sent", conflicting
             // with its later in-actor uses. Inlining keeps it in one region.
             let recurrent = cache.contains { $0 is ArraysCache || $0 is CacheList }
-            if prefixLen == inputTokens.count && recurrent && forcedSuffix == nil {
-                effectivePrefix = 0
-                if prefixLen > 0 {
-                    cacheOutcome = "exact-replay-bypass"
-                }
-            } else if prefixLen == inputTokens.count, let forcedSuffix {
-                effectivePrefix = max(0, inputTokens.count - forcedSuffix)
-            } else {
-                let minSuffix = 16
-                effectivePrefix = min(prefixLen, max(0, inputTokens.count - minSuffix))
+            let effectivePrefix = Self.effectiveCachedPrefixLength(
+                matchedPrefix: prefixLen,
+                inputTokenCount: inputTokens.count,
+                hasRecurrentLayers: recurrent,
+                forcedSuffix: forcedSuffix
+            )
+            if prefixLen == inputTokens.count && recurrent && forcedSuffix == nil && prefixLen > 0 {
+                cacheOutcome = "exact-replay-bypass"
             }
 
             if effectivePrefix > 0, let states = layerStates {

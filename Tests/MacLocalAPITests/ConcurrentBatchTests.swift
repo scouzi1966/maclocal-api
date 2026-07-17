@@ -130,6 +130,38 @@ struct ConcurrentBatchTests {
         #expect(BatchScheduler.defaultMaxConcurrent == 8)
     }
 
+    @Test("BatchScheduler preserves reusable partial prefixes for individual prefill")
+    func reusablePartialPrefix() {
+        #expect(BatchScheduler.effectiveCachedPrefixLength(
+            matchedPrefix: 43,
+            inputTokenCount: 59,
+            hasRecurrentLayers: false,
+            forcedSuffix: nil
+        ) == 43)
+        #expect(BatchScheduler.effectiveCachedPrefixLength(
+            matchedPrefix: 10,
+            inputTokenCount: 20,
+            hasRecurrentLayers: false,
+            forcedSuffix: nil
+        ) == 4)
+    }
+
+    @Test("BatchScheduler bypasses unsafe recurrent exact replay")
+    func recurrentExactReplayBypass() {
+        #expect(BatchScheduler.effectiveCachedPrefixLength(
+            matchedPrefix: 59,
+            inputTokenCount: 59,
+            hasRecurrentLayers: true,
+            forcedSuffix: nil
+        ) == 0)
+        #expect(BatchScheduler.effectiveCachedPrefixLength(
+            matchedPrefix: 59,
+            inputTokenCount: 59,
+            hasRecurrentLayers: true,
+            forcedSuffix: 16
+        ) == 43)
+    }
+
     @Test("BatchScheduler emits only completed tool calls from slot runtime events")
     func completedToolCallsFromEvents() {
         let placeholder = ResponseToolCall(

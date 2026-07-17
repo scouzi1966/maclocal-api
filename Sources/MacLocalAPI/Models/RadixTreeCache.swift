@@ -70,8 +70,19 @@ final class RadixTreeCache: @unchecked Sendable {
     ) {
         var node = root
         var matched = 0
-        var lastCachedNode: RadixNode? = nil
+        var lastCachedEntry: KVCacheEntry? = nil
         var lastCachedLen = 0
+
+        // A split radix node may not own state even though every cached entry below
+        // it contains the node's full prefix. Any such descendant can be restored
+        // and trimmed to the shared prefix safely.
+        func cachedEntry(atOrBelow node: RadixNode) -> KVCacheEntry? {
+            if let entry = node.cacheEntry { return entry }
+            for child in node.children.values {
+                if let entry = cachedEntry(atOrBelow: child) { return entry }
+            }
+            return nil
+        }
 
         while matched < tokens.count {
             let nextToken = tokens[matched]
@@ -92,11 +103,10 @@ final class RadixTreeCache: @unchecked Sendable {
                 matched += 1
             }
 
-            // Track cached state even on partial edge match — the caller
-            // trims KV state to the matched prefix length, so we can use
-            // a cache entry that covers more tokens than we matched.
-            if child.hasCachedState && matched > lastCachedLen {
-                lastCachedNode = child
+            // Track cached state even on partial edge matches and split nodes.
+            // The caller trims a longer descendant state to `matched` tokens.
+            if matched > lastCachedLen, let entry = cachedEntry(atOrBelow: child) {
+                lastCachedEntry = entry
                 lastCachedLen = matched
             }
 
@@ -112,16 +122,16 @@ final class RadixTreeCache: @unchecked Sendable {
             node = child
         }
 
-        if let cached = lastCachedNode {
-            cached.cacheEntry?.touch()
+        if let cached = lastCachedEntry {
+            cached.touch()
             if debugLogging {
-                let entryTokenCount = cached.cacheEntry?.tokens.count ?? 0
+                let entryTokenCount = cached.tokens.count
                 print("[PrefixCache] Radix hit: \(lastCachedLen)/\(tokens.count) tokens matched (entry has \(entryTokenCount) tokens)")
             }
             return (
                 lastCachedLen,
-                cached.cacheEntry?.layerStates,
-                cached.cacheEntry?.layerMetaStates
+                cached.layerStates,
+                cached.layerMetaStates
             )
         }
 
