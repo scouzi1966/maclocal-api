@@ -30,6 +30,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$ROOT_DIR/Scripts"
 
 BUILD_CONFIG="release"
+INCLUDE_BUILD_COMMIT=true
 DO_CLEAN=true
 DO_SUBMODULES=true
 DO_PATCHES=true
@@ -56,6 +57,7 @@ Usage: ./build.sh [options]
 
 Options:
   --debug              Build debug instead of release
+  --stable             Build a stable binary without a commit suffix
   --no-clean           Skip clean step before build
   --skip-submodules    Skip git submodule init/update
   --skip-patches       Skip MLX + xgrammar patch application
@@ -73,6 +75,7 @@ USAGE
 for arg in "$@"; do
   case "$arg" in
     --debug) BUILD_CONFIG="debug" ;;
+    --stable) INCLUDE_BUILD_COMMIT=false ;;
     --no-clean) DO_CLEAN=false ;;
     --skip-submodules) DO_SUBMODULES=false ;;
     --skip-patches) DO_PATCHES=false ;;
@@ -331,12 +334,16 @@ else
   log_warn "Skipping metallib rebuild (--skip-metallib): using committed prebuilt metallib"
 fi
 
-log_step "Injecting build commit into BuildInfo.swift"
-BUILD_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILDINFO="$ROOT_DIR/Sources/MacLocalAPI/BuildInfo.swift"
-if [ -f "$BUILDINFO" ]; then
-  sed -i '' "s/static let commit: String? = nil/static let commit: String? = \"${BUILD_COMMIT}\"/" "$BUILDINFO"
-  log_info "Commit: $BUILD_COMMIT"
+if $INCLUDE_BUILD_COMMIT; then
+  log_step "Injecting build commit into BuildInfo.swift"
+  BUILD_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+  if [ -f "$BUILDINFO" ]; then
+    sed -i '' "s/static let commit: String? = nil/static let commit: String? = \"${BUILD_COMMIT}\"/" "$BUILDINFO"
+    log_info "Commit: $BUILD_COMMIT"
+  fi
+else
+  log_step "Building stable version without commit suffix"
 fi
 
 log_step "Building afm ($BUILD_CONFIG)"
