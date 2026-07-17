@@ -113,6 +113,51 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         }
     }
 
+    func testStreamingControllerDoesNotDuplicateVendorCallAfterRawXMLStart() async throws {
+        let vendorCall = ResponseToolCall(
+            index: 0,
+            id: "call_vendor",
+            type: "function",
+            function: ResponseToolCallFunction(
+                name: "get_weather",
+                arguments: #"{"location":"Berlin"}"#
+            )
+        )
+        let service = FakeMLXChatService(
+            toolCallParser: "afm_adaptive_xml",
+            streamingResult: makeStreamingResult(chunks: [
+                StreamChunk(text: "<tool_call>"),
+                StreamChunk(text: "<function=get_weather>"),
+                StreamChunk(text: "<parameter=location>Berlin</parameter>"),
+                StreamChunk(text: "", toolCalls: [vendorCall]),
+                StreamChunk(text: "</tool_call>"),
+                StreamChunk(text: "", promptTokens: 20, completionTokens: 5, cachedTokens: 0, promptTime: 0.03, generateTime: 0.02),
+            ])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(stream: true)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertEqual(
+                res.body.string.components(separatedBy: #"\"location\":\"Berlin\""#).count - 1,
+                1,
+                "the vendor completion must not repeat arguments already owned by the raw XML runtime"
+            )
+            XCTAssertContains(res.body.string, "\"finish_reason\":\"tool_calls\"")
+        }
+    }
+
     func testStreamingControllerSerializesBatchToolCallDeltasBeforeCompletedCall() async throws {
         let service = FakeMLXChatService(
             toolCallParser: "afm_adaptive_xml",

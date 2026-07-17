@@ -720,6 +720,20 @@ struct MLXChatCompletionsController: RouteCollection {
                                 permittedToolIndices: &permittedToolIndices
                             ) else { continue }
                             hasToolCalls = true
+                            // The vendor parser can publish a completed call on the same
+                            // chunk where the raw XML runtime is already assembling it.
+                            // Keep the completed value for final-state collection, but do
+                            // not send a second full argument payload: OpenAI clients
+                            // concatenate tool-call argument deltas.
+                            if toolRuntime?.madeToolCall == true {
+                                let toolIndex = coercedToolCall.index ?? 0
+                                if toolIndex < collectedToolCalls.count {
+                                    collectedToolCalls[toolIndex] = coercedToolCall
+                                } else {
+                                    collectedToolCalls.append(coercedToolCall)
+                                }
+                                continue
+                            }
                             collectedToolCalls.append(coercedToolCall)
                             let toolIndex = coercedToolCall.index ?? (collectedToolCalls.count - 1)
                             if streamedVendorToolIndices.contains(toolIndex) {
