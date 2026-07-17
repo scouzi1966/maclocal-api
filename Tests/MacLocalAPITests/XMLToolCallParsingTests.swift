@@ -11,22 +11,22 @@ import Testing
 struct XMLToolCallParsingTests {
 // dimensions: tool_call_format=xmlFunction
 
-    @Test("auto-detected XML format uses narrow Qwen XML parser without explicit override")
-    func autoDetectedXMLUsesNarrowQwenXMLParserWithoutExplicitOverride() {
+    @Test("auto-detected XML format uses adaptive compatibility parser")
+    func autoDetectedXMLUsesAdaptiveCompatibilityParser() {
         let parser = MLXModelService.effectiveToolCallParser(
             configuredParser: nil,
             detectedFormat: .xmlFunction
         )
-        #expect(parser == "qwen3_xml")
+        #expect(parser == "afm_adaptive_xml")
     }
 
-    @Test("auto-detected XML format does not force chat template override")
-    func autoDetectedXMLDoesNotForceChatTemplateOverride() {
+    @Test("auto-detected XML format uses adaptive compatibility chat template")
+    func autoDetectedXMLUsesAdaptiveCompatibilityChatTemplate() {
         let parser = MLXModelService.effectiveChatTemplateToolCallParser(
             configuredParser: nil,
             detectedFormat: .xmlFunction
         )
-        #expect(parser == nil)
+        #expect(parser == "afm_adaptive_xml")
     }
 
     @Test("explicit none parser disables auto-detected adaptive XML parser")

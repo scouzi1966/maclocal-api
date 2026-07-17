@@ -27,6 +27,7 @@ NEW_FILES=("Cohere2Moe.swift" "Qwen3Next.swift" "GatedDelta.swift" "Qwen3_5MoE.s
 # Each entry: "search_pattern|replacement"
 # These fix dependency version pins that can't be handled by file-copy patches.
 MLX_PACKAGE_SWIFT="$MLX_LM_DIR/Package.swift"
+MLX_INTEGRATION_TOOL_TEST="$MLX_LM_DIR/Tests/MLXLMIntegrationTests/ToolCallIntegrationTests.swift"
 PACKAGE_PINS=(
   '.upToNextMinor(from: "0.30.3")|exact: "0.30.3"'
   '.upToNextMinor(from: "1.1.6")|from: "1.3.0"'
@@ -174,6 +175,53 @@ revert_package_pins() {
   fi
 }
 
+apply_integration_test_compat() {
+  local test_file="$1"
+  local backup="${test_file}.original"
+
+  [ -f "$test_file" ] || { log_error "Integration test not found: $test_file"; return 1; }
+
+  if grep -qF 'case .tokenLogprobs:' "$test_file"; then
+    log_info "Integration test handles Generation.tokenLogprobs"
+    return 0
+  fi
+
+  if [ ! -f "$backup" ]; then
+    cp "$test_file" "$backup"
+    log_info "Backed up original: ToolCallIntegrationTests.swift"
+  fi
+
+  perl -0pi -e 's/(\n\s*case \.info:)/\n                case .tokenLogprobs:\n                    break$1/' "$test_file"
+
+  if ! grep -qF 'case .tokenLogprobs:' "$test_file"; then
+    log_error "Failed to add Generation.tokenLogprobs integration-test handling"
+    return 1
+  fi
+  log_info "Patched integration test for Generation.tokenLogprobs"
+}
+
+check_integration_test_compat() {
+  local test_file="$1"
+  if grep -qF 'case .tokenLogprobs:' "$test_file"; then
+    log_info "Integration test handles Generation.tokenLogprobs"
+  else
+    log_warn "Integration test is missing Generation.tokenLogprobs handling"
+    return 1
+  fi
+}
+
+revert_integration_test_compat() {
+  local test_file="$1"
+  local backup="${test_file}.original"
+  if [ -f "$backup" ]; then
+    cp "$backup" "$test_file"
+    rm "$backup"
+    log_info "Reverted: ToolCallIntegrationTests.swift"
+  else
+    log_warn "No backup found for: ToolCallIntegrationTests.swift (may already be original)"
+  fi
+}
+
 is_file_patched() {
   local patch_file="$1"
   local target_file="$2"
@@ -285,6 +333,7 @@ main() {
       local pins_ok=true
       check_patches "$MLX_LM_DIR" || files_ok=false
       check_package_pins "$MLX_PACKAGE_SWIFT" || pins_ok=false
+      check_integration_test_compat "$MLX_INTEGRATION_TOOL_TEST" || files_ok=false
       if $files_ok && $pins_ok; then
         log_info "All patches are applied"
       else
@@ -295,6 +344,7 @@ main() {
       for i in "${!PATCH_FILES[@]}"; do
         revert_file "$MLX_LM_DIR/${TARGET_PATHS[$i]}"
       done
+      revert_integration_test_compat "$MLX_INTEGRATION_TOOL_TEST"
       revert_package_pins "$MLX_PACKAGE_SWIFT"
       log_info ""
       log_info "Files reverted. Clean build required."
@@ -313,6 +363,7 @@ main() {
       done
       apply_package_pins "$MLX_PACKAGE_SWIFT"
       add_mlxfast_dep "$MLX_PACKAGE_SWIFT"
+      apply_integration_test_compat "$MLX_INTEGRATION_TOOL_TEST"
       log_info ""
       log_info "Patches applied to vendor/mlx-swift-lm. Clean build required."
       ;;

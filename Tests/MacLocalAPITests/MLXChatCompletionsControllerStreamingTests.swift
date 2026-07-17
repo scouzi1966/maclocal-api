@@ -160,6 +160,11 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
             XCTAssertContains(res.body.string, "\"id\":\"call_batch\"")
             XCTAssertContains(res.body.string, "\"name\":\"read_file\"")
             XCTAssertContains(res.body.string, "\\\"path\\\":\\\"README.md\\\"")
+            XCTAssertEqual(
+                res.body.string.components(separatedBy: "\\\"path\\\":\\\"README.md\\\"").count - 1,
+                1,
+                "completed batch tool calls must not repeat arguments already emitted as deltas"
+            )
             XCTAssertContains(res.body.string, "\"finish_reason\":\"tool_calls\"")
         }
     }

@@ -940,10 +940,14 @@ public struct NemotronHConfiguration: Codable, Sendable {
                 debugDescription: "hybrid_override_pattern must be string or array of strings")
         }
 
-        // Handle time_step_limit - can be array [min, max] or separate min/max fields
+        // Handle time-step limits as an array [min, max] under either the
+        // canonical combined key or the legacy `time_step_limit_min` key.
+        // Otherwise, decode the separate scalar min/max fields.
         let extra = try decoder.container(keyedBy: ExtraCodingKeys.self)
-        if let limits = try? extra.decode([Float].self, forKey: .timeStepLimit) {
-            timeStepLimitMin = limits[0]
+        let legacyLimits = try? container.decode([Float].self, forKey: .timeStepLimitMin)
+        let combinedLimits = try? extra.decode([Float].self, forKey: .timeStepLimit)
+        if let limits = legacyLimits ?? combinedLimits, let minimum = limits.first {
+            timeStepLimitMin = minimum
             timeStepLimitMax = limits.count > 1 ? limits[1] : limits[0]
         } else {
             timeStepLimitMin =

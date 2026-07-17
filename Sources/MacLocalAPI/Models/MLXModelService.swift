@@ -283,7 +283,9 @@ final class MLXModelService: @unchecked Sendable {
         }
         switch detectedFormat {
         case .xmlFunction:
-            return "qwen3_xml"
+            // Preserve the compatibility parser for auto-detected Qwen XML models.
+            // Explicit qwen3_xml remains the strict native-parser mode.
+            return "afm_adaptive_xml"
         default:
             return nil
         }
@@ -309,7 +311,15 @@ final class MLXModelService: @unchecked Sendable {
         if shouldBypassAdaptiveXMLParser(parser: configuredParser, format: detectedFormat) {
             return nil
         }
-        return configuredParser
+        if let configuredParser {
+            return configuredParser
+        }
+        switch detectedFormat {
+        case .xmlFunction:
+            return "afm_adaptive_xml"
+        default:
+            return nil
+        }
     }
 
     static func isToolCallParserDisabled(_ parser: String?) -> Bool {
@@ -5556,8 +5566,8 @@ final class MLXModelService: @unchecked Sendable {
         let hasTools = tools != nil && !tools!.isEmpty
         var appliedChatTemplateOverride = false
 
-        // When --tool-call-parser is explicitly set and tools are present, override the chat template.
-        // Auto-detected parsers are used for parsing only; the model's native template is closer to mlx_lm.server.
+        // Compatibility and explicitly selected XML/JSON parsers can override the chat template.
+        // Explicit `qwen3_xml` remains the strict native XML mode; `none` bypasses this path.
         if let parser = resolvedChatTemplateToolCallParser(logBypass: true), hasTools {
             let templateOverride: String?
             switch parser {

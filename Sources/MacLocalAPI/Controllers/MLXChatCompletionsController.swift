@@ -639,6 +639,10 @@ struct MLXChatCompletionsController: RouteCollection {
                     return nil
                 }()
                 var permittedToolIndices = Set<Int>()
+                // The batch scheduler emits argument deltas followed by a completed
+                // call for final-state collection. Do not put those arguments on the
+                // wire twice: OpenAI clients concatenate argument delta strings.
+                var streamedVendorToolIndices = Set<Int>()
                 var stoppedBySequence = false
                 var realPromptTokens: Int? = nil
                 var realCompletionTokens: Int? = nil
@@ -690,6 +694,7 @@ struct MLXChatCompletionsController: RouteCollection {
                             )
                         }
                         guard !filtered.isEmpty else { continue }
+                        streamedVendorToolIndices.formUnion(filtered.map(\.index))
                         hasToolCalls = true
                         let tcChunk = ChatCompletionStreamResponse(
                             id: streamId,
@@ -716,6 +721,10 @@ struct MLXChatCompletionsController: RouteCollection {
                             ) else { continue }
                             hasToolCalls = true
                             collectedToolCalls.append(coercedToolCall)
+                            let toolIndex = coercedToolCall.index ?? (collectedToolCalls.count - 1)
+                            if streamedVendorToolIndices.contains(toolIndex) {
+                                continue
+                            }
                             if self.veryVerbose {
                                 print("\(Self.gold)[\(Self.timestamp())] SEND tool_call (vendor): \(coercedToolCall.function.name)\n  id=\(coercedToolCall.id)\n  args=\(coercedToolCall.function.arguments)\(Self.reset)")
                                 fflush(stdout)
