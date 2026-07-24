@@ -40,6 +40,10 @@ let package = Package(
         .package(url: "https://github.com/scouzi1966/mlx-swift-lm.git", revision: "239dce1652786482698877c8efe697a6c9f52096"),
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
         .package(url: "https://github.com/huggingface/swift-huggingface.git", from: "0.8.1"),
+        // Share the official XGrammar product with host applications such as Vesta.
+        // Compiling the vendored implementation here as well as in coreai-models
+        // produces duplicate native symbols when both libraries are linked.
+        .package(url: "https://github.com/mlc-ai/xgrammar", branch: "main"),
         // Pin mlx-swift to 0.30.3 — 0.30.4+ has SDPA regression (PR #3023 "Faster two pass sdpa")
         // causing NaN/garbage at ~1500 tokens. Post-0.30.6 fixes (PRs #3119, #3121) don't fully
         // resolve it. RECONFIRMED 2026-05-31: 0.31.3 still produces garbage/empty at >1500 tok
@@ -53,27 +57,19 @@ let package = Package(
     targets: [
         .target(
             name: "AFMXGrammar",
+            dependencies: [
+                .product(name: "XGrammar", package: "xgrammar")
+            ],
             path: "Sources/CXGrammar",
             exclude: [
-                // xgrammar is now vendored in-repo (Sources/CXGrammar/xgrammar) trimmed to
-                // exactly the compile set — cpp/ (minus the nanobind Python binding), include/,
-                // 3rdparty/dlpack/include, and the header-only 3rdparty/picojson. The web /
-                // tests / python / docs / examples / cpptrace / googletest trees are no longer
-                // committed, so their excludes are gone. picojson is header-only and stays on
-                // the header search path, so exclude its directory from compilation.
-                "xgrammar/3rdparty/picojson",
-            ],
-            cSettings: [
-                .headerSearchPath("xgrammar/include"),
-                .headerSearchPath("xgrammar/3rdparty/dlpack/include"),
-                .headerSearchPath("xgrammar/3rdparty/picojson"),
+                // Retained temporarily for standalone source compatibility, but the
+                // implementation is supplied by the shared XGrammar package product.
+                "xgrammar"
             ],
             cxxSettings: [
-                .headerSearchPath("xgrammar/include"),
-                .headerSearchPath("xgrammar/3rdparty/dlpack/include"),
-                .headerSearchPath("xgrammar/3rdparty/picojson"),
-                // Strip local build paths from __FILE__ macros in xgrammar warnings
-                .unsafeFlags(["-ffile-prefix-map=\(packageDir)/Sources/CXGrammar/="])
+                // XGrammar's public matcher header imports DLPack, but its package
+                // does not propagate that private include path to bridge targets.
+                .headerSearchPath("xgrammar/3rdparty/dlpack/include")
             ]
         ),
         // Core library — all reusable inference/service/server code. Importable via SPM.
