@@ -334,7 +334,7 @@ public final class MLXModelService: @unchecked Sendable {
         }
     }
 
-    static func isToolCallParserDisabled(_ parser: String?) -> Bool {
+    public static func isToolCallParserDisabled(_ parser: String?) -> Bool {
         parser?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "none"
     }
 
@@ -343,18 +343,6 @@ public final class MLXModelService: @unchecked Sendable {
     /// on this so tool markup reaches the client as plain content.
     var toolCallParserDisabled: Bool {
         Self.isToolCallParserDisabled(toolCallParser)
-    }
-
-    func resolvedToolCallParser(logBypass: Bool = false) -> String? {
-        let format = withStateLock({ currentToolCallFormat })
-        let parser = Self.effectiveToolCallParser(
-            configuredParser: toolCallParser,
-            detectedFormat: format
-        )
-        if parser == nil, Self.shouldBypassAdaptiveXMLParser(parser: toolCallParser, format: format), logBypass {
-            print("[\(ts())] [ToolCallParser] \(Self.gemma4AdaptiveXMLBypassLog)")
-        }
-        return parser
     }
 
     func resolvedChatTemplateToolCallParser(logBypass: Bool = false) -> String? {
@@ -1306,7 +1294,7 @@ public final class MLXModelService: @unchecked Sendable {
         // --tool-call-parser override: force format for the specified parser
         if let parser = toolCallParser {
             if Self.isToolCallParserDisabled(parser) {
-                detectedFormat = ToolCallFormat.none
+                detectedFormat = nil
             } else if Self.shouldBypassAdaptiveXMLParser(parser: parser, format: detectedFormat) {
                 print("[\(ts())] [ToolCallParser] \(Self.gemma4AdaptiveXMLBypassLog)")
             } else {
@@ -1895,7 +1883,6 @@ public final class MLXModelService: @unchecked Sendable {
                 seed: normalizedSeed(seed),
                 computeLogprobs: false,
                 topLogprobsCount: 0,
-                stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: requestHasTools, parallelToolCalls: parallelToolCalls),
                 prefillStepSize: self.prefillStepSize
             )
             params.extraProcessor = nil
@@ -2088,7 +2075,6 @@ public final class MLXModelService: @unchecked Sendable {
                 seed: normalizedSeed(seed),
                 computeLogprobs: wantLogprobs,
                 topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
-                stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: requestHasTools, parallelToolCalls: parallelToolCalls),
                 prefillStepSize: self.prefillStepSize
             )
             var collectedLogprobs = [TokenLogprobData]()
@@ -2693,7 +2679,6 @@ public final class MLXModelService: @unchecked Sendable {
             seed: normalizedSeed(seed),
             computeLogprobs: wantLogprobs,
             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
-            stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: streamRequestHasTools, parallelToolCalls: parallelToolCalls),
             prefillStepSize: self.prefillStepSize
         )
 
@@ -2725,9 +2710,6 @@ public final class MLXModelService: @unchecked Sendable {
                             parser: self.resolvedToolCallParser(logBypass: false),
                             tools: tools
                         )
-                    case .none:
-                        // Raw mode: no scheduler-side tool extraction
-                        toolRuntimeConfig = nil
                     default:
                         let parser = format.createParser()
                         toolRuntimeConfig = .init(
@@ -2964,7 +2946,6 @@ public final class MLXModelService: @unchecked Sendable {
                             seed: normalizedSeed(seed),
                             computeLogprobs: wantLogprobs,
                             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
-                            stopAfterToolCall: Self.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: !(tools?.isEmpty ?? true), parallelToolCalls: parallelToolCalls),
                             prefillStepSize: self.prefillStepSize
                         )
                         // Grammar constraint setup — see non-streaming path for details.
@@ -3450,9 +3431,6 @@ public final class MLXModelService: @unchecked Sendable {
                 case .xmlFunction:
                     // XMLFunctionParser has nil tags; chat template wraps in <tool_call>
                     toolTags = ("<tool_call>", "</tool_call>")
-                case .none:
-                    // Raw mode: no tags → controller never builds a tool runtime
-                    toolTags = nil
                 default:
                     let parser = format.createParser()
                     toolTags = (parser.startTag ?? "<tool_call>", parser.endTag ?? "</tool_call>")

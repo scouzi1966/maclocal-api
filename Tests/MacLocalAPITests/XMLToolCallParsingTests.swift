@@ -48,12 +48,12 @@ struct XMLToolCallParsingTests {
         #expect(parser == nil)
     }
 
-    @Test("none tool call format passes tagged tool text through unchanged")
-    func noneToolCallFormatPassesTaggedToolTextThroughUnchanged() {
-        let processor = ToolCallProcessor(format: .none)
-        let text = #"<tool_call>{"name":"search","arguments":{"query":"x"}}</tool_call>"#
-        #expect(processor.processChunk(text) == text)
-        #expect(processor.toolCalls.isEmpty)
+    @Test("none parser string is recognized case and whitespace insensitively")
+    func noneParserStringIsRecognizedCaseAndWhitespaceInsensitively() {
+        #expect(MLXModelService.isToolCallParserDisabled("none"))
+        #expect(MLXModelService.isToolCallParserDisabled(" NONE "))
+        #expect(!MLXModelService.isToolCallParserDisabled(nil))
+        #expect(!MLXModelService.isToolCallParserDisabled("afm_adaptive_xml"))
     }
 
     @Test("XML function parser rejects malformed function names")
@@ -106,10 +106,10 @@ struct XMLToolCallParsingTests {
         #expect(!MLXModelService.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: false, parallelToolCalls: false))
     }
 
-    @Test("generate parameters keep producer-side tool stop explicit")
-    func generateParametersKeepProducerSideToolStopExplicit() {
-        #expect(!GenerateParameters().stopAfterToolCall)
-        #expect(GenerateParameters(stopAfterToolCall: true).stopAfterToolCall)
+    @Test("producer-side tool stop remains a service-level decision")
+    func producerSideToolStopRemainsServiceLevelDecision() {
+        #expect(MLXModelService.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: true, parallelToolCalls: false))
+        #expect(!MLXModelService.shouldStopSerialGenerationAfterStructuredToolCall(hasTools: true, parallelToolCalls: true))
     }
 
     // ═══════════════════════════════════════════════════════════════════
