@@ -1,4 +1,4 @@
-module CXGrammar {
+module AFMXGrammar {
     header "cxgrammar.h"
     export *
 }

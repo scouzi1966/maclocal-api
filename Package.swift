@@ -52,7 +52,8 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "CXGrammar",
+            name: "AFMXGrammar",
+            path: "Sources/CXGrammar",
             exclude: [
                 // xgrammar is now vendored in-repo (Sources/CXGrammar/xgrammar) trimmed to
                 // exactly the compile set — cpp/ (minus the nanobind Python binding), include/,
@@ -79,7 +80,7 @@ let package = Package(
         .target(
             name: "AFMKit",
             dependencies: [
-                "CXGrammar",
+                "AFMXGrammar",
                 .product(name: "MLXLLM", package: "mlx-swift-lm"),
                 .product(name: "MLXVLM", package: "mlx-swift-lm"),
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm"),

@@ -1,5 +1,5 @@
 import Foundation
-import CXGrammar
+import AFMXGrammar
 import MLX
 import Tokenizers
 
