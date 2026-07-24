@@ -39,6 +39,21 @@ public enum MLXMetalLibrary {
         return URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
     }
 
+    private static func metallib(inBundleAt bundleURL: URL, fileManager: FileManager) -> URL? {
+        let direct = bundleURL.appendingPathComponent("default.metallib")
+        if fileManager.fileExists(atPath: direct.path) {
+            return direct
+        }
+
+        if let bundle = Bundle(url: bundleURL),
+           let resource = bundle.url(forResource: "default", withExtension: "metallib"),
+           fileManager.fileExists(atPath: resource.path) {
+            return resource
+        }
+
+        return nil
+    }
+
     /// Find the metallib without using Bundle.module (which fatalError's when relocated).
     ///
     /// Search order:
@@ -66,19 +81,28 @@ public enum MLXMetalLibrary {
         if fileManager.fileExists(atPath: loose.path) { return loose }
 
         // 3. SPM bundle next to the binary (direct build: .build/release/MacLocalAPI_AFMKit.bundle/)
-        let bundled = executableDir
-            .appendingPathComponent("MacLocalAPI_AFMKit.bundle")
-            .appendingPathComponent("default.metallib")
-        if fileManager.fileExists(atPath: bundled.path) { return bundled }
+        let bundled = executableDir.appendingPathComponent("MacLocalAPI_AFMKit.bundle")
+        if let resource = metallib(inBundleAt: bundled, fileManager: fileManager) {
+            return resource
+        }
+
+        // An app host keeps SwiftPM resource bundles in Contents/Resources, not
+        // beside the executable in Contents/MacOS.
+        if let appResources = Bundle.main.resourceURL {
+            let appBundle = appResources.appendingPathComponent("MacLocalAPI_AFMKit.bundle")
+            if let resource = metallib(inBundleAt: appBundle, fileManager: fileManager) {
+                return resource
+            }
+        }
 
         // 3a. Walk up a few parent directories from the test runner/executable.
         //     SwiftPM test layouts often place the test binary deeper than the app bundle.
         var searchDir = executableDir
         for _ in 0..<5 {
-            let candidate = searchDir
-                .appendingPathComponent("MacLocalAPI_AFMKit.bundle")
-                .appendingPathComponent("default.metallib")
-            if fileManager.fileExists(atPath: candidate.path) { return candidate }
+            let candidate = searchDir.appendingPathComponent("MacLocalAPI_AFMKit.bundle")
+            if let resource = metallib(inBundleAt: candidate, fileManager: fileManager) {
+                return resource
+            }
             searchDir.deleteLastPathComponent()
         }
 
@@ -104,12 +128,10 @@ public enum MLXMetalLibrary {
         // 4. SPM Bundle.module — only if the bundle file physically exists.
         //    We probe the path before calling Bundle(path:) to avoid the auto-generated
         //    fatalError when the bundle can't be found (happens on any relocated binary).
-        let mainBundlePath = Bundle.main.bundleURL
-            .appendingPathComponent("MacLocalAPI_AFMKit.bundle").path
-        if let b = Bundle(path: mainBundlePath),
-           let url = b.url(forResource: "default", withExtension: "metallib"),
-           fileManager.fileExists(atPath: url.path) {
-            return url
+        let mainBundleURL = Bundle.main.bundleURL
+            .appendingPathComponent("MacLocalAPI_AFMKit.bundle")
+        if let resource = metallib(inBundleAt: mainBundleURL, fileManager: fileManager) {
+            return resource
         }
 
         return nil
