@@ -122,6 +122,13 @@ public struct AFMResponse: Sendable {
     }
 }
 
+/// A streaming response event with the usage information needed by framework
+/// adapters and API clients.
+public enum AFMStreamEvent: Sendable {
+    case text(String, tokenCount: Int)
+    case usage(promptTokens: Int, completionTokens: Int, cachedTokens: Int)
+}
+
 // MARK: - AFMEngine
 
 /// A headless, embeddable entry point to afm's inference backends.
@@ -227,9 +234,12 @@ public actor AFMEngine {
     /// The canonical model id once loaded, else the requested id (actor-isolated read).
     private func currentModelID(_ fallback: String) -> String { resolvedModelID ?? fallback }
 
-    /// Stream a response token-by-token (text deltas). `nonisolated` so external
+    /// Stream response deltas and final token usage. `nonisolated` so external
     /// callers can start a stream without `await`; the work re-enters the actor.
-    public nonisolated func streamRespond(to messages: [Message], _ config: GenerationConfig = GenerationConfig()) -> AsyncThrowingStream<String, Error> {
+    public nonisolated func streamEvents(
+        to messages: [Message],
+        _ config: GenerationConfig = GenerationConfig()
+    ) -> AsyncThrowingStream<AFMStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -258,14 +268,54 @@ public actor AFMEngine {
                         )
                         for try await chunk in stream {
                             if Task.isCancelled { break }
-                            if !chunk.text.isEmpty { continuation.yield(chunk.text) }
+                            if !chunk.text.isEmpty {
+                                continuation.yield(
+                                    .text(
+                                        chunk.text,
+                                        tokenCount: max(1, chunk.logprobs?.count ?? 1)
+                                    )
+                                )
+                            }
+                            if let promptTokens = chunk.promptTokens,
+                               let completionTokens = chunk.completionTokens {
+                                continuation.yield(
+                                    .usage(
+                                        promptTokens: promptTokens,
+                                        completionTokens: completionTokens,
+                                        cachedTokens: chunk.cachedTokens ?? 0
+                                    )
+                                )
+                            }
                         }
                         continuation.finish()
                     case .foundationModels:
                         let text = try await foundationGenerate(messages: messages, config: config)
-                        continuation.yield(text)
+                        continuation.yield(.text(text, tokenCount: 0))
                         continuation.finish()
                     }
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Stream response text deltas. This preserves the original source-compatible
+    /// API while ``streamEvents(to:_:)`` carries richer metadata.
+    public nonisolated func streamRespond(
+        to messages: [Message],
+        _ config: GenerationConfig = GenerationConfig()
+    ) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await event in streamEvents(to: messages, config) {
+                        if case .text(let text, _) = event, !text.isEmpty {
+                            continuation.yield(text)
+                        }
+                    }
+                    continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
                 }
