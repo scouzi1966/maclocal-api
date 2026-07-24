@@ -27,7 +27,7 @@ extension ModelContainer {
         parameters: GenerateParameters
     ) async throws -> (AsyncStream<Generation>, Task<Void, Never>) {
         let box = TransferBox(input)
-        return try await perform { context in
+        return try await perform { (context: ModelContext) async throws -> (AsyncStream<Generation>, Task<Void, Never>) in
             let input = box.consume()
             let promptTokenCount = input.text.tokens.size
             let iterator = try TokenIterator(
@@ -36,8 +36,7 @@ extension ModelContainer {
                 promptTokenCount: promptTokenCount,
                 modelConfiguration: context.configuration,
                 tokenizer: context.tokenizer,
-                iterator: iterator,
-                stopAfterToolCall: parameters.stopAfterToolCall)
+                iterator: iterator)
         }
     }
 }
