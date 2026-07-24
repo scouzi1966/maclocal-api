@@ -1255,8 +1255,8 @@ public final class MLXModelService: @unchecked Sendable {
 
         // Loading priority:
         // 1. Absolute/relative path — use directly (no cache or download)
-        // 2. AFM cache (MACAFM_MLX_MODEL_CACHE) — always wins if model is there
-        // 3. HF hub cache — validates/resumes/downloads via HubClient
+        // 2. Any complete local cache snapshot (AFM or Hugging Face)
+        // 3. Hugging Face Hub download/resume when no complete snapshot exists
         let directory: URL
         if modelID.hasPrefix("/") || modelID.hasPrefix("./") || modelID.hasPrefix("..") {
             // Absolute or relative path — resolve directly
@@ -1264,12 +1264,12 @@ public final class MLXModelService: @unchecked Sendable {
                 throw MLXServiceError.modelNotFoundInCache(modelID)
             }
             directory = resolved
-        } else if let root = resolver.cacheRoot, let cached = resolver.localModelDirectory(repoId: modelID),
-                  cached.path.hasPrefix(root.path + "/") || cached.path == root.path {
-            // Model found in AFM cache — use directly, no HubClient
+        } else if let cached = resolver.localModelDirectory(repoId: modelID) {
+            // A complete local snapshot is sufficient. Avoid network validation so
+            // app-hosted inference remains fast and works offline after download.
             directory = cached
         } else {
-            // Not in AFM cache — go through HubClient (validates, resumes, downloads)
+            // No complete local snapshot — go through HubClient to resume/download.
             let parts = modelID.split(separator: "/", maxSplits: 1).map(String.init)
             let hfStyleName = "models--\(parts.count > 1 ? parts[0] : "mlx-community")--\(parts.count > 1 ? parts[1] : modelID)"
             let hfDir = Self.resolveHFHubCache().appendingPathComponent(hfStyleName)
