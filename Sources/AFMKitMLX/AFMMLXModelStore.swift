@@ -86,6 +86,36 @@ public struct AFMMLXModelLoadReference: Hashable, Sendable {
     }
 }
 
+public struct AFMMLXModelDeleteResult: Hashable, Sendable {
+    public var requestedID: String
+    public var removedDirectory: URL
+    public var deleted: Bool
+
+    public init(
+        requestedID: String,
+        removedDirectory: URL,
+        deleted: Bool
+    ) {
+        self.requestedID = requestedID
+        self.removedDirectory = removedDirectory
+        self.deleted = deleted
+    }
+}
+
+public enum AFMMLXModelStoreError: Error, LocalizedError, Sendable {
+    case modelNotFound(String)
+    case refusingToDeleteEmptyPath
+
+    public var errorDescription: String? {
+        switch self {
+        case .modelNotFound(let modelID):
+            return "No complete local MLX model was found for \(modelID)."
+        case .refusingToDeleteEmptyPath:
+            return "Refusing to delete an empty model path."
+        }
+    }
+}
+
 /// Shared MLX model discovery and validation for AFMKit consumers.
 ///
 /// Hosts may supply model identifiers from their own curated lists or UI
@@ -128,6 +158,45 @@ public struct AFMMLXModelStore: Sendable {
             loadIdentifier: isPathLike(trimmed) ? localDirectory.path : trimmed,
             localDirectory: localDirectory,
             descriptor: descriptor
+        )
+    }
+
+    /// Returns the directory that should be removed for a locally available
+    /// model. Hugging Face cache snapshots resolve to their repository package
+    /// directory (`models--org--repo`); flat cache models resolve to the model
+    /// directory itself.
+    public func removablePackageDirectory(for modelID: String) -> URL? {
+        guard let reference = loadReference(for: modelID) else { return nil }
+        return packageDirectory(containing: reference.localDirectory)
+    }
+
+    /// Deletes the local package for a model that resolves through the shared
+    /// store. This intentionally operates on the package directory rather than
+    /// the load directory so HF snapshot caches are removed as a unit.
+    @discardableResult
+    public func deleteLocalModelPackage(for modelID: String) throws -> AFMMLXModelDeleteResult {
+        let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw AFMMLXModelStoreError.refusingToDeleteEmptyPath
+        }
+        guard let directory = removablePackageDirectory(for: trimmed) else {
+            throw AFMMLXModelStoreError.modelNotFound(trimmed)
+        }
+
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: directory.path) {
+            try fileManager.removeItem(at: directory)
+            return AFMMLXModelDeleteResult(
+                requestedID: trimmed,
+                removedDirectory: directory,
+                deleted: true
+            )
+        }
+
+        return AFMMLXModelDeleteResult(
+            requestedID: trimmed,
+            removedDirectory: directory,
+            deleted: false
         )
     }
 
@@ -395,6 +464,14 @@ public struct AFMMLXModelStore: Sendable {
 
     private func localDirectory(at candidate: URL) -> URL? {
         resolver.localModelDirectory(repoId: candidate.standardizedFileURL.path)
+    }
+
+    private func packageDirectory(containing localDirectory: URL) -> URL {
+        let parent = localDirectory.deletingLastPathComponent()
+        if parent.lastPathComponent == "snapshots" {
+            return parent.deletingLastPathComponent()
+        }
+        return localDirectory
     }
 
     private func isPathLike(_ modelID: String) -> Bool {

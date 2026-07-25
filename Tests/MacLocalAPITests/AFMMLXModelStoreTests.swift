@@ -72,6 +72,68 @@ final class AFMMLXModelStoreTests: XCTestCase {
         XCTAssertEqual(reference.descriptor.requiresNetwork, false)
     }
 
+    func testRemovablePackageDirectoryUsesFlatModelDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let directory = root.appendingPathComponent("models/org/flat-model")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeModel(at: directory)
+
+        let store = AFMMLXModelStore(resolver: MLXCacheResolver(cacheRoot: root))
+
+        XCTAssertEqual(
+            store.removablePackageDirectory(for: "org/flat-model")?.path,
+            directory.path
+        )
+    }
+
+    func testRemovablePackageDirectoryUsesHuggingFacePackageRoot() throws {
+        let package = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let snapshot = package
+            .appendingPathComponent("snapshots", isDirectory: true)
+            .appendingPathComponent("revision", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: package) }
+        try makeModel(at: snapshot)
+
+        XCTAssertEqual(
+            AFMMLXModelStore().removablePackageDirectory(for: package.path)?.path,
+            package.path
+        )
+    }
+
+    func testDeleteLocalModelPackageRemovesFlatPackage() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let directory = root.appendingPathComponent("models/org/delete-me")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeModel(at: directory)
+
+        let store = AFMMLXModelStore(resolver: MLXCacheResolver(cacheRoot: root))
+        let result = try store.deleteLocalModelPackage(for: "org/delete-me")
+
+        XCTAssertEqual(result.requestedID, "org/delete-me")
+        XCTAssertEqual(result.removedDirectory.path, directory.path)
+        XCTAssertTrue(result.deleted)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+    }
+
+    func testDeleteLocalModelPackageRemovesHuggingFacePackageRoot() throws {
+        let package = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let snapshot = package
+            .appendingPathComponent("snapshots", isDirectory: true)
+            .appendingPathComponent("revision", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: package) }
+        try makeModel(at: snapshot)
+
+        let result = try AFMMLXModelStore().deleteLocalModelPackage(for: package.path)
+
+        XCTAssertEqual(result.removedDirectory.path, package.path)
+        XCTAssertTrue(result.deleted)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: package.path))
+    }
+
     func testDiscoveryReturnsTypedFlatAndHuggingFaceModels() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
