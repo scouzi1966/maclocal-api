@@ -6,6 +6,7 @@ import Testing
 @testable import MLXVLM
 
 @testable import AFMKit
+@testable import AFMKitMLX
 @testable import AFMServer
 
 /// P2 gate: the MTP self-speculative generator must produce output IDENTICAL to greedy

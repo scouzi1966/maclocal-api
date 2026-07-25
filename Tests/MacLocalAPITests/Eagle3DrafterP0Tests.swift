@@ -6,6 +6,7 @@ import Testing
 @testable import MLXLLM
 
 @testable import AFMKit
+@testable import AFMKitMLX
 @testable import AFMServer
 
 /// P0 gate for the EAGLE3 Swift port: `Gemma4Eagle3Drafter` must reproduce the mlx-vlm reference

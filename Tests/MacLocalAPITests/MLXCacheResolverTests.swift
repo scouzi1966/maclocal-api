@@ -1,5 +1,6 @@
 import Foundation
 @testable import AFMKit
+@testable import AFMKitMLX
 import XCTest
 
 final class MLXCacheResolverTests: XCTestCase {

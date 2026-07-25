@@ -3,6 +3,7 @@ import MLX
 import Testing
 
 @testable import AFMKit
+@testable import AFMKitMLX
 @testable import AFMServer
 
 struct RadixTreeCacheTests {

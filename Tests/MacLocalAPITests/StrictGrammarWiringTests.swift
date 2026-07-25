@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import AFMKit
+@testable import AFMKitMLX
 @testable import AFMServer
 
 struct StrictGrammarWiringTests {

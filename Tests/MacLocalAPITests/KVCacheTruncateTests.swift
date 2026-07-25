@@ -4,6 +4,7 @@ import MLXLMCommon
 import Testing
 
 @testable import AFMKit
+@testable import AFMKitMLX
 @testable import AFMServer
 
 struct KVCacheTruncateTests {

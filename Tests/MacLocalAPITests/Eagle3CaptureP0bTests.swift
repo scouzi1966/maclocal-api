@@ -6,6 +6,7 @@ import Testing
 @testable import MLXLLM
 
 @testable import AFMKit
+@testable import AFMKitMLX
 @testable import AFMServer
 
 /// P0b gate for the EAGLE3 port: the dense Gemma4-31B verifier's hidden-state capture hook

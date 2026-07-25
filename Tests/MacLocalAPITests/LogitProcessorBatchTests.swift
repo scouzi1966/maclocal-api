@@ -3,6 +3,7 @@ import Testing
 import MLX
 
 @testable import AFMKit
+@testable import AFMKitMLX
 @testable import AFMServer
 @testable import MLXLMCommon
 

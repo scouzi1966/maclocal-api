@@ -6,6 +6,7 @@ import Testing
 @testable import MLXLLM
 
 @testable import AFMKit
+@testable import AFMKitMLX
 @testable import AFMServer
 
 /// P1 gate for the EAGLE3 port: the greedy draft -> verify -> accept -> KV-trim loop must produce

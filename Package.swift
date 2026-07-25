@@ -20,6 +20,10 @@ let package = Package(
             name: "AFMOpenAICompat",
             targets: ["AFMOpenAICompat"]
         ),
+        .library(
+            name: "AFMKitMLX",
+            targets: ["AFMKitMLX"]
+        ),
         // Headless, SPM-importable library: model loading + inference + OpenAI-compatible
         // services + the HTTP server. `import AFMKit` from another package/app.
         .library(
@@ -73,6 +77,35 @@ let package = Package(
             dependencies: []
         ),
         .target(
+            name: "AFMKitMLX",
+            dependencies: [
+                "AFMKitCore",
+                "AFMOpenAICompat",
+                "AFMXGrammar",
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXLLM", package: "mlx-swift-lm"),
+                .product(name: "MLXVLM", package: "mlx-swift-lm"),
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
+                .product(name: "Tokenizers", package: "swift-transformers"),
+                .product(name: "Hub", package: "swift-transformers"),
+                .product(name: "HuggingFace", package: "swift-huggingface")
+            ],
+            resources: [
+                .copy("Resources/default.metallib")
+            ],
+            swiftSettings: [
+                .unsafeFlags(["-cross-module-optimization"], .when(configuration: .release)),
+                .unsafeFlags(["-O"], .when(configuration: .release)),
+                .unsafeFlags(["-file-prefix-map", "\(packageDir)/="], .when(configuration: .release))
+            ],
+            linkerSettings: [
+                .linkedFramework("Security"),
+                .linkedFramework("IOKit"),
+                .linkedLibrary("IOReport"),
+                .linkedLibrary("sqlite3")
+            ]
+        ),
+        .target(
             name: "AFMXGrammar",
             dependencies: [
                 .product(name: "XGrammar", package: "xgrammar")
@@ -95,15 +128,7 @@ let package = Package(
             dependencies: [
                 "AFMKitCore",
                 "AFMOpenAICompat",
-                "AFMXGrammar",
-                .product(name: "MLXLLM", package: "mlx-swift-lm"),
-                .product(name: "MLXVLM", package: "mlx-swift-lm"),
-                .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
-                .product(name: "Hub", package: "swift-transformers"),
-                .product(name: "HuggingFace", package: "swift-huggingface")
-            ],
-            resources: [
-                .copy("Resources/default.metallib")
+                "AFMKitMLX"
             ],
             swiftSettings: [
                 // Enable optimizations for release builds
@@ -112,12 +137,7 @@ let package = Package(
                 // Strip build machine prefix so errors show Sources/... not /Volumes/.../Sources/...
                 .unsafeFlags(["-file-prefix-map", "\(packageDir)/="], .when(configuration: .release))
             ],
-            linkerSettings: [
-                .linkedFramework("Security"),
-                .linkedFramework("IOKit"),
-                .linkedLibrary("IOReport"),
-                .linkedLibrary("sqlite3")
-            ]
+            linkerSettings: []
         ),
         // Vapor HTTP layer — the OpenAI-compatible server, controllers, backend
         // discovery/proxy, and Telegram bridge. Depends on AFMKit + Vapor.
@@ -141,6 +161,7 @@ let package = Package(
             name: "AFMCLI",
             dependencies: [
                 "AFMKit",
+                "AFMKitMLX",
                 "AFMServer",
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),

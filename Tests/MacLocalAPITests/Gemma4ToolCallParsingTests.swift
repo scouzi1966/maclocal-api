@@ -3,6 +3,7 @@ import Testing
 import MLXLMCommon
 
 @testable import AFMKit
+@testable import AFMKitMLX
 @testable import AFMServer
 
 struct Gemma4ToolCallParsingTests {
