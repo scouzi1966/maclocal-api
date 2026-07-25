@@ -1,5 +1,6 @@
 import Vapor
 import AFMKit
+import AFMKitMLX
 import Foundation
 import MLX
 import MLXLMCommon
@@ -24,7 +25,7 @@ struct MLXChatCompletionsController: RouteCollection {
 
     private let streamingEnabled: Bool
     private let modelID: String
-    private let service: any MLXChatServing
+    private let service: any AFMMLXOpenAIChatServing
     private let temperature: Double?
     private let topP: Double?
     private let maxTokens: Int?
@@ -42,7 +43,7 @@ struct MLXChatCompletionsController: RouteCollection {
     init(
         streamingEnabled: Bool = true,
         modelID: String,
-        service: any MLXChatServing,
+        service: any AFMMLXOpenAIChatServing,
         temperature: Double?,
         topP: Double? = nil,
         maxTokens: Int? = nil,
@@ -244,10 +245,10 @@ struct MLXChatCompletionsController: RouteCollection {
                 print("[\(Self.timestamp())] [HTTPPipeline] req=\(reqId) json_parse=\(String(format: "%.1f", jsonMs))ms slot_wait=\(String(format: "%.1f", slotMs))ms total=\(String(format: "%.1f", totalMs))ms")
             }
 
-            let result: ChatGenerationResult
+            let result: AFMMLXChatGenerationResult
             if service.maxConcurrent >= 2 {
                 // Batch mode: route through scheduler for batched decode
-                let streamResult: ChatStreamingResult = try await service.generateStreaming(
+                let streamResult: AFMMLXChatStreamingResult = try await service.generateStreaming(
                     model: modelID,
                     messages: chatRequest.messages,
                     temperature: effectiveTemp,

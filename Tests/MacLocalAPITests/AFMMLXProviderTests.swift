@@ -51,6 +51,10 @@ final class AFMMLXProviderTests: XCTestCase {
         requireOpenAIChatGenerationContract(MLXModelService(resolver: MLXCacheResolver()))
     }
 
+    func testMLXModelServiceExposesAFMKitOpenAIChatServingContract() {
+        requireOpenAIChatServingContract(MLXModelService(resolver: MLXCacheResolver()))
+    }
+
     func testServingConfigurationProviderOwnsPolicyConveniences() throws {
         let service = MLXModelService(resolver: MLXCacheResolver())
         service.toolCallParser = "qwen3_xml"
@@ -337,6 +341,10 @@ final class AFMMLXProviderTests: XCTestCase {
 
     private func requireOpenAIChatGenerationContract<Generator: AFMMLXOpenAIChatGenerating>(
         _ generator: Generator
+    ) {}
+
+    private func requireOpenAIChatServingContract<Serving: AFMMLXOpenAIChatServing>(
+        _ serving: Serving
     ) {}
 
     private func requiredToolRequest() -> AFMRequest {

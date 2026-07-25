@@ -655,11 +655,11 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         return headers
     }
 
-    private func makeStreamingResult(chunks: [StreamChunk]) -> ChatStreamingResult {
+    private func makeStreamingResult(chunks: [StreamChunk]) -> AFMMLXChatStreamingResult {
         Self.makeDelayedStreamingResult(modelID: "test-model", chunks: chunks, delayNanoseconds: nil)
     }
 
-    private static func makeDelayedStreamingResult(modelID: String, chunks: [StreamChunk], delayNanoseconds: UInt64?) -> ChatStreamingResult {
+    private static func makeDelayedStreamingResult(modelID: String, chunks: [StreamChunk], delayNanoseconds: UInt64?) -> AFMMLXChatStreamingResult {
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             Task {
                 for chunk in chunks {
@@ -754,7 +754,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
     """
 }
 
-private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
+private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Sendable {
     let maxConcurrent: Int
     let toolCallParser: String?
     let supportsStrictToolGrammar: Bool
@@ -772,9 +772,9 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
             grammarConstraintsEnabled: enableGrammarConstraints
         )
     }
-    private let generateResult: ChatGenerationResult
-    private let streamingResult: ChatStreamingResult
-    private let streamingHandler: (([Message]) -> ChatStreamingResult)?
+    private let generateResult: AFMMLXChatGenerationResult
+    private let streamingResult: AFMMLXChatStreamingResult
+    private let streamingHandler: (([Message]) -> AFMMLXChatStreamingResult)?
     private let stateLock = NSLock()
     private(set) var recordedGenerateToolNames: [[String]] = []
     private(set) var recordedStreamingToolNames: [[String]] = []
@@ -787,8 +787,8 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
         thinkStartTag: String? = nil,
         thinkEndTag: String? = nil,
         fixToolArgs: Bool = false,
-        generateResult: ChatGenerationResult? = nil,
-        streamingResult: ChatStreamingResult
+        generateResult: AFMMLXChatGenerationResult? = nil,
+        streamingResult: AFMMLXChatStreamingResult
     ) {
         self.maxConcurrent = maxConcurrent
         self.toolCallParser = toolCallParser
@@ -819,7 +819,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
         thinkStartTag: String? = nil,
         thinkEndTag: String? = nil,
         fixToolArgs: Bool = false,
-        streamingHandler: @escaping ([Message]) -> ChatStreamingResult
+        streamingHandler: @escaping ([Message]) -> AFMMLXChatStreamingResult
     ) {
         self.maxConcurrent = maxConcurrent
         self.toolCallParser = toolCallParser
@@ -876,7 +876,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
-    ) async throws -> ChatGenerationResult {
+    ) async throws -> AFMMLXChatGenerationResult {
         recordGenerateTools(tools)
         return generateResult
     }
@@ -899,7 +899,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
-    ) async throws -> ChatStreamingResult {
+    ) async throws -> AFMMLXChatStreamingResult {
         recordStreamingTools(tools)
         return streamingHandler?(messages) ?? streamingResult
     }
@@ -924,7 +924,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
         chatTemplateKwargs: [String: AnyCodable]?,
         preserveStructuralTags: Bool,
         requestId: String?
-    ) async throws -> ChatStreamingResult {
+    ) async throws -> AFMMLXChatStreamingResult {
         recordPreserveStructuralTags(preserveStructuralTags)
         return try await generateStreaming(
             model: model,
@@ -965,7 +965,7 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
         stateLock.unlock()
     }
 
-    private static let emptyStreamingResult: ChatStreamingResult = (
+    private static let emptyStreamingResult: AFMMLXChatStreamingResult = (
         modelID: "test-model",
         stream: AsyncThrowingStream { $0.finish() },
         promptTokens: 0,

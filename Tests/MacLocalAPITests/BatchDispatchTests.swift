@@ -11,9 +11,9 @@ import Testing
 
 // MARK: - Fake Service for Batch Tests
 
-/// A fake MLXChatServing that supports batch-mode protocol methods.
+/// A fake AFMMLXOpenAIChatServing that supports batch-mode protocol methods.
 /// Configurable per-test: control slot reservation, streaming results, errors, and concurrency tracking.
-private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
+private final class FakeBatchService: AFMMLXOpenAIChatServing, @unchecked Sendable {
     let maxConcurrent: Int
     let toolCallParser: String? = nil
     var supportsStrictToolGrammar: Bool = false
@@ -43,8 +43,8 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
     // Configuration
     var shouldFailEnsureBatchMode = false
     var shouldFailReserveSlot = false
-    var streamingResultFactory: (([Message]) -> ChatStreamingResult)?
-    private let defaultStreamingResult: ChatStreamingResult
+    var streamingResultFactory: (([Message]) -> AFMMLXChatStreamingResult)?
+    private let defaultStreamingResult: AFMMLXChatStreamingResult
 
     init(maxConcurrent: Int = 8) {
         self.maxConcurrent = maxConcurrent
@@ -110,7 +110,7 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
         presencePenalty: Double?, seed: Int?, logprobs: Bool?, topLogprobs: Int?,
         tools: [RequestTool]?, parallelToolCalls: Bool?, stop: [String]?, responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
-    ) async throws -> ChatGenerationResult {
+    ) async throws -> AFMMLXChatGenerationResult {
         (modelID: model, content: "Hello", promptTokens: 10, completionTokens: 5,
          tokenLogprobs: nil, toolCalls: nil, cachedTokens: 0, promptTime: 0.01,
          generateTime: 0.02, stoppedBySequence: false)
@@ -122,7 +122,7 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
         presencePenalty: Double?, seed: Int?, logprobs: Bool?, topLogprobs: Int?,
         tools: [RequestTool]?, parallelToolCalls: Bool?, stop: [String]?, responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
-    ) async throws -> ChatStreamingResult {
+    ) async throws -> AFMMLXChatStreamingResult {
         _lock.withLock {
             generateStreamingCallCount += 1
         }
@@ -149,7 +149,7 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
         chatTemplateKwargs: [String: AnyCodable]?,
         preserveStructuralTags: Bool,
         requestId: String?
-    ) async throws -> ChatStreamingResult {
+    ) async throws -> AFMMLXChatStreamingResult {
         try await generateStreaming(
             model: model,
             messages: messages,
@@ -171,7 +171,7 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
         )
     }
 
-    static func makeStreamingResult(chunks: [StreamChunk]) -> ChatStreamingResult {
+    static func makeStreamingResult(chunks: [StreamChunk]) -> AFMMLXChatStreamingResult {
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             for chunk in chunks {
                 continuation.yield(chunk)
@@ -189,7 +189,7 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
         )
     }
 
-    static func makeErrorStreamingResult(error: Error) -> ChatStreamingResult {
+    static func makeErrorStreamingResult(error: Error) -> AFMMLXChatStreamingResult {
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             continuation.finish(throwing: error)
         }
@@ -1383,13 +1383,13 @@ struct BatchJSONLParsingTests {
 @Suite("StreamCollector")
 struct StreamCollectorTests {
 
-    /// Helper to create a ChatStreamingResult from chunks with configurable think tags
+    /// Helper to create an AFMMLXChatStreamingResult from chunks with configurable think tags
     static func makeStreamingResult(
         chunks: [StreamChunk],
         thinkStartTag: String? = nil,
         thinkEndTag: String? = nil,
         promptTokens: Int = 10
-    ) -> ChatStreamingResult {
+    ) -> AFMMLXChatStreamingResult {
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             for chunk in chunks {
                 continuation.yield(chunk)

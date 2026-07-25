@@ -45,6 +45,27 @@ public protocol AFMMLXOpenAIChatGenerating: Sendable {
     ) async throws -> AFMMLXChatStreamingResult
 }
 
+public protocol AFMMLXOpenAIChatServing:
+    AFMMLXAPIProfiling,
+    AFMMLXRequestScheduling,
+    AFMMLXBatchControlling,
+    AFMMLXServingConfigurationProviding,
+    AFMMLXOpenAIChatGenerating
+{
+    var defaultGuidedJsonSchema: ResponseFormat? { get }
+
+    /// Resolve effective response format: per-request format wins, falls back to server default.
+    func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat?
+}
+
+public extension AFMMLXOpenAIChatServing {
+    var defaultGuidedJsonSchema: ResponseFormat? { nil }
+
+    func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? {
+        requestFormat ?? defaultGuidedJsonSchema
+    }
+}
+
 public extension AFMMLXOpenAIChatGenerating {
     func generateStreaming(
         model: String,
@@ -88,3 +109,5 @@ public extension AFMMLXOpenAIChatGenerating {
         )
     }
 }
+
+extension MLXModelService: AFMMLXOpenAIChatServing {}

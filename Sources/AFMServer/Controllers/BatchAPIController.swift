@@ -1,9 +1,10 @@
 import Vapor
 import AFMKit
+import AFMKitMLX
 import Foundation
 
 struct BatchAPIController: RouteCollection {
-    private let service: any MLXChatServing
+    private let service: any AFMMLXOpenAIChatServing
     private let store: BatchStore
     private let modelID: String
     private let temperature: Double?
@@ -17,7 +18,7 @@ struct BatchAPIController: RouteCollection {
     private let maxLogprobs: Int
 
     init(
-        service: any MLXChatServing,
+        service: any AFMMLXOpenAIChatServing,
         store: BatchStore,
         modelID: String,
         temperature: Double? = nil,

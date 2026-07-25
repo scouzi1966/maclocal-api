@@ -1,9 +1,10 @@
 import Foundation
 import AFMKit
+import AFMKitMLX
 
 /// Bridges the existing OpenAI-compatible HTTP controllers onto AFMKit while
-/// preserving their current `MLXChatServing` contract.
-final class AFMKitMLXChatServingAdapter: MLXChatServing, AFMTextTokenizing {
+/// preserving their current `AFMMLXOpenAIChatServing` contract.
+final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokenizing {
     private let service: MLXModelService
     private let resolver: MLXCacheResolver
 
@@ -110,7 +111,7 @@ final class AFMKitMLXChatServingAdapter: MLXChatServing, AFMTextTokenizing {
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
-    ) async throws -> ChatGenerationResult {
+    ) async throws -> AFMMLXChatGenerationResult {
         let request = try AFMRequest(
             openAIMessages: messages,
             generationConfig: generationConfig(
@@ -178,7 +179,7 @@ final class AFMKitMLXChatServingAdapter: MLXChatServing, AFMTextTokenizing {
         chatTemplateKwargs: [String: AnyCodable]?,
         preserveStructuralTags: Bool,
         requestId: String?
-    ) async throws -> ChatStreamingResult {
+    ) async throws -> AFMMLXChatStreamingResult {
         let request = try AFMRequest(
             openAIMessages: messages,
             generationConfig: generationConfig(

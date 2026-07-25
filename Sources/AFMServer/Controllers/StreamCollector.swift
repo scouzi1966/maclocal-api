@@ -1,7 +1,8 @@
 import Foundation
 import AFMKit
+import AFMKitMLX
 
-/// Result of collecting a `ChatStreamingResult` stream with post-processing applied.
+/// Result of collecting a `AFMMLXChatStreamingResult` stream with post-processing applied.
 struct CollectedResult: Sendable {
     let content: String?
     let reasoningContent: String?
@@ -16,7 +17,7 @@ struct CollectedResult: Sendable {
     let finishReason: String
 }
 
-/// Utility that collects a ChatStreamingResult stream into a finalized result
+/// Utility that collects an AFMMLXChatStreamingResult stream into a finalized result
 /// with think extraction, logprobs, and tool call handling applied.
 ///
 /// Used by BatchAPIController and BatchCompletionsController to avoid
@@ -136,7 +137,7 @@ enum StreamCollector {
     ///   - maxTokens: Maximum tokens for finish_reason determination
     /// - Returns: A `CollectedResult` with all post-processing applied
     static func collect(
-        from streamResult: ChatStreamingResult,
+        from streamResult: AFMMLXChatStreamingResult,
         extractThinking: Bool,
         thinkStartTag: String = "<think>",
         thinkEndTag: String = "</think>",

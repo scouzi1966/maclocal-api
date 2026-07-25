@@ -1,5 +1,6 @@
 import Vapor
 import AFMKit
+import AFMKitMLX
 import Foundation
 import os
 
@@ -7,7 +8,7 @@ struct BatchCompletionsController: RouteCollection {
     /// Maximum requests allowed in a single SSE multiplex batch.
     private static let maxBatchSize = 64
 
-    private let service: any MLXChatServing
+    private let service: any AFMMLXOpenAIChatServing
     private let modelID: String
     private let temperature: Double?
     private let topP: Double?
@@ -20,7 +21,7 @@ struct BatchCompletionsController: RouteCollection {
     private let maxLogprobs: Int
 
     init(
-        service: any MLXChatServing,
+        service: any AFMMLXOpenAIChatServing,
         modelID: String,
         temperature: Double? = nil,
         topP: Double? = nil,
@@ -153,7 +154,7 @@ struct BatchCompletionsController: RouteCollection {
 
     private func processRequest(
         item: BatchRequestItem,
-        service: any MLXChatServing,
+        service: any AFMMLXOpenAIChatServing,
         modelID: String,
         temperature: Double?,
         topP: Double?,
