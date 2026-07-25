@@ -1,5 +1,6 @@
 import Foundation
 import AFMKitCore
+import AFMOpenAICompat
 
 extension AFMRequest {
     init(openAIMessages: [Message], generationConfig: GenerationConfig) throws {

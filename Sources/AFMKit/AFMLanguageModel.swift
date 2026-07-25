@@ -1,4 +1,5 @@
 import Foundation
+import AFMOpenAICompat
 
 /// A provider-agnostic language-model abstraction, shaped to mirror Apple's
 /// **WWDC 26 "Year Two" `LanguageModel` protocol** so afm's backends can slot into

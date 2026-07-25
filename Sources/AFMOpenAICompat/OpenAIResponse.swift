@@ -1,5 +1,4 @@
 import Foundation
-import MLX
 
 /// AFM-specific GPU profiling data, returned when client sends `X-AFM-Profile: true` header.
 public struct AFMProfile: Codable, Sendable {
@@ -127,7 +126,7 @@ public struct ChatCompletionResponse: Codable, Sendable {
         }
     }
 
-    public init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, finishReason: String = "stop", promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil, timings: StreamTimings? = nil, afmProfile: AFMProfile? = nil, afmProfileExtended: AFMProfileExtended? = nil) {
+    public init(id: String = UUID().uuidString, model: String, content: String, reasoningContent: String? = nil, logprobs: ChoiceLogprobs? = nil, finishReason: String = "stop", promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil, peakMemoryGib: Double? = nil, timings: StreamTimings? = nil, afmProfile: AFMProfile? = nil, afmProfileExtended: AFMProfileExtended? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion"
         self.created = Int(Date().timeIntervalSince1970)
@@ -146,7 +145,8 @@ public struct ChatCompletionResponse: Codable, Sendable {
             totalTokens: promptTokens + completionTokens,
             cachedTokens: cachedTokens,
             completionTime: completionTime,
-            promptTime: promptTime
+            promptTime: promptTime,
+            peakMemoryGib: peakMemoryGib
         )
         self.timings = timings
         self.systemFingerprint = Self.fingerprint(for: model)
@@ -154,7 +154,7 @@ public struct ChatCompletionResponse: Codable, Sendable {
         self.afmProfileExtended = afmProfileExtended
     }
 
-    public init(id: String = UUID().uuidString, model: String, toolCalls: [ResponseToolCall], logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil, timings: StreamTimings? = nil, afmProfile: AFMProfile? = nil, afmProfileExtended: AFMProfileExtended? = nil) {
+    public init(id: String = UUID().uuidString, model: String, toolCalls: [ResponseToolCall], logprobs: ChoiceLogprobs? = nil, promptTokens: Int = 0, completionTokens: Int = 0, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil, peakMemoryGib: Double? = nil, timings: StreamTimings? = nil, afmProfile: AFMProfile? = nil, afmProfileExtended: AFMProfileExtended? = nil) {
         self.id = "chatcmpl-\(id.prefix(8))"
         self.object = "chat.completion"
         self.created = Int(Date().timeIntervalSince1970)
@@ -173,7 +173,8 @@ public struct ChatCompletionResponse: Codable, Sendable {
             totalTokens: promptTokens + completionTokens,
             cachedTokens: cachedTokens,
             completionTime: completionTime,
-            promptTime: promptTime
+            promptTime: promptTime,
+            peakMemoryGib: peakMemoryGib
         )
         self.timings = timings
         self.systemFingerprint = Self.fingerprint(for: model)
@@ -330,7 +331,7 @@ public struct Usage: Codable, Sendable {
         case peakMemoryGib = "peak_memory_gib"
     }
 
-    public init(promptTokens: Int, completionTokens: Int, totalTokens: Int, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil) {
+    public init(promptTokens: Int, completionTokens: Int, totalTokens: Int, cachedTokens: Int? = nil, completionTime: Double? = nil, promptTime: Double? = nil, peakMemoryGib: Double? = nil) {
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
         self.totalTokens = totalTokens
@@ -364,18 +365,7 @@ public struct Usage: Codable, Sendable {
             self.promptTokensPerSecond = nil
         }
 
-        self.peakMemoryGib = Self.safePeakMemoryGib()
-    }
-
-    private static func safePeakMemoryGib() -> Double? {
-        do {
-            try MLXMetalLibrary.ensureAvailable(verbose: false)
-        } catch {
-            return nil
-        }
-
-        let gib = 1024.0 * 1024.0 * 1024.0
-        return (Double(Memory.snapshot().peakMemory) / gib * 10).rounded() / 10
+        self.peakMemoryGib = peakMemoryGib
     }
 }
 

@@ -1,5 +1,6 @@
 #if canImport(FoundationModels)
 import Foundation
+import AFMOpenAICompat
 import FoundationModels
 
 /// An MLX-backed model that participates in the macOS 27 Foundation Models

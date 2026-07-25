@@ -1,4 +1,5 @@
 import Foundation
+import AFMOpenAICompat
 import MLXLMCommon
 
 public enum ToolCallStreamingEvent: Sendable {

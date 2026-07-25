@@ -16,6 +16,10 @@ let package = Package(
             name: "AFMKitCore",
             targets: ["AFMKitCore"]
         ),
+        .library(
+            name: "AFMOpenAICompat",
+            targets: ["AFMOpenAICompat"]
+        ),
         // Headless, SPM-importable library: model loading + inference + OpenAI-compatible
         // services + the HTTP server. `import AFMKit` from another package/app.
         .library(
@@ -65,6 +69,10 @@ let package = Package(
             dependencies: []
         ),
         .target(
+            name: "AFMOpenAICompat",
+            dependencies: []
+        ),
+        .target(
             name: "AFMXGrammar",
             dependencies: [
                 .product(name: "XGrammar", package: "xgrammar")
@@ -86,6 +94,7 @@ let package = Package(
             name: "AFMKit",
             dependencies: [
                 "AFMKitCore",
+                "AFMOpenAICompat",
                 "AFMXGrammar",
                 .product(name: "MLXLLM", package: "mlx-swift-lm"),
                 .product(name: "MLXVLM", package: "mlx-swift-lm"),

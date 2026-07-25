@@ -1,4 +1,5 @@
 import Foundation
+import AFMOpenAICompat
 import CoreImage
 import os
 import MLX
@@ -1722,7 +1723,7 @@ public final class MLXModelService: @unchecked Sendable {
 
     public func generate(
         model: String,
-        messages: [Message],
+        messages: [AFMOpenAICompat.Message],
         temperature: Double?,
         maxTokens: Int?,
         topP: Double?,
@@ -2607,7 +2608,7 @@ public final class MLXModelService: @unchecked Sendable {
 
     public func generateStreaming(
         model: String,
-        messages: [Message],
+        messages: [AFMOpenAICompat.Message],
         temperature: Double?,
         maxTokens: Int?,
         topP: Double?,
@@ -5406,11 +5407,11 @@ public final class MLXModelService: @unchecked Sendable {
         return false
     }
 
-    private func buildPrompt(from messages: [Message]) -> String {
+    private func buildPrompt(from messages: [AFMOpenAICompat.Message]) -> String {
         messages.map { "\($0.role): \($0.textContent)" }.joined(separator: "\n")
     }
 
-    private func buildUserInput(from messages: [Message], tools: [ToolSpec]? = nil, responseFormat: ResponseFormat? = nil, chatTemplateKwargs: [String: AnyCodable]? = nil) throws -> (UserInput, tempFiles: [URL]) {
+    private func buildUserInput(from messages: [AFMOpenAICompat.Message], tools: [ToolSpec]? = nil, responseFormat: ResponseFormat? = nil, chatTemplateKwargs: [String: AnyCodable]? = nil) throws -> (UserInput, tempFiles: [URL]) {
         var chatMessages: [Chat.Message] = []
         var hasSystemMessage = false
         var allTempFiles: [URL] = []
@@ -5649,7 +5650,7 @@ public final class MLXModelService: @unchecked Sendable {
 
     private static let videoExtensions: Set<String> = ["mp4", "mov", "avi", "mkv", "webm", "m4v"]
 
-    private func extractMedia(from message: Message) throws -> (images: [UserInput.Image], videos: [UserInput.Video], tempFiles: [URL]) {
+    private func extractMedia(from message: AFMOpenAICompat.Message) throws -> (images: [UserInput.Image], videos: [UserInput.Video], tempFiles: [URL]) {
         guard let content = message.content, case .parts(let parts) = content else { return ([], [], []) }
         var images: [UserInput.Image] = []
         var videos: [UserInput.Video] = []
@@ -6048,7 +6049,7 @@ public final class MLXModelService: @unchecked Sendable {
 
     /// Check the OpenAI request shape before preparing UserInput, so multimodal/audio
     /// inputs can stay on the legacy container.perform path.
-    private func isTextOnlyInput(_ messages: [Message]) -> Bool {
+    private func isTextOnlyInput(_ messages: [AFMOpenAICompat.Message]) -> Bool {
         for message in messages {
             guard let content = message.content else { continue }
             if case .parts(let parts) = content {

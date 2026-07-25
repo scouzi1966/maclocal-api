@@ -434,6 +434,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     cachedTokens: result.cachedTokens,
                     completionTime: generateTime,
                     promptTime: promptTime,
+                    peakMemoryGib: Self.currentPeakMemoryGib(),
                     timings: timings,
                     afmProfile: profile,
                     afmProfileExtended: extended
@@ -479,6 +480,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 cachedTokens: result.cachedTokens,
                 completionTime: generateTime,
                 promptTime: promptTime,
+                peakMemoryGib: Self.currentPeakMemoryGib(),
                 timings: timings,
                 afmProfile: profile,
                 afmProfileExtended: extended
@@ -1510,6 +1512,11 @@ struct MLXChatCompletionsController: RouteCollection {
         guard cachedTokens > 0 else { return " | cache: MISS suffix=\(suffix)" }
         let ratio = total > 0 ? Int(Double(cachedTokens) / Double(total) * 100) : 0
         return " | cache: HIT \(cachedTokens)/\(total) (\(ratio)%) suffix=\(suffix)"
+    }
+
+    private static func currentPeakMemoryGib() -> Double {
+        let gib = 1024.0 * 1024.0 * 1024.0
+        return (Double(Memory.snapshot().peakMemory) / gib * 10).rounded() / 10
     }
 
     /// ANSI color codes

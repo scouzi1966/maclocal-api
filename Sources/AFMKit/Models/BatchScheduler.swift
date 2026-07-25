@@ -1,4 +1,5 @@
 import Foundation
+import AFMOpenAICompat
 import MLX
 // See MLXModelService.swift for rationale: MLXLMCommon value types predate Swift 6
 // concurrency; downgrade their Sendable diagnostics to warnings.

@@ -1,5 +1,6 @@
 import Foundation
 import AFMKitCore
+import AFMOpenAICompat
 
 // MARK: - Public configuration
 

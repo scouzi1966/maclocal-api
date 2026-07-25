@@ -1,5 +1,6 @@
 import Foundation
 
+/// An OpenAI-compatible chat-completion request.
 public struct ChatCompletionRequest: Codable, Sendable {
     public let model: String?
     public let messages: [Message]
