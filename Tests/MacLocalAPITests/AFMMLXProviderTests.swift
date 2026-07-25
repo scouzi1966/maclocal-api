@@ -24,6 +24,14 @@ final class AFMMLXProviderTests: XCTestCase {
         requireProfilingContract(MLXModelService(resolver: MLXCacheResolver()))
     }
 
+    func testMLXModelServiceExposesAFMKitRequestSchedulingContract() {
+        requireRequestSchedulingContract(MLXModelService(resolver: MLXCacheResolver()))
+    }
+
+    func testMLXModelServiceExposesAFMKitBatchControlContract() {
+        requireBatchControlContract(MLXModelService(resolver: MLXCacheResolver()))
+    }
+
     func testAFMKitOwnsChatGenerationResultShape() {
         let result: AFMMLXChatGenerationResult = (
             modelID: "test/model",
@@ -238,6 +246,14 @@ final class AFMMLXProviderTests: XCTestCase {
 
     private func requireProfilingContract<Profiler: AFMMLXAPIProfiling>(
         _ profiler: Profiler
+    ) {}
+
+    private func requireRequestSchedulingContract<Scheduler: AFMMLXRequestScheduling>(
+        _ scheduler: Scheduler
+    ) {}
+
+    private func requireBatchControlContract<Controller: AFMMLXBatchControlling>(
+        _ controller: Controller
     ) {}
 
     private func requiredToolRequest() -> AFMRequest {

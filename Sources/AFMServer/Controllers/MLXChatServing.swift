@@ -6,8 +6,11 @@ import MLXLMCommon
 typealias ChatGenerationResult = AFMMLXChatGenerationResult
 typealias ChatStreamingResult = AFMMLXChatStreamingResult
 
-protocol MLXChatServing: AFMMLXAPIProfiling {
-    var maxConcurrent: Int { get }
+protocol MLXChatServing:
+    AFMMLXAPIProfiling,
+    AFMMLXRequestScheduling,
+    AFMMLXBatchControlling
+{
     var toolCallParser: String? { get }
     var supportsStrictToolGrammar: Bool { get }
     var thinkStartTag: String? { get }
@@ -25,13 +28,6 @@ protocol MLXChatServing: AFMMLXAPIProfiling {
 
     func normalizeModel(_ raw: String) -> String
     func resolvedToolCallParser(logBypass: Bool) -> String?
-    func tryReserveSlot() -> Bool
-    func waitForSlot(timeout: TimeInterval) async -> Bool
-    func releaseSlot()
-
-    func ensureBatchMode(concurrency: Int) async throws
-    func releaseBatchReference()
-    func cancelBatchSlots(ids: Set<UUID>) async
 
     func generate(
         model: String,
@@ -138,30 +134,6 @@ extension MLXChatServing {
     ) -> ResponseToolCall {
         guard fixToolArgs else { return toolCall }
         return AFMMLXToolCallPolicy.remapResponseToolCallArguments(toolCall, tools: tools)
-    }
-
-    func waitForSlot(timeout: TimeInterval) async -> Bool {
-        if Task.isCancelled { return false }
-        if timeout <= 0 {
-            return tryReserveSlot()
-        }
-
-        if tryReserveSlot() { return true }
-
-        // Exponential backoff matching BatchScheduler pattern
-        let initialPollNs: UInt64 = 10_000_000   // 10ms
-        let maxPollNs: UInt64     = 500_000_000   // 500ms
-        let deadline = ContinuousClock.now + .seconds(timeout)
-        var delay = initialPollNs
-
-        while ContinuousClock.now < deadline {
-            if Task.isCancelled { return false }
-            try? await Task.sleep(nanoseconds: delay)
-            if Task.isCancelled { return false }
-            if tryReserveSlot() { return true }
-            delay = min(delay * 2, maxPollNs)
-        }
-        return false
     }
 
     /// Convenience overload without requestId for batch/internal callers.
