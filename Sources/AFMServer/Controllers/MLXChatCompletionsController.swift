@@ -314,7 +314,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 // full-text parsing (handles missing <tool_call> wrapper, etc.)
                 // Raw mode (--tool-call-parser none) skips this entirely.
                 if finalToolCalls == nil && chatRequest.tools != nil && !fullText.isEmpty
-                    && !MLXModelService.isToolCallParserDisabled(service.toolCallParser) {
+                    && !service.isToolCallParserDisabled(service.toolCallParser) {
                     let trimmed = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
                     let parserName = self.service.resolvedToolCallParser(logBypass: false) ?? "auto"
                     let looksLikeToolCall =
@@ -335,10 +335,9 @@ struct MLXChatCompletionsController: RouteCollection {
                             let names = parsed.map { $0.function.name }.joined(separator: ", ")
                             print("\(Self.gold)[\(Self.timestamp())] [ToolCallParser] Parsed \(parsed.count) call(s): \(names) (parser=\(parserName))\(Self.reset)")
                             fflush(stdout)
-                            finalToolCalls = MLXModelService.normalizeToolCalls(
+                            finalToolCalls = service.normalizeToolCalls(
                                 parsed,
                                 tools: chatRequest.tools,
-                                fixToolArgs: service.fixToolArgs
                             )
                             fullText = remaining
                         }
@@ -713,7 +712,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     if let tcs = streamChunk.toolCalls, !tcs.isEmpty {
                         for tc in tcs {
                             // Coerce argument types before emitting (Gemma 4 escape markers, etc.)
-                            let coercedToolCall = MLXModelService.coerceArgumentTypes(tc, tools: effectiveTools)
+                            let coercedToolCall = service.coerceToolCallArguments(tc, tools: effectiveTools)
                             guard Self.isToolCallAllowed(
                                 coercedToolCall,
                                 toolChoice: chatRequest.toolChoice,
@@ -1029,7 +1028,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 let trimmedFull = fullContent.trimmingCharacters(in: .whitespacesAndNewlines)
                 let looksLikeBareJsonToolCall = trimmedFull.hasPrefix("{") && trimmedFull.contains("\"name\"")
                 let parserName = self.service.toolCallParser ?? "auto"
-                if !hasToolCalls && !MLXModelService.isToolCallParserDisabled(service.toolCallParser) && (
+                if !hasToolCalls && !service.isToolCallParserDisabled(service.toolCallParser) && (
                     (toolCallStartTag != nil && fullContent.contains(toolCallStartTag!)) ||
                     fullContent.contains("[TOOL_CALLS]") ||
                     fullContent.contains("[ARGS]") ||
@@ -1047,12 +1046,11 @@ struct MLXChatCompletionsController: RouteCollection {
                         let fallbackNames = parsed.map { $0.function.name }.joined(separator: ", ")
                         print("\(Self.gold)[\(Self.timestamp())] [ToolCallParser] Parsed \(parsed.count) call(s): \(fallbackNames) (parser=\(parserName))\(Self.reset)")
                         fflush(stdout)
-                        for rtc in MLXModelService.normalizeToolCalls(
+                        for rtc in service.normalizeToolCalls(
                             parsed,
                             startIndex: collectedToolCalls.count,
                             paramNameMapping: fallbackParamNameMapping,
-                            tools: chatRequest.tools,
-                            fixToolArgs: service.fixToolArgs
+                            tools: chatRequest.tools
                         ) {
                             guard Self.isToolCallAllowed(
                                 rtc,
@@ -1366,14 +1364,13 @@ struct MLXChatCompletionsController: RouteCollection {
         guard service.fixToolArgs, let tools, !tools.isEmpty else { return key }
         // Build a single-entry dict, remap, return the (possibly changed) key
         let dummy: [String: any Sendable] = [key: "" as String]
-        let remapped = MLXModelService.remapArgumentKeys(dummy, toolName: toolName, tools: tools)
+        let remapped = service.remapArgumentKeys(dummy, toolName: toolName, tools: tools)
         return remapped.keys.first ?? key
     }
 
     /// Apply heuristic argument key remapping to a ResponseToolCall when --fix-tool-args is enabled.
     private func applyFixToolArgs(_ rtc: ResponseToolCall, tools: [RequestTool]?) -> ResponseToolCall {
-        guard service.fixToolArgs else { return rtc }
-        return MLXModelService.remapResponseToolCallArguments(rtc, tools: tools)
+        service.remapToolCallArguments(rtc, tools: tools)
     }
 
     private func normalizedMaxTokens(_ requested: Int?) -> Int {

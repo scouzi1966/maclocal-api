@@ -1,6 +1,7 @@
 import AFMKitCore
 import AFMOpenAICompat
 @testable import AFMKitMLX
+import MLXLMCommon
 import XCTest
 
 final class AFMMLXProviderTests: XCTestCase {
@@ -86,6 +87,44 @@ final class AFMMLXProviderTests: XCTestCase {
                 enableGrammarConstraints: true
             )
         )
+    }
+
+    func testToolPolicyDisablesExplicitNoneParser() {
+        XCTAssertTrue(AFMMLXToolCallPolicy.isToolCallParserDisabled(" none "))
+        XCTAssertFalse(AFMMLXToolCallPolicy.isToolCallParserDisabled("afm_adaptive_xml"))
+    }
+
+    func testToolPolicyNormalizesAndCoercesArguments() throws {
+        let tool = RequestTool(
+            type: "function",
+            function: RequestToolFunction(
+                name: "get_weather",
+                description: nil,
+                parameters: AnyCodable([
+                    "type": "object",
+                    "properties": [
+                        "days": ["type": "integer"],
+                        "includeWind": ["type": "boolean"]
+                    ]
+                ]),
+                strict: nil
+            )
+        )
+        let rawCall = ToolCall(function: .init(
+            name: "get_weather",
+            arguments: [
+                "days": "5",
+                "includeWind": "true"
+            ]
+        ))
+
+        let normalized = AFMMLXToolCallPolicy.normalizeToolCalls([rawCall], tools: [tool])
+
+        XCTAssertEqual(normalized.count, 1)
+        let data = try XCTUnwrap(normalized.first?.function.arguments.data(using: .utf8))
+        let arguments = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(arguments["days"] as? Int, 5)
+        XCTAssertEqual(arguments["includeWind"] as? Bool, true)
     }
 
     func testRequiredToolPolicyRejectsRequestWithoutEnabledTools() {

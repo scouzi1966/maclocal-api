@@ -1,5 +1,7 @@
 import Foundation
 import AFMKit
+import AFMOpenAICompat
+import MLXLMCommon
 
 typealias ChatGenerationResult = (
     modelID: String,
@@ -57,7 +59,7 @@ protocol MLXChatServing: Sendable {
 
     func generate(
         model: String,
-        messages: [Message],
+        messages: [AFMOpenAICompat.Message],
         temperature: Double?,
         maxTokens: Int?,
         topP: Double?,
@@ -77,7 +79,7 @@ protocol MLXChatServing: Sendable {
 
     func generateStreaming(
         model: String,
-        messages: [Message],
+        messages: [AFMOpenAICompat.Message],
         temperature: Double?,
         maxTokens: Int?,
         topP: Double?,
@@ -119,6 +121,49 @@ extension MLXChatServing {
         )
     }
 
+    func isToolCallParserDisabled(_ parser: String?) -> Bool {
+        AFMMLXToolCallPolicy.isToolCallParserDisabled(parser)
+    }
+
+    func normalizeToolCalls(
+        _ toolCalls: [ToolCall],
+        startIndex: Int = 0,
+        paramNameMapping: [String: String] = [:],
+        tools: [RequestTool]? = nil
+    ) -> [ResponseToolCall] {
+        AFMMLXToolCallPolicy.normalizeToolCalls(
+            toolCalls,
+            startIndex: startIndex,
+            paramNameMapping: paramNameMapping,
+            tools: tools,
+            fixToolArgs: fixToolArgs
+        )
+    }
+
+    func coerceToolCallArguments(
+        _ toolCall: ResponseToolCall,
+        tools: [RequestTool]?
+    ) -> ResponseToolCall {
+        AFMMLXToolCallPolicy.coerceArgumentTypes(toolCall, tools: tools)
+    }
+
+    func remapArgumentKeys(
+        _ arguments: [String: any Sendable],
+        toolName: String,
+        tools: [RequestTool]?
+    ) -> [String: any Sendable] {
+        guard fixToolArgs else { return arguments }
+        return AFMMLXToolCallPolicy.remapArgumentKeys(arguments, toolName: toolName, tools: tools)
+    }
+
+    func remapToolCallArguments(
+        _ toolCall: ResponseToolCall,
+        tools: [RequestTool]?
+    ) -> ResponseToolCall {
+        guard fixToolArgs else { return toolCall }
+        return AFMMLXToolCallPolicy.remapResponseToolCallArguments(toolCall, tools: tools)
+    }
+
     func waitForSlot(timeout: TimeInterval) async -> Bool {
         if Task.isCancelled { return false }
         if timeout <= 0 {
@@ -145,7 +190,7 @@ extension MLXChatServing {
 
     /// Convenience overload without requestId for batch/internal callers.
     func generateStreaming(
-        model: String, messages: [Message], temperature: Double?, maxTokens: Int?,
+        model: String, messages: [AFMOpenAICompat.Message], temperature: Double?, maxTokens: Int?,
         topP: Double?, repetitionPenalty: Double?, topK: Int?, minP: Double?,
         presencePenalty: Double?, seed: Int?, logprobs: Bool?, topLogprobs: Int?,
         tools: [RequestTool]?, parallelToolCalls: Bool?, stop: [String]?, responseFormat: ResponseFormat?,
