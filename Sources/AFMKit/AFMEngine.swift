@@ -99,6 +99,7 @@ public struct GenerationConfig: Sendable {
     public var stop: [String]?
     public var tools: [RequestTool]?
     public var responseFormat: ResponseFormat?
+    public var metadata: [String: AFMJSONValue]
 
     public init(
         temperature: Double? = nil,
@@ -113,7 +114,8 @@ public struct GenerationConfig: Sendable {
         topLogprobs: Int? = nil,
         stop: [String]? = nil,
         tools: [RequestTool]? = nil,
-        responseFormat: ResponseFormat? = nil
+        responseFormat: ResponseFormat? = nil,
+        metadata: [String: AFMJSONValue] = [:]
     ) {
         self.temperature = temperature
         self.maxTokens = maxTokens
@@ -128,6 +130,7 @@ public struct GenerationConfig: Sendable {
         self.stop = stop
         self.tools = tools
         self.responseFormat = responseFormat
+        self.metadata = metadata
     }
 }
 
@@ -239,6 +242,14 @@ public actor AFMEngine {
             try await ensureFoundation()
             return "apple-foundation-model"
         }
+    }
+
+    /// Release backend resources held by this engine.
+    public func unload() async {
+        if let registeredModel {
+            await registeredModel.unload()
+        }
+        foundationService = nil
     }
 
     /// Generate a single (non-streaming) response for a chat transcript.

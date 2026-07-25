@@ -16,6 +16,15 @@ import Tokenizers
 import Hub
 import HuggingFace
 
+private extension Dictionary where Key == String, Value == AnyCodable {
+    var afmIncludeSchemaInPrompt: Bool? {
+        guard case .bool(let value)? = self["afm_include_schema_in_prompt"]?.value else {
+            return nil
+        }
+        return value
+    }
+}
+
 /// Process-global holder for the active MTP self-speculative generator.
 ///
 /// The MTP head + generator are tied to the loaded model and accessed only inside
@@ -1781,7 +1790,13 @@ public final class MLXModelService: @unchecked Sendable {
 
         let promptText = buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools, includePythonJSON: shouldUseNativePythonToolJSONTemplate(for: tools))
-        let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat, chatTemplateKwargs: chatTemplateKwargs)
+        let (userInput, mediaTempFiles) = try buildUserInput(
+            from: messages,
+            tools: toolSpecs,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            includeSchemaInPrompt: chatTemplateKwargs?.afmIncludeSchemaInPrompt ?? true
+        )
         defer { cleanupTempFiles(mediaTempFiles) }
         let wantLogprobs = logprobs == true
         let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
@@ -2667,7 +2682,13 @@ public final class MLXModelService: @unchecked Sendable {
             }
             fflush(stdout)
         }
-        let (userInput, mediaTempFiles) = try buildUserInput(from: messages, tools: toolSpecs, responseFormat: responseFormat, chatTemplateKwargs: chatTemplateKwargs)
+        let (userInput, mediaTempFiles) = try buildUserInput(
+            from: messages,
+            tools: toolSpecs,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            includeSchemaInPrompt: chatTemplateKwargs?.afmIncludeSchemaInPrompt ?? true
+        )
         let promptTokens = estimateTokens(promptText)
         let wantLogprobs = logprobs == true
         let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
@@ -5424,7 +5445,13 @@ public final class MLXModelService: @unchecked Sendable {
         messages.map { "\($0.role): \($0.textContent)" }.joined(separator: "\n")
     }
 
-    private func buildUserInput(from messages: [AFMOpenAICompat.Message], tools: [ToolSpec]? = nil, responseFormat: ResponseFormat? = nil, chatTemplateKwargs: [String: AnyCodable]? = nil) throws -> (UserInput, tempFiles: [URL]) {
+    private func buildUserInput(
+        from messages: [AFMOpenAICompat.Message],
+        tools: [ToolSpec]? = nil,
+        responseFormat: ResponseFormat? = nil,
+        chatTemplateKwargs: [String: AnyCodable]? = nil,
+        includeSchemaInPrompt: Bool = true
+    ) throws -> (UserInput, tempFiles: [URL]) {
         var chatMessages: [Chat.Message] = []
         var hasSystemMessage = false
         var allTempFiles: [URL] = []
@@ -5524,7 +5551,7 @@ public final class MLXModelService: @unchecked Sendable {
         }
 
         // Inject JSON format instructions when response_format is requested
-        if let format = responseFormat {
+        if includeSchemaInPrompt, let format = responseFormat {
             let jsonInstruction: String?
             switch format.type {
             case "json_object":
@@ -5632,6 +5659,9 @@ public final class MLXModelService: @unchecked Sendable {
         }
         if let requestKwargs = chatTemplateKwargs {
             for (key, value) in requestKwargs {
+                if key == "afm_include_schema_in_prompt" {
+                    continue
+                }
                 resolvedKwargs[key] = value.value.toAny()
             }
         }

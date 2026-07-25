@@ -28,7 +28,8 @@ extension AFMRequest {
                 topLogprobs: generationConfig.topLogprobs,
                 stopSequences: generationConfig.stop ?? [],
                 responseConstraint: generationConfig.responseFormat?.afmConstraint
-            )
+            ),
+            metadata: generationConfig.metadata
         )
     }
 }

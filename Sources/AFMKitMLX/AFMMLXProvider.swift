@@ -109,6 +109,7 @@ public final class AFMMLXModel: AFMModel, @unchecked Sendable {
     public func respond(to request: AFMRequest) async throws -> AFMModelResponse {
         _ = try await load(progress: nil)
         do {
+            let tools = request.effectiveOpenAITools()
             let result = try await service.generate(
                 model: modelID,
                 messages: try request.openAIMessages(),
@@ -122,10 +123,10 @@ public final class AFMMLXModel: AFMModel, @unchecked Sendable {
                 seed: request.options.seed,
                 logprobs: request.options.logprobs,
                 topLogprobs: request.options.topLogprobs,
-                tools: request.openAITools(),
+                tools: tools,
                 stop: request.options.stopSequences,
                 responseFormat: request.openAIResponseFormat(),
-                chatTemplateKwargs: nil
+                chatTemplateKwargs: request.chatTemplateKwargs()
             )
             let split = Self.splitReasoning(
                 result.content,
@@ -177,6 +178,7 @@ public final class AFMMLXModel: AFMModel, @unchecked Sendable {
             let task = Task {
                 do {
                     _ = try await load(progress: nil)
+                    let tools = request.effectiveOpenAITools()
                     let result = try await service.generateStreaming(
                         model: modelID,
                         messages: try request.openAIMessages(),
@@ -190,10 +192,10 @@ public final class AFMMLXModel: AFMModel, @unchecked Sendable {
                         seed: request.options.seed,
                         logprobs: request.options.logprobs,
                         topLogprobs: request.options.topLogprobs,
-                        tools: request.openAITools(),
+                        tools: tools,
                         stop: request.options.stopSequences,
                         responseFormat: request.openAIResponseFormat(),
-                        chatTemplateKwargs: nil,
+                        chatTemplateKwargs: request.chatTemplateKwargs(),
                         requestId: nil
                     )
                     var translator = MLXStreamEventTranslator(
@@ -337,6 +339,32 @@ private extension AFMProviderConfiguration {
 }
 
 private extension AFMRequest {
+    var includeSchemaInPrompt: Bool {
+        guard case .bool(let value)? = metadata["includeSchemaInPrompt"] else {
+            return true
+        }
+        return value
+    }
+
+    func effectiveOpenAITools() -> [RequestTool]? {
+        if case .string("disallowed")? = metadata["toolCallingMode"] {
+            return nil
+        }
+        return openAITools()
+    }
+
+    func chatTemplateKwargs() -> [String: AnyCodable]? {
+        var result: [String: AnyCodable] = [
+            "afm_include_schema_in_prompt": AnyCodable(includeSchemaInPrompt)
+        ]
+        if case .object(let values)? = metadata["chatTemplateKwargs"] {
+            result.merge(
+                values.mapValues { AnyCodable($0.foundationValue) }
+            ) { _, new in new }
+        }
+        return result
+    }
+
     func openAIMessages() throws -> [Message] {
         try messages.map { message in
             let content: MessageContent?
