@@ -47,6 +47,10 @@ final class AFMMLXProviderTests: XCTestCase {
         XCTAssertTrue(configuration.grammarConstraintsEnabled)
     }
 
+    func testMLXModelServiceExposesAFMKitOpenAIChatGenerationContract() {
+        requireOpenAIChatGenerationContract(MLXModelService(resolver: MLXCacheResolver()))
+    }
+
     func testAFMKitOwnsChatGenerationResultShape() {
         let result: AFMMLXChatGenerationResult = (
             modelID: "test/model",
@@ -273,6 +277,10 @@ final class AFMMLXProviderTests: XCTestCase {
 
     private func requireServingConfigurationContract<Provider: AFMMLXServingConfigurationProviding>(
         _ provider: Provider
+    ) {}
+
+    private func requireOpenAIChatGenerationContract<Generator: AFMMLXOpenAIChatGenerating>(
+        _ generator: Generator
     ) {}
 
     private func requiredToolRequest() -> AFMRequest {

@@ -10,54 +10,13 @@ protocol MLXChatServing:
     AFMMLXAPIProfiling,
     AFMMLXRequestScheduling,
     AFMMLXBatchControlling,
-    AFMMLXServingConfigurationProviding
+    AFMMLXServingConfigurationProviding,
+    AFMMLXOpenAIChatGenerating
 {
     var defaultGuidedJsonSchema: ResponseFormat? { get }
 
     /// Resolve effective response format: per-request format wins, falls back to server default.
     func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat?
-
-    func generate(
-        model: String,
-        messages: [AFMOpenAICompat.Message],
-        temperature: Double?,
-        maxTokens: Int?,
-        topP: Double?,
-        repetitionPenalty: Double?,
-        topK: Int?,
-        minP: Double?,
-        presencePenalty: Double?,
-        seed: Int?,
-        logprobs: Bool?,
-        topLogprobs: Int?,
-        tools: [RequestTool]?,
-        parallelToolCalls: Bool?,
-        stop: [String]?,
-        responseFormat: ResponseFormat?,
-        chatTemplateKwargs: [String: AnyCodable]?
-    ) async throws -> ChatGenerationResult
-
-    func generateStreaming(
-        model: String,
-        messages: [AFMOpenAICompat.Message],
-        temperature: Double?,
-        maxTokens: Int?,
-        topP: Double?,
-        repetitionPenalty: Double?,
-        topK: Int?,
-        minP: Double?,
-        presencePenalty: Double?,
-        seed: Int?,
-        logprobs: Bool?,
-        topLogprobs: Int?,
-        tools: [RequestTool]?,
-        parallelToolCalls: Bool?,
-        stop: [String]?,
-        responseFormat: ResponseFormat?,
-        chatTemplateKwargs: [String: AnyCodable]?,
-        preserveStructuralTags: Bool,
-        requestId: String?
-    ) async throws -> ChatStreamingResult
 }
 
 extension MLXChatServing {
