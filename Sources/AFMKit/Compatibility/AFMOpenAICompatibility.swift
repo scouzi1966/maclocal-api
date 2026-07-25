@@ -1,28 +1,32 @@
 import Foundation
+import AFMKitCore
 
 extension AFMRequest {
     init(openAIMessages: [Message], generationConfig: GenerationConfig) throws {
-        messages = try openAIMessages.map(AFMMessage.init(openAIMessage:))
-        tools = (generationConfig.tools ?? []).map { tool in
+        let messages = try openAIMessages.map(AFMMessage.init(openAIMessage:))
+        let tools = (generationConfig.tools ?? []).map { tool in
             AFMToolDefinition(
                 name: tool.function.name,
                 description: tool.function.description,
                 inputSchema: tool.function.parameters?.value.afmJSONValue ?? .object([:])
             )
         }
-        options = AFMGenerationOptions(
-            temperature: generationConfig.temperature,
-            maximumResponseTokens: generationConfig.maxTokens,
-            topP: generationConfig.topP,
-            topK: generationConfig.topK,
-            minP: generationConfig.minP,
-            repetitionPenalty: generationConfig.repetitionPenalty,
-            presencePenalty: generationConfig.presencePenalty,
-            seed: generationConfig.seed,
-            stopSequences: generationConfig.stop ?? [],
-            responseConstraint: generationConfig.responseFormat?.afmConstraint
+        self.init(
+            messages: messages,
+            tools: tools,
+            options: AFMGenerationOptions(
+                temperature: generationConfig.temperature,
+                maximumResponseTokens: generationConfig.maxTokens,
+                topP: generationConfig.topP,
+                topK: generationConfig.topK,
+                minP: generationConfig.minP,
+                repetitionPenalty: generationConfig.repetitionPenalty,
+                presencePenalty: generationConfig.presencePenalty,
+                seed: generationConfig.seed,
+                stopSequences: generationConfig.stop ?? [],
+                responseConstraint: generationConfig.responseFormat?.afmConstraint
+            )
         )
-        metadata = [:]
     }
 }
 

@@ -1,5 +1,6 @@
 import Foundation
 
+/// A stable identifier for an AFMKit provider implementation.
 public struct AFMProviderID: RawRepresentable, Hashable, Codable, Sendable,
     ExpressibleByStringLiteral, CustomStringConvertible
 {

@@ -11,6 +11,11 @@ let package = Package(
         .macOS("26.0")
     ],
     products: [
+        // Dependency-free provider contracts for apps, CLIs, and provider packages.
+        .library(
+            name: "AFMKitCore",
+            targets: ["AFMKitCore"]
+        ),
         // Headless, SPM-importable library: model loading + inference + OpenAI-compatible
         // services + the HTTP server. `import AFMKit` from another package/app.
         .library(
@@ -56,6 +61,10 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "AFMKitCore",
+            dependencies: []
+        ),
+        .target(
             name: "AFMXGrammar",
             dependencies: [
                 .product(name: "XGrammar", package: "xgrammar")
@@ -76,6 +85,7 @@ let package = Package(
         .target(
             name: "AFMKit",
             dependencies: [
+                "AFMKitCore",
                 "AFMXGrammar",
                 .product(name: "MLXLLM", package: "mlx-swift-lm"),
                 .product(name: "MLXVLM", package: "mlx-swift-lm"),

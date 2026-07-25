@@ -1,5 +1,6 @@
 import Foundation
 
+/// Provider-specific values supplied by an application at model construction time.
 public struct AFMProviderConfiguration: Hashable, Sendable {
     public var values: [String: AFMJSONValue]
 
