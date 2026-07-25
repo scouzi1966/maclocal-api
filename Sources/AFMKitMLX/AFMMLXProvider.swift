@@ -64,9 +64,9 @@ public struct AFMMLXProviderFactory: AFMProviderFactory {
 public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable {
     public let descriptor: AFMModelDescriptor
 
+    private let runtime: AFMMLXRuntime
     private let service: MLXModelService
     private let modelID: String
-    private let maxConcurrent: Int
 
     public init(
         modelID: AFMModelID,
@@ -74,104 +74,17 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
         resolver: MLXCacheResolver = .init(),
         service providedService: MLXModelService? = nil
     ) {
-        let service = providedService ?? MLXModelService(resolver: resolver)
-        Self.configure(
-            service,
-            with: configuration,
-            applyingDefaults: providedService == nil
+        let runtime = AFMMLXRuntime(
+            modelID: modelID.rawValue,
+            providerConfiguration: configuration,
+            resolver: resolver,
+            service: providedService
         )
-        let maxConcurrent = max(0, service.maxConcurrent)
 
-        self.service = service
-        self.modelID = service.normalizeModel(modelID.rawValue)
-        self.maxConcurrent = maxConcurrent
-        self.descriptor = AFMMLXModelDescriptor.describe(
-            modelID: self.modelID,
-            resolver: resolver
-        )
-    }
-
-    private static func configure(
-        _ service: MLXModelService,
-        with configuration: AFMProviderConfiguration,
-        applyingDefaults: Bool
-    ) {
-        if let value = configuration.integer("kvBits") {
-            service.kvBits = value
-        }
-        if let value = configuration.bool("enablePrefixCaching") {
-            service.enablePrefixCaching = value
-        } else if applyingDefaults {
-            service.enablePrefixCaching = true
-        }
-        if let value = configuration.bool("mtpEnabled") {
-            service.mtpEnabled = value
-        } else if applyingDefaults {
-            service.mtpEnabled = false
-        }
-        if let value = configuration.integer("mtpDepth") {
-            service.mtpDepth = value
-        } else if applyingDefaults {
-            service.mtpDepth = 3
-        }
-        if let value = configuration.string("eagle3DrafterPath") {
-            service.eagle3DrafterPath = value
-        }
-        if let value = configuration.string("toolCallParser") {
-            service.toolCallParser = value
-        }
-        if let value = configuration.bool("enableGrammarConstraints") {
-            service.enableGrammarConstraints = value
-        } else if applyingDefaults {
-            service.enableGrammarConstraints = false
-        }
-        if let value = configuration.integer("prefillStepSize") {
-            service.prefillStepSize = value
-        }
-        if let value = configuration.string("kvEvictionPolicy") {
-            service.kvEvictionPolicy = value
-        } else if applyingDefaults {
-            service.kvEvictionPolicy = "none"
-        }
-        if let value = configuration.bool("fixToolArguments") {
-            service.fixToolArgs = value
-        } else if applyingDefaults {
-            service.fixToolArgs = false
-        }
-        if let value = configuration.bool("forceVLM") {
-            service.forceVLM = value
-        } else if applyingDefaults {
-            service.forceVLM = false
-        }
-        if let value = configuration.string("cacheProfilePath") {
-            service.cacheProfilePath = value
-        }
-        if let value = configuration.bool("trace") {
-            service.trace = value
-        } else if applyingDefaults {
-            service.trace = false
-        }
-        if let value = configuration.string("gpuCapturePath") {
-            service.gpuCapturePath = value
-        }
-        if let value = configuration.integer("gpuTraceDuration") {
-            service.gpuTraceDuration = value
-        }
-        if let value = configuration.bool("gpuProfile") {
-            service.gpuProfile = value
-        } else if applyingDefaults {
-            service.gpuProfile = false
-        }
-        if let value = configuration.bool("gpuProfileBandwidth") {
-            service.gpuProfileBandwidth = value
-        } else if applyingDefaults {
-            service.gpuProfileBandwidth = false
-        }
-        if let value = configuration.integer("maxConcurrent") {
-            service.maxConcurrent = max(0, value)
-        } else if applyingDefaults {
-            service.maxConcurrent = 0
-        }
+        self.runtime = runtime
+        self.service = runtime.service
+        self.modelID = runtime.modelID
+        self.descriptor = runtime.descriptor
     }
 
     public func availability() async -> AFMModelAvailability {
@@ -182,15 +95,9 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
         progress: (@Sendable (Double) -> Void)?
     ) async throws -> AFMModelDescriptor {
         do {
-            try MLXMetalLibrary.ensureAvailable(verbose: false)
-            _ = try await service.ensureLoaded(
-                model: modelID,
+            return try await runtime.load(
                 progress: { progress?($0.fractionCompleted) }
             )
-            if maxConcurrent >= 2 {
-                try await service.initScheduler()
-            }
-            return descriptor
         } catch {
             throw AFMError.loadingFailed(error.localizedDescription)
         }
@@ -340,7 +247,7 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
     }
 
     public func unload() async {
-        await service.shutdownAndReleaseResources()
+        await runtime.unload()
     }
 
     public func tokenize(text: String) async throws -> [Int] {
@@ -460,23 +367,6 @@ public enum AFMMLXModelDescriptor {
     private static func jsonObject(at url: URL) -> [String: Any]? {
         guard let data = try? Data(contentsOf: url) else { return nil }
         return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-    }
-}
-
-private extension AFMProviderConfiguration {
-    func bool(_ key: String) -> Bool? {
-        guard case .bool(let value) = values[key] else { return nil }
-        return value
-    }
-
-    func integer(_ key: String) -> Int? {
-        guard case .integer(let value) = values[key] else { return nil }
-        return value
-    }
-
-    func string(_ key: String) -> String? {
-        guard case .string(let value) = values[key] else { return nil }
-        return value
     }
 }
 

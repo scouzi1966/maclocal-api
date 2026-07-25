@@ -505,27 +505,6 @@ struct MlxCommand: ParsableCommand {
 
         let resolver = MLXCacheResolver()
         let modelStore = AFMMLXModelStore(resolver: resolver)
-        let service = MLXModelService(resolver: resolver)
-        service.toolCallParser = toolCallParser
-        service.fixToolArgs = fixToolArgs
-        service.forceVLM = vlm || !media.isEmpty
-        service.kvBits = kvBits
-        if let prefillStepSize { service.prefillStepSize = prefillStepSize }
-        service.kvEvictionPolicy = kvEviction ?? "none"
-        service.enablePrefixCaching = enablePrefixCaching
-        service.mtpEnabled = mtp
-        service.mtpDepth = mtpDepth
-        service.eagle3DrafterPath = eagle3
-        service.cacheProfilePath = cacheProfilePath
-        service.enableGrammarConstraints = enableGrammarConstraints
-        // --concurrent N: 0 or 1 silently falls back to serial; nil = serial; 2+ = batch mode
-        let maxConcurrent = concurrent ?? 0
-        service.maxConcurrent = (maxConcurrent >= 2) ? maxConcurrent : 0
-        service.trace = vv
-        service.gpuCapturePath = gpuCapture
-        service.gpuTraceDuration = gpuTrace
-        service.gpuProfile = gpuProfile || gpuProfileBw
-        service.gpuProfileBandwidth = gpuProfileBw
 
         // Parse --default-chat-template-kwargs and --no-think into defaultChatTemplateKwargs
         var parsedKwargs: [String: Any] = [:]
@@ -551,13 +530,11 @@ struct MlxCommand: ParsableCommand {
                 throw ExitCode.failure
             }
         }
-        if !parsedKwargs.isEmpty {
-            service.defaultChatTemplateKwargs = parsedKwargs
-        }
 
+        var defaultGuidedJsonSchema: ResponseFormat?
         if let guidedJson {
             let schema = try parseGuidedJsonSchema(guidedJson)
-            service.defaultGuidedJsonSchema = ResponseFormat(type: "json_schema", jsonSchema: schema)
+            defaultGuidedJsonSchema = ResponseFormat(type: "json_schema", jsonSchema: schema)
         }
 
         let rawModel: String
@@ -587,7 +564,37 @@ struct MlxCommand: ParsableCommand {
             throw ExitCode.failure
         }
 
-        let selectedModel = service.normalizeModel(rawModel)
+        let runtimeConfiguration = AFMMLXRuntimeConfiguration(
+            kvBits: kvBits,
+            enablePrefixCaching: enablePrefixCaching,
+            mtpEnabled: mtp,
+            mtpDepth: mtpDepth,
+            eagle3DrafterPath: eagle3,
+            maxConcurrent: concurrent ?? 0,
+            toolCallParser: toolCallParser,
+            enableGrammarConstraints: enableGrammarConstraints,
+            prefillStepSize: prefillStepSize,
+            kvEvictionPolicy: kvEviction ?? "none",
+            fixToolArguments: fixToolArgs,
+            forceVLM: vlm || !media.isEmpty,
+            cacheProfilePath: cacheProfilePath,
+            trace: vv,
+            gpuCapturePath: gpuCapture,
+            gpuTraceDuration: gpuTrace,
+            gpuProfile: gpuProfile || gpuProfileBw,
+            gpuProfileBandwidth: gpuProfileBw,
+            defaultChatTemplateKwargs: parsedKwargs.isEmpty
+                ? nil
+                : try parsedKwargs.mapValues { try Self.afmJSONValue(from: $0) },
+            defaultGuidedJsonSchema: defaultGuidedJsonSchema
+        )
+        let runtime = AFMMLXRuntime(
+            modelID: rawModel,
+            configuration: runtimeConfiguration,
+            resolver: resolver
+        )
+        let selectedModel = runtime.modelID
+        let service = runtime.service
 
         if openclawConfig {
             let chosenPort = port ?? 9999
@@ -676,24 +683,18 @@ struct MlxCommand: ParsableCommand {
             do {
                 let loadReporter = MLXLoadReporter(modelID: selectedModel)
                 loadReporter.start()
-                _ = try await service.ensureLoaded(
-                    model: selectedModel,
+                _ = try await runtime.load(
                     progress: { p in loadReporter.updateDownload(p) },
                     stage: { s in loadReporter.updateStage(s) }
                 )
                 loadReporter.finish(success: true)
-                // Initialize concurrent scheduler after model is loaded
-                try await service.initScheduler()
                 // Prewarm MLX Metal kernels (prefill + decode + gated-delta step) so the FIRST
                 // real request doesn't pay the one-time ~0.35s graph/kernel compilation that
                 // otherwise inflates time-to-first-token. Best-effort; never blocks serving.
                 if prewarmEnabled {
                     let prewarmStart = Date()
                     do {
-                        _ = try await service.generate(
-                            model: selectedModel,
-                            messages: [Message(role: "user", content: "warmup")],
-                            temperature: 0, maxTokens: 4, topP: nil, repetitionPenalty: nil)
+                        try await runtime.prewarm()
                         if verbose {
                             print("MLX prewarm complete in \(String(format: "%.2f", Date().timeIntervalSince(prewarmStart)))s")
                         }
