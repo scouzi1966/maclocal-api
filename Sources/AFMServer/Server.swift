@@ -287,6 +287,10 @@ public class Server: @unchecked Sendable {
     }
     
     private func routes() throws {
+        let mlxChatService = mlxModelService.map {
+            AFMKitMLXChatServingAdapter(service: $0)
+        }
+
         app.get("health") { req async -> HealthResponse in
             return HealthResponse(
                 status: "healthy",
@@ -422,14 +426,15 @@ public class Server: @unchecked Sendable {
         // POST /v1/tokenize, /v1/count_tokens — agent token-budgeting endpoints (T1.6).
         try app.register(collection: TokenizeController(
             mlxModelID: mlxModelID,
-            mlxModelService: mlxModelService,
+            tokenizer: mlxChatService,
             contextWindow: contextWindow
         ))
         // GET /openapi.json + /docs — schema discovery for self-configuring agents (T1.7).
         try app.register(collection: OpenAPIController())
 
-        if let mlxModelID = mlxModelID, let mlxModelService = mlxModelService {
-            let mlxChatService = AFMKitMLXChatServingAdapter(service: mlxModelService)
+        if let mlxModelID = mlxModelID,
+           let mlxModelService = mlxModelService,
+           let mlxChatService {
             let mlxController = MLXChatCompletionsController(
                 streamingEnabled: streamingEnabled,
                 modelID: mlxModelID,
@@ -454,7 +459,7 @@ public class Server: @unchecked Sendable {
             let batchStore = BatchStore()
 
             let batchAPIController = BatchAPIController(
-                service: mlxModelService,
+                service: mlxChatService,
                 store: batchStore,
                 modelID: mlxModelID,
                 temperature: temperature,
@@ -470,7 +475,7 @@ public class Server: @unchecked Sendable {
             try app.register(collection: batchAPIController)
 
             let batchCompletionsController = BatchCompletionsController(
-                service: mlxModelService,
+                service: mlxChatService,
                 modelID: mlxModelID,
                 temperature: temperature,
                 topP: mlxTopP,

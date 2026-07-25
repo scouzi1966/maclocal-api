@@ -3,7 +3,7 @@ import AFMKit
 
 /// Bridges the existing OpenAI-compatible HTTP controllers onto AFMKit while
 /// preserving their current `MLXChatServing` contract.
-final class AFMKitMLXChatServingAdapter: MLXChatServing {
+final class AFMKitMLXChatServingAdapter: MLXChatServing, AFMTextTokenizing {
     private let service: MLXModelService
     private let resolver: MLXCacheResolver
 
@@ -45,6 +45,14 @@ final class AFMKitMLXChatServingAdapter: MLXChatServing {
 
     func releaseSlot() {
         service.releaseSlot()
+    }
+
+    func tokenize(text: String) async throws -> [Int] {
+        do {
+            return try await service.tokenize(text: text)
+        } catch MLXServiceError.noModelLoaded {
+            throw AFMError.unsupportedCapability("tokenization without a loaded model")
+        }
     }
 
     func ensureBatchMode(concurrency: Int) async throws {

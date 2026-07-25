@@ -18,6 +18,14 @@ public protocol AFMModel: Sendable {
     func unload() async
 }
 
+/// Optional capability for providers that expose their model tokenizer.
+///
+/// Tokenization is intentionally separate from `AFMModel`: Apple's Foundation
+/// Models API does not expose token IDs, while local providers such as MLX do.
+public protocol AFMTextTokenizing: Sendable {
+    func tokenize(text: String) async throws -> [Int]
+}
+
 public extension AFMModel {
     func load() async throws -> AFMModelDescriptor {
         try await load(progress: nil)

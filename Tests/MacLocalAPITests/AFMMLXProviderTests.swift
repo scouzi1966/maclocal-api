@@ -12,6 +12,12 @@ final class AFMMLXProviderTests: XCTestCase {
         XCTAssertTrue(descriptor.configurationKeys.contains("maxConcurrent"))
     }
 
+    func testMLXModelExposesPortableTokenizationCapability() {
+        let model = AFMMLXModel(modelID: "test/model")
+
+        XCTAssertTrue(model is any AFMTextTokenizing)
+    }
+
     func testDescriptorInfersCapabilitiesFromModelAssets() throws {
         let root = try makeModelCache(
             config: [

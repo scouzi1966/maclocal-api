@@ -15,12 +15,16 @@ import Foundation
 /// with `error.code: "tokenize_unsupported"` when no MLX model is loaded.
 struct TokenizeController: RouteCollection {
     private let mlxModelID: String?
-    private let mlxModelService: MLXModelService?
+    private let tokenizer: (any AFMTextTokenizing)?
     private let contextWindow: Int?
 
-    init(mlxModelID: String?, mlxModelService: MLXModelService?, contextWindow: Int?) {
+    init(
+        mlxModelID: String?,
+        tokenizer: (any AFMTextTokenizing)?,
+        contextWindow: Int?
+    ) {
         self.mlxModelID = mlxModelID
-        self.mlxModelService = mlxModelService
+        self.tokenizer = tokenizer
         self.contextWindow = contextWindow
     }
 
@@ -69,22 +73,19 @@ struct TokenizeController: RouteCollection {
     // MARK: - Internals
 
     private func encode(_ text: String, requestedModel: String?, on req: Request) async throws -> [Int] {
-        guard let service = mlxModelService else {
+        guard let tokenizer else {
             throw TokenizeUnsupportedError(requestId: req.afmRequestID)
         }
         // Optional sanity check: if a specific model id was requested, warn if
         // it doesn't match the loaded one (don't fail — agents often pass aliases).
         if let requestedModel,
            let loaded = mlxModelID,
-           service.normalizeModel(requestedModel) != loaded {
+           requestedModel != loaded {
             req.logger.info("tokenize: requested model '\(requestedModel)' differs from loaded '\(loaded)'; tokenizing with the loaded one")
         }
         do {
-            return try await service.tokenize(text: text)
-        } catch MLXServiceError.noModelLoaded {
-            // Service exists but its container went away (e.g. teardown). Surface
-            // the same OpenAI-shaped 422 the no-MLX-mode path uses, instead of
-            // letting the raw MLX error escape and bypass our error middleware.
+            return try await tokenizer.tokenize(text: text)
+        } catch AFMError.unsupportedCapability {
             throw TokenizeUnsupportedError(requestId: req.afmRequestID)
         }
     }
