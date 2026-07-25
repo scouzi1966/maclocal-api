@@ -56,6 +56,7 @@ xcuserdata/
 *.log
 afm_full_test_log_*.txt
 afm_test_log_*.txt
+test-reports/
 
 # Test files
 Scripts/regression-report-*.html
@@ -97,3 +98,10 @@ vendor/llama.cpp/tools/server/public/
 .codex/*secret*
 .codex/*auth*.json
 /default.metallib
+
+# Generated local artifacts
+__pycache__/
+*.pyc
+/.claude/scheduled_tasks.lock
+/afm-next-arm64.tar.gz
+*.prebuilt-backup
