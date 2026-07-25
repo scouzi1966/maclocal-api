@@ -1,5 +1,13 @@
 import Foundation
 import AFMKitCore
+import Hub
+import HuggingFace
+
+public typealias AFMMLXModelDownloadSnapshot = @Sendable (
+    _ modelID: String,
+    _ matching: [String],
+    _ progress: (@Sendable (Progress) -> Void)?
+) async throws -> URL
 
 public enum AFMMLXModelOrigin: String, Hashable, Sendable {
     case configuredCache
@@ -102,14 +110,33 @@ public struct AFMMLXModelDeleteResult: Hashable, Sendable {
     }
 }
 
+public struct AFMMLXModelDownloadResult: Hashable, Sendable {
+    public var requestedID: String
+    public var downloadedDirectory: URL
+    public var loadReference: AFMMLXModelLoadReference
+
+    public init(
+        requestedID: String,
+        downloadedDirectory: URL,
+        loadReference: AFMMLXModelLoadReference
+    ) {
+        self.requestedID = requestedID
+        self.downloadedDirectory = downloadedDirectory
+        self.loadReference = loadReference
+    }
+}
+
 public enum AFMMLXModelStoreError: Error, LocalizedError, Sendable {
     case modelNotFound(String)
+    case invalidRepositoryID(String)
     case refusingToDeleteEmptyPath
 
     public var errorDescription: String? {
         switch self {
         case .modelNotFound(let modelID):
             return "No complete local MLX model was found for \(modelID)."
+        case .invalidRepositoryID(let modelID):
+            return "\(modelID) is not a valid Hugging Face repository ID."
         case .refusingToDeleteEmptyPath:
             return "Refusing to delete an empty model path."
         }
@@ -122,10 +149,27 @@ public enum AFMMLXModelStoreError: Error, LocalizedError, Sendable {
 /// registries, then use this store as the single source of truth for whether
 /// those identifiers resolve to complete local model assets.
 public struct AFMMLXModelStore: Sendable {
-    private let resolver: MLXCacheResolver
+    public static let defaultDownloadPatterns = [
+        "*.json",
+        "*.jinja",
+        "*.safetensors",
+        "*.txt",
+        "*.model",
+        "*.tiktoken",
+        "tokenizer*",
+        "*.bpe",
+        "*.bin"
+    ]
 
-    public init(resolver: MLXCacheResolver = .init()) {
+    private let resolver: MLXCacheResolver
+    private let downloadSnapshot: AFMMLXModelDownloadSnapshot
+
+    public init(
+        resolver: MLXCacheResolver = .init(),
+        downloadSnapshot: AFMMLXModelDownloadSnapshot? = nil
+    ) {
         self.resolver = resolver
+        self.downloadSnapshot = downloadSnapshot ?? Self.downloadSnapshot
     }
 
     /// Returns the complete local model directory for an identifier or path.
@@ -198,6 +242,46 @@ public struct AFMMLXModelStore: Sendable {
             removedDirectory: directory,
             deleted: false
         )
+    }
+
+    /// Downloads a Hugging Face MLX model into the shared AFMKit/Hugging Face
+    /// cache and returns the same load reference hosts should pass to MLX.
+    /// If a complete local package already exists, this returns immediately
+    /// without invoking the downloader.
+    public func downloadModelPackage(
+        for modelID: String,
+        matching patterns: [String] = Self.defaultDownloadPatterns,
+        progress: (@Sendable (Progress) -> Void)? = nil
+    ) async throws -> AFMMLXModelDownloadResult {
+        let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw AFMMLXModelStoreError.invalidRepositoryID(modelID)
+        }
+        guard !isPathLike(trimmed),
+              HuggingFace.Repo.ID(rawValue: trimmed) != nil else {
+            throw AFMMLXModelStoreError.invalidRepositoryID(trimmed)
+        }
+
+        if let reference = loadReference(for: trimmed) {
+            return AFMMLXModelDownloadResult(
+                requestedID: trimmed,
+                downloadedDirectory: reference.localDirectory,
+                loadReference: reference
+            )
+        }
+
+        let downloadedDirectory = try await downloadSnapshot(trimmed, patterns, progress)
+        try? MLXModelRegistry().registerModel(trimmed)
+
+        if let reference = loadReference(for: trimmed) ?? loadReference(for: downloadedDirectory.path) {
+            return AFMMLXModelDownloadResult(
+                requestedID: trimmed,
+                downloadedDirectory: downloadedDirectory,
+                loadReference: reference
+            )
+        }
+
+        throw AFMMLXModelStoreError.modelNotFound(trimmed)
     }
 
     /// Describes a model using the same assets and capability inference as the
@@ -472,6 +556,23 @@ public struct AFMMLXModelStore: Sendable {
             return parent.deletingLastPathComponent()
         }
         return localDirectory
+    }
+
+    private static func downloadSnapshot(
+        modelID: String,
+        matching patterns: [String],
+        progress: (@Sendable (Progress) -> Void)?
+    ) async throws -> URL {
+        guard let repoID = HuggingFace.Repo.ID(rawValue: modelID) else {
+            throw AFMMLXModelStoreError.invalidRepositoryID(modelID)
+        }
+        let cache = HubCache(cacheDirectory: MLXModelService.resolveHFHubCache())
+        let client = HuggingFace.HubClient(cache: cache)
+        return try await client.downloadSnapshot(
+            of: repoID,
+            matching: patterns,
+            progressHandler: progress
+        )
     }
 
     private func isPathLike(_ modelID: String) -> Bool {

@@ -134,6 +134,72 @@ final class AFMMLXModelStoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: package.path))
     }
 
+    func testDownloadModelPackageSkipsDownloaderWhenAlreadyCached() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let directory = root.appendingPathComponent("models/org/cached")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeModel(at: directory)
+
+        final class DownloadProbe: @unchecked Sendable {
+            var called = false
+        }
+        let probe = DownloadProbe()
+        let store = AFMMLXModelStore(
+            resolver: MLXCacheResolver(cacheRoot: root),
+            downloadSnapshot: { _, _, _ in
+                probe.called = true
+                return directory
+            }
+        )
+
+        let result = try await store.downloadModelPackage(for: "org/cached")
+
+        XCTAssertFalse(probe.called)
+        XCTAssertEqual(result.loadReference.loadIdentifier, "org/cached")
+        XCTAssertEqual(result.loadReference.localDirectory.path, directory.path)
+    }
+
+    func testDownloadModelPackageInvokesDownloaderAndReturnsLoadReference() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let directory = root.appendingPathComponent("models/org/downloaded")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        final class DownloadProbe: @unchecked Sendable {
+            var progressSeen = false
+        }
+        let probe = DownloadProbe()
+        let store = AFMMLXModelStore(
+            resolver: MLXCacheResolver(cacheRoot: root),
+            downloadSnapshot: { modelID, matching, progress in
+                XCTAssertEqual(modelID, "org/downloaded")
+                XCTAssertTrue(matching.contains("*.safetensors"))
+                progress?(Progress(totalUnitCount: 1))
+                probe.progressSeen = true
+                try FileManager.default.createDirectory(
+                    at: directory,
+                    withIntermediateDirectories: true
+                )
+                try JSONSerialization.data(withJSONObject: [:]).write(
+                    to: directory.appendingPathComponent("config.json")
+                )
+                try Data("weights".utf8).write(
+                    to: directory.appendingPathComponent("weights.safetensors")
+                )
+                return directory
+            }
+        )
+
+        let result = try await store.downloadModelPackage(for: "org/downloaded")
+
+        XCTAssertTrue(probe.progressSeen)
+        XCTAssertEqual(result.requestedID, "org/downloaded")
+        XCTAssertEqual(result.downloadedDirectory.path, directory.path)
+        XCTAssertEqual(result.loadReference.loadIdentifier, "org/downloaded")
+        XCTAssertEqual(result.loadReference.localDirectory.path, directory.path)
+    }
+
     func testDiscoveryReturnsTypedFlatAndHuggingFaceModels() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
