@@ -35,6 +35,26 @@ public struct MLXStreamEventTranslator {
 
     public mutating func consume(_ chunk: StreamChunk) -> [AFMGenerationEvent] {
         var events = textEvents(from: chunk)
+        if let logprobs = chunk.logprobs, !logprobs.isEmpty {
+            events.append(
+                .tokenLogprobs(
+                    logprobs.map {
+                        AFMTokenLogProbability(
+                            token: $0.token,
+                            tokenID: $0.tokenId,
+                            logprob: $0.logprob,
+                            topTokens: $0.topTokens.map {
+                                AFMTopLogProbability(
+                                    token: $0.token,
+                                    tokenID: $0.tokenId,
+                                    logprob: $0.logprob
+                                )
+                            }
+                        )
+                    }
+                )
+            )
+        }
         events.append(contentsOf: toolEvents(from: chunk.toolCallDeltas ?? []))
         events.append(contentsOf: completedToolEvents(from: chunk.toolCalls ?? []))
 
@@ -53,6 +73,19 @@ public struct MLXStreamEventTranslator {
         }
         if chunk.stoppedBySequence == true {
             stoppedBySequence = true
+        }
+        var metadata: [String: AFMJSONValue] = [:]
+        if let promptTime = chunk.promptTime {
+            metadata["promptTime"] = .number(promptTime)
+        }
+        if let generateTime = chunk.generateTime {
+            metadata["generateTime"] = .number(generateTime)
+        }
+        if let stoppedBySequence = chunk.stoppedBySequence {
+            metadata["stoppedBySequence"] = .bool(stoppedBySequence)
+        }
+        if !metadata.isEmpty {
+            events.append(.metadata(metadata))
         }
         return events
     }

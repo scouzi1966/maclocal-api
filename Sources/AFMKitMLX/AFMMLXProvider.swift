@@ -71,32 +71,16 @@ public final class AFMMLXModel: AFMModel, @unchecked Sendable {
     public init(
         modelID: AFMModelID,
         configuration: AFMProviderConfiguration = .init(),
-        resolver: MLXCacheResolver = .init()
+        resolver: MLXCacheResolver = .init(),
+        service providedService: MLXModelService? = nil
     ) {
-        let service = MLXModelService(resolver: resolver)
-        service.kvBits = configuration.integer("kvBits")
-        service.enablePrefixCaching = configuration.bool("enablePrefixCaching") ?? true
-        service.mtpEnabled = configuration.bool("mtpEnabled") ?? false
-        service.mtpDepth = configuration.integer("mtpDepth") ?? 3
-        service.eagle3DrafterPath = configuration.string("eagle3DrafterPath")
-        service.toolCallParser = configuration.string("toolCallParser")
-        service.enableGrammarConstraints =
-            configuration.bool("enableGrammarConstraints") ?? false
-        service.prefillStepSize =
-            configuration.integer("prefillStepSize") ?? service.prefillStepSize
-        service.kvEvictionPolicy =
-            configuration.string("kvEvictionPolicy") ?? "none"
-        service.fixToolArgs = configuration.bool("fixToolArguments") ?? false
-        service.forceVLM = configuration.bool("forceVLM") ?? false
-        service.cacheProfilePath = configuration.string("cacheProfilePath")
-        service.trace = configuration.bool("trace") ?? false
-        service.gpuCapturePath = configuration.string("gpuCapturePath")
-        service.gpuTraceDuration = configuration.integer("gpuTraceDuration")
-        service.gpuProfile = configuration.bool("gpuProfile") ?? false
-        service.gpuProfileBandwidth =
-            configuration.bool("gpuProfileBandwidth") ?? false
-        let maxConcurrent = max(0, configuration.integer("maxConcurrent") ?? 0)
-        service.maxConcurrent = maxConcurrent
+        let service = providedService ?? MLXModelService(resolver: resolver)
+        Self.configure(
+            service,
+            with: configuration,
+            applyingDefaults: providedService == nil
+        )
+        let maxConcurrent = max(0, service.maxConcurrent)
 
         self.service = service
         self.modelID = service.normalizeModel(modelID.rawValue)
@@ -105,6 +89,89 @@ public final class AFMMLXModel: AFMModel, @unchecked Sendable {
             modelID: self.modelID,
             resolver: resolver
         )
+    }
+
+    private static func configure(
+        _ service: MLXModelService,
+        with configuration: AFMProviderConfiguration,
+        applyingDefaults: Bool
+    ) {
+        if let value = configuration.integer("kvBits") {
+            service.kvBits = value
+        }
+        if let value = configuration.bool("enablePrefixCaching") {
+            service.enablePrefixCaching = value
+        } else if applyingDefaults {
+            service.enablePrefixCaching = true
+        }
+        if let value = configuration.bool("mtpEnabled") {
+            service.mtpEnabled = value
+        } else if applyingDefaults {
+            service.mtpEnabled = false
+        }
+        if let value = configuration.integer("mtpDepth") {
+            service.mtpDepth = value
+        } else if applyingDefaults {
+            service.mtpDepth = 3
+        }
+        if let value = configuration.string("eagle3DrafterPath") {
+            service.eagle3DrafterPath = value
+        }
+        if let value = configuration.string("toolCallParser") {
+            service.toolCallParser = value
+        }
+        if let value = configuration.bool("enableGrammarConstraints") {
+            service.enableGrammarConstraints = value
+        } else if applyingDefaults {
+            service.enableGrammarConstraints = false
+        }
+        if let value = configuration.integer("prefillStepSize") {
+            service.prefillStepSize = value
+        }
+        if let value = configuration.string("kvEvictionPolicy") {
+            service.kvEvictionPolicy = value
+        } else if applyingDefaults {
+            service.kvEvictionPolicy = "none"
+        }
+        if let value = configuration.bool("fixToolArguments") {
+            service.fixToolArgs = value
+        } else if applyingDefaults {
+            service.fixToolArgs = false
+        }
+        if let value = configuration.bool("forceVLM") {
+            service.forceVLM = value
+        } else if applyingDefaults {
+            service.forceVLM = false
+        }
+        if let value = configuration.string("cacheProfilePath") {
+            service.cacheProfilePath = value
+        }
+        if let value = configuration.bool("trace") {
+            service.trace = value
+        } else if applyingDefaults {
+            service.trace = false
+        }
+        if let value = configuration.string("gpuCapturePath") {
+            service.gpuCapturePath = value
+        }
+        if let value = configuration.integer("gpuTraceDuration") {
+            service.gpuTraceDuration = value
+        }
+        if let value = configuration.bool("gpuProfile") {
+            service.gpuProfile = value
+        } else if applyingDefaults {
+            service.gpuProfile = false
+        }
+        if let value = configuration.bool("gpuProfileBandwidth") {
+            service.gpuProfileBandwidth = value
+        } else if applyingDefaults {
+            service.gpuProfileBandwidth = false
+        }
+        if let value = configuration.integer("maxConcurrent") {
+            service.maxConcurrent = max(0, value)
+        } else if applyingDefaults {
+            service.maxConcurrent = 0
+        }
     }
 
     public func availability() async -> AFMModelAvailability {
@@ -147,6 +214,7 @@ public final class AFMMLXModel: AFMModel, @unchecked Sendable {
                 logprobs: request.options.logprobs,
                 topLogprobs: request.options.topLogprobs,
                 tools: tools,
+                parallelToolCalls: request.parallelToolCalls,
                 stop: request.options.stopSequences,
                 responseFormat: request.openAIResponseFormat(),
                 chatTemplateKwargs: request.chatTemplateKwargs()
@@ -190,7 +258,13 @@ public final class AFMMLXModel: AFMModel, @unchecked Sendable {
                             )
                         }
                     )
-                }
+                },
+                metadata: [
+                    "modelID": .string(result.modelID),
+                    "promptTime": .number(result.promptTime),
+                    "generateTime": .number(result.generateTime),
+                    "stoppedBySequence": .bool(result.stoppedBySequence)
+                ]
             )
         } catch let error as AFMError {
             throw error
@@ -221,6 +295,7 @@ public final class AFMMLXModel: AFMModel, @unchecked Sendable {
                         logprobs: request.options.logprobs,
                         topLogprobs: request.options.topLogprobs,
                         tools: tools,
+                        parallelToolCalls: request.parallelToolCalls,
                         stop: request.options.stopSequences,
                         responseFormat: request.openAIResponseFormat(),
                         chatTemplateKwargs: request.chatTemplateKwargs(),
@@ -408,6 +483,13 @@ private extension AFMRequest {
     var includeSchemaInPrompt: Bool {
         guard case .bool(let value)? = metadata["includeSchemaInPrompt"] else {
             return true
+        }
+        return value
+    }
+
+    var parallelToolCalls: Bool? {
+        guard case .bool(let value)? = metadata["parallelToolCalls"] else {
+            return nil
         }
         return value
     }

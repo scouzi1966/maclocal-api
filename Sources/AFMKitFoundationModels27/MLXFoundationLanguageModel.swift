@@ -212,6 +212,8 @@ public final class MLXLanguageModelExecutor: LanguageModelExecutor, @unchecked S
                 await channel.send(
                     .reasoning(action: .appendText(text, tokenCount: tokenCount))
                 )
+            case .tokenLogprobs:
+                continue
             case .toolCall(let call, let stage):
                 switch stage {
                 case .started:

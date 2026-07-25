@@ -374,6 +374,7 @@ public enum AFMToolCallStage: Hashable, Sendable {
 public enum AFMGenerationEvent: Hashable, Sendable {
     case responseText(action: AFMTextUpdateAction, text: String, tokenCount: Int)
     case reasoningText(action: AFMTextUpdateAction, text: String, tokenCount: Int)
+    case tokenLogprobs([AFMTokenLogProbability])
     case toolCall(call: AFMToolCall, stage: AFMToolCallStage)
     case usage(AFMUsage)
     case metadata([String: AFMJSONValue])

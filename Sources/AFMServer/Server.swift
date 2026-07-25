@@ -429,10 +429,11 @@ public class Server: @unchecked Sendable {
         try app.register(collection: OpenAPIController())
 
         if let mlxModelID = mlxModelID, let mlxModelService = mlxModelService {
+            let mlxChatService = AFMKitMLXChatServingAdapter(service: mlxModelService)
             let mlxController = MLXChatCompletionsController(
                 streamingEnabled: streamingEnabled,
                 modelID: mlxModelID,
-                service: mlxModelService,
+                service: mlxChatService,
                 temperature: temperature,
                 topP: mlxTopP,
                 maxTokens: mlxMaxTokens,

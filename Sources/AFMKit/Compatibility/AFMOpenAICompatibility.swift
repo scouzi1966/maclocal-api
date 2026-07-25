@@ -3,7 +3,7 @@ import AFMKitCore
 import AFMOpenAICompat
 
 extension AFMRequest {
-    init(openAIMessages: [Message], generationConfig: GenerationConfig) throws {
+    public init(openAIMessages: [Message], generationConfig: GenerationConfig) throws {
         let messages = try openAIMessages.map(AFMMessage.init(openAIMessage:))
         let tools = (generationConfig.tools ?? []).map { tool in
             AFMToolDefinition(
@@ -182,7 +182,10 @@ extension AFMResponse {
                 )
             },
             promptTokens: modelResponse.usage.inputTokens,
-            completionTokens: modelResponse.usage.outputTokens
+            cachedPromptTokens: modelResponse.usage.cachedInputTokens,
+            completionTokens: modelResponse.usage.outputTokens,
+            finishReason: modelResponse.finishReason,
+            metadata: modelResponse.metadata
         )
     }
 }

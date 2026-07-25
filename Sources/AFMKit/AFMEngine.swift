@@ -191,14 +191,30 @@ public struct AFMResponse: Sendable {
     /// Per-token logprobs, when `GenerationConfig.logprobs == true` (MLX backend).
     public let logprobs: [ResolvedLogprob]?
     public let promptTokens: Int
+    public let cachedPromptTokens: Int
     public let completionTokens: Int
-    public init(content: String, reasoningContent: String? = nil, toolCalls: [ResponseToolCall]? = nil, logprobs: [ResolvedLogprob]? = nil, promptTokens: Int = 0, completionTokens: Int = 0) {
+    public let finishReason: AFMFinishReason
+    public let metadata: [String: AFMJSONValue]
+    public init(
+        content: String,
+        reasoningContent: String? = nil,
+        toolCalls: [ResponseToolCall]? = nil,
+        logprobs: [ResolvedLogprob]? = nil,
+        promptTokens: Int = 0,
+        cachedPromptTokens: Int = 0,
+        completionTokens: Int = 0,
+        finishReason: AFMFinishReason = .stop,
+        metadata: [String: AFMJSONValue] = [:]
+    ) {
         self.content = content
         self.reasoningContent = reasoningContent
         self.toolCalls = toolCalls
         self.logprobs = logprobs
         self.promptTokens = promptTokens
+        self.cachedPromptTokens = cachedPromptTokens
         self.completionTokens = completionTokens
+        self.finishReason = finishReason
+        self.metadata = metadata
     }
 }
 
@@ -207,6 +223,7 @@ public struct AFMResponse: Sendable {
 public enum AFMStreamEvent: Sendable {
     case text(String, tokenCount: Int)
     case reasoning(String, tokenCount: Int)
+    case tokenLogprobs([AFMTokenLogProbability])
     case toolCall(AFMToolCall, stage: AFMToolCallStage)
     case usage(promptTokens: Int, completionTokens: Int, cachedTokens: Int)
     case metadata([String: AFMJSONValue])
@@ -388,6 +405,8 @@ public actor AFMEngine {
             return .text(text, tokenCount: tokenCount)
         case .reasoningText(_, let text, let tokenCount):
             return .reasoning(text, tokenCount: tokenCount)
+        case .tokenLogprobs(let values):
+            return .tokenLogprobs(values)
         case .toolCall(let call, let stage):
             return .toolCall(call, stage: stage)
         case .usage(let usage):
