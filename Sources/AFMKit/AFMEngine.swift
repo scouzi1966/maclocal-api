@@ -61,6 +61,28 @@ public struct EngineConfig: Sendable {
     }
 }
 
+private extension EngineConfig {
+    var mlxProviderConfiguration: AFMProviderConfiguration {
+        var values: [String: AFMJSONValue] = [
+            "enablePrefixCaching": .bool(enablePrefixCaching),
+            "mtpEnabled": .bool(mtpEnabled),
+            "mtpDepth": .integer(mtpDepth),
+            "enableGrammarConstraints": .bool(enableGrammarConstraints),
+            "maxConcurrent": .integer(maxConcurrent)
+        ]
+        if let kvBits {
+            values["kvBits"] = .integer(kvBits)
+        }
+        if let eagle3DrafterPath {
+            values["eagle3DrafterPath"] = .string(eagle3DrafterPath)
+        }
+        if let toolCallParser {
+            values["toolCallParser"] = .string(toolCallParser)
+        }
+        return AFMProviderConfiguration(values: values)
+    }
+}
+
 /// Per-request generation parameters — the same knobs exposed as CLI flags
 /// (`--temperature`, `--top-p`, …) and OpenAI request fields, as a value type.
 public struct GenerationConfig: Sendable {
@@ -159,9 +181,7 @@ public actor AFMEngine {
     public let backend: AFMBackend
     private let engineConfig: EngineConfig
 
-    private let mlx: MLXModelService?
     private let registeredModel: AnyAFMModel?
-    private var resolvedModelID: String?
 
     // Foundation Models backend is created lazily on first use (macOS 26+ only).
     private var foundationService: Any?
@@ -170,23 +190,14 @@ public actor AFMEngine {
         self.backend = backend
         self.engineConfig = config
         switch backend {
-        case .mlx:
-            let service = MLXModelService(resolver: MLXCacheResolver())
-            service.kvBits = config.kvBits
-            service.enablePrefixCaching = config.enablePrefixCaching
-            service.mtpEnabled = config.mtpEnabled
-            service.mtpDepth = config.mtpDepth
-            service.eagle3DrafterPath = config.eagle3DrafterPath
-            service.enableGrammarConstraints = config.enableGrammarConstraints
-            service.toolCallParser = config.toolCallParser
-            service.maxConcurrent = config.maxConcurrent
-            self.mlx = service
-            self.registeredModel = nil
+        case .mlx(let modelID):
+            self.registeredModel = try? AFMMLXProviderFactory().makeModel(
+                id: AFMModelID(rawValue: modelID),
+                configuration: config.mlxProviderConfiguration
+            )
         case .foundationModels:
-            self.mlx = nil
             self.registeredModel = nil
         case .provider(let providerID, let modelID):
-            self.mlx = nil
             self.registeredModel = try? AFMProviderRegistry.shared.makeModel(
                 providerID: providerID,
                 modelID: modelID
@@ -207,7 +218,6 @@ public actor AFMEngine {
     ) throws {
         backend = .provider(providerID: providerID, modelID: modelID)
         self.engineConfig = engineConfig
-        mlx = nil
         registeredModel = try registry.makeModel(
             providerID: providerID,
             modelID: modelID,
@@ -220,62 +230,21 @@ public actor AFMEngine {
     @discardableResult
     public func load(progress: (@Sendable (Double) -> Void)? = nil) async throws -> String {
         switch backend {
-        case .mlx(let modelID):
-            guard let mlx else { throw AFMEngineError.backendUnavailable }
-            // Point MLX at the bundled default.metallib (the CLI does this at startup;
-            // library consumers must too, else MLX reports "Failed to load the default metallib").
-            try MLXMetalLibrary.ensureAvailable(verbose: false)
-            let resolved = try await mlx.ensureLoaded(model: modelID, progress: { p in
-                progress?(p.fractionCompleted)
-            })
-            resolvedModelID = resolved
-            if engineConfig.maxConcurrent >= 2 { try await mlx.initScheduler() }
-            return resolved
-        case .foundationModels:
-            try await ensureFoundation()
-            return "apple-foundation-model"
-        case .provider:
+        case .mlx, .provider:
             guard let registeredModel else {
                 throw AFMEngineError.backendUnavailable
             }
             return try await registeredModel.load(progress: progress).modelID.rawValue
+        case .foundationModels:
+            try await ensureFoundation()
+            return "apple-foundation-model"
         }
     }
 
     /// Generate a single (non-streaming) response for a chat transcript.
     public func respond(to messages: [Message], _ config: GenerationConfig = GenerationConfig()) async throws -> AFMResponse {
         switch backend {
-        case .mlx(let modelID):
-            guard let mlx else { throw AFMEngineError.backendUnavailable }
-            let r = try await mlx.generate(
-                model: resolvedModelID ?? modelID,
-                messages: messages,
-                temperature: config.temperature,
-                maxTokens: config.maxTokens,
-                topP: config.topP,
-                repetitionPenalty: config.repetitionPenalty,
-                topK: config.topK,
-                minP: config.minP,
-                presencePenalty: config.presencePenalty,
-                seed: config.seed,
-                logprobs: config.logprobs,
-                topLogprobs: config.topLogprobs,
-                tools: config.tools,
-                stop: config.stop,
-                responseFormat: config.responseFormat,
-                chatTemplateKwargs: nil
-            )
-            return AFMResponse(
-                content: r.content,
-                toolCalls: r.toolCalls,
-                logprobs: r.tokenLogprobs,
-                promptTokens: r.promptTokens,
-                completionTokens: r.completionTokens
-            )
-        case .foundationModels:
-            let text = try await foundationGenerate(messages: messages, config: config)
-            return AFMResponse(content: text)
-        case .provider:
+        case .mlx, .provider:
             guard let registeredModel else {
                 throw AFMEngineError.backendUnavailable
             }
@@ -286,11 +255,11 @@ public actor AFMEngine {
             return AFMResponse(
                 modelResponse: try await registeredModel.respond(to: request)
             )
+        case .foundationModels:
+            let text = try await foundationGenerate(messages: messages, config: config)
+            return AFMResponse(content: text)
         }
     }
-
-    /// The canonical model id once loaded, else the requested id (actor-isolated read).
-    private func currentModelID(_ fallback: String) -> String { resolvedModelID ?? fallback }
 
     /// Stream response deltas and final token usage. `nonisolated` so external
     /// callers can start a stream without `await`; the work re-enters the actor.
@@ -302,49 +271,7 @@ public actor AFMEngine {
             let task = Task {
                 do {
                     switch backend {
-                    case .mlx(let modelID):
-                        guard let mlx else { throw AFMEngineError.backendUnavailable }
-                        let resolved = await currentModelID(modelID)
-                        let result = try await mlx.generateStreaming(
-                            model: resolved,
-                            messages: messages,
-                            temperature: config.temperature,
-                            maxTokens: config.maxTokens,
-                            topP: config.topP,
-                            repetitionPenalty: config.repetitionPenalty,
-                            topK: config.topK,
-                            minP: config.minP,
-                            presencePenalty: config.presencePenalty,
-                            seed: config.seed,
-                            logprobs: config.logprobs,
-                            topLogprobs: config.topLogprobs,
-                            tools: config.tools,
-                            stop: config.stop,
-                            responseFormat: config.responseFormat,
-                            chatTemplateKwargs: nil,
-                            requestId: nil
-                        )
-                        var translator = MLXStreamEventTranslator(
-                            thinkStartTag: result.thinkStartTag,
-                            thinkEndTag: result.thinkEndTag,
-                            maximumResponseTokens: config.maxTokens
-                        )
-                        for try await chunk in result.stream {
-                            if Task.isCancelled { break }
-                            for event in translator.consume(chunk) {
-                                continuation.yield(Self.streamEvent(from: event))
-                            }
-                        }
-                        for event in translator.finish() {
-                            continuation.yield(Self.streamEvent(from: event))
-                        }
-                        continuation.finish()
-                    case .foundationModels:
-                        let text = try await foundationGenerate(messages: messages, config: config)
-                        continuation.yield(.text(text, tokenCount: 0))
-                        continuation.yield(.completed(.stop))
-                        continuation.finish()
-                    case .provider:
+                    case .mlx, .provider:
                         guard let registeredModel else {
                             throw AFMEngineError.backendUnavailable
                         }
@@ -354,29 +281,13 @@ public actor AFMEngine {
                         )
                         for try await event in registeredModel.streamResponse(to: request) {
                             if Task.isCancelled { break }
-                            switch event {
-                            case .responseText(_, let text, let tokenCount):
-                                continuation.yield(.text(text, tokenCount: tokenCount))
-                            case .reasoningText(_, let text, let tokenCount):
-                                continuation.yield(.reasoning(text, tokenCount: tokenCount))
-                            case .toolCall(let call, let stage):
-                                continuation.yield(.toolCall(call, stage: stage))
-                            case .usage(let usage):
-                                continuation.yield(
-                                    .usage(
-                                        promptTokens: usage.inputTokens,
-                                        completionTokens: usage.outputTokens,
-                                        cachedTokens: usage.cachedInputTokens
-                                    )
-                                )
-                            case .metadata(let metadata):
-                                continuation.yield(.metadata(metadata))
-                            case .custom(let type, let payload):
-                                continuation.yield(.custom(type: type, payload: payload))
-                            case .completed(let reason):
-                                continuation.yield(.completed(reason))
-                            }
+                            continuation.yield(Self.streamEvent(from: event))
                         }
+                        continuation.finish()
+                    case .foundationModels:
+                        let text = try await foundationGenerate(messages: messages, config: config)
+                        continuation.yield(.text(text, tokenCount: 0))
+                        continuation.yield(.completed(.stop))
                         continuation.finish()
                     }
                 } catch {

@@ -206,6 +206,8 @@ public struct AFMGenerationOptions: Hashable, Sendable {
     public var repetitionPenalty: Double?
     public var presencePenalty: Double?
     public var seed: Int?
+    public var logprobs: Bool?
+    public var topLogprobs: Int?
     public var stopSequences: [String]
     public var responseConstraint: AFMResponseConstraint?
 
@@ -218,6 +220,8 @@ public struct AFMGenerationOptions: Hashable, Sendable {
         repetitionPenalty: Double? = nil,
         presencePenalty: Double? = nil,
         seed: Int? = nil,
+        logprobs: Bool? = nil,
+        topLogprobs: Int? = nil,
         stopSequences: [String] = [],
         responseConstraint: AFMResponseConstraint? = nil
     ) {
@@ -229,6 +233,8 @@ public struct AFMGenerationOptions: Hashable, Sendable {
         self.repetitionPenalty = repetitionPenalty
         self.presencePenalty = presencePenalty
         self.seed = seed
+        self.logprobs = logprobs
+        self.topLogprobs = topLogprobs
         self.stopSequences = stopSequences
         self.responseConstraint = responseConstraint
     }
@@ -294,12 +300,44 @@ public enum AFMFinishReason: String, Codable, Hashable, Sendable {
     case unknown
 }
 
+public struct AFMTopLogProbability: Hashable, Sendable {
+    public var token: String
+    public var tokenID: Int
+    public var logprob: Float
+
+    public init(token: String, tokenID: Int, logprob: Float) {
+        self.token = token
+        self.tokenID = tokenID
+        self.logprob = logprob
+    }
+}
+
+public struct AFMTokenLogProbability: Hashable, Sendable {
+    public var token: String
+    public var tokenID: Int
+    public var logprob: Float
+    public var topTokens: [AFMTopLogProbability]
+
+    public init(
+        token: String,
+        tokenID: Int,
+        logprob: Float,
+        topTokens: [AFMTopLogProbability] = []
+    ) {
+        self.token = token
+        self.tokenID = tokenID
+        self.logprob = logprob
+        self.topTokens = topTokens
+    }
+}
+
 public struct AFMModelResponse: Hashable, Sendable {
     public var text: String
     public var reasoning: String?
     public var toolCalls: [AFMToolCall]
     public var usage: AFMUsage
     public var finishReason: AFMFinishReason
+    public var tokenLogprobs: [AFMTokenLogProbability]?
     public var metadata: [String: AFMJSONValue]
 
     public init(
@@ -308,6 +346,7 @@ public struct AFMModelResponse: Hashable, Sendable {
         toolCalls: [AFMToolCall] = [],
         usage: AFMUsage = .init(),
         finishReason: AFMFinishReason = .stop,
+        tokenLogprobs: [AFMTokenLogProbability]? = nil,
         metadata: [String: AFMJSONValue] = [:]
     ) {
         self.text = text
@@ -315,6 +354,7 @@ public struct AFMModelResponse: Hashable, Sendable {
         self.toolCalls = toolCalls
         self.usage = usage
         self.finishReason = finishReason
+        self.tokenLogprobs = tokenLogprobs
         self.metadata = metadata
     }
 }

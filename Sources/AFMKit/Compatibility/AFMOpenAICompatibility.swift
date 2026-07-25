@@ -24,6 +24,8 @@ extension AFMRequest {
                 repetitionPenalty: generationConfig.repetitionPenalty,
                 presencePenalty: generationConfig.presencePenalty,
                 seed: generationConfig.seed,
+                logprobs: generationConfig.logprobs,
+                topLogprobs: generationConfig.topLogprobs,
                 stopSequences: generationConfig.stop ?? [],
                 responseConstraint: generationConfig.responseFormat?.afmConstraint
             )
@@ -162,6 +164,20 @@ extension AFMResponse {
                         name: call.name,
                         arguments: call.arguments
                     )
+                )
+            },
+            logprobs: modelResponse.tokenLogprobs?.map {
+                ResolvedLogprob(
+                    token: $0.token,
+                    tokenId: $0.tokenID,
+                    logprob: $0.logprob,
+                    topTokens: $0.topTokens.map {
+                        (
+                            token: $0.token,
+                            tokenId: $0.tokenID,
+                            logprob: $0.logprob
+                        )
+                    }
                 )
             },
             promptTokens: modelResponse.usage.inputTokens,

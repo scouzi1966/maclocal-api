@@ -23,7 +23,8 @@ public struct AFMMLXProviderFactory: AFMProviderFactory {
                 "mtpDepth",
                 "eagle3DrafterPath",
                 "maxConcurrent",
-                "toolCallParser"
+                "toolCallParser",
+                "enableGrammarConstraints"
             ],
             metadata: ["runtime": .string("mlx-swift")]
         )
@@ -69,6 +70,8 @@ public final class AFMMLXModel: AFMModel, @unchecked Sendable {
         service.mtpDepth = configuration.integer("mtpDepth") ?? 3
         service.eagle3DrafterPath = configuration.string("eagle3DrafterPath")
         service.toolCallParser = configuration.string("toolCallParser")
+        service.enableGrammarConstraints =
+            configuration.bool("enableGrammarConstraints") ?? false
         let maxConcurrent = max(0, configuration.integer("maxConcurrent") ?? 0)
         service.maxConcurrent = maxConcurrent
 
@@ -117,6 +120,8 @@ public final class AFMMLXModel: AFMModel, @unchecked Sendable {
                 minP: request.options.minP,
                 presencePenalty: request.options.presencePenalty,
                 seed: request.options.seed,
+                logprobs: request.options.logprobs,
+                topLogprobs: request.options.topLogprobs,
                 tools: request.openAITools(),
                 stop: request.options.stopSequences,
                 responseFormat: request.openAIResponseFormat(),
@@ -142,7 +147,21 @@ public final class AFMMLXModel: AFMModel, @unchecked Sendable {
                     cachedInputTokens: result.cachedTokens,
                     outputTokens: result.completionTokens
                 ),
-                finishReason: result.toolCalls?.isEmpty == false ? .toolCalls : .stop
+                finishReason: result.toolCalls?.isEmpty == false ? .toolCalls : .stop,
+                tokenLogprobs: result.tokenLogprobs?.map {
+                    AFMTokenLogProbability(
+                        token: $0.token,
+                        tokenID: $0.tokenId,
+                        logprob: $0.logprob,
+                        topTokens: $0.topTokens.map {
+                            AFMTopLogProbability(
+                                token: $0.token,
+                                tokenID: $0.tokenId,
+                                logprob: $0.logprob
+                            )
+                        }
+                    )
+                }
             )
         } catch let error as AFMError {
             throw error
@@ -169,6 +188,8 @@ public final class AFMMLXModel: AFMModel, @unchecked Sendable {
                         minP: request.options.minP,
                         presencePenalty: request.options.presencePenalty,
                         seed: request.options.seed,
+                        logprobs: request.options.logprobs,
+                        topLogprobs: request.options.topLogprobs,
                         tools: request.openAITools(),
                         stop: request.options.stopSequences,
                         responseFormat: request.openAIResponseFormat(),

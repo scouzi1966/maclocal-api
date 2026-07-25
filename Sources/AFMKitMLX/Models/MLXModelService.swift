@@ -54,6 +54,18 @@ public struct ResolvedLogprob: Sendable {
     public let tokenId: Int
     public let logprob: Float
     public let topTokens: [(token: String, tokenId: Int, logprob: Float)]
+
+    public init(
+        token: String,
+        tokenId: Int,
+        logprob: Float,
+        topTokens: [(token: String, tokenId: Int, logprob: Float)]
+    ) {
+        self.token = token
+        self.tokenId = tokenId
+        self.logprob = logprob
+        self.topTokens = topTokens
+    }
 }
 
 /// A chunk of streaming output, optionally carrying per-token log probabilities or tool calls.
