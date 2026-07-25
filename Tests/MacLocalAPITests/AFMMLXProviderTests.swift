@@ -32,6 +32,21 @@ final class AFMMLXProviderTests: XCTestCase {
         requireBatchControlContract(MLXModelService(resolver: MLXCacheResolver()))
     }
 
+    func testMLXModelServiceExposesAFMKitServingConfigurationContract() {
+        let service = MLXModelService(resolver: MLXCacheResolver())
+        service.toolCallParser = "qwen3_xml"
+        service.enableGrammarConstraints = true
+        service.fixToolArgs = true
+
+        requireServingConfigurationContract(service)
+
+        let configuration = service.servingConfiguration
+        XCTAssertEqual(configuration.toolCallParser, "qwen3_xml")
+        XCTAssertTrue(configuration.supportsStrictToolGrammar)
+        XCTAssertTrue(configuration.fixToolArguments)
+        XCTAssertTrue(configuration.grammarConstraintsEnabled)
+    }
+
     func testAFMKitOwnsChatGenerationResultShape() {
         let result: AFMMLXChatGenerationResult = (
             modelID: "test/model",
@@ -254,6 +269,10 @@ final class AFMMLXProviderTests: XCTestCase {
 
     private func requireBatchControlContract<Controller: AFMMLXBatchControlling>(
         _ controller: Controller
+    ) {}
+
+    private func requireServingConfigurationContract<Provider: AFMMLXServingConfigurationProviding>(
+        _ provider: Provider
     ) {}
 
     private func requiredToolRequest() -> AFMRequest {

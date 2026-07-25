@@ -13,14 +13,7 @@ final class AFMKitMLXChatServingAdapter: MLXChatServing, AFMTextTokenizing {
     }
 
     var maxConcurrent: Int { service.maxConcurrent }
-    var toolCallParser: String? { service.toolCallParser }
-    var supportsStrictToolGrammar: Bool { service.supportsStrictToolGrammar }
-    var thinkStartTag: String? { service.thinkStartTag }
-    var thinkEndTag: String? { service.thinkEndTag }
-    var harmonyChannels: Bool { service.harmonyChannels }
-    var structuralStripTags: [String] { service.structuralStripTags }
-    var fixToolArgs: Bool { service.fixToolArgs }
-    var enableGrammarConstraints: Bool { service.enableGrammarConstraints }
+    var servingConfiguration: AFMMLXServingConfiguration { service.servingConfiguration }
     var defaultGuidedJsonSchema: ResponseFormat? { service.defaultGuidedJsonSchema }
 
     func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? {

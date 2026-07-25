@@ -21,6 +21,16 @@ private final class FakeBatchService: MLXChatServing, @unchecked Sendable {
     let thinkEndTag: String? = nil
     let fixToolArgs: Bool = false
     let enableGrammarConstraints: Bool = false
+    var servingConfiguration: AFMMLXServingConfiguration {
+        AFMMLXServingConfiguration(
+            toolCallParser: toolCallParser,
+            supportsStrictToolGrammar: supportsStrictToolGrammar,
+            thinkStartTag: thinkStartTag,
+            thinkEndTag: thinkEndTag,
+            fixToolArguments: fixToolArgs,
+            grammarConstraintsEnabled: enableGrammarConstraints
+        )
+    }
 
     // Tracking
     private let _lock = NSLock()

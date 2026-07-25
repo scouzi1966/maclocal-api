@@ -6630,3 +6630,18 @@ public final class MLXModelService: @unchecked Sendable {
     """
 
 }
+
+extension MLXModelService: AFMMLXServingConfigurationProviding {
+    public var servingConfiguration: AFMMLXServingConfiguration {
+        AFMMLXServingConfiguration(
+            toolCallParser: toolCallParser,
+            supportsStrictToolGrammar: supportsStrictToolGrammar,
+            thinkStartTag: thinkStartTag,
+            thinkEndTag: thinkEndTag,
+            harmonyChannels: harmonyChannels,
+            structuralStripTags: structuralStripTags,
+            fixToolArguments: fixToolArgs,
+            grammarConstraintsEnabled: enableGrammarConstraints
+        )
+    }
+}

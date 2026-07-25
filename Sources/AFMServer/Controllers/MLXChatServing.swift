@@ -9,25 +9,13 @@ typealias ChatStreamingResult = AFMMLXChatStreamingResult
 protocol MLXChatServing:
     AFMMLXAPIProfiling,
     AFMMLXRequestScheduling,
-    AFMMLXBatchControlling
+    AFMMLXBatchControlling,
+    AFMMLXServingConfigurationProviding
 {
-    var toolCallParser: String? { get }
-    var supportsStrictToolGrammar: Bool { get }
-    var thinkStartTag: String? { get }
-    var thinkEndTag: String? { get }
-    var harmonyChannels: Bool { get }
-    /// Structural wrapper tokens to strip from extracted output (e.g. Cohere
-    /// `<|START_TEXT|>`/`<|END_TEXT|>`). Empty for most models. (#148)
-    var structuralStripTags: [String] { get }
-    var fixToolArgs: Bool { get }
-    var enableGrammarConstraints: Bool { get }
     var defaultGuidedJsonSchema: ResponseFormat? { get }
 
     /// Resolve effective response format: per-request format wins, falls back to server default.
     func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat?
-
-    func normalizeModel(_ raw: String) -> String
-    func resolvedToolCallParser(logBypass: Bool) -> String?
 
     func generate(
         model: String,
@@ -74,8 +62,16 @@ protocol MLXChatServing:
 
 extension MLXChatServing {
     var defaultGuidedJsonSchema: ResponseFormat? { nil }
-    var harmonyChannels: Bool { false }
-    var structuralStripTags: [String] { [] }
+    var toolCallParser: String? { servingConfiguration.toolCallParser }
+    var supportsStrictToolGrammar: Bool { servingConfiguration.supportsStrictToolGrammar }
+    var thinkStartTag: String? { servingConfiguration.thinkStartTag }
+    var thinkEndTag: String? { servingConfiguration.thinkEndTag }
+    var harmonyChannels: Bool { servingConfiguration.harmonyChannels }
+    /// Structural wrapper tokens to strip from extracted output (e.g. Cohere
+    /// `<|START_TEXT|>`/`<|END_TEXT|>`). Empty for most models. (#148)
+    var structuralStripTags: [String] { servingConfiguration.structuralStripTags }
+    var fixToolArgs: Bool { servingConfiguration.fixToolArguments }
+    var enableGrammarConstraints: Bool { servingConfiguration.grammarConstraintsEnabled }
 
     func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? {
         requestFormat ?? defaultGuidedJsonSchema

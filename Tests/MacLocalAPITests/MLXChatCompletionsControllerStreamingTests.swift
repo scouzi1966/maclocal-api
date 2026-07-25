@@ -762,6 +762,16 @@ private final class FakeMLXChatService: MLXChatServing, @unchecked Sendable {
     let thinkEndTag: String?
     let fixToolArgs: Bool
     let enableGrammarConstraints: Bool = false
+    var servingConfiguration: AFMMLXServingConfiguration {
+        AFMMLXServingConfiguration(
+            toolCallParser: toolCallParser,
+            supportsStrictToolGrammar: supportsStrictToolGrammar,
+            thinkStartTag: thinkStartTag,
+            thinkEndTag: thinkEndTag,
+            fixToolArguments: fixToolArgs,
+            grammarConstraintsEnabled: enableGrammarConstraints
+        )
+    }
     private let generateResult: ChatGenerationResult
     private let streamingResult: ChatStreamingResult
     private let streamingHandler: (([Message]) -> ChatStreamingResult)?
