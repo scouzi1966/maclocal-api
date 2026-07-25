@@ -51,6 +51,62 @@ final class AFMMLXProviderTests: XCTestCase {
         requireOpenAIChatGenerationContract(MLXModelService(resolver: MLXCacheResolver()))
     }
 
+    func testServingConfigurationProviderOwnsPolicyConveniences() throws {
+        let service = MLXModelService(resolver: MLXCacheResolver())
+        service.toolCallParser = "qwen3_xml"
+        service.fixToolArgs = true
+
+        let strictSchema = ResponseFormat(
+            type: "json_schema",
+            jsonSchema: ResponseJsonSchema(
+                name: "answer",
+                description: nil,
+                schema: AnyCodable(["type": "object"]),
+                strict: true
+            )
+        )
+
+        XCTAssertEqual(service.toolCallParser, "qwen3_xml")
+        XCTAssertTrue(service.supportsStrictToolGrammar)
+        XCTAssertTrue(service.isToolCallParserDisabled(" none "))
+        XCTAssertTrue(
+            service.shouldDowngradeGrammarConstraints(
+                responseFormat: strictSchema,
+                tools: nil
+            )
+        )
+
+        let coerced = service.coerceToolCallArguments(
+            ResponseToolCall(
+                index: 0,
+                id: "call_test",
+                type: "function",
+                function: ResponseToolCallFunction(
+                    name: "get_weather",
+                    arguments: #"{"days":"5"}"#
+                )
+            ),
+            tools: [
+                RequestTool(
+                    type: "function",
+                    function: RequestToolFunction(
+                        name: "get_weather",
+                        description: nil,
+                        parameters: AnyCodable([
+                            "type": "object",
+                            "properties": ["days": ["type": "integer"]],
+                            "required": ["days"]
+                        ]),
+                        strict: nil
+                    )
+                )
+            ]
+        )
+        let data = try XCTUnwrap(coerced.function.arguments.data(using: .utf8))
+        let arguments = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(arguments["days"] as? Int, 5)
+    }
+
     func testAFMKitOwnsChatGenerationResultShape() {
         let result: AFMMLXChatGenerationResult = (
             modelID: "test/model",
