@@ -26,7 +26,7 @@ typealias ChatStreamingResult = (
     thinkEndTag: String?
 )
 
-protocol MLXChatServing: Sendable {
+protocol MLXChatServing: AFMMLXAPIProfiling {
     var maxConcurrent: Int { get }
     var toolCallParser: String? { get }
     var supportsStrictToolGrammar: Bool { get }
@@ -52,10 +52,6 @@ protocol MLXChatServing: Sendable {
     func ensureBatchMode(concurrency: Int) async throws
     func releaseBatchReference()
     func cancelBatchSlots(ids: Set<UUID>) async
-
-    func startAPIProfile()
-    func stopAPIProfile(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) -> AFMProfile
-    func stopAPIProfileExtended(promptTokens: Int, completionTokens: Int, promptTime: Double, generateTime: Double) -> AFMProfileExtended
 
     func generate(
         model: String,

@@ -20,6 +20,10 @@ final class AFMMLXProviderTests: XCTestCase {
         requirePortableTokenizer(model)
     }
 
+    func testMLXModelServiceExposesAFMKitProfilingContract() {
+        requireProfilingContract(MLXModelService(resolver: MLXCacheResolver()))
+    }
+
     func testDescriptorInfersCapabilitiesFromModelAssets() throws {
         let root = try makeModelCache(
             config: [
@@ -212,6 +216,10 @@ final class AFMMLXProviderTests: XCTestCase {
 
     private func requirePortableTokenizer<Tokenizer: AFMTextTokenizing>(
         _ tokenizer: Tokenizer
+    ) {}
+
+    private func requireProfilingContract<Profiler: AFMMLXAPIProfiling>(
+        _ profiler: Profiler
     ) {}
 
     private func requiredToolRequest() -> AFMRequest {
