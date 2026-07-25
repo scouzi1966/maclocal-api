@@ -67,6 +67,25 @@ public struct AFMMLXDiscoveredModel: Hashable, Sendable {
     }
 }
 
+public struct AFMMLXModelLoadReference: Hashable, Sendable {
+    public var requestedID: String
+    public var loadIdentifier: String
+    public var localDirectory: URL
+    public var descriptor: AFMModelDescriptor
+
+    public init(
+        requestedID: String,
+        loadIdentifier: String,
+        localDirectory: URL,
+        descriptor: AFMModelDescriptor
+    ) {
+        self.requestedID = requestedID
+        self.loadIdentifier = loadIdentifier
+        self.localDirectory = localDirectory
+        self.descriptor = descriptor
+    }
+}
+
 /// Shared MLX model discovery and validation for AFMKit consumers.
 ///
 /// Hosts may supply model identifiers from their own curated lists or UI
@@ -87,6 +106,29 @@ public struct AFMMLXModelStore: Sendable {
     /// Returns whether an identifier resolves to complete local model assets.
     public func isAvailableLocally(_ modelID: String) -> Bool {
         localDirectory(for: modelID) != nil
+    }
+
+    /// Returns the identifier a host should pass to MLX loading for a complete
+    /// local model. Repository IDs stay stable when they resolve through the
+    /// configured cache; direct filesystem paths resolve to their complete
+    /// snapshot directory.
+    public func loadReference(for modelID: String) -> AFMMLXModelLoadReference? {
+        let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let localDirectory = localDirectory(for: trimmed) else {
+            return nil
+        }
+
+        var descriptor = descriptor(for: localDirectory.path)
+        descriptor.modelID = AFMModelID(rawValue: trimmed)
+        descriptor.requiresNetwork = false
+
+        return AFMMLXModelLoadReference(
+            requestedID: trimmed,
+            loadIdentifier: isPathLike(trimmed) ? localDirectory.path : trimmed,
+            localDirectory: localDirectory,
+            descriptor: descriptor
+        )
     }
 
     /// Describes a model using the same assets and capability inference as the
@@ -353,6 +395,10 @@ public struct AFMMLXModelStore: Sendable {
 
     private func localDirectory(at candidate: URL) -> URL? {
         resolver.localModelDirectory(repoId: candidate.standardizedFileURL.path)
+    }
+
+    private func isPathLike(_ modelID: String) -> Bool {
+        modelID.hasPrefix("/") || modelID.hasPrefix("./") || modelID.hasPrefix("..")
     }
 
     private func isDirectory(_ url: URL) -> Bool {

@@ -33,6 +33,45 @@ final class AFMMLXModelStoreTests: XCTestCase {
         XCTAssertEqual(store.descriptor(for: directory.path).requiresNetwork, false)
     }
 
+    func testLoadReferenceKeepsRepoIdentifierForConfiguredCacheModel() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeModel(at: root.appendingPathComponent("models/org/repo-model"))
+
+        let reference = try XCTUnwrap(
+            AFMMLXModelStore(resolver: MLXCacheResolver(cacheRoot: root))
+                .loadReference(for: "org/repo-model")
+        )
+
+        XCTAssertEqual(reference.requestedID, "org/repo-model")
+        XCTAssertEqual(reference.loadIdentifier, "org/repo-model")
+        XCTAssertEqual(
+            reference.localDirectory.path,
+            root.appendingPathComponent("models/org/repo-model").path
+        )
+        XCTAssertEqual(reference.descriptor.requiresNetwork, false)
+    }
+
+    func testLoadReferenceResolvesAbsoluteSnapshotPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let snapshot = root
+            .appendingPathComponent("snapshots", isDirectory: true)
+            .appendingPathComponent("revision", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeModel(at: snapshot)
+
+        let reference = try XCTUnwrap(
+            AFMMLXModelStore().loadReference(for: root.path)
+        )
+
+        XCTAssertEqual(reference.requestedID, root.path)
+        XCTAssertEqual(reference.loadIdentifier, snapshot.path)
+        XCTAssertEqual(reference.localDirectory.path, snapshot.path)
+        XCTAssertEqual(reference.descriptor.requiresNetwork, false)
+    }
+
     func testDiscoveryReturnsTypedFlatAndHuggingFaceModels() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
