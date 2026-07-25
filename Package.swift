@@ -24,6 +24,14 @@ let package = Package(
             name: "AFMKitMLX",
             targets: ["AFMKitMLX"]
         ),
+        .library(
+            name: "AFMKitFoundationModels",
+            targets: ["AFMKitFoundationModels"]
+        ),
+        .library(
+            name: "AFMKitServices",
+            targets: ["AFMKitServices"]
+        ),
         // Headless, SPM-importable library: model loading + inference + OpenAI-compatible
         // services + the HTTP server. `import AFMKit` from another package/app.
         .library(
@@ -77,6 +85,18 @@ let package = Package(
             dependencies: []
         ),
         .target(
+            name: "AFMKitFoundationModels",
+            dependencies: [
+                "AFMOpenAICompat"
+            ]
+        ),
+        .target(
+            name: "AFMKitServices",
+            dependencies: [
+                "AFMKitCore"
+            ]
+        ),
+        .target(
             name: "AFMKitMLX",
             dependencies: [
                 "AFMKitCore",
@@ -128,7 +148,9 @@ let package = Package(
             dependencies: [
                 "AFMKitCore",
                 "AFMOpenAICompat",
-                "AFMKitMLX"
+                "AFMKitMLX",
+                "AFMKitFoundationModels",
+                "AFMKitServices"
             ],
             swiftSettings: [
                 // Enable optimizations for release builds
@@ -200,6 +222,8 @@ let package = Package(
             name: "MacLocalAPITests",
             dependencies: [
                 "AFMKit",
+                "AFMKitFoundationModels",
+                "AFMKitServices",
                 "AFMServer",
                 .product(name: "Jinja", package: "swift-jinja"),
                 .product(name: "XCTVapor", package: "vapor"),

@@ -20526,6 +20526,705 @@
           "character": 16
         }
       }
+    },
+    {
+      "kind": {
+        "identifier": "swift.struct",
+        "displayName": "Structure"
+      },
+      "identifier": {
+        "precise": "s:10AFMKitCore17UncheckedSendableV",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "UncheckedSendable"
+      ],
+      "names": {
+        "title": "UncheckedSendable",
+        "navigator": [
+          {
+            "kind": "identifier",
+            "spelling": "UncheckedSendable"
+          }
+        ],
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "struct"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "identifier",
+            "spelling": "UncheckedSendable"
+          }
+        ]
+      },
+      "docComment": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/Concurrency/UncheckedSendable.swift",
+        "module": "AFMKitCore",
+        "lines": [
+          {
+            "range": {
+              "start": {
+                "line": 2,
+                "character": 4
+              },
+              "end": {
+                "line": 2,
+                "character": 78
+              }
+            },
+            "text": "Transports a value that the compiler can't prove `Sendable` across a task,"
+          },
+          {
+            "range": {
+              "start": {
+                "line": 3,
+                "character": 4
+              },
+              "end": {
+                "line": 3,
+                "character": 36
+              }
+            },
+            "text": "continuation, or actor boundary."
+          },
+          {
+            "range": {
+              "start": {
+                "line": 4,
+                "character": 3
+              },
+              "end": {
+                "line": 4,
+                "character": 3
+              }
+            },
+            "text": ""
+          },
+          {
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 4
+              },
+              "end": {
+                "line": 5,
+                "character": 70
+              }
+            },
+            "text": "Used for Apple-framework reference types (e.g. `AVAudioPCMBuffer`,"
+          },
+          {
+            "range": {
+              "start": {
+                "line": 6,
+                "character": 4
+              },
+              "end": {
+                "line": 6,
+                "character": 76
+              }
+            },
+            "text": "`SFSpeechRecognitionTask`) that predate Swift 6 concurrency annotations."
+          },
+          {
+            "range": {
+              "start": {
+                "line": 7,
+                "character": 4
+              },
+              "end": {
+                "line": 7,
+                "character": 80
+              }
+            },
+            "text": "The wrapper itself is `@unchecked Sendable`; correctness depends on the call"
+          },
+          {
+            "range": {
+              "start": {
+                "line": 8,
+                "character": 4
+              },
+              "end": {
+                "line": 8,
+                "character": 80
+              }
+            },
+            "text": "site genuinely handing the value off (no aliased concurrent mutation), which"
+          },
+          {
+            "range": {
+              "start": {
+                "line": 9,
+                "character": 4
+              },
+              "end": {
+                "line": 9,
+                "character": 78
+              }
+            },
+            "text": "is the case at every current use — values are produced, transferred once"
+          },
+          {
+            "range": {
+              "start": {
+                "line": 10,
+                "character": 4
+              },
+              "end": {
+                "line": 10,
+                "character": 72
+              }
+            },
+            "text": "through a continuation or single-consumer task group, and then read."
+          }
+        ]
+      },
+      "swiftGenerics": {
+        "parameters": [
+          {
+            "name": "Value",
+            "index": 0,
+            "depth": 0
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "struct"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "identifier",
+          "spelling": "UncheckedSendable"
+        },
+        {
+          "kind": "text",
+          "spelling": "<"
+        },
+        {
+          "kind": "genericParameter",
+          "spelling": "Value"
+        },
+        {
+          "kind": "text",
+          "spelling": ">"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/Concurrency/UncheckedSendable.swift",
+        "position": {
+          "line": 11,
+          "character": 14
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.property",
+        "displayName": "Instance Property"
+      },
+      "identifier": {
+        "precise": "s:10AFMKitCore17UncheckedSendableV5valuexvp",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "UncheckedSendable",
+        "value"
+      ],
+      "names": {
+        "title": "value",
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "var"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "identifier",
+            "spelling": "value"
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "Value"
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "var"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "identifier",
+          "spelling": "value"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "Value"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/Concurrency/UncheckedSendable.swift",
+        "position": {
+          "line": 12,
+          "character": 15
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.init",
+        "displayName": "Initializer"
+      },
+      "identifier": {
+        "precise": "s:10AFMKitCore17UncheckedSendableVyACyxGxcfc",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "UncheckedSendable",
+        "init(_:)"
+      ],
+      "names": {
+        "title": "init(_:)",
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "init"
+          },
+          {
+            "kind": "text",
+            "spelling": "("
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "Value"
+          },
+          {
+            "kind": "text",
+            "spelling": ")"
+          }
+        ]
+      },
+      "functionSignature": {
+        "parameters": [
+          {
+            "name": "value",
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "value"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "spelling": "Value"
+              }
+            ]
+          }
+        ]
+      },
+      "swiftGenerics": {
+        "parameters": [
+          {
+            "name": "Value",
+            "index": 0,
+            "depth": 0
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "init"
+        },
+        {
+          "kind": "text",
+          "spelling": "("
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "_"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "internalParam",
+          "spelling": "value"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "Value"
+        },
+        {
+          "kind": "text",
+          "spelling": ")"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/Concurrency/UncheckedSendable.swift",
+        "position": {
+          "line": 13,
+          "character": 11
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.class",
+        "displayName": "Class"
+      },
+      "identifier": {
+        "precise": "s:10AFMKitCore11SendableBoxC",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "SendableBox"
+      ],
+      "names": {
+        "title": "SendableBox",
+        "navigator": [
+          {
+            "kind": "identifier",
+            "spelling": "SendableBox"
+          }
+        ],
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "class"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "identifier",
+            "spelling": "SendableBox"
+          }
+        ]
+      },
+      "docComment": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/Concurrency/UncheckedSendable.swift",
+        "module": "AFMKitCore",
+        "lines": [
+          {
+            "range": {
+              "start": {
+                "line": 16,
+                "character": 4
+              },
+              "end": {
+                "line": 16,
+                "character": 78
+              }
+            },
+            "text": "Reference-typed sibling of `UncheckedSendable`. Lets a `@Sendable` closure"
+          },
+          {
+            "range": {
+              "start": {
+                "line": 17,
+                "character": 4
+              },
+              "end": {
+                "line": 17,
+                "character": 78
+              }
+            },
+            "text": "write a result that an enclosing synchronous scope reads after the closure"
+          },
+          {
+            "range": {
+              "start": {
+                "line": 18,
+                "character": 4
+              },
+              "end": {
+                "line": 18,
+                "character": 74
+              }
+            },
+            "text": "has provably finished (e.g. a `Task` whose completion is awaited via a"
+          },
+          {
+            "range": {
+              "start": {
+                "line": 19,
+                "character": 4
+              },
+              "end": {
+                "line": 19,
+                "character": 75
+              }
+            },
+            "text": "`DispatchGroup`). Use only when that happens-before relationship holds."
+          }
+        ]
+      },
+      "swiftGenerics": {
+        "parameters": [
+          {
+            "name": "Value",
+            "index": 0,
+            "depth": 0
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "final"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "keyword",
+          "spelling": "class"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "identifier",
+          "spelling": "SendableBox"
+        },
+        {
+          "kind": "text",
+          "spelling": "<"
+        },
+        {
+          "kind": "genericParameter",
+          "spelling": "Value"
+        },
+        {
+          "kind": "text",
+          "spelling": ">"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/Concurrency/UncheckedSendable.swift",
+        "position": {
+          "line": 20,
+          "character": 19
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.property",
+        "displayName": "Instance Property"
+      },
+      "identifier": {
+        "precise": "s:10AFMKitCore11SendableBoxC5valuexvp",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "SendableBox",
+        "value"
+      ],
+      "names": {
+        "title": "value",
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "var"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "identifier",
+            "spelling": "value"
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "Value"
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "var"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "identifier",
+          "spelling": "value"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "Value"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/Concurrency/UncheckedSendable.swift",
+        "position": {
+          "line": 21,
+          "character": 15
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.init",
+        "displayName": "Initializer"
+      },
+      "identifier": {
+        "precise": "s:10AFMKitCore11SendableBoxCyACyxGxcfc",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "SendableBox",
+        "init(_:)"
+      ],
+      "names": {
+        "title": "init(_:)",
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "init"
+          },
+          {
+            "kind": "text",
+            "spelling": "("
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "Value"
+          },
+          {
+            "kind": "text",
+            "spelling": ")"
+          }
+        ]
+      },
+      "functionSignature": {
+        "parameters": [
+          {
+            "name": "value",
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "value"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "spelling": "Value"
+              }
+            ]
+          }
+        ]
+      },
+      "swiftGenerics": {
+        "parameters": [
+          {
+            "name": "Value",
+            "index": 0,
+            "depth": 0
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "init"
+        },
+        {
+          "kind": "text",
+          "spelling": "("
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "_"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "internalParam",
+          "spelling": "value"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "Value"
+        },
+        {
+          "kind": "text",
+          "spelling": ")"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/Concurrency/UncheckedSendable.swift",
+        "position": {
+          "line": 22,
+          "character": 11
+        }
+      }
     }
   ],
   "relationships": [
@@ -22349,6 +23048,50 @@
       "kind": "memberOf",
       "source": "s:10AFMKitCore19AFMProviderRegistryC9makeModel10providerID05modelH013configurationAA11AnyAFMModelVAA0cH0V_AA0lH0VAA0C13ConfigurationVtKF",
       "target": "s:10AFMKitCore19AFMProviderRegistryC"
+    },
+    {
+      "kind": "conformsTo",
+      "source": "s:10AFMKitCore17UncheckedSendableV",
+      "target": "s:s8SendableP",
+      "targetFallback": "Swift.Sendable"
+    },
+    {
+      "kind": "conformsTo",
+      "source": "s:10AFMKitCore17UncheckedSendableV",
+      "target": "s:s16SendableMetatypeP",
+      "targetFallback": "Swift.SendableMetatype"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore17UncheckedSendableV5valuexvp",
+      "target": "s:10AFMKitCore17UncheckedSendableV"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore17UncheckedSendableVyACyxGxcfc",
+      "target": "s:10AFMKitCore17UncheckedSendableV"
+    },
+    {
+      "kind": "conformsTo",
+      "source": "s:10AFMKitCore11SendableBoxC",
+      "target": "s:s8SendableP",
+      "targetFallback": "Swift.Sendable"
+    },
+    {
+      "kind": "conformsTo",
+      "source": "s:10AFMKitCore11SendableBoxC",
+      "target": "s:s16SendableMetatypeP",
+      "targetFallback": "Swift.SendableMetatype"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore11SendableBoxC5valuexvp",
+      "target": "s:10AFMKitCore11SendableBoxC"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore11SendableBoxCyACyxGxcfc",
+      "target": "s:10AFMKitCore11SendableBoxC"
     }
   ]
 }

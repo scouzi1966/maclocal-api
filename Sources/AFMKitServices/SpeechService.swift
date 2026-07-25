@@ -1,6 +1,7 @@
 import Foundation
 import os
 import Speech
+import AFMKitCore
 
 public enum SpeechError: Error, LocalizedError {
     case platformUnavailable

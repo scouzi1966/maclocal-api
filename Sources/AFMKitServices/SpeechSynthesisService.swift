@@ -1,4 +1,5 @@
 import Foundation
+import AFMKitCore
 // AVFoundation audio types (AVAudioPCMBuffer, AVSpeechSynthesizer) aren't Sendable-audited.
 @preconcurrency import AVFoundation
 import os

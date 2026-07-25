@@ -1,5 +1,6 @@
 import XCTest
 @testable import AFMKit
+@testable import AFMKitFoundationModels
 @testable import AFMServer
 
 final class StreamingUsageChunkTests: XCTestCase {

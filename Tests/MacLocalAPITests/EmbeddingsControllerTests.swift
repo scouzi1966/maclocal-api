@@ -3,6 +3,7 @@ import Vapor
 import XCTVapor
 
 @testable import AFMKit
+@testable import AFMKitServices
 @testable import AFMServer
 
 final class EmbeddingsControllerTests: XCTestCase {

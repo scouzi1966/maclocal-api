@@ -2,6 +2,8 @@ import Foundation
 import AFMKitCore
 import AFMOpenAICompat
 import AFMKitMLX
+import AFMKitFoundationModels
+import AFMKitServices
 
 // MARK: - Public configuration
 

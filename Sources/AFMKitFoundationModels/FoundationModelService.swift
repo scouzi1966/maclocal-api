@@ -1,7 +1,7 @@
 import Foundation
 import AFMOpenAICompat
 
-#if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS && !DISABLE_FOUNDATION_MODELS
+#if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
 import FoundationModels
 #endif
 
@@ -568,16 +568,12 @@ public class FoundationModelService: @unchecked Sendable {
     private func createGenerationOptions(temperature: Double?, randomness: String?, maxTokens: Int? = nil) throws -> GenerationOptions {
         // Default to 2000 tokens when max_tokens is absent or non-positive.
         let effectiveMaxTokens: Int = if let mt = maxTokens, mt > 0 { mt } else { 2000 }
-        DebugLogger.log("createGenerationOptions called with temperature: \(temperature?.description ?? "nil"), randomness: \(randomness ?? "nil"), maxTokens: \(effectiveMaxTokens)")
-
         guard let randomnessString = randomness else {
             // Default behavior when randomness is not specified
             return GenerationOptions(temperature: temperature, maximumResponseTokens: effectiveMaxTokens)
         }
 
         let config = try RandomnessConfig.parse(randomnessString)
-        DebugLogger.log("Parsed randomness config: mode=\(config.mode), seed=\(config.seed?.description ?? "nil")")
-
         switch config.mode {
         case .greedy:
             return GenerationOptions(
@@ -688,38 +684,5 @@ public class FoundationModelService: @unchecked Sendable {
     // Create a new instance that reuses the shared adapter (for per-request use)
     public static func createWithSharedAdapter(instructions: String = "You are a helpful assistant", temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) async throws -> FoundationModelService {
         return try await FoundationModelService(instructions: instructions, useSharedAdapter: true, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
-    }
-}
-
-// MARK: - AFMLanguageModel conformance (vesta-mac's Apple-backend bridge)
-
-/// Lets the Apple Foundation Models backend be used interchangeably with the MLX
-/// backend (and, in year two, Apple's own `LanguageModel` conformers) through the
-/// same `AFMLanguageModel` surface. This is the seam vesta-mac targets: today it
-/// calls `FoundationModels.LanguageModelSession` directly; with AFMKit it can hold an
-/// `any AFMLanguageModel` and swap MLX in without touching call sites.
-@available(macOS 26.0, *)
-extension FoundationModelService: AFMLanguageModel {
-    /// The service only exists once `init` has successfully created a session, so a
-    /// live instance is by construction available.
-    public var isAvailable: Bool { true }
-
-    public func respond(to messages: [Message], options: GenerationConfig) async throws -> AFMResponse {
-        let text = try await generateResponse(
-            for: messages,
-            temperature: options.temperature,
-            maxTokens: options.maxTokens,
-            stop: options.stop
-        )
-        return AFMResponse(content: text)
-    }
-
-    public func streamResponse(to messages: [Message], options: GenerationConfig) -> AsyncThrowingStream<String, Error> {
-        generateNativeStreamingResponse(
-            for: messages,
-            temperature: options.temperature,
-            maxTokens: options.maxTokens,
-            stop: options.stop
-        )
     }
 }

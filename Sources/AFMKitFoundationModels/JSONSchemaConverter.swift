@@ -1,4 +1,5 @@
 import Foundation
+import AFMOpenAICompat
 
 #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
 import FoundationModels

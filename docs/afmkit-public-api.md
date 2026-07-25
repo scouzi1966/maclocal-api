@@ -4,9 +4,17 @@
 provider packages. It must remain free of MLX, XGrammar, Vapor, Foundation
 Models, CoreAI, and vendor SDK dependencies.
 
-`AFMKit` remains the compatibility product during migration. It re-exports
-`AFMKitCore`, so existing `import AFMKit` consumers can adopt the portable
-types without changing imports immediately.
+The package exposes dependency-scoped products:
+
+- `AFMKitCore`: provider contracts, registry, events, and concurrency helpers.
+- `AFMOpenAICompat`: OpenAI transport DTOs without a model runtime.
+- `AFMKitMLX`: MLX loading, generation, scheduling, caching, and grammar support.
+- `AFMKitFoundationModels`: Apple's Foundation Models service and schema bridge.
+- `AFMKitServices`: Apple Vision, Speech, synthesis, and NaturalLanguage embeddings.
+
+`AFMKit` remains the compatibility umbrella during migration. It re-exports
+these products so existing consumers do not need immediate import changes.
+New libraries should import only the products they use.
 
 ## Contract Overview
 
@@ -24,6 +32,8 @@ application may construct a concrete Apple `LanguageModel` directly and use
 
 - Adding a provider must not require editing `AFMEngine`.
 - Portable requests and events must not expose OpenAI transport DTOs.
+- Optional products may depend on `AFMKitCore`; `AFMKitCore` must never depend
+  on an optional product.
 - macOS 27 providers map the portable contract to Apple's `LanguageModel` and
   `LanguageModelExecutor` APIs rather than replacing those protocols.
 - New enum cases and protocol requirements require an explicit compatibility
