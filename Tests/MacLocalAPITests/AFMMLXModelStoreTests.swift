@@ -72,6 +72,41 @@ final class AFMMLXModelStoreTests: XCTestCase {
         XCTAssertEqual(reference.descriptor.requiresNetwork, false)
     }
 
+    func testLoadReferenceUsesNewestCompleteSnapshotPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let snapshots = root.appendingPathComponent("snapshots", isDirectory: true)
+        let incomplete = snapshots.appendingPathComponent("000-incomplete", isDirectory: true)
+        let olderLexicographicallyLarger = snapshots.appendingPathComponent("zzz-older", isDirectory: true)
+        let newerLexicographicallySmaller = snapshots.appendingPathComponent("aaa-newer", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try FileManager.default.createDirectory(at: incomplete, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: [:]).write(
+            to: incomplete.appendingPathComponent("config.json")
+        )
+        try makeModel(at: olderLexicographicallyLarger)
+        try makeModel(at: newerLexicographicallySmaller)
+
+        let oldDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let newDate = Date(timeIntervalSince1970: 1_800_000_000)
+        try FileManager.default.setAttributes(
+            [.modificationDate: oldDate],
+            ofItemAtPath: olderLexicographicallyLarger.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: newDate],
+            ofItemAtPath: newerLexicographicallySmaller.path
+        )
+
+        let reference = try XCTUnwrap(
+            AFMMLXModelStore().loadReference(for: root.path)
+        )
+
+        XCTAssertEqual(reference.localDirectory.path, newerLexicographicallySmaller.path)
+        XCTAssertEqual(reference.loadIdentifier, newerLexicographicallySmaller.path)
+    }
+
     func testRemovablePackageDirectoryUsesFlatModelDirectory() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
