@@ -133,16 +133,21 @@ public final class AFMMLXModel: AFMModel, @unchecked Sendable {
                 startTag: service.thinkStartTag,
                 endTag: service.thinkEndTag
             )
+            let toolCalls = (result.toolCalls ?? []).map {
+                AFMToolCall(
+                    id: $0.id,
+                    name: $0.function.name,
+                    arguments: $0.function.arguments
+                )
+            }
+            try AFMMLXToolPolicy.validateCompletedToolCalls(
+                toolCalls,
+                for: request
+            )
             return AFMModelResponse(
                 text: split.text,
                 reasoning: split.reasoning,
-                toolCalls: (result.toolCalls ?? []).map {
-                    AFMToolCall(
-                        id: $0.id,
-                        name: $0.function.name,
-                        arguments: $0.function.arguments
-                    )
-                },
+                toolCalls: toolCalls,
                 usage: AFMUsage(
                     inputTokens: result.promptTokens,
                     cachedInputTokens: result.cachedTokens,
@@ -203,13 +208,28 @@ public final class AFMMLXModel: AFMModel, @unchecked Sendable {
                         thinkEndTag: result.thinkEndTag,
                         maximumResponseTokens: request.options.maximumResponseTokens
                     )
+                    var completedToolCalls: [AFMToolCall] = []
                     for try await chunk in result.stream {
-                        if Task.isCancelled { break }
+                        try Task.checkCancellation()
                         for event in translator.consume(chunk) {
+                            if case .toolCall(let call, .completed) = event {
+                                completedToolCalls.append(call)
+                            }
                             continuation.yield(event)
                         }
                     }
-                    for event in translator.finish() {
+                    try Task.checkCancellation()
+                    let finalEvents = translator.finish()
+                    for event in finalEvents {
+                        if case .toolCall(let call, .completed) = event {
+                            completedToolCalls.append(call)
+                        }
+                    }
+                    try AFMMLXToolPolicy.validateCompletedToolCalls(
+                        completedToolCalls,
+                        for: request
+                    )
+                    for event in finalEvents {
                         continuation.yield(event)
                     }
                     continuation.finish()
@@ -250,6 +270,25 @@ public final class AFMMLXModel: AFMModel, @unchecked Sendable {
             }
         }
         return (text, reasoning.isEmpty ? nil : reasoning)
+    }
+}
+
+enum AFMMLXToolPolicy {
+    static func validateCompletedToolCalls(
+        _ calls: [AFMToolCall],
+        for request: AFMRequest
+    ) throws {
+        guard request.requiresToolCall else { return }
+        guard !request.tools.isEmpty else {
+            throw AFMError.invalidRequest(
+                "Tool calling is required, but no tools are enabled."
+            )
+        }
+        guard !calls.isEmpty else {
+            throw AFMError.generationFailed(
+                "The model returned no tool call while tool calling was required."
+            )
+        }
     }
 }
 
@@ -339,6 +378,10 @@ private extension AFMProviderConfiguration {
 }
 
 private extension AFMRequest {
+    var requiresToolCall: Bool {
+        metadata["toolCallingMode"] == .string("required")
+    }
+
     var includeSchemaInPrompt: Bool {
         guard case .bool(let value)? = metadata["includeSchemaInPrompt"] else {
             return true

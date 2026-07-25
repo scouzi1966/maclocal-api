@@ -52,6 +52,60 @@ final class AFMMLXProviderTests: XCTestCase {
         XCTAssertEqual(descriptor.privacyBoundary, .device)
     }
 
+    func testRequiredToolPolicyRejectsRequestWithoutEnabledTools() {
+        let request = AFMRequest(
+            messages: [],
+            metadata: ["toolCallingMode": .string("required")]
+        )
+
+        XCTAssertThrowsError(
+            try AFMMLXToolPolicy.validateCompletedToolCalls([], for: request)
+        ) { error in
+            XCTAssertEqual(
+                error as? AFMError,
+                .invalidRequest("Tool calling is required, but no tools are enabled.")
+            )
+        }
+    }
+
+    func testRequiredToolPolicyRejectsTextOnlyCompletion() {
+        let request = requiredToolRequest()
+
+        XCTAssertThrowsError(
+            try AFMMLXToolPolicy.validateCompletedToolCalls([], for: request)
+        ) { error in
+            XCTAssertEqual(
+                error as? AFMError,
+                .generationFailed(
+                    "The model returned no tool call while tool calling was required."
+                )
+            )
+        }
+    }
+
+    func testRequiredToolPolicyAcceptsCompletedToolCall() throws {
+        try AFMMLXToolPolicy.validateCompletedToolCalls(
+            [
+                AFMToolCall(
+                    id: "call_1",
+                    name: "weather",
+                    arguments: #"{"city":"Toronto"}"#
+                )
+            ],
+            for: requiredToolRequest()
+        )
+    }
+
+    func testAllowedToolPolicyAcceptsTextOnlyCompletion() throws {
+        let request = AFMRequest(
+            messages: [],
+            tools: requiredToolRequest().tools,
+            metadata: ["toolCallingMode": .string("allowed")]
+        )
+
+        try AFMMLXToolPolicy.validateCompletedToolCalls([], for: request)
+    }
+
     private func makeModelCache(
         config: [String: Any],
         tokenizer: [String: Any],
@@ -79,6 +133,23 @@ final class AFMMLXProviderTests: XCTestCase {
             try Data().write(to: model.appendingPathComponent("mtp.safetensors"))
         }
         return root
+    }
+
+    private func requiredToolRequest() -> AFMRequest {
+        AFMRequest(
+            messages: [],
+            tools: [
+                AFMToolDefinition(
+                    name: "weather",
+                    description: "Get weather.",
+                    inputSchema: .object([
+                        "type": .string("object"),
+                        "properties": .object([:])
+                    ])
+                )
+            ],
+            metadata: ["toolCallingMode": .string("required")]
+        )
     }
 
     private func writeJSON(_ value: [String: Any], to url: URL) throws {
