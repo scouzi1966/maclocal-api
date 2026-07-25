@@ -3,28 +3,8 @@ import AFMKit
 import AFMOpenAICompat
 import MLXLMCommon
 
-typealias ChatGenerationResult = (
-    modelID: String,
-    content: String,
-    promptTokens: Int,
-    completionTokens: Int,
-    tokenLogprobs: [ResolvedLogprob]?,
-    toolCalls: [ResponseToolCall]?,
-    cachedTokens: Int,
-    promptTime: Double,
-    generateTime: Double,
-    stoppedBySequence: Bool
-)
-
-typealias ChatStreamingResult = (
-    modelID: String,
-    stream: AsyncThrowingStream<StreamChunk, Error>,
-    promptTokens: Int,
-    toolCallStartTag: String?,
-    toolCallEndTag: String?,
-    thinkStartTag: String?,
-    thinkEndTag: String?
-)
+typealias ChatGenerationResult = AFMMLXChatGenerationResult
+typealias ChatStreamingResult = AFMMLXChatStreamingResult
 
 protocol MLXChatServing: AFMMLXAPIProfiling {
     var maxConcurrent: Int { get }

@@ -24,6 +24,24 @@ final class AFMMLXProviderTests: XCTestCase {
         requireProfilingContract(MLXModelService(resolver: MLXCacheResolver()))
     }
 
+    func testAFMKitOwnsChatGenerationResultShape() {
+        let result: AFMMLXChatGenerationResult = (
+            modelID: "test/model",
+            content: "ok",
+            promptTokens: 1,
+            completionTokens: 1,
+            tokenLogprobs: nil,
+            toolCalls: nil,
+            cachedTokens: 0,
+            promptTime: 0,
+            generateTime: 0,
+            stoppedBySequence: false
+        )
+
+        XCTAssertEqual(result.modelID, "test/model")
+        XCTAssertEqual(result.content, "ok")
+    }
+
     func testDescriptorInfersCapabilitiesFromModelAssets() throws {
         let root = try makeModelCache(
             config: [
