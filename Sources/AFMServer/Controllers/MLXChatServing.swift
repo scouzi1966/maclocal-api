@@ -107,6 +107,18 @@ extension MLXChatServing {
         requestFormat ?? defaultGuidedJsonSchema
     }
 
+    func shouldDowngradeGrammarConstraints(
+        responseFormat: ResponseFormat?,
+        tools: [RequestTool]?
+    ) -> Bool {
+        AFMMLXGrammarPolicy.shouldDowngradeGrammarConstraints(
+            responseFormat: responseFormat,
+            tools: tools,
+            supportsStrictToolGrammar: supportsStrictToolGrammar,
+            enableGrammarConstraints: enableGrammarConstraints
+        )
+    }
+
     func waitForSlot(timeout: TimeInterval) async -> Bool {
         if Task.isCancelled { return false }
         if timeout <= 0 {

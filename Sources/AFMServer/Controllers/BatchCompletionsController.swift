@@ -81,11 +81,9 @@ struct BatchCompletionsController: RouteCollection {
         // Grammar constraint header: check if any request has strict tools/schema
         // Apply server-level --guided-json default for requests without response_format (#97)
         let anyStrict = batchReq.requests.contains { item in
-            MLXModelService.shouldDowngradeGrammarConstraints(
+            service.shouldDowngradeGrammarConstraints(
                 responseFormat: service.effectiveResponseFormat(requestFormat: item.body.responseFormat),
-                tools: item.body.tools,
-                supportsStrictToolGrammar: service.supportsStrictToolGrammar,
-                enableGrammarConstraints: service.enableGrammarConstraints
+                tools: item.body.tools
             )
         }
         if anyStrict {

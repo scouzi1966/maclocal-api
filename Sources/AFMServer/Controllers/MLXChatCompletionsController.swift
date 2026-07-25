@@ -122,11 +122,9 @@ struct MLXChatCompletionsController: RouteCollection {
             let effectiveResponseFormat = service.effectiveResponseFormat(requestFormat: chatRequest.responseFormat)
 
             // Detect strict-mode downgrade: user requested grammar enforcement but admin didn't enable the engine
-            let grammarDowngraded = MLXModelService.shouldDowngradeGrammarConstraints(
+            let grammarDowngraded = service.shouldDowngradeGrammarConstraints(
                 responseFormat: effectiveResponseFormat,
-                tools: chatRequest.tools,
-                supportsStrictToolGrammar: service.supportsStrictToolGrammar,
-                enableGrammarConstraints: service.enableGrammarConstraints
+                tools: chatRequest.tools
             )
 
             guard !chatRequest.messages.isEmpty else {

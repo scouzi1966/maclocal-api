@@ -1,4 +1,5 @@
 import AFMKitCore
+import AFMOpenAICompat
 @testable import AFMKitMLX
 import XCTest
 
@@ -56,6 +57,35 @@ final class AFMMLXProviderTests: XCTestCase {
         XCTAssertEqual(descriptor.providerID, "mlx")
         XCTAssertEqual(descriptor.requiresNetwork, true)
         XCTAssertEqual(descriptor.privacyBoundary, .device)
+    }
+
+    func testGrammarPolicyDowngradesStrictSchemaWithoutAdminOptIn() {
+        let strictSchema = ResponseFormat(
+            type: "json_schema",
+            jsonSchema: ResponseJsonSchema(
+                name: "answer",
+                description: nil,
+                schema: AnyCodable(["type": "object"]),
+                strict: true
+            )
+        )
+
+        XCTAssertTrue(
+            AFMMLXGrammarPolicy.shouldDowngradeGrammarConstraints(
+                responseFormat: strictSchema,
+                tools: nil,
+                supportsStrictToolGrammar: true,
+                enableGrammarConstraints: false
+            )
+        )
+        XCTAssertFalse(
+            AFMMLXGrammarPolicy.shouldDowngradeGrammarConstraints(
+                responseFormat: strictSchema,
+                tools: nil,
+                supportsStrictToolGrammar: true,
+                enableGrammarConstraints: true
+            )
+        )
     }
 
     func testRequiredToolPolicyRejectsRequestWithoutEnabledTools() {
