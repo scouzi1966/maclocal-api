@@ -168,6 +168,11 @@ public struct MLXLanguageModelExecutor: LanguageModelExecutor {
                         )
                     )
                 )
+            case .reasoning, .toolCall, .metadata, .custom, .completed:
+                // The compatibility AFMEngine MLX path currently emits text and
+                // usage only. Phase 3 maps these richer portable events to the
+                // corresponding Foundation Models generation-channel actions.
+                continue
             }
         }
 

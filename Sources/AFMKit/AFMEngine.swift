@@ -8,6 +8,8 @@ public enum AFMBackend: Sendable {
     case foundationModels
     /// An MLX model from Hugging Face (or local cache), addressed by its id.
     case mlx(modelID: String)
+    /// A model supplied by an open AFM provider registry.
+    case provider(providerID: AFMProviderID, modelID: AFMModelID)
 }
 
 /// Engine-level configuration — set once when the engine is created. Mirrors the
@@ -126,7 +128,12 @@ public struct AFMResponse: Sendable {
 /// adapters and API clients.
 public enum AFMStreamEvent: Sendable {
     case text(String, tokenCount: Int)
+    case reasoning(String, tokenCount: Int)
+    case toolCall(AFMToolCall, stage: AFMToolCallStage)
     case usage(promptTokens: Int, completionTokens: Int, cachedTokens: Int)
+    case metadata([String: AFMJSONValue])
+    case custom(type: String, payload: Data)
+    case completed(AFMFinishReason)
 }
 
 // MARK: - AFMEngine
@@ -148,6 +155,7 @@ public actor AFMEngine {
     private let engineConfig: EngineConfig
 
     private let mlx: MLXModelService?
+    private let registeredModel: AnyAFMModel?
     private var resolvedModelID: String?
 
     // Foundation Models backend is created lazily on first use (macOS 26+ only).
@@ -168,9 +176,38 @@ public actor AFMEngine {
             service.toolCallParser = config.toolCallParser
             service.maxConcurrent = config.maxConcurrent
             self.mlx = service
+            self.registeredModel = nil
         case .foundationModels:
             self.mlx = nil
+            self.registeredModel = nil
+        case .provider(let providerID, let modelID):
+            self.mlx = nil
+            self.registeredModel = try? AFMProviderRegistry.shared.makeModel(
+                providerID: providerID,
+                modelID: modelID
+            )
         }
+    }
+
+    /// Construct an engine from a provider registered by an application or package.
+    ///
+    /// This is the extensible entry point. Adding a provider requires registering a
+    /// factory, not adding a new ``AFMBackend`` case or editing ``AFMEngine``.
+    public init(
+        providerID: AFMProviderID,
+        modelID: AFMModelID,
+        configuration: AFMProviderConfiguration = .init(),
+        engineConfig: EngineConfig = .init(),
+        registry: AFMProviderRegistry = .shared
+    ) throws {
+        backend = .provider(providerID: providerID, modelID: modelID)
+        self.engineConfig = engineConfig
+        mlx = nil
+        registeredModel = try registry.makeModel(
+            providerID: providerID,
+            modelID: modelID,
+            configuration: configuration
+        )
     }
 
     /// Load (download if needed) the model and prepare it for inference.
@@ -192,6 +229,11 @@ public actor AFMEngine {
         case .foundationModels:
             try await ensureFoundation()
             return "apple-foundation-model"
+        case .provider:
+            guard let registeredModel else {
+                throw AFMEngineError.backendUnavailable
+            }
+            return try await registeredModel.load(progress: progress).modelID.rawValue
         }
     }
 
@@ -228,6 +270,17 @@ public actor AFMEngine {
         case .foundationModels:
             let text = try await foundationGenerate(messages: messages, config: config)
             return AFMResponse(content: text)
+        case .provider:
+            guard let registeredModel else {
+                throw AFMEngineError.backendUnavailable
+            }
+            let request = try AFMRequest(
+                openAIMessages: messages,
+                generationConfig: config
+            )
+            return AFMResponse(
+                modelResponse: try await registeredModel.respond(to: request)
+            )
         }
     }
 
@@ -291,6 +344,41 @@ public actor AFMEngine {
                     case .foundationModels:
                         let text = try await foundationGenerate(messages: messages, config: config)
                         continuation.yield(.text(text, tokenCount: 0))
+                        continuation.yield(.completed(.stop))
+                        continuation.finish()
+                    case .provider:
+                        guard let registeredModel else {
+                            throw AFMEngineError.backendUnavailable
+                        }
+                        let request = try AFMRequest(
+                            openAIMessages: messages,
+                            generationConfig: config
+                        )
+                        for try await event in registeredModel.streamResponse(to: request) {
+                            if Task.isCancelled { break }
+                            switch event {
+                            case .responseText(_, let text, let tokenCount):
+                                continuation.yield(.text(text, tokenCount: tokenCount))
+                            case .reasoningText(_, let text, let tokenCount):
+                                continuation.yield(.reasoning(text, tokenCount: tokenCount))
+                            case .toolCall(let call, let stage):
+                                continuation.yield(.toolCall(call, stage: stage))
+                            case .usage(let usage):
+                                continuation.yield(
+                                    .usage(
+                                        promptTokens: usage.inputTokens,
+                                        completionTokens: usage.outputTokens,
+                                        cachedTokens: usage.cachedInputTokens
+                                    )
+                                )
+                            case .metadata(let metadata):
+                                continuation.yield(.metadata(metadata))
+                            case .custom(let type, let payload):
+                                continuation.yield(.custom(type: type, payload: payload))
+                            case .completed(let reason):
+                                continuation.yield(.completed(reason))
+                            }
+                        }
                         continuation.finish()
                     }
                 } catch {

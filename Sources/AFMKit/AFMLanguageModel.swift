@@ -44,6 +44,8 @@ extension AFMEngine: AFMLanguageModel {
             return true
         case .foundationModels:
             if #available(macOS 26.0, *) { return true } else { return false }
+        case .provider:
+            return true
         }
     }
 
