@@ -635,12 +635,22 @@ struct MlxCommand: ParsableCommand {
 
         // Backward compatibility: support piped input in mlx mode too
         if let stdinContent = try readFromStdin() {
-            try runSinglePrompt(stdinContent, service: service, modelID: selectedModel, mediaPaths: resolvedMedia)
+            try runSinglePrompt(
+                stdinContent,
+                modelID: selectedModel,
+                mediaPaths: resolvedMedia,
+                chatTemplateKwargs: parsedKwargs
+            )
             return
         }
 
         if let prompt = singlePrompt {
-            try runSinglePrompt(prompt, service: service, modelID: selectedModel, mediaPaths: resolvedMedia)
+            try runSinglePrompt(
+                prompt,
+                modelID: selectedModel,
+                mediaPaths: resolvedMedia,
+                chatTemplateKwargs: parsedKwargs
+            )
             return
         }
 
@@ -755,19 +765,14 @@ struct MlxCommand: ParsableCommand {
         print("Server shutdown complete.")
     }
 
-    private func runSinglePrompt(_ prompt: String, service: MLXModelService, modelID: String, mediaPaths: [String] = []) throws {
-        defer {
-            let cleanup = DispatchGroup()
-            cleanup.enter()
-            Task {
-                await service.shutdownAndReleaseResources(verbose: verbose)
-                cleanup.leave()
-            }
-            cleanup.wait()
-        }
-
+    private func runSinglePrompt(
+        _ prompt: String,
+        modelID: String,
+        mediaPaths: [String] = [],
+        chatTemplateKwargs: [String: Any] = [:]
+    ) throws {
         let group = DispatchGroup()
-        let output = SendableBox<Result<String, Error>?>(nil)
+        let output = SendableBox<Result<AFMResponse, Error>?>(nil)
         // In single-prompt mode, suppress ALL output (stdout + stderr) during model loading
         // and generation. Only the final response goes to stdout. --verbose overrides this.
         let stdoutFD = dup(STDOUT_FILENO)
@@ -787,16 +792,44 @@ struct MlxCommand: ParsableCommand {
             // Verbose: redirect stdout to stderr so only the response goes to stdout
             dup2(STDERR_FILENO, STDOUT_FILENO)
         }
+        let encodedChatTemplateKwargs = chatTemplateKwargs.isEmpty
+            ? nil
+            : try Self.afmJSONValue(from: chatTemplateKwargs)
         group.enter()
         Task {
+            let engine = AFMEngine(
+                backend: .mlx(modelID: modelID),
+                config: EngineConfig(
+                    instructions: self.instructions,
+                    kvBits: self.kvBits,
+                    enablePrefixCaching: self.enablePrefixCaching,
+                    mtpEnabled: self.mtp,
+                    mtpDepth: self.mtpDepth,
+                    eagle3DrafterPath: self.eagle3,
+                    enableGrammarConstraints: self.enableGrammarConstraints,
+                    toolCallParser: self.toolCallParser,
+                    prefillStepSize: self.prefillStepSize,
+                    kvEvictionPolicy: self.kvEviction ?? "none",
+                    fixToolArguments: self.fixToolArgs,
+                    forceVLM: self.vlm || !mediaPaths.isEmpty,
+                    cacheProfilePath: self.cacheProfilePath,
+                    trace: self.vv,
+                    gpuCapturePath: self.gpuCapture,
+                    gpuTraceDuration: self.gpuTrace,
+                    gpuProfile: self.gpuProfile || self.gpuProfileBw,
+                    gpuProfileBandwidth: self.gpuProfileBw
+                )
+            )
             do {
                 // Pre-load with progress bar (downloads if needed)
                 let loadReporter = MLXLoadReporter(modelID: modelID)
                 loadReporter.start()
-                _ = try await service.ensureLoaded(
-                    model: modelID,
-                    progress: { p in loadReporter.updateDownload(p) },
-                    stage: { s in loadReporter.updateStage(s) }
+                _ = try await engine.load(
+                    progress: { fraction in
+                        let progress = Progress(totalUnitCount: 1_000)
+                        progress.completedUnitCount = Int64(fraction * 1_000)
+                        loadReporter.updateDownload(progress)
+                    }
                 )
                 loadReporter.finish(success: true)
 
@@ -820,21 +853,34 @@ struct MlxCommand: ParsableCommand {
                     responseFormat = ResponseFormat(type: "json_schema", jsonSchema: schema)
                 }
                 let stopSequences: [String]? = stop.map { $0.split(separator: ",").map { String($0.trimmingCharacters(in: .whitespaces)) } }
-                let res = try await service.generate(
-                    model: modelID,
-                    messages: messages,
+                var metadata: [String: AFMJSONValue] = [:]
+                if let encodedChatTemplateKwargs {
+                    metadata["chatTemplateKwargs"] = encodedChatTemplateKwargs
+                }
+                let res = try await engine.respond(
+                    to: messages,
+                    GenerationConfig(
                     temperature: temperature,
                     maxTokens: maxTokens,
                     topP: topP,
+                    topK: topK,
+                    minP: minP,
                     repetitionPenalty: repetitionPenalty,
+                    presencePenalty: presencePenalty,
+                    seed: seed,
+                    logprobs: maxLogprobs != nil,
+                    topLogprobs: maxLogprobs,
                     stop: stopSequences,
-                    responseFormat: responseFormat
+                    responseFormat: responseFormat,
+                    metadata: metadata
+                    )
                 )
-                output.value = .success(res.content)
+                output.value = .success(res)
             } catch {
                 MLXLoadReporter.finishActiveWithError(error.localizedDescription)
                 output.value = .failure(error)
             }
+            await engine.unload()
             group.leave()
         }
         group.wait()
@@ -849,24 +895,51 @@ struct MlxCommand: ParsableCommand {
         }
 
         switch output.value {
-        case .success(let text):
+        case .success(let response):
             if raw {
-                print(text)
+                if let reasoning = response.reasoningContent, !reasoning.isEmpty {
+                    print("<think>\(reasoning)</think>\(response.content)")
+                } else {
+                    print(response.content)
+                }
             } else {
-                let startTag = service.thinkStartTag ?? "<think>"
-                let endTag = service.thinkEndTag ?? "</think>"
-                let rendered = Self.stripThinkContent(from: text, startTag: startTag, endTag: endTag)
-                if rendered.isEmpty && text.contains(startTag) {
+                if response.content.isEmpty,
+                   response.reasoningContent?.isEmpty == false {
                     print("(no visible response — model used all tokens for reasoning. Try increasing --max-tokens)")
                     return
                 }
-                print(rendered)
+                print(response.content)
             }
         case .failure(let error):
             FileHandle.standardError.write(Data("Error: \(error.localizedDescription)\n".utf8))
             throw ExitCode.failure
         case .none:
             throw ExitCode.failure
+        }
+    }
+
+    private static func afmJSONValue(from value: Any) throws -> AFMJSONValue {
+        switch value {
+        case is NSNull:
+            return .null
+        case let value as Bool:
+            return .bool(value)
+        case let value as Int:
+            return .integer(value)
+        case let value as NSNumber:
+            return .number(value.doubleValue)
+        case let value as String:
+            return .string(value)
+        case let values as [Any]:
+            return .array(try values.map { try afmJSONValue(from: $0) })
+        case let values as [String: Any]:
+            return .object(
+                try values.mapValues { try afmJSONValue(from: $0) }
+            )
+        default:
+            throw ValidationError(
+                "Unsupported chat-template value: \(type(of: value))"
+            )
         }
     }
 

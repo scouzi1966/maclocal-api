@@ -24,7 +24,17 @@ public struct AFMMLXProviderFactory: AFMProviderFactory {
                 "eagle3DrafterPath",
                 "maxConcurrent",
                 "toolCallParser",
-                "enableGrammarConstraints"
+                "enableGrammarConstraints",
+                "prefillStepSize",
+                "kvEvictionPolicy",
+                "fixToolArguments",
+                "forceVLM",
+                "cacheProfilePath",
+                "trace",
+                "gpuCapturePath",
+                "gpuTraceDuration",
+                "gpuProfile",
+                "gpuProfileBandwidth"
             ],
             metadata: ["runtime": .string("mlx-swift")]
         )
@@ -72,6 +82,19 @@ public final class AFMMLXModel: AFMModel, @unchecked Sendable {
         service.toolCallParser = configuration.string("toolCallParser")
         service.enableGrammarConstraints =
             configuration.bool("enableGrammarConstraints") ?? false
+        service.prefillStepSize =
+            configuration.integer("prefillStepSize") ?? service.prefillStepSize
+        service.kvEvictionPolicy =
+            configuration.string("kvEvictionPolicy") ?? "none"
+        service.fixToolArgs = configuration.bool("fixToolArguments") ?? false
+        service.forceVLM = configuration.bool("forceVLM") ?? false
+        service.cacheProfilePath = configuration.string("cacheProfilePath")
+        service.trace = configuration.bool("trace") ?? false
+        service.gpuCapturePath = configuration.string("gpuCapturePath")
+        service.gpuTraceDuration = configuration.integer("gpuTraceDuration")
+        service.gpuProfile = configuration.bool("gpuProfile") ?? false
+        service.gpuProfileBandwidth =
+            configuration.bool("gpuProfileBandwidth") ?? false
         let maxConcurrent = max(0, configuration.integer("maxConcurrent") ?? 0)
         service.maxConcurrent = maxConcurrent
 

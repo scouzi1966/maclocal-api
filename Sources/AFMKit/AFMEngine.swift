@@ -33,6 +33,16 @@ public struct EngineConfig: Sendable {
     public var enableGrammarConstraints: Bool
     public var toolCallParser: String?
     public var maxConcurrent: Int
+    public var prefillStepSize: Int?
+    public var kvEvictionPolicy: String
+    public var fixToolArguments: Bool
+    public var forceVLM: Bool
+    public var cacheProfilePath: String?
+    public var trace: Bool
+    public var gpuCapturePath: String?
+    public var gpuTraceDuration: Int?
+    public var gpuProfile: Bool
+    public var gpuProfileBandwidth: Bool
 
     public init(
         instructions: String = "You are a helpful assistant",
@@ -45,7 +55,17 @@ public struct EngineConfig: Sendable {
         eagle3DrafterPath: String? = nil,
         enableGrammarConstraints: Bool = false,
         toolCallParser: String? = nil,
-        maxConcurrent: Int = 0
+        maxConcurrent: Int = 0,
+        prefillStepSize: Int? = nil,
+        kvEvictionPolicy: String = "none",
+        fixToolArguments: Bool = false,
+        forceVLM: Bool = false,
+        cacheProfilePath: String? = nil,
+        trace: Bool = false,
+        gpuCapturePath: String? = nil,
+        gpuTraceDuration: Int? = nil,
+        gpuProfile: Bool = false,
+        gpuProfileBandwidth: Bool = false
     ) {
         self.instructions = instructions
         self.adapter = adapter
@@ -58,6 +78,16 @@ public struct EngineConfig: Sendable {
         self.enableGrammarConstraints = enableGrammarConstraints
         self.toolCallParser = toolCallParser
         self.maxConcurrent = maxConcurrent
+        self.prefillStepSize = prefillStepSize
+        self.kvEvictionPolicy = kvEvictionPolicy
+        self.fixToolArguments = fixToolArguments
+        self.forceVLM = forceVLM
+        self.cacheProfilePath = cacheProfilePath
+        self.trace = trace
+        self.gpuCapturePath = gpuCapturePath
+        self.gpuTraceDuration = gpuTraceDuration
+        self.gpuProfile = gpuProfile
+        self.gpuProfileBandwidth = gpuProfileBandwidth
     }
 }
 
@@ -68,7 +98,13 @@ private extension EngineConfig {
             "mtpEnabled": .bool(mtpEnabled),
             "mtpDepth": .integer(mtpDepth),
             "enableGrammarConstraints": .bool(enableGrammarConstraints),
-            "maxConcurrent": .integer(maxConcurrent)
+            "maxConcurrent": .integer(maxConcurrent),
+            "kvEvictionPolicy": .string(kvEvictionPolicy),
+            "fixToolArguments": .bool(fixToolArguments),
+            "forceVLM": .bool(forceVLM),
+            "trace": .bool(trace),
+            "gpuProfile": .bool(gpuProfile),
+            "gpuProfileBandwidth": .bool(gpuProfileBandwidth)
         ]
         if let kvBits {
             values["kvBits"] = .integer(kvBits)
@@ -78,6 +114,18 @@ private extension EngineConfig {
         }
         if let toolCallParser {
             values["toolCallParser"] = .string(toolCallParser)
+        }
+        if let prefillStepSize {
+            values["prefillStepSize"] = .integer(prefillStepSize)
+        }
+        if let cacheProfilePath {
+            values["cacheProfilePath"] = .string(cacheProfilePath)
+        }
+        if let gpuCapturePath {
+            values["gpuCapturePath"] = .string(gpuCapturePath)
+        }
+        if let gpuTraceDuration {
+            values["gpuTraceDuration"] = .integer(gpuTraceDuration)
         }
         return AFMProviderConfiguration(values: values)
     }
