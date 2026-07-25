@@ -9022,6 +9022,164 @@
         "displayName": "Instance Property"
       },
       "identifier": {
+        "precise": "s:10AFMKitCore20AFMGenerationOptionsV8logprobsSbSgvp",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "AFMGenerationOptions",
+        "logprobs"
+      ],
+      "names": {
+        "title": "logprobs",
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "var"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "identifier",
+            "spelling": "logprobs"
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "Bool",
+            "preciseIdentifier": "s:Sb"
+          },
+          {
+            "kind": "text",
+            "spelling": "?"
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "var"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "identifier",
+          "spelling": "logprobs"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "Bool",
+          "preciseIdentifier": "s:Sb"
+        },
+        {
+          "kind": "text",
+          "spelling": "?"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
+        "position": {
+          "line": 208,
+          "character": 15
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.property",
+        "displayName": "Instance Property"
+      },
+      "identifier": {
+        "precise": "s:10AFMKitCore20AFMGenerationOptionsV11topLogprobsSiSgvp",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "AFMGenerationOptions",
+        "topLogprobs"
+      ],
+      "names": {
+        "title": "topLogprobs",
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "var"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "identifier",
+            "spelling": "topLogprobs"
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "Int",
+            "preciseIdentifier": "s:Si"
+          },
+          {
+            "kind": "text",
+            "spelling": "?"
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "var"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "identifier",
+          "spelling": "topLogprobs"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "Int",
+          "preciseIdentifier": "s:Si"
+        },
+        {
+          "kind": "text",
+          "spelling": "?"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
+        "position": {
+          "line": 209,
+          "character": 15
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.property",
+        "displayName": "Instance Property"
+      },
+      "identifier": {
         "precise": "s:10AFMKitCore20AFMGenerationOptionsV13stopSequencesSaySSGvp",
         "interfaceLanguage": "swift"
       },
@@ -9090,7 +9248,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 208,
+          "line": 210,
           "character": 15
         }
       }
@@ -9169,7 +9327,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 209,
+          "line": 211,
           "character": 15
         }
       }
@@ -9180,15 +9338,15 @@
         "displayName": "Initializer"
       },
       "identifier": {
-        "precise": "s:10AFMKitCore20AFMGenerationOptionsV11temperature21maximumResponseTokens4topP0I1K4minP17repetitionPenalty08presenceL04seed13stopSequences18responseConstraintACSdSg_SiSgAno3nOSaySSGAA011AFMResponseR0OSgtcfc",
+        "precise": "s:10AFMKitCore20AFMGenerationOptionsV11temperature21maximumResponseTokens4topP0I1K4minP17repetitionPenalty08presenceL04seed8logprobs0I8Logprobs13stopSequences18responseConstraintACSdSg_SiSgApq3pQSbSgAQSaySSGAA011AFMResponseT0OSgtcfc",
         "interfaceLanguage": "swift"
       },
       "pathComponents": [
         "AFMGenerationOptions",
-        "init(temperature:maximumResponseTokens:topP:topK:minP:repetitionPenalty:presencePenalty:seed:stopSequences:responseConstraint:)"
+        "init(temperature:maximumResponseTokens:topP:topK:minP:repetitionPenalty:presencePenalty:seed:logprobs:topLogprobs:stopSequences:responseConstraint:)"
       ],
       "names": {
-        "title": "init(temperature:maximumResponseTokens:topP:topK:minP:repetitionPenalty:presencePenalty:seed:stopSequences:responseConstraint:)",
+        "title": "init(temperature:maximumResponseTokens:topP:topK:minP:repetitionPenalty:presencePenalty:seed:logprobs:topLogprobs:stopSequences:responseConstraint:)",
         "subHeading": [
           {
             "kind": "keyword",
@@ -9320,6 +9478,40 @@
           {
             "kind": "externalParam",
             "spelling": "seed"
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "Int",
+            "preciseIdentifier": "s:Si"
+          },
+          {
+            "kind": "text",
+            "spelling": "?, "
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "logprobs"
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "Bool",
+            "preciseIdentifier": "s:Sb"
+          },
+          {
+            "kind": "text",
+            "spelling": "?, "
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "topLogprobs"
           },
           {
             "kind": "text",
@@ -9549,6 +9741,50 @@
             ]
           },
           {
+            "name": "logprobs",
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "logprobs"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "spelling": "Bool",
+                "preciseIdentifier": "s:Sb"
+              },
+              {
+                "kind": "text",
+                "spelling": "?"
+              }
+            ]
+          },
+          {
+            "name": "topLogprobs",
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "topLogprobs"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "spelling": "Int",
+                "preciseIdentifier": "s:Si"
+              },
+              {
+                "kind": "text",
+                "spelling": "?"
+              }
+            ]
+          },
+          {
             "name": "stopSequences",
             "declarationFragments": [
               {
@@ -9741,6 +9977,40 @@
         },
         {
           "kind": "externalParam",
+          "spelling": "logprobs"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "Bool",
+          "preciseIdentifier": "s:Sb"
+        },
+        {
+          "kind": "text",
+          "spelling": "? = nil, "
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "topLogprobs"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "Int",
+          "preciseIdentifier": "s:Si"
+        },
+        {
+          "kind": "text",
+          "spelling": "? = nil, "
+        },
+        {
+          "kind": "externalParam",
           "spelling": "stopSequences"
         },
         {
@@ -9778,7 +10048,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 211,
+          "line": 213,
           "character": 11
         }
       }
@@ -9836,7 +10106,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 236,
+          "line": 242,
           "character": 14
         }
       }
@@ -9915,7 +10185,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 237,
+          "line": 243,
           "character": 15
         }
       }
@@ -9994,7 +10264,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 238,
+          "line": 244,
           "character": 15
         }
       }
@@ -10065,7 +10335,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 239,
+          "line": 245,
           "character": 15
         }
       }
@@ -10162,7 +10432,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 240,
+          "line": 246,
           "character": 15
         }
       }
@@ -10458,7 +10728,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 242,
+          "line": 248,
           "character": 11
         }
       }
@@ -10516,7 +10786,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 255,
+          "line": 261,
           "character": 14
         }
       }
@@ -10587,7 +10857,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 256,
+          "line": 262,
           "character": 15
         }
       }
@@ -10658,7 +10928,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 257,
+          "line": 263,
           "character": 15
         }
       }
@@ -10729,7 +10999,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 258,
+          "line": 264,
           "character": 15
         }
       }
@@ -10934,7 +11204,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 260,
+          "line": 266,
           "character": 11
         }
       }
@@ -10992,7 +11262,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 267,
+          "line": 273,
           "character": 14
         }
       }
@@ -11063,7 +11333,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 268,
+          "line": 274,
           "character": 15
         }
       }
@@ -11134,7 +11404,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 269,
+          "line": 275,
           "character": 15
         }
       }
@@ -11205,7 +11475,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 270,
+          "line": 276,
           "character": 15
         }
       }
@@ -11276,7 +11546,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 271,
+          "line": 277,
           "character": 15
         }
       }
@@ -11533,7 +11803,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 273,
+          "line": 279,
           "character": 11
         }
       }
@@ -11591,7 +11861,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 286,
+          "line": 292,
           "character": 12
         }
       }
@@ -11644,7 +11914,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 287,
+          "line": 293,
           "character": 9
         }
       }
@@ -11697,7 +11967,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 288,
+          "line": 294,
           "character": 9
         }
       }
@@ -11750,7 +12020,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 289,
+          "line": 295,
           "character": 9
         }
       }
@@ -11803,7 +12073,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 290,
+          "line": 296,
           "character": 9
         }
       }
@@ -11856,7 +12126,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 291,
+          "line": 297,
           "character": 9
         }
       }
@@ -11909,7 +12179,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 292,
+          "line": 298,
           "character": 9
         }
       }
@@ -11962,7 +12232,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 293,
+          "line": 299,
           "character": 9
         }
       }
@@ -12067,6 +12337,1093 @@
         "displayName": "Structure"
       },
       "identifier": {
+        "precise": "s:10AFMKitCore20AFMTopLogProbabilityV",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "AFMTopLogProbability"
+      ],
+      "names": {
+        "title": "AFMTopLogProbability",
+        "navigator": [
+          {
+            "kind": "identifier",
+            "spelling": "AFMTopLogProbability"
+          }
+        ],
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "struct"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "identifier",
+            "spelling": "AFMTopLogProbability"
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "struct"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "identifier",
+          "spelling": "AFMTopLogProbability"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
+        "position": {
+          "line": 302,
+          "character": 14
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.property",
+        "displayName": "Instance Property"
+      },
+      "identifier": {
+        "precise": "s:10AFMKitCore20AFMTopLogProbabilityV5tokenSSvp",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "AFMTopLogProbability",
+        "token"
+      ],
+      "names": {
+        "title": "token",
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "var"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "identifier",
+            "spelling": "token"
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "String",
+            "preciseIdentifier": "s:SS"
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "var"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "identifier",
+          "spelling": "token"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "String",
+          "preciseIdentifier": "s:SS"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
+        "position": {
+          "line": 303,
+          "character": 15
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.property",
+        "displayName": "Instance Property"
+      },
+      "identifier": {
+        "precise": "s:10AFMKitCore20AFMTopLogProbabilityV7tokenIDSivp",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "AFMTopLogProbability",
+        "tokenID"
+      ],
+      "names": {
+        "title": "tokenID",
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "var"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "identifier",
+            "spelling": "tokenID"
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "Int",
+            "preciseIdentifier": "s:Si"
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "var"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "identifier",
+          "spelling": "tokenID"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "Int",
+          "preciseIdentifier": "s:Si"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
+        "position": {
+          "line": 304,
+          "character": 15
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.property",
+        "displayName": "Instance Property"
+      },
+      "identifier": {
+        "precise": "s:10AFMKitCore20AFMTopLogProbabilityV7logprobSfvp",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "AFMTopLogProbability",
+        "logprob"
+      ],
+      "names": {
+        "title": "logprob",
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "var"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "identifier",
+            "spelling": "logprob"
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "Float",
+            "preciseIdentifier": "s:Sf"
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "var"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "identifier",
+          "spelling": "logprob"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "Float",
+          "preciseIdentifier": "s:Sf"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
+        "position": {
+          "line": 305,
+          "character": 15
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.init",
+        "displayName": "Initializer"
+      },
+      "identifier": {
+        "precise": "s:10AFMKitCore20AFMTopLogProbabilityV5token0F2ID7logprobACSS_SiSftcfc",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "AFMTopLogProbability",
+        "init(token:tokenID:logprob:)"
+      ],
+      "names": {
+        "title": "init(token:tokenID:logprob:)",
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "init"
+          },
+          {
+            "kind": "text",
+            "spelling": "("
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "token"
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "String",
+            "preciseIdentifier": "s:SS"
+          },
+          {
+            "kind": "text",
+            "spelling": ", "
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "tokenID"
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "Int",
+            "preciseIdentifier": "s:Si"
+          },
+          {
+            "kind": "text",
+            "spelling": ", "
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "logprob"
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "Float",
+            "preciseIdentifier": "s:Sf"
+          },
+          {
+            "kind": "text",
+            "spelling": ")"
+          }
+        ]
+      },
+      "functionSignature": {
+        "parameters": [
+          {
+            "name": "token",
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "token"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "spelling": "String",
+                "preciseIdentifier": "s:SS"
+              }
+            ]
+          },
+          {
+            "name": "tokenID",
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "tokenID"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "spelling": "Int",
+                "preciseIdentifier": "s:Si"
+              }
+            ]
+          },
+          {
+            "name": "logprob",
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "logprob"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "spelling": "Float",
+                "preciseIdentifier": "s:Sf"
+              }
+            ]
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "init"
+        },
+        {
+          "kind": "text",
+          "spelling": "("
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "token"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "String",
+          "preciseIdentifier": "s:SS"
+        },
+        {
+          "kind": "text",
+          "spelling": ", "
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "tokenID"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "Int",
+          "preciseIdentifier": "s:Si"
+        },
+        {
+          "kind": "text",
+          "spelling": ", "
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "logprob"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "Float",
+          "preciseIdentifier": "s:Sf"
+        },
+        {
+          "kind": "text",
+          "spelling": ")"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
+        "position": {
+          "line": 307,
+          "character": 11
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.struct",
+        "displayName": "Structure"
+      },
+      "identifier": {
+        "precise": "s:10AFMKitCore22AFMTokenLogProbabilityV",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "AFMTokenLogProbability"
+      ],
+      "names": {
+        "title": "AFMTokenLogProbability",
+        "navigator": [
+          {
+            "kind": "identifier",
+            "spelling": "AFMTokenLogProbability"
+          }
+        ],
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "struct"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "identifier",
+            "spelling": "AFMTokenLogProbability"
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "struct"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "identifier",
+          "spelling": "AFMTokenLogProbability"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
+        "position": {
+          "line": 314,
+          "character": 14
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.property",
+        "displayName": "Instance Property"
+      },
+      "identifier": {
+        "precise": "s:10AFMKitCore22AFMTokenLogProbabilityV5tokenSSvp",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "AFMTokenLogProbability",
+        "token"
+      ],
+      "names": {
+        "title": "token",
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "var"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "identifier",
+            "spelling": "token"
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "String",
+            "preciseIdentifier": "s:SS"
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "var"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "identifier",
+          "spelling": "token"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "String",
+          "preciseIdentifier": "s:SS"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
+        "position": {
+          "line": 315,
+          "character": 15
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.property",
+        "displayName": "Instance Property"
+      },
+      "identifier": {
+        "precise": "s:10AFMKitCore22AFMTokenLogProbabilityV7tokenIDSivp",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "AFMTokenLogProbability",
+        "tokenID"
+      ],
+      "names": {
+        "title": "tokenID",
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "var"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "identifier",
+            "spelling": "tokenID"
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "Int",
+            "preciseIdentifier": "s:Si"
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "var"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "identifier",
+          "spelling": "tokenID"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "Int",
+          "preciseIdentifier": "s:Si"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
+        "position": {
+          "line": 316,
+          "character": 15
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.property",
+        "displayName": "Instance Property"
+      },
+      "identifier": {
+        "precise": "s:10AFMKitCore22AFMTokenLogProbabilityV7logprobSfvp",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "AFMTokenLogProbability",
+        "logprob"
+      ],
+      "names": {
+        "title": "logprob",
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "var"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "identifier",
+            "spelling": "logprob"
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "Float",
+            "preciseIdentifier": "s:Sf"
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "var"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "identifier",
+          "spelling": "logprob"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "Float",
+          "preciseIdentifier": "s:Sf"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
+        "position": {
+          "line": 317,
+          "character": 15
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.property",
+        "displayName": "Instance Property"
+      },
+      "identifier": {
+        "precise": "s:10AFMKitCore22AFMTokenLogProbabilityV9topTokensSayAA06AFMTopdE0VGvp",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "AFMTokenLogProbability",
+        "topTokens"
+      ],
+      "names": {
+        "title": "topTokens",
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "var"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "identifier",
+            "spelling": "topTokens"
+          },
+          {
+            "kind": "text",
+            "spelling": ": ["
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "AFMTopLogProbability",
+            "preciseIdentifier": "s:10AFMKitCore20AFMTopLogProbabilityV"
+          },
+          {
+            "kind": "text",
+            "spelling": "]"
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "var"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "identifier",
+          "spelling": "topTokens"
+        },
+        {
+          "kind": "text",
+          "spelling": ": ["
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "AFMTopLogProbability",
+          "preciseIdentifier": "s:10AFMKitCore20AFMTopLogProbabilityV"
+        },
+        {
+          "kind": "text",
+          "spelling": "]"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
+        "position": {
+          "line": 318,
+          "character": 15
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.init",
+        "displayName": "Initializer"
+      },
+      "identifier": {
+        "precise": "s:10AFMKitCore22AFMTokenLogProbabilityV5token0F2ID7logprob9topTokensACSS_SiSfSayAA06AFMTopdE0VGtcfc",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "AFMTokenLogProbability",
+        "init(token:tokenID:logprob:topTokens:)"
+      ],
+      "names": {
+        "title": "init(token:tokenID:logprob:topTokens:)",
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "init"
+          },
+          {
+            "kind": "text",
+            "spelling": "("
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "token"
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "String",
+            "preciseIdentifier": "s:SS"
+          },
+          {
+            "kind": "text",
+            "spelling": ", "
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "tokenID"
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "Int",
+            "preciseIdentifier": "s:Si"
+          },
+          {
+            "kind": "text",
+            "spelling": ", "
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "logprob"
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "Float",
+            "preciseIdentifier": "s:Sf"
+          },
+          {
+            "kind": "text",
+            "spelling": ", "
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "topTokens"
+          },
+          {
+            "kind": "text",
+            "spelling": ": ["
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "AFMTopLogProbability",
+            "preciseIdentifier": "s:10AFMKitCore20AFMTopLogProbabilityV"
+          },
+          {
+            "kind": "text",
+            "spelling": "])"
+          }
+        ]
+      },
+      "functionSignature": {
+        "parameters": [
+          {
+            "name": "token",
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "token"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "spelling": "String",
+                "preciseIdentifier": "s:SS"
+              }
+            ]
+          },
+          {
+            "name": "tokenID",
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "tokenID"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "spelling": "Int",
+                "preciseIdentifier": "s:Si"
+              }
+            ]
+          },
+          {
+            "name": "logprob",
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "logprob"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "spelling": "Float",
+                "preciseIdentifier": "s:Sf"
+              }
+            ]
+          },
+          {
+            "name": "topTokens",
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "topTokens"
+              },
+              {
+                "kind": "text",
+                "spelling": ": ["
+              },
+              {
+                "kind": "typeIdentifier",
+                "spelling": "AFMTopLogProbability",
+                "preciseIdentifier": "s:10AFMKitCore20AFMTopLogProbabilityV"
+              },
+              {
+                "kind": "text",
+                "spelling": "]"
+              }
+            ]
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "init"
+        },
+        {
+          "kind": "text",
+          "spelling": "("
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "token"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "String",
+          "preciseIdentifier": "s:SS"
+        },
+        {
+          "kind": "text",
+          "spelling": ", "
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "tokenID"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "Int",
+          "preciseIdentifier": "s:Si"
+        },
+        {
+          "kind": "text",
+          "spelling": ", "
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "logprob"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "Float",
+          "preciseIdentifier": "s:Sf"
+        },
+        {
+          "kind": "text",
+          "spelling": ", "
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "topTokens"
+        },
+        {
+          "kind": "text",
+          "spelling": ": ["
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "AFMTopLogProbability",
+          "preciseIdentifier": "s:10AFMKitCore20AFMTopLogProbabilityV"
+        },
+        {
+          "kind": "text",
+          "spelling": "] = [])"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
+        "position": {
+          "line": 320,
+          "character": 11
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.struct",
+        "displayName": "Structure"
+      },
+      "identifier": {
         "precise": "s:10AFMKitCore16AFMModelResponseV",
         "interfaceLanguage": "swift"
       },
@@ -12114,7 +13471,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 296,
+          "line": 333,
           "character": 14
         }
       }
@@ -12185,7 +13542,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 297,
+          "line": 334,
           "character": 15
         }
       }
@@ -12264,7 +13621,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 298,
+          "line": 335,
           "character": 15
         }
       }
@@ -12343,7 +13700,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 299,
+          "line": 336,
           "character": 15
         }
       }
@@ -12414,7 +13771,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 300,
+          "line": 337,
           "character": 15
         }
       }
@@ -12485,7 +13842,86 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 301,
+          "line": 338,
+          "character": 15
+        }
+      }
+    },
+    {
+      "kind": {
+        "identifier": "swift.property",
+        "displayName": "Instance Property"
+      },
+      "identifier": {
+        "precise": "s:10AFMKitCore16AFMModelResponseV13tokenLogprobsSayAA22AFMTokenLogProbabilityVGSgvp",
+        "interfaceLanguage": "swift"
+      },
+      "pathComponents": [
+        "AFMModelResponse",
+        "tokenLogprobs"
+      ],
+      "names": {
+        "title": "tokenLogprobs",
+        "subHeading": [
+          {
+            "kind": "keyword",
+            "spelling": "var"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "identifier",
+            "spelling": "tokenLogprobs"
+          },
+          {
+            "kind": "text",
+            "spelling": ": ["
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "AFMTokenLogProbability",
+            "preciseIdentifier": "s:10AFMKitCore22AFMTokenLogProbabilityV"
+          },
+          {
+            "kind": "text",
+            "spelling": "]?"
+          }
+        ]
+      },
+      "declarationFragments": [
+        {
+          "kind": "keyword",
+          "spelling": "var"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "identifier",
+          "spelling": "tokenLogprobs"
+        },
+        {
+          "kind": "text",
+          "spelling": ": ["
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "AFMTokenLogProbability",
+          "preciseIdentifier": "s:10AFMKitCore22AFMTokenLogProbabilityV"
+        },
+        {
+          "kind": "text",
+          "spelling": "]?"
+        }
+      ],
+      "accessLevel": "public",
+      "location": {
+        "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
+        "position": {
+          "line": 339,
           "character": 15
         }
       }
@@ -12582,7 +14018,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 302,
+          "line": 340,
           "character": 15
         }
       }
@@ -12593,15 +14029,15 @@
         "displayName": "Initializer"
       },
       "identifier": {
-        "precise": "s:10AFMKitCore16AFMModelResponseV4text9reasoning9toolCalls5usage12finishReason8metadataACSS_SSSgSayAA11AFMToolCallVGAA8AFMUsageVAA09AFMFinishK0OSDySSAA12AFMJSONValueOGtcfc",
+        "precise": "s:10AFMKitCore16AFMModelResponseV4text9reasoning9toolCalls5usage12finishReason13tokenLogprobs8metadataACSS_SSSgSayAA11AFMToolCallVGAA8AFMUsageVAA09AFMFinishK0OSayAA22AFMTokenLogProbabilityVGSgSDySSAA12AFMJSONValueOGtcfc",
         "interfaceLanguage": "swift"
       },
       "pathComponents": [
         "AFMModelResponse",
-        "init(text:reasoning:toolCalls:usage:finishReason:metadata:)"
+        "init(text:reasoning:toolCalls:usage:finishReason:tokenLogprobs:metadata:)"
       ],
       "names": {
-        "title": "init(text:reasoning:toolCalls:usage:finishReason:metadata:)",
+        "title": "init(text:reasoning:toolCalls:usage:finishReason:tokenLogprobs:metadata:)",
         "subHeading": [
           {
             "kind": "keyword",
@@ -12695,6 +14131,23 @@
           {
             "kind": "text",
             "spelling": ", "
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "tokenLogprobs"
+          },
+          {
+            "kind": "text",
+            "spelling": ": ["
+          },
+          {
+            "kind": "typeIdentifier",
+            "spelling": "AFMTokenLogProbability",
+            "preciseIdentifier": "s:10AFMKitCore22AFMTokenLogProbabilityV"
+          },
+          {
+            "kind": "text",
+            "spelling": "]?, "
           },
           {
             "kind": "externalParam",
@@ -12821,6 +14274,28 @@
                 "kind": "typeIdentifier",
                 "spelling": "AFMFinishReason",
                 "preciseIdentifier": "s:10AFMKitCore15AFMFinishReasonO"
+              }
+            ]
+          },
+          {
+            "name": "tokenLogprobs",
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "tokenLogprobs"
+              },
+              {
+                "kind": "text",
+                "spelling": ": ["
+              },
+              {
+                "kind": "typeIdentifier",
+                "spelling": "AFMTokenLogProbability",
+                "preciseIdentifier": "s:10AFMKitCore22AFMTokenLogProbabilityV"
+              },
+              {
+                "kind": "text",
+                "spelling": "]?"
               }
             ]
           },
@@ -12953,6 +14428,23 @@
         },
         {
           "kind": "externalParam",
+          "spelling": "tokenLogprobs"
+        },
+        {
+          "kind": "text",
+          "spelling": ": ["
+        },
+        {
+          "kind": "typeIdentifier",
+          "spelling": "AFMTokenLogProbability",
+          "preciseIdentifier": "s:10AFMKitCore22AFMTokenLogProbabilityV"
+        },
+        {
+          "kind": "text",
+          "spelling": "]? = nil, "
+        },
+        {
+          "kind": "externalParam",
           "spelling": "metadata"
         },
         {
@@ -12982,7 +14474,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 304,
+          "line": 342,
           "character": 11
         }
       }
@@ -13040,7 +14532,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 321,
+          "line": 361,
           "character": 12
         }
       }
@@ -13093,7 +14585,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 322,
+          "line": 362,
           "character": 9
         }
       }
@@ -13146,7 +14638,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 323,
+          "line": 363,
           "character": 9
         }
       }
@@ -13298,7 +14790,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 326,
+          "line": 366,
           "character": 12
         }
       }
@@ -13351,7 +14843,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 327,
+          "line": 367,
           "character": 9
         }
       }
@@ -13430,7 +14922,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 328,
+          "line": 368,
           "character": 9
         }
       }
@@ -13483,7 +14975,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 329,
+          "line": 369,
           "character": 9
         }
       }
@@ -13536,7 +15028,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 330,
+          "line": 370,
           "character": 9
         }
       }
@@ -13594,7 +15086,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 333,
+          "line": 373,
           "character": 12
         }
       }
@@ -13757,7 +15249,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 334,
+          "line": 374,
           "character": 9
         }
       }
@@ -13920,7 +15412,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 335,
+          "line": 375,
           "character": 9
         }
       }
@@ -14049,7 +15541,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 336,
+          "line": 376,
           "character": 9
         }
       }
@@ -14128,7 +15620,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 337,
+          "line": 377,
           "character": 9
         }
       }
@@ -14225,7 +15717,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 338,
+          "line": 378,
           "character": 9
         }
       }
@@ -14354,7 +15846,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 339,
+          "line": 379,
           "character": 9
         }
       }
@@ -14433,7 +15925,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 340,
+          "line": 380,
           "character": 9
         }
       }
@@ -14491,7 +15983,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 343,
+          "line": 383,
           "character": 12
         }
       }
@@ -14570,7 +16062,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 344,
+          "line": 384,
           "character": 9
         }
       }
@@ -14649,7 +16141,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 345,
+          "line": 385,
           "character": 9
         }
       }
@@ -14778,7 +16270,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 346,
+          "line": 386,
           "character": 9
         }
       }
@@ -14857,7 +16349,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 347,
+          "line": 387,
           "character": 9
         }
       }
@@ -14936,7 +16428,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 348,
+          "line": 388,
           "character": 9
         }
       }
@@ -15015,7 +16507,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 349,
+          "line": 389,
           "character": 9
         }
       }
@@ -15094,7 +16586,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 350,
+          "line": 390,
           "character": 9
         }
       }
@@ -15173,7 +16665,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 351,
+          "line": 391,
           "character": 9
         }
       }
@@ -15260,7 +16752,7 @@
       "location": {
         "uri": "file:///Volumes/edata/dev/git/CODEX/vesta-mac/.worktrees/maclocal-api-afmkit/Sources/AFMKitCore/AFMCoreTypes.swift",
         "position": {
-          "line": 353,
+          "line": 393,
           "character": 15
         }
       }
@@ -22200,6 +23692,16 @@
     },
     {
       "kind": "memberOf",
+      "source": "s:10AFMKitCore20AFMGenerationOptionsV8logprobsSbSgvp",
+      "target": "s:10AFMKitCore20AFMGenerationOptionsV"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore20AFMGenerationOptionsV11topLogprobsSiSgvp",
+      "target": "s:10AFMKitCore20AFMGenerationOptionsV"
+    },
+    {
+      "kind": "memberOf",
       "source": "s:10AFMKitCore20AFMGenerationOptionsV13stopSequencesSaySSGvp",
       "target": "s:10AFMKitCore20AFMGenerationOptionsV"
     },
@@ -22210,7 +23712,7 @@
     },
     {
       "kind": "memberOf",
-      "source": "s:10AFMKitCore20AFMGenerationOptionsV11temperature21maximumResponseTokens4topP0I1K4minP17repetitionPenalty08presenceL04seed13stopSequences18responseConstraintACSdSg_SiSgAno3nOSaySSGAA011AFMResponseR0OSgtcfc",
+      "source": "s:10AFMKitCore20AFMGenerationOptionsV11temperature21maximumResponseTokens4topP0I1K4minP17repetitionPenalty08presenceL04seed8logprobs0I8Logprobs13stopSequences18responseConstraintACSdSg_SiSgApq3pQSbSgAQSaySSGAA011AFMResponseT0OSgtcfc",
       "target": "s:10AFMKitCore20AFMGenerationOptionsV"
     },
     {
@@ -22443,6 +23945,99 @@
     },
     {
       "kind": "conformsTo",
+      "source": "s:10AFMKitCore20AFMTopLogProbabilityV",
+      "target": "s:SH",
+      "targetFallback": "Swift.Hashable"
+    },
+    {
+      "kind": "conformsTo",
+      "source": "s:10AFMKitCore20AFMTopLogProbabilityV",
+      "target": "s:s8SendableP",
+      "targetFallback": "Swift.Sendable"
+    },
+    {
+      "kind": "conformsTo",
+      "source": "s:10AFMKitCore20AFMTopLogProbabilityV",
+      "target": "s:SQ",
+      "targetFallback": "Swift.Equatable"
+    },
+    {
+      "kind": "conformsTo",
+      "source": "s:10AFMKitCore20AFMTopLogProbabilityV",
+      "target": "s:s16SendableMetatypeP",
+      "targetFallback": "Swift.SendableMetatype"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore20AFMTopLogProbabilityV5tokenSSvp",
+      "target": "s:10AFMKitCore20AFMTopLogProbabilityV"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore20AFMTopLogProbabilityV7tokenIDSivp",
+      "target": "s:10AFMKitCore20AFMTopLogProbabilityV"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore20AFMTopLogProbabilityV7logprobSfvp",
+      "target": "s:10AFMKitCore20AFMTopLogProbabilityV"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore20AFMTopLogProbabilityV5token0F2ID7logprobACSS_SiSftcfc",
+      "target": "s:10AFMKitCore20AFMTopLogProbabilityV"
+    },
+    {
+      "kind": "conformsTo",
+      "source": "s:10AFMKitCore22AFMTokenLogProbabilityV",
+      "target": "s:SH",
+      "targetFallback": "Swift.Hashable"
+    },
+    {
+      "kind": "conformsTo",
+      "source": "s:10AFMKitCore22AFMTokenLogProbabilityV",
+      "target": "s:s8SendableP",
+      "targetFallback": "Swift.Sendable"
+    },
+    {
+      "kind": "conformsTo",
+      "source": "s:10AFMKitCore22AFMTokenLogProbabilityV",
+      "target": "s:SQ",
+      "targetFallback": "Swift.Equatable"
+    },
+    {
+      "kind": "conformsTo",
+      "source": "s:10AFMKitCore22AFMTokenLogProbabilityV",
+      "target": "s:s16SendableMetatypeP",
+      "targetFallback": "Swift.SendableMetatype"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore22AFMTokenLogProbabilityV5tokenSSvp",
+      "target": "s:10AFMKitCore22AFMTokenLogProbabilityV"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore22AFMTokenLogProbabilityV7tokenIDSivp",
+      "target": "s:10AFMKitCore22AFMTokenLogProbabilityV"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore22AFMTokenLogProbabilityV7logprobSfvp",
+      "target": "s:10AFMKitCore22AFMTokenLogProbabilityV"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore22AFMTokenLogProbabilityV9topTokensSayAA06AFMTopdE0VGvp",
+      "target": "s:10AFMKitCore22AFMTokenLogProbabilityV"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore22AFMTokenLogProbabilityV5token0F2ID7logprob9topTokensACSS_SiSfSayAA06AFMTopdE0VGtcfc",
+      "target": "s:10AFMKitCore22AFMTokenLogProbabilityV"
+    },
+    {
+      "kind": "conformsTo",
       "source": "s:10AFMKitCore16AFMModelResponseV",
       "target": "s:SH",
       "targetFallback": "Swift.Hashable"
@@ -22492,12 +24087,17 @@
     },
     {
       "kind": "memberOf",
+      "source": "s:10AFMKitCore16AFMModelResponseV13tokenLogprobsSayAA22AFMTokenLogProbabilityVGSgvp",
+      "target": "s:10AFMKitCore16AFMModelResponseV"
+    },
+    {
+      "kind": "memberOf",
       "source": "s:10AFMKitCore16AFMModelResponseV8metadataSDySSAA12AFMJSONValueOGvp",
       "target": "s:10AFMKitCore16AFMModelResponseV"
     },
     {
       "kind": "memberOf",
-      "source": "s:10AFMKitCore16AFMModelResponseV4text9reasoning9toolCalls5usage12finishReason8metadataACSS_SSSgSayAA11AFMToolCallVGAA8AFMUsageVAA09AFMFinishK0OSDySSAA12AFMJSONValueOGtcfc",
+      "source": "s:10AFMKitCore16AFMModelResponseV4text9reasoning9toolCalls5usage12finishReason13tokenLogprobs8metadataACSS_SSSgSayAA11AFMToolCallVGAA8AFMUsageVAA09AFMFinishK0OSayAA22AFMTokenLogProbabilityVGSgSDySSAA12AFMJSONValueOGtcfc",
       "target": "s:10AFMKitCore16AFMModelResponseV"
     },
     {

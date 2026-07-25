@@ -62,6 +62,17 @@ application may construct a concrete Apple `LanguageModel` directly and use
 - Additive public API changes require updating the checked-in symbol graph in
   the same commit.
 
+## Additive API Changes
+
+### Provider-routed log probabilities
+
+The provider-contract migration adds optional `logprobs` and `topLogprobs`
+generation controls, portable `AFMTopLogProbability` and
+`AFMTokenLogProbability` values, and `AFMModelResponse.tokenLogprobs`.
+Existing initializers remain source-compatible because the new arguments have
+defaults. Providers that do not advertise or implement log probabilities may
+leave the controls and response field unset.
+
 ## API Baseline
 
 Run:

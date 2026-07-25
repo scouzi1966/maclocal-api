@@ -68,7 +68,10 @@ let package = Package(
         // Share the official XGrammar product with host applications such as Vesta.
         // Compiling the vendored implementation here as well as in coreai-models
         // produces duplicate native symbols when both libraries are linked.
-        .package(url: "https://github.com/mlc-ai/xgrammar", branch: "main"),
+        .package(
+            url: "https://github.com/mlc-ai/xgrammar",
+            revision: "c1570cdb4f8c867a4dbd07b7ff90581f4a2a432b"
+        ),
         // Pin mlx-swift to 0.30.3 — 0.30.4+ has SDPA regression (PR #3023 "Faster two pass sdpa")
         // causing NaN/garbage at ~1500 tokens. Post-0.30.6 fixes (PRs #3119, #3121) don't fully
         // resolve it. RECONFIRMED 2026-05-31: 0.31.3 still produces garbage/empty at >1500 tok
