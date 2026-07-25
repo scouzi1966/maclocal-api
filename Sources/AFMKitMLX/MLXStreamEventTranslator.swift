@@ -1,8 +1,7 @@
 import AFMKitCore
-import AFMKitMLX
 import AFMOpenAICompat
 
-struct MLXStreamEventTranslator {
+public struct MLXStreamEventTranslator {
     private struct ToolState {
         var id: String
         var name: String
@@ -24,7 +23,7 @@ struct MLXStreamEventTranslator {
     private var completionTokens = 0
     private var stoppedBySequence = false
 
-    init(
+    public init(
         thinkStartTag: String?,
         thinkEndTag: String?,
         maximumResponseTokens: Int?
@@ -34,7 +33,7 @@ struct MLXStreamEventTranslator {
         self.maximumResponseTokens = maximumResponseTokens
     }
 
-    mutating func consume(_ chunk: StreamChunk) -> [AFMStreamEvent] {
+    public mutating func consume(_ chunk: StreamChunk) -> [AFMGenerationEvent] {
         var events = textEvents(from: chunk)
         events.append(contentsOf: toolEvents(from: chunk.toolCallDeltas ?? []))
         events.append(contentsOf: completedToolEvents(from: chunk.toolCalls ?? []))
@@ -44,9 +43,11 @@ struct MLXStreamEventTranslator {
             self.completionTokens = completionTokens
             events.append(
                 .usage(
-                    promptTokens: promptTokens,
-                    completionTokens: completionTokens,
-                    cachedTokens: chunk.cachedTokens ?? 0
+                    AFMUsage(
+                        inputTokens: promptTokens,
+                        cachedInputTokens: chunk.cachedTokens ?? 0,
+                        outputTokens: completionTokens
+                    )
                 )
             )
         }
@@ -56,7 +57,7 @@ struct MLXStreamEventTranslator {
         return events
     }
 
-    mutating func finish() -> [AFMStreamEvent] {
+    public mutating func finish() -> [AFMGenerationEvent] {
         var events = flushTextBuffer()
         let reason: AFMFinishReason
         if tools.values.contains(where: \.completed) {
@@ -73,16 +74,18 @@ struct MLXStreamEventTranslator {
         return events
     }
 
-    private mutating func textEvents(from chunk: StreamChunk) -> [AFMStreamEvent] {
+    private mutating func textEvents(from chunk: StreamChunk) -> [AFMGenerationEvent] {
         guard !chunk.text.isEmpty else { return [] }
         let tokenCount = max(1, chunk.logprobs?.count ?? 1)
         guard let thinkStartTag, let thinkEndTag else {
-            return [.text(chunk.text, tokenCount: tokenCount)]
+            return [
+                .responseText(action: .append, text: chunk.text, tokenCount: tokenCount)
+            ]
         }
 
         textBuffer += chunk.text
         bufferedTokenCount += tokenCount
-        var events: [AFMStreamEvent] = []
+        var events: [AFMGenerationEvent] = []
         while !textBuffer.isEmpty {
             let boundary = insideReasoning ? thinkEndTag : thinkStartTag
             if let range = textBuffer.range(of: boundary) {
@@ -104,9 +107,9 @@ struct MLXStreamEventTranslator {
         return events
     }
 
-    private mutating func flushTextBuffer() -> [AFMStreamEvent] {
+    private mutating func flushTextBuffer() -> [AFMGenerationEvent] {
         guard !textBuffer.isEmpty else { return [] }
-        var events: [AFMStreamEvent] = []
+        var events: [AFMGenerationEvent] = []
         append(textBuffer, to: &events)
         textBuffer = ""
         return events
@@ -114,15 +117,19 @@ struct MLXStreamEventTranslator {
 
     private mutating func append(
         _ text: String,
-        to events: inout [AFMStreamEvent]
+        to events: inout [AFMGenerationEvent]
     ) {
         guard !text.isEmpty else { return }
         let tokenCount = bufferedTokenCount
         bufferedTokenCount = 0
         if insideReasoning {
-            events.append(.reasoning(text, tokenCount: tokenCount))
+            events.append(
+                .reasoningText(action: .append, text: text, tokenCount: tokenCount)
+            )
         } else {
-            events.append(.text(text, tokenCount: tokenCount))
+            events.append(
+                .responseText(action: .append, text: text, tokenCount: tokenCount)
+            )
         }
     }
 
@@ -139,8 +146,8 @@ struct MLXStreamEventTranslator {
 
     private mutating func toolEvents(
         from deltas: [StreamDeltaToolCall]
-    ) -> [AFMStreamEvent] {
-        var events: [AFMStreamEvent] = []
+    ) -> [AFMGenerationEvent] {
+        var events: [AFMGenerationEvent] = []
         for delta in deltas {
             let existing = tools[delta.index]
             var state = existing ?? ToolState(
@@ -154,11 +161,13 @@ struct MLXStreamEventTranslator {
                 state.name = name
             }
             if existing == nil {
-                events.append(.toolCall(state.call, stage: .started))
+                events.append(.toolCall(call: state.call, stage: .started))
             }
             if let arguments = delta.function?.arguments, !arguments.isEmpty {
                 state.arguments += arguments
-                events.append(.toolCall(state.call, stage: .argumentsDelta(arguments)))
+                events.append(
+                    .toolCall(call: state.call, stage: .argumentsDelta(arguments))
+                )
             }
             tools[delta.index] = state
         }
@@ -167,8 +176,8 @@ struct MLXStreamEventTranslator {
 
     private mutating func completedToolEvents(
         from completedCalls: [ResponseToolCall]
-    ) -> [AFMStreamEvent] {
-        var events: [AFMStreamEvent] = []
+    ) -> [AFMGenerationEvent] {
+        var events: [AFMGenerationEvent] = []
         for (fallbackIndex, completedCall) in completedCalls.enumerated() {
             let index = completedCall.index ?? fallbackIndex
             let existing = tools[index]
@@ -179,7 +188,7 @@ struct MLXStreamEventTranslator {
             state.id = completedCall.id
             state.name = completedCall.function.name
             if existing == nil {
-                events.append(.toolCall(state.call, stage: .started))
+                events.append(.toolCall(call: state.call, stage: .started))
             }
 
             let finalArguments = completedCall.function.arguments
@@ -187,21 +196,26 @@ struct MLXStreamEventTranslator {
                 let suffix = String(finalArguments.dropFirst(state.arguments.count))
                 if !suffix.isEmpty {
                     state.arguments += suffix
-                    events.append(.toolCall(state.call, stage: .argumentsDelta(suffix)))
+                    events.append(
+                        .toolCall(call: state.call, stage: .argumentsDelta(suffix))
+                    )
                 }
             } else if state.arguments != finalArguments {
-                events.append(.toolCall(state.call, stage: .retracted))
+                events.append(.toolCall(call: state.call, stage: .retracted))
                 state.arguments = finalArguments
-                events.append(.toolCall(state.call, stage: .started))
+                events.append(.toolCall(call: state.call, stage: .started))
                 if !finalArguments.isEmpty {
                     events.append(
-                        .toolCall(state.call, stage: .argumentsDelta(finalArguments))
+                        .toolCall(
+                            call: state.call,
+                            stage: .argumentsDelta(finalArguments)
+                        )
                     )
                 }
             }
 
             state.completed = true
-            events.append(.toolCall(state.call, stage: .completed))
+            events.append(.toolCall(call: state.call, stage: .completed))
             tools[index] = state
         }
         return events

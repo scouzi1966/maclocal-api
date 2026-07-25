@@ -1,5 +1,5 @@
 import Foundation
-public struct MLXCacheResolver {
+public struct MLXCacheResolver: Sendable {
     public let cacheRoot: URL?
 
     public init() {
@@ -9,6 +9,10 @@ public struct MLXCacheResolver {
         } else {
             cacheRoot = nil
         }
+    }
+
+    public init(cacheRoot: URL?) {
+        self.cacheRoot = cacheRoot
     }
 
     func applyEnvironment() {
@@ -61,8 +65,6 @@ public struct MLXCacheResolver {
         let parts = repoId.split(separator: "/", maxSplits: 1).map(String.init)
         let org = parts.count > 1 ? parts[0] : "mlx-community"
         let model = parts.count > 1 ? parts[1] : repoId
-        let fm = FileManager.default
-        let env = ProcessInfo.processInfo.environment
         let hfStyleName = "models--\(org)--\(model)"
         let flatName = "\(org)/\(model)"
 

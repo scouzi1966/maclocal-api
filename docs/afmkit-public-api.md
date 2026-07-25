@@ -18,6 +18,23 @@ The package exposes dependency-scoped products:
 these products so existing consumers do not need immediate import changes.
 New libraries should import only the products they use.
 
+## MLX Provider
+
+Applications register `AFMMLXProviderFactory` with an `AFMProviderRegistry`,
+then construct models by provider and model ID. `AFMMLXModelDescriptor` reports
+cached-model capabilities, context length, privacy boundary, and whether the
+weights require network access. `AFMMLXModel` owns loading, generation,
+reasoning and tool event separation, cancellation, and unload behavior.
+
+```swift
+let registry = AFMProviderRegistry()
+try registry.register(AFMMLXProviderFactory())
+let model = try registry.makeModel(
+    providerID: AFMMLXProviderFactory.providerID,
+    modelID: "mlx-community/Qwen3-4B-4bit"
+)
+```
+
 ## Contract Overview
 
 Providers expose an `AFMProviderDescriptor` and create type-erased

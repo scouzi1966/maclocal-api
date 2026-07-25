@@ -332,11 +332,11 @@ public actor AFMEngine {
                         for try await chunk in result.stream {
                             if Task.isCancelled { break }
                             for event in translator.consume(chunk) {
-                                continuation.yield(event)
+                                continuation.yield(Self.streamEvent(from: event))
                             }
                         }
                         for event in translator.finish() {
-                            continuation.yield(event)
+                            continuation.yield(Self.streamEvent(from: event))
                         }
                         continuation.finish()
                     case .foundationModels:
@@ -407,6 +407,31 @@ public actor AFMEngine {
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private nonisolated static func streamEvent(
+        from event: AFMGenerationEvent
+    ) -> AFMStreamEvent {
+        switch event {
+        case .responseText(_, let text, let tokenCount):
+            return .text(text, tokenCount: tokenCount)
+        case .reasoningText(_, let text, let tokenCount):
+            return .reasoning(text, tokenCount: tokenCount)
+        case .toolCall(let call, let stage):
+            return .toolCall(call, stage: stage)
+        case .usage(let usage):
+            return .usage(
+                promptTokens: usage.inputTokens,
+                completionTokens: usage.outputTokens,
+                cachedTokens: usage.cachedInputTokens
+            )
+        case .metadata(let metadata):
+            return .metadata(metadata)
+        case .custom(let type, let payload):
+            return .custom(type: type, payload: payload)
+        case .completed(let reason):
+            return .completed(reason)
         }
     }
 

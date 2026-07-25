@@ -1,6 +1,5 @@
 import AFMKitCore
-@testable import AFMKit
-import AFMKitMLX
+@testable import AFMKitMLX
 import AFMOpenAICompat
 import XCTest
 
@@ -96,38 +95,38 @@ final class MLXStreamEventTranslatorTests: XCTestCase {
         XCTAssertEqual(completionReason(from: events), .length)
     }
 
-    private func text(from events: [AFMStreamEvent]) -> String {
+    private func text(from events: [AFMGenerationEvent]) -> String {
         events.compactMap {
-            guard case .text(let text, _) = $0 else { return nil }
+            guard case .responseText(_, let text, _) = $0 else { return nil }
             return text
         }.joined()
     }
 
-    private func reasoning(from events: [AFMStreamEvent]) -> String {
+    private func reasoning(from events: [AFMGenerationEvent]) -> String {
         events.compactMap {
-            guard case .reasoning(let text, _) = $0 else { return nil }
+            guard case .reasoningText(_, let text, _) = $0 else { return nil }
             return text
         }.joined()
     }
 
-    private func completedToolCall(from events: [AFMStreamEvent]) -> AFMToolCall? {
+    private func completedToolCall(from events: [AFMGenerationEvent]) -> AFMToolCall? {
         events.compactMap {
             guard case .toolCall(let call, .completed) = $0 else { return nil }
             return call
         }.last
     }
 
-    private func completionReason(from events: [AFMStreamEvent]) -> AFMFinishReason? {
+    private func completionReason(from events: [AFMGenerationEvent]) -> AFMFinishReason? {
         events.compactMap {
             guard case .completed(let reason) = $0 else { return nil }
             return reason
         }.last
     }
 
-    private func tokenCount(from events: [AFMStreamEvent]) -> Int {
+    private func tokenCount(from events: [AFMGenerationEvent]) -> Int {
         events.reduce(into: 0) { total, event in
             switch event {
-            case .text(_, let count), .reasoning(_, let count):
+            case .responseText(_, _, let count), .reasoningText(_, _, let count):
                 total += count
             default:
                 break

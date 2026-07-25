@@ -1,0 +1,87 @@
+import AFMKitCore
+@testable import AFMKitMLX
+import XCTest
+
+final class AFMMLXProviderTests: XCTestCase {
+    func testFactoryExposesStableProviderIdentityAndConfiguration() {
+        let descriptor = AFMMLXProviderFactory().descriptor
+
+        XCTAssertEqual(descriptor.id, "mlx")
+        XCTAssertEqual(descriptor.privacyBoundary, .device)
+        XCTAssertTrue(descriptor.configurationKeys.contains("enablePrefixCaching"))
+        XCTAssertTrue(descriptor.configurationKeys.contains("maxConcurrent"))
+    }
+
+    func testDescriptorInfersCapabilitiesFromModelAssets() throws {
+        let root = try makeModelCache(
+            config: [
+                "max_position_embeddings": 65_536,
+                "vision_config": ["model_type": "vision"]
+            ],
+            tokenizer: [
+                "chat_template": "{% if tools %}<tool_call>{% endif %}<think>"
+            ],
+            generation: ["enable_thinking": true],
+            includeMTP: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let descriptor = AFMMLXModelDescriptor.describe(
+            modelID: "test/model",
+            resolver: MLXCacheResolver(cacheRoot: root)
+        )
+
+        XCTAssertEqual(descriptor.contextWindow, 65_536)
+        XCTAssertEqual(descriptor.requiresNetwork, false)
+        XCTAssertTrue(descriptor.capabilities.contains(.text))
+        XCTAssertTrue(descriptor.capabilities.contains(.vision))
+        XCTAssertTrue(descriptor.capabilities.contains(.reasoning))
+        XCTAssertTrue(descriptor.capabilities.contains(.toolCalling))
+        XCTAssertTrue(descriptor.capabilities.contains(.structuredOutput))
+        XCTAssertTrue(descriptor.capabilities.contains(.speculativeDecoding))
+    }
+
+    func testUncachedDescriptorReportsNetworkRequirement() {
+        let descriptor = AFMMLXModelDescriptor.describe(
+            modelID: "missing/model",
+            resolver: MLXCacheResolver()
+        )
+
+        XCTAssertEqual(descriptor.providerID, "mlx")
+        XCTAssertEqual(descriptor.requiresNetwork, true)
+        XCTAssertEqual(descriptor.privacyBoundary, .device)
+    }
+
+    private func makeModelCache(
+        config: [String: Any],
+        tokenizer: [String: Any],
+        generation: [String: Any],
+        includeMTP: Bool
+    ) throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("afmkit-provider-\(UUID().uuidString)")
+        let model = root.appendingPathComponent("test/model")
+        try FileManager.default.createDirectory(
+            at: model,
+            withIntermediateDirectories: true
+        )
+        try writeJSON(config, to: model.appendingPathComponent("config.json"))
+        try writeJSON(
+            tokenizer,
+            to: model.appendingPathComponent("tokenizer_config.json")
+        )
+        try writeJSON(
+            generation,
+            to: model.appendingPathComponent("generation_config.json")
+        )
+        try Data().write(to: model.appendingPathComponent("model.safetensors"))
+        if includeMTP {
+            try Data().write(to: model.appendingPathComponent("mtp.safetensors"))
+        }
+        return root
+    }
+
+    private func writeJSON(_ value: [String: Any], to url: URL) throws {
+        try JSONSerialization.data(withJSONObject: value).write(to: url)
+    }
+}
