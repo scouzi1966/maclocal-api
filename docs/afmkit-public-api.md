@@ -10,6 +10,8 @@ The package exposes dependency-scoped products:
 - `AFMOpenAICompat`: OpenAI transport DTOs without a model runtime.
 - `AFMKitMLX`: MLX loading, generation, scheduling, caching, and grammar support.
 - `AFMKitFoundationModels`: Apple's Foundation Models service and schema bridge.
+- `AFMKitFoundationModels27`: macOS 27 adapters that expose AFMKit models through
+  Apple's `LanguageModel` and `LanguageModelExecutor` protocols.
 - `AFMKitServices`: Apple Vision, Speech, synthesis, and NaturalLanguage embeddings.
 
 `AFMKit` remains the compatibility umbrella during migration. It re-exports

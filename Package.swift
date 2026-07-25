@@ -29,6 +29,10 @@ let package = Package(
             targets: ["AFMKitFoundationModels"]
         ),
         .library(
+            name: "AFMKitFoundationModels27",
+            targets: ["AFMKitFoundationModels27"]
+        ),
+        .library(
             name: "AFMKitServices",
             targets: ["AFMKitServices"]
         ),
@@ -88,6 +92,12 @@ let package = Package(
             name: "AFMKitFoundationModels",
             dependencies: [
                 "AFMOpenAICompat"
+            ]
+        ),
+        .target(
+            name: "AFMKitFoundationModels27",
+            dependencies: [
+                "AFMKit"
             ]
         ),
         .target(
@@ -223,6 +233,7 @@ let package = Package(
             dependencies: [
                 "AFMKit",
                 "AFMKitFoundationModels",
+                "AFMKitFoundationModels27",
                 "AFMKitServices",
                 "AFMServer",
                 .product(name: "Jinja", package: "swift-jinja"),

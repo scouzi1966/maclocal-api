@@ -1,5 +1,6 @@
 #if canImport(FoundationModels)
 import Foundation
+import AFMKit
 import AFMOpenAICompat
 import FoundationModels
 
@@ -20,7 +21,10 @@ public struct MLXLanguageModel: LanguageModel, Sendable {
         mtpDepth: Int = 3,
         eagle3DrafterPath: String? = nil,
         maxConcurrent: Int = 0,
-        defaultMaximumResponseTokens: Int = 2_048
+        defaultMaximumResponseTokens: Int = 2_048,
+        supportsReasoning: Bool = false,
+        supportsToolCalling: Bool = false,
+        supportsGuidedGeneration: Bool = false
     ) {
         self.modelID = modelID
         self.engineConfig = .init(
@@ -31,15 +35,25 @@ public struct MLXLanguageModel: LanguageModel, Sendable {
             mtpDepth: mtpDepth,
             eagle3DrafterPath: eagle3DrafterPath,
             maxConcurrent: maxConcurrent,
-            defaultMaximumResponseTokens: defaultMaximumResponseTokens
+            defaultMaximumResponseTokens: defaultMaximumResponseTokens,
+            supportsReasoning: supportsReasoning,
+            supportsToolCalling: supportsToolCalling,
+            supportsGuidedGeneration: supportsGuidedGeneration
         )
     }
 
-    /// The initial bridge is intentionally text-only. Advertising a capability
-    /// before its transcript and event translation is complete lets the
-    /// framework route requests that the MLX backend cannot yet honor.
     public var capabilities: LanguageModelCapabilities {
-        LanguageModelCapabilities([])
+        var capabilities: [LanguageModelCapabilities.Capability] = []
+        if engineConfig.supportsReasoning {
+            capabilities.append(.reasoning)
+        }
+        if engineConfig.supportsToolCalling {
+            capabilities.append(.toolCalling)
+        }
+        if engineConfig.supportsGuidedGeneration {
+            capabilities.append(.guidedGeneration)
+        }
+        return LanguageModelCapabilities(capabilities)
     }
 
     public var executorConfiguration: MLXLanguageModelExecutor.Configuration {
@@ -61,6 +75,9 @@ public struct MLXLanguageModelExecutor: LanguageModelExecutor {
         public let eagle3DrafterPath: String?
         public let maxConcurrent: Int
         public let defaultMaximumResponseTokens: Int
+        public let supportsReasoning: Bool
+        public let supportsToolCalling: Bool
+        public let supportsGuidedGeneration: Bool
 
         public init(
             modelID: String,
@@ -70,7 +87,10 @@ public struct MLXLanguageModelExecutor: LanguageModelExecutor {
             mtpDepth: Int = 3,
             eagle3DrafterPath: String? = nil,
             maxConcurrent: Int = 0,
-            defaultMaximumResponseTokens: Int = 2_048
+            defaultMaximumResponseTokens: Int = 2_048,
+            supportsReasoning: Bool = false,
+            supportsToolCalling: Bool = false,
+            supportsGuidedGeneration: Bool = false
         ) {
             self.modelID = modelID
             self.kvBits = kvBits
@@ -80,6 +100,9 @@ public struct MLXLanguageModelExecutor: LanguageModelExecutor {
             self.eagle3DrafterPath = eagle3DrafterPath
             self.maxConcurrent = maxConcurrent
             self.defaultMaximumResponseTokens = defaultMaximumResponseTokens
+            self.supportsReasoning = supportsReasoning
+            self.supportsToolCalling = supportsToolCalling
+            self.supportsGuidedGeneration = supportsGuidedGeneration
         }
     }
 
@@ -110,7 +133,7 @@ public struct MLXLanguageModelExecutor: LanguageModelExecutor {
         model: MLXLanguageModel,
         streamingInto channel: LanguageModelExecutorGenerationChannel
     ) async throws {
-        guard request.schema == nil else {
+        if request.schema != nil && !model.engineConfig.supportsGuidedGeneration {
             throw LanguageModelError.unsupportedCapability(
                 .init(
                     capability: .guidedGeneration,
@@ -118,7 +141,7 @@ public struct MLXLanguageModelExecutor: LanguageModelExecutor {
                 )
             )
         }
-        guard request.enabledToolDefinitions.isEmpty else {
+        if !request.enabledToolDefinitions.isEmpty && !model.engineConfig.supportsToolCalling {
             throw LanguageModelError.unsupportedCapability(
                 .init(
                     capability: .toolCalling,
@@ -141,7 +164,9 @@ public struct MLXLanguageModelExecutor: LanguageModelExecutor {
         let options = GenerationConfig(
             temperature: request.generationOptions.temperature,
             maxTokens: request.generationOptions.maximumResponseTokens
-                ?? model.engineConfig.defaultMaximumResponseTokens
+                ?? model.engineConfig.defaultMaximumResponseTokens,
+            tools: try Self.tools(from: request.enabledToolDefinitions),
+            responseFormat: try Self.responseFormat(from: request.schema)
         )
 
         var sentUsage = false
@@ -169,10 +194,36 @@ public struct MLXLanguageModelExecutor: LanguageModelExecutor {
                         )
                     )
                 )
-            case .reasoning, .toolCall, .metadata, .custom, .completed:
-                // The compatibility AFMEngine MLX path currently emits text and
-                // usage only. Phase 3 maps these richer portable events to the
-                // corresponding Foundation Models generation-channel actions.
+            case .reasoning(let text, let tokenCount):
+                await channel.send(
+                    .reasoning(action: .appendText(text, tokenCount: tokenCount))
+                )
+            case .toolCall(let call, let stage):
+                switch stage {
+                case .started:
+                    await channel.send(
+                        .toolCalls(
+                            action: .toolCall(
+                                id: call.id,
+                                name: call.name,
+                                action: .appendArguments("", tokenCount: 0)
+                            )
+                        )
+                    )
+                case .argumentsDelta(let delta):
+                    await channel.send(
+                        .toolCalls(
+                            action: .toolCall(
+                                id: call.id,
+                                name: call.name,
+                                action: .appendArguments(delta, tokenCount: 0)
+                            )
+                        )
+                    )
+                case .completed, .retracted:
+                    continue
+                }
+            case .metadata, .custom, .completed:
                 continue
             }
         }
@@ -214,11 +265,30 @@ public struct MLXLanguageModelExecutor: LanguageModelExecutor {
                 }
             case .reasoning:
                 continue
-            case .toolCalls, .toolOutput:
-                throw LanguageModelError.unsupportedTranscriptContent(
-                    .init(
-                        unsupportedContent: [entry],
-                        debugDescription: "MLX tool transcript entries are not supported yet."
+            case .toolCalls(let toolCalls):
+                messages.append(
+                    Message(
+                        role: "assistant",
+                        content: nil,
+                        toolCalls: toolCalls.map { call in
+                            MessageToolCall(
+                                id: call.id,
+                                type: "function",
+                                function: MessageToolCallFunction(
+                                    name: call.toolName,
+                                    arguments: call.arguments.jsonString
+                                )
+                            )
+                        }
+                    )
+                )
+            case .toolOutput(let output):
+                messages.append(
+                    Message(
+                        role: "tool",
+                        content: .text(try textContent(from: output.segments)),
+                        toolCallId: output.id,
+                        name: output.toolName
                     )
                 )
             @unknown default:
@@ -232,6 +302,42 @@ public struct MLXLanguageModelExecutor: LanguageModelExecutor {
         }
 
         return messages
+    }
+
+    static func tools(
+        from definitions: [Transcript.ToolDefinition]
+    ) throws -> [RequestTool]? {
+        guard !definitions.isEmpty else { return nil }
+        return try definitions.map { definition in
+            RequestTool(
+                type: "function",
+                function: RequestToolFunction(
+                    name: definition.name,
+                    description: definition.description,
+                    parameters: try anyCodable(from: definition.parameters),
+                    strict: true
+                )
+            )
+        }
+    }
+
+    static func responseFormat(from schema: GenerationSchema?) throws -> ResponseFormat? {
+        guard let schema else { return nil }
+        return ResponseFormat(
+            type: "json_schema",
+            jsonSchema: ResponseJsonSchema(
+                name: schema.name,
+                description: nil,
+                schema: try anyCodable(from: schema),
+                strict: true
+            )
+        )
+    }
+
+    private static func anyCodable(from schema: GenerationSchema) throws -> AnyCodable {
+        let data = try JSONEncoder().encode(schema)
+        let object = try JSONSerialization.jsonObject(with: data)
+        return AnyCodable(object)
     }
 
     private static func textContent(from segments: [Transcript.Segment]) throws -> String {

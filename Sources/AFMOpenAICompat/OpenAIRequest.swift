@@ -297,6 +297,20 @@ public struct Message: Codable, Sendable {
         self.name = nil
     }
 
+    public init(
+        role: String,
+        content: MessageContent?,
+        toolCalls: [MessageToolCall]? = nil,
+        toolCallId: String? = nil,
+        name: String? = nil
+    ) {
+        self.role = role
+        self.content = content
+        self.toolCalls = toolCalls
+        self.toolCallId = toolCallId
+        self.name = name
+    }
+
     /// Get combined text content from all text parts
     public var textContent: String {
         guard let content else { return "" }
@@ -325,6 +339,11 @@ public struct MessageToolCall: Codable, Sendable {
 public struct MessageToolCallFunction: Codable, Sendable {
     public let name: String
     public let arguments: String   // JSON string
+
+    public init(name: String, arguments: String) {
+        self.name = name
+        self.arguments = arguments
+    }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)

@@ -305,7 +305,7 @@ public actor AFMEngine {
                     case .mlx(let modelID):
                         guard let mlx else { throw AFMEngineError.backendUnavailable }
                         let resolved = await currentModelID(modelID)
-                        let (_, stream, _, _, _, _, _) = try await mlx.generateStreaming(
+                        let result = try await mlx.generateStreaming(
                             model: resolved,
                             messages: messages,
                             temperature: config.temperature,
@@ -324,26 +324,19 @@ public actor AFMEngine {
                             chatTemplateKwargs: nil,
                             requestId: nil
                         )
-                        for try await chunk in stream {
+                        var translator = MLXStreamEventTranslator(
+                            thinkStartTag: result.thinkStartTag,
+                            thinkEndTag: result.thinkEndTag,
+                            maximumResponseTokens: config.maxTokens
+                        )
+                        for try await chunk in result.stream {
                             if Task.isCancelled { break }
-                            if !chunk.text.isEmpty {
-                                continuation.yield(
-                                    .text(
-                                        chunk.text,
-                                        tokenCount: max(1, chunk.logprobs?.count ?? 1)
-                                    )
-                                )
+                            for event in translator.consume(chunk) {
+                                continuation.yield(event)
                             }
-                            if let promptTokens = chunk.promptTokens,
-                               let completionTokens = chunk.completionTokens {
-                                continuation.yield(
-                                    .usage(
-                                        promptTokens: promptTokens,
-                                        completionTokens: completionTokens,
-                                        cachedTokens: chunk.cachedTokens ?? 0
-                                    )
-                                )
-                            }
+                        }
+                        for event in translator.finish() {
+                            continuation.yield(event)
                         }
                         continuation.finish()
                     case .foundationModels:
