@@ -105,10 +105,27 @@ public struct MLXCacheResolver {
         return hasRequiredFiles(path) ? path : nil
     }
 
-    private func hasRequiredFiles(_ dir: URL) -> Bool {
+    func hasRequiredFiles(_ dir: URL) -> Bool {
         guard let files = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return false }
         let hasConfig = files.contains("config.json")
-        let hasWeights = files.contains(where: { $0.hasSuffix(".safetensors") || $0 == "model.safetensors.index.json" })
+        let standaloneWeights = files.filter {
+            $0.hasSuffix(".safetensors") && !$0.hasPrefix("model-")
+        }
+        let indexURL = dir.appendingPathComponent("model.safetensors.index.json")
+        let hasWeights: Bool
+        if files.contains("model.safetensors.index.json") {
+            guard let data = try? Data(contentsOf: indexURL),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let weightMap = object["weight_map"] as? [String: Any] else {
+                return false
+            }
+            let shardNames = Set(weightMap.values.compactMap { $0 as? String })
+            hasWeights = !shardNames.isEmpty && shardNames.allSatisfy {
+                FileManager.default.fileExists(atPath: dir.appendingPathComponent($0).path)
+            }
+        } else {
+            hasWeights = !standaloneWeights.isEmpty
+        }
         return hasConfig && hasWeights
     }
 }
