@@ -15,7 +15,7 @@ final class AFMMLXProviderTests: XCTestCase {
     func testMLXModelExposesPortableTokenizationCapability() {
         let model = AFMMLXModel(modelID: "test/model")
 
-        XCTAssertTrue(model is any AFMTextTokenizing)
+        requirePortableTokenizer(model)
     }
 
     func testDescriptorInfersCapabilitiesFromModelAssets() throws {
@@ -140,6 +140,10 @@ final class AFMMLXProviderTests: XCTestCase {
         }
         return root
     }
+
+    private func requirePortableTokenizer<Tokenizer: AFMTextTokenizing>(
+        _ tokenizer: Tokenizer
+    ) {}
 
     private func requiredToolRequest() -> AFMRequest {
         AFMRequest(

@@ -504,6 +504,7 @@ struct MlxCommand: ParsableCommand {
         emitCompatibilityWarnings()
 
         let resolver = MLXCacheResolver()
+        let modelStore = AFMMLXModelStore(resolver: resolver)
         let service = MLXModelService(resolver: resolver)
         service.toolCallParser = toolCallParser
         service.fixToolArgs = fixToolArgs
@@ -559,8 +560,6 @@ struct MlxCommand: ParsableCommand {
             service.defaultGuidedJsonSchema = ResponseFormat(type: "json_schema", jsonSchema: schema)
         }
 
-        _ = try service.revalidateRegistry()
-
         let rawModel: String
         if let m = model, !m.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             rawModel = m
@@ -575,14 +574,14 @@ struct MlxCommand: ParsableCommand {
             }
             rawModel = selected
         } else {
-            let registered = try service.revalidateRegistry()
-            if !registered.isEmpty {
-                print("No model provided. Available models in registry:")
-                for m in registered {
-                    print("  - \(m)")
+            let discovered = modelStore.discoverLocalModels()
+            if !discovered.isEmpty {
+                print("No model provided. Available local models:")
+                for model in discovered {
+                    print("  - \(model.id)")
                 }
             } else {
-                print("No model provided and registry is empty.")
+                print("No model provided and no complete local model was found.")
                 print("Use: afm mlx -m <org/model> ...")
             }
             throw ExitCode.failure
@@ -601,21 +600,7 @@ struct MlxCommand: ParsableCommand {
             print("MLX model: \(selectedModel)")
         }
 
-        // Read context window from model config
-        var contextWindow: Int? = nil
-        if let modelDir = resolver.localModelDirectory(repoId: selectedModel) {
-            let configURL = modelDir.appendingPathComponent("config.json")
-            if let data = try? Data(contentsOf: configURL),
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                // Check top-level first, then text_config (VLM models nest it)
-                if let maxPos = json["max_position_embeddings"] as? Int {
-                    contextWindow = maxPos
-                } else if let textConfig = json["text_config"] as? [String: Any],
-                          let maxPos = textConfig["max_position_embeddings"] as? Int {
-                    contextWindow = maxPos
-                }
-            }
-        }
+        let contextWindow = modelStore.descriptor(for: selectedModel).contextWindow
 
         try ensureMLXMetalLibraryAvailable(verbose: verbose)
 
