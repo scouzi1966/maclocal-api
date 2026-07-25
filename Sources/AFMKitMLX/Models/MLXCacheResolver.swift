@@ -69,17 +69,54 @@ public struct MLXCacheResolver: Sendable {
         let flatName = "\(org)/\(model)"
 
         var candidates: [URL] = []
+        var seenCandidates = Set<String>()
+
+        func appendCandidate(_ url: URL) {
+            let path = url.standardizedFileURL.path
+            guard seenCandidates.insert(path).inserted else { return }
+            candidates.append(url)
+        }
 
         // 1. MACAFM_MLX_MODEL_CACHE — side-loaded / curated models (flat layout)
         if let root = cacheRoot {
-            candidates.append(root.appendingPathComponent(flatName))
-            candidates.append(root.appendingPathComponent("models/\(flatName)"))
+            appendCandidate(root.appendingPathComponent(flatName))
+            appendCandidate(root.appendingPathComponent("models/\(flatName)"))
         }
 
-        // 2. HF hub — download destination, shared with Python mlx_lm (HF-style layout)
+        let fileManager = FileManager.default
+
+        // 2. Swift Hub / Vesta-style flat model roots.
+        if let documents = fileManager.urls(
+            for: .documentDirectory,
+            in: .userDomainMask
+        ).first {
+            appendCandidate(
+                documents.appendingPathComponent("huggingface/models/\(flatName)")
+            )
+        }
+        if let library = fileManager.urls(
+            for: .libraryDirectory,
+            in: .userDomainMask
+        ).first {
+            appendCandidate(library.appendingPathComponent("Caches/models/\(flatName)"))
+        }
+        appendCandidate(
+            fileManager.homeDirectoryForCurrentUser
+                .appendingPathComponent(".cache/lm-studio/models/\(flatName)")
+        )
+
+        // 3. HF hub — download destination, shared with Python mlx_lm (HF-style layout)
         //    Uses same env-aware resolution as downloadModel() (HF_HUB_CACHE → HF_HOME → default)
         let hfHub = MLXModelService.resolveHFHubCache()
-        candidates.append(hfHub.appendingPathComponent(hfStyleName))
+        appendCandidate(hfHub.appendingPathComponent(hfStyleName))
+        if let library = fileManager.urls(
+            for: .libraryDirectory,
+            in: .userDomainMask
+        ).first {
+            appendCandidate(
+                library.appendingPathComponent("Caches/huggingface/hub/\(hfStyleName)")
+            )
+        }
 
         for candidate in candidates {
             if let resolved = resolvedIfComplete(candidate) {

@@ -53,6 +53,58 @@ final class AFMMLXModelStoreTests: XCTestCase {
         XCTAssertEqual(reference.descriptor.requiresNetwork, false)
     }
 
+    func testLoadReferenceResolvesSwiftHubFlatModelByRepoID() throws {
+        let documents = try XCTUnwrap(
+            FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        )
+        let org = "afmkit-test-\(UUID().uuidString)"
+        let directory = documents
+            .appendingPathComponent("huggingface/models")
+            .appendingPathComponent(org)
+            .appendingPathComponent("doc-model")
+        defer {
+            try? FileManager.default.removeItem(
+                at: documents
+                    .appendingPathComponent("huggingface/models")
+                    .appendingPathComponent(org)
+            )
+        }
+        try makeModel(at: directory)
+
+        let reference = try XCTUnwrap(
+            AFMMLXModelStore().loadReference(for: "\(org)/doc-model")
+        )
+
+        XCTAssertEqual(reference.loadIdentifier, "\(org)/doc-model")
+        XCTAssertEqual(reference.localDirectory.path, directory.path)
+    }
+
+    func testLoadReferenceResolvesLibraryFlatModelByRepoID() throws {
+        let library = try XCTUnwrap(
+            FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
+        )
+        let org = "afmkit-test-\(UUID().uuidString)"
+        let directory = library
+            .appendingPathComponent("Caches/models")
+            .appendingPathComponent(org)
+            .appendingPathComponent("cache-model")
+        defer {
+            try? FileManager.default.removeItem(
+                at: library
+                    .appendingPathComponent("Caches/models")
+                    .appendingPathComponent(org)
+            )
+        }
+        try makeModel(at: directory)
+
+        let reference = try XCTUnwrap(
+            AFMMLXModelStore().loadReference(for: "\(org)/cache-model")
+        )
+
+        XCTAssertEqual(reference.loadIdentifier, "\(org)/cache-model")
+        XCTAssertEqual(reference.localDirectory.path, directory.path)
+    }
+
     func testLoadReferenceResolvesAbsoluteSnapshotPath() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
