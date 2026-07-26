@@ -174,4 +174,73 @@ final class AFMMLXSpeculativeDecodingTests: XCTestCase {
         XCTAssertFalse(availability[.mtp]?.isSelectable == true)
         XCTAssertFalse(availability[.eagle3]?.isSelectable == true)
     }
+
+    func testSpeculativeModelCompatibilityDetectsMTPFromConfigAndSidecar() {
+        let compatibility = AFMMLXSpeculativeModelCompatibility.evaluate(
+            config: [
+                "model_type": "qwen3.6",
+                "architectures": ["Qwen3_6ForCausalLM"],
+            ],
+            hasMTPSidecar: true
+        )
+
+        XCTAssertTrue(compatibility.mtpCompatible)
+        XCTAssertFalse(compatibility.denseGemma4Verifier)
+
+        let missingSidecar = AFMMLXSpeculativeModelCompatibility.evaluate(
+            config: [
+                "model_type": "qwen3.6",
+                "architectures": ["Qwen3_6ForCausalLM"],
+            ],
+            hasMTPSidecar: false
+        )
+
+        XCTAssertFalse(missingSidecar.mtpCompatible)
+    }
+
+    func testSpeculativeModelCompatibilityDetectsDenseGemma4Verifier() {
+        let dense = AFMMLXSpeculativeModelCompatibility.evaluate(
+            config: [
+                "model_type": "gemma_4",
+                "architectures": ["Gemma4ForCausalLM"],
+            ],
+            hasMTPSidecar: false
+        )
+
+        XCTAssertFalse(dense.mtpCompatible)
+        XCTAssertTrue(dense.denseGemma4Verifier)
+
+        let moe = AFMMLXSpeculativeModelCompatibility.evaluate(
+            config: [
+                "model_type": "gemma_4",
+                "architectures": ["Gemma4MoeForCausalLM"],
+            ],
+            hasMTPSidecar: false
+        )
+
+        XCTAssertFalse(moe.denseGemma4Verifier)
+    }
+
+    func testSpeculativeModelCompatibilityReadsModelDirectory() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let config: [String: Any] = [
+            "model_type": "qwen3.6",
+            "architectures": ["Qwen3_6ForCausalLM"],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: config)
+        try data.write(to: directory.appendingPathComponent("config.json"))
+        FileManager.default.createFile(
+            atPath: directory.appendingPathComponent("mtp.safetensors").path,
+            contents: Data()
+        )
+
+        let compatibility = AFMMLXSpeculativeModelCompatibility.evaluate(modelDirectory: directory)
+
+        XCTAssertTrue(compatibility.mtpCompatible)
+        XCTAssertFalse(compatibility.denseGemma4Verifier)
+    }
 }

@@ -113,6 +113,66 @@ public struct AFMMLXSpeculativeModeAvailability: Equatable, Sendable {
     }
 }
 
+public struct AFMMLXSpeculativeModelCompatibility: Equatable, Sendable {
+    public let mtpCompatible: Bool
+    public let denseGemma4Verifier: Bool
+
+    public init(mtpCompatible: Bool, denseGemma4Verifier: Bool) {
+        self.mtpCompatible = mtpCompatible
+        self.denseGemma4Verifier = denseGemma4Verifier
+    }
+
+    public static let unavailable = AFMMLXSpeculativeModelCompatibility(
+        mtpCompatible: false,
+        denseGemma4Verifier: false
+    )
+
+    public static func evaluate(
+        config: [String: Any],
+        hasMTPSidecar: Bool
+    ) -> AFMMLXSpeculativeModelCompatibility {
+        AFMMLXSpeculativeModelCompatibility(
+            mtpCompatible: hasMTPSidecar && isMTPCompatibleConfiguration(config),
+            denseGemma4Verifier: isDenseGemma4VerifierConfiguration(config)
+        )
+    }
+
+    public static func evaluate(modelDirectory: URL) -> AFMMLXSpeculativeModelCompatibility {
+        let configURL = modelDirectory.appendingPathComponent("config.json")
+        guard let data = try? Data(contentsOf: configURL),
+              let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .unavailable
+        }
+
+        let hasMTPSidecar = FileManager.default.fileExists(
+            atPath: modelDirectory.appendingPathComponent("mtp.safetensors").path
+        )
+        return evaluate(config: config, hasMTPSidecar: hasMTPSidecar)
+    }
+
+    private static func isMTPCompatibleConfiguration(_ config: [String: Any]) -> Bool {
+        let topLevelType = AFMMLXModelArchitecture.canonicalModelType(config["model_type"] as? String ?? "")
+        let textConfig = config["text_config"] as? [String: Any]
+        let textType = AFMMLXModelArchitecture.canonicalModelType(textConfig?["model_type"] as? String ?? "")
+        let architecture = ((config["architectures"] as? [String]) ?? []).joined(separator: " ").lowercased()
+
+        return topLevelType.hasPrefix("qwen3_5")
+            || topLevelType.hasPrefix("qwen3_6")
+            || textType.hasPrefix("qwen3_5")
+            || textType.hasPrefix("qwen3_6")
+            || architecture.contains("qwen3_5")
+            || architecture.contains("qwen3_6")
+            || architecture.contains("qwen3.5")
+            || architecture.contains("qwen3.6")
+    }
+
+    private static func isDenseGemma4VerifierConfiguration(_ config: [String: Any]) -> Bool {
+        let modelType = AFMMLXModelArchitecture.canonicalModelType(config["model_type"] as? String ?? "")
+        let architecture = ((config["architectures"] as? [String]) ?? []).joined(separator: " ").lowercased()
+        return modelType == "gemma4" && !architecture.contains("moe")
+    }
+}
+
 public enum AFMMLXSpeculativeRuntimeKind: Equatable, Sendable {
     case none
     case mtp
