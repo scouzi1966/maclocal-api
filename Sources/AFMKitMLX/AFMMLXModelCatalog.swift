@@ -1,5 +1,8 @@
 import Foundation
 import AFMKitCore
+import MLXLMCommon
+import MLXLLM
+import MLXVLM
 
 public struct AFMMLXGenerationPreset: Hashable, Sendable {
     public var temperature: Double?
@@ -71,6 +74,10 @@ public struct AFMMLXCuratedModel: Hashable, Identifiable, Sendable {
             requiresNetwork: false,
             metadata: metadata
         )
+    }
+
+    public var modelConfiguration: ModelConfiguration? {
+        AFMMLXModelCatalog.modelConfiguration(for: repoID)
     }
 }
 
@@ -171,6 +178,33 @@ public enum AFMMLXModelCatalog {
 
     public static func model(for repoID: String) -> AFMMLXCuratedModel? {
         availableModels.first { $0.repoID == repoID }
+    }
+
+    public static func modelConfiguration(for repoID: String) -> ModelConfiguration? {
+        switch repoID {
+        case "mlx-community/Qwen3-0.6B-4bit",
+             "mlx-community/Qwen2.5-0.5B-Instruct-4bit":
+            return LLMRegistry.qwen3_0_6b_4bit
+        case "mlx-community/Qwen3-Coder-Next-4bit",
+             "mlx-community/gemma-3-4b-it-8bit":
+            return LLMRegistry.qwen3_4b_4bit
+        case "mlx-community/Qwen3.5-35B-A3B-4bit",
+             "mlx-community/gpt-oss-20b-MXFP4-Q8":
+            return LLMRegistry.qwen3_8b_4bit
+        case "mlx-community/Llama-3.2-1B-Instruct-4bit":
+            return LLMRegistry.llama3_2_1B_4bit
+        case "mlx-community/Qwen3-VL-4B-Instruct-4bit",
+             "mlx-community/Qwen3-VL-4B-Instruct-5bit",
+             "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+             "mlx-community/Qwen3-VL-8B-Instruct-5bit":
+            return VLMRegistry.qwen3VL4BInstruct4Bit
+        case "mlx-community/Qwen3-VL-4B-Instruct-8bit",
+             "mlx-community/Qwen3-VL-8B-Instruct-8bit",
+             "mlx-community/Qwen3-VL-8B-Instruct-bf16":
+            return VLMRegistry.qwen3VL4BInstruct8Bit
+        default:
+            return nil
+        }
     }
 
     private static func textModel(

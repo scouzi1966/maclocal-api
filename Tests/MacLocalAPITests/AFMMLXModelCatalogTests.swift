@@ -71,4 +71,19 @@ final class AFMMLXModelCatalogTests: XCTestCase {
         XCTAssertEqual(descriptor.metadata["catalog"], .string("afmkit-mlx-curated"))
         XCTAssertEqual(descriptor.metadata["maxTokens"], .integer(16384))
     }
+
+    func testCuratedModelsExposeLoadableMLXConfigurations() {
+        for model in AFMMLXModelCatalog.availableModels {
+            XCTAssertNotNil(
+                model.modelConfiguration,
+                "\(model.repoID) is missing its MLX runtime configuration"
+            )
+            XCTAssertNotNil(
+                AFMMLXModelCatalog.modelConfiguration(for: model.repoID),
+                "\(model.repoID) is missing its catalog MLX runtime configuration"
+            )
+        }
+
+        XCTAssertNil(AFMMLXModelCatalog.modelConfiguration(for: "example/missing"))
+    }
 }
