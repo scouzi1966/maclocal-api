@@ -212,4 +212,69 @@ struct IssueRegressionTests {
         #expect(reasoning == "reasoning trace")
         #expect(content == "final answer")
     }
+
+    @Test("proxy non-streaming response renames reasoning field")
+    func proxyNormalizeRenamesReasoningField() throws {
+        let normalized = try normalizeProxyResponse([
+            "choices": [[
+                "message": [
+                    "role": "assistant",
+                    "content": "Visible answer",
+                    "reasoning": "Hidden reasoning",
+                ],
+            ]],
+        ])
+
+        let message = try #require(firstMessage(from: normalized))
+        #expect(message["reasoning"] == nil)
+        #expect(message["reasoning_content"] as? String == "Hidden reasoning")
+        #expect(message["content"] as? String == "Visible answer")
+    }
+
+    @Test("proxy non-streaming response extracts think tags")
+    func proxyNormalizeExtractsThinkTags() throws {
+        let normalized = try normalizeProxyResponse([
+            "choices": [[
+                "message": [
+                    "role": "assistant",
+                    "content": "<think>Plan answer</think>\nFinal answer",
+                ],
+            ]],
+        ])
+
+        let message = try #require(firstMessage(from: normalized))
+        #expect(message["reasoning_content"] as? String == "Plan answer")
+        #expect(message["content"] as? String == "Final answer")
+    }
+
+    @Test("proxy non-streaming response handles orphan closing think tag")
+    func proxyNormalizeHandlesOrphanClosingThinkTag() throws {
+        let normalized = try normalizeProxyResponse([
+            "choices": [[
+                "message": [
+                    "role": "assistant",
+                    "content": "Plan without opener</think>\nFinal answer",
+                ],
+            ]],
+        ])
+
+        let message = try #require(firstMessage(from: normalized))
+        #expect(message["reasoning_content"] as? String == "Plan without opener")
+        #expect(message["content"] as? String == "Final answer")
+    }
+
+    private func normalizeProxyResponse(_ object: [String: Any]) throws -> [String: Any] {
+        let data = try JSONSerialization.data(withJSONObject: object)
+        let normalizedData = BackendProxyService.normalizeReasoningField(in: data)
+        return try #require(JSONSerialization.jsonObject(with: normalizedData) as? [String: Any])
+    }
+
+    private func firstMessage(from object: [String: Any]) -> [String: Any]? {
+        guard let choices = object["choices"] as? [[String: Any]],
+              let first = choices.first,
+              let message = first["message"] as? [String: Any] else {
+            return nil
+        }
+        return message
+    }
 }

@@ -1,5 +1,6 @@
 import Vapor
 import AFMKit
+import AFMKitCore
 import Foundation
 
 /// Hardcoded API key sent to all discovered backends.
@@ -312,7 +313,7 @@ actor BackendProxyService {
     /// Normalize reasoning fields in a full JSON response body:
     /// 1. Rename "reasoning" → "reasoning_content" (LM Studio gpt-oss)
     /// 2. Extract <think>...</think> from content into reasoning_content (Qwen, DeepSeek R1)
-    private static func normalizeReasoningField(in data: Data) -> Data {
+    static func normalizeReasoningField(in data: Data) -> Data {
         guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               var choices = json["choices"] as? [[String: Any]] else {
             return data
@@ -333,15 +334,11 @@ actor BackendProxyService {
                 // Extract <think>...</think> from content
                 if let content = message["content"] as? String,
                    message["reasoning_content"] == nil,
-                   content.contains("<think>") {
-                    var buffer = content
-                    var inside = false
-                    let extracted = extractThinkTags(buffer: &buffer, insideThinkBlock: &inside)
-                    // Flush remaining buffer as content
-                    let finalContent = (extracted.content ?? "") + buffer
+                   (content.contains("<think>") || content.contains("</think>")) {
+                    let extracted = AFMReasoningOutputExtractor.extractThinkContent(from: content)
                     if let r = extracted.reasoning, !r.isEmpty {
                         message["reasoning_content"] = r
-                        message["content"] = finalContent.trimmingCharacters(in: .whitespacesAndNewlines)
+                        message["content"] = extracted.content
                         choices[i]["message"] = message
                         modified = true
                     }
