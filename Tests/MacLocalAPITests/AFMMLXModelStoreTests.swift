@@ -54,6 +54,51 @@ final class AFMMLXModelStoreTests: XCTestCase {
         XCTAssertTrue(AFMMLXModelStore.isCompleteModelDirectory(root))
     }
 
+    func testIdentifierCandidatesPreferCuratedRepositoryID() {
+        XCTAssertEqual(
+            AFMMLXModelStore.identifierCandidates(forModelName: "Qwen3-VL-4B-Instruct-5bit").first,
+            "mlx-community/Qwen3-VL-4B-Instruct-5bit"
+        )
+    }
+
+    func testIdentifierCandidatesIncludeCommunityFallbacksForPlainNames() {
+        XCTAssertEqual(
+            AFMMLXModelStore.identifierCandidates(forModelName: "Custom-Model-4bit"),
+            [
+                "mlx-community/Custom-Model-4bit",
+                "lmstudio-community/Custom-Model-4bit",
+            ]
+        )
+    }
+
+    func testIdentifierCandidatesKeepExplicitRepositoryIDs() {
+        XCTAssertEqual(
+            AFMMLXModelStore.identifierCandidates(forModelName: "example-org/custom-model"),
+            ["example-org/custom-model"]
+        )
+    }
+
+    func testIdentifierCandidatesDropDuplicatesAndBlankInput() {
+        let curated = [
+            AFMMLXCuratedModel(
+                displayName: "Local",
+                repoID: "mlx-community/Local",
+                capabilities: [.text],
+                generationPreset: AFMMLXGenerationPreset()
+            )
+        ]
+
+        XCTAssertEqual(
+            AFMMLXModelStore.identifierCandidates(
+                forModelName: "Local",
+                curatedModels: curated,
+                defaultOrganizations: ["mlx-community", "custom"]
+            ),
+            ["mlx-community/Local", "custom/Local"]
+        )
+        XCTAssertEqual(AFMMLXModelStore.identifierCandidates(forModelName: "  "), [])
+    }
+
     func testCompleteSnapshotDirectoryUsesExplicitRevision() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

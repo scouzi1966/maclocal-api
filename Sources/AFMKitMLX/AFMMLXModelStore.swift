@@ -318,6 +318,37 @@ public struct AFMMLXModelStore: Sendable {
         MLXCacheResolver(cacheRoot: nil).hasRequiredFiles(directory)
     }
 
+    /// Expands a user-visible model name or repository ID into the repository
+    /// identifiers hosts should try when resolving a local MLX package.
+    ///
+    /// Curated catalog entries win first so app UI names map to their canonical
+    /// repository IDs. Explicit repository IDs stay unchanged. Bare names then
+    /// fall back to common MLX community namespaces.
+    public static func identifierCandidates(
+        forModelName modelName: String,
+        curatedModels: [AFMMLXCuratedModel] = AFMMLXModelCatalog.availableModels,
+        defaultOrganizations: [String] = ["mlx-community", "lmstudio-community"]
+    ) -> [String] {
+        let trimmed = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        var candidates: [String] = []
+        if let curated = curatedModels.first(where: {
+            $0.displayName == trimmed || $0.repoID == trimmed
+        }) {
+            candidates.append(curated.repoID)
+        }
+
+        if trimmed.contains("/") {
+            candidates.append(trimmed)
+        } else {
+            candidates.append(contentsOf: defaultOrganizations.map { "\($0)/\(trimmed)" })
+        }
+
+        var seen = Set<String>()
+        return candidates.filter { seen.insert($0).inserted }
+    }
+
     /// Returns a complete snapshot directory for a specific revision inside a
     /// Hugging Face package root.
     public static func completeSnapshotDirectory(
