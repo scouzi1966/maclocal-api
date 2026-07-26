@@ -94,5 +94,33 @@ final class FoundationTranscriptSnapshotParserTests: XCTestCase {
 
         XCTAssertEqual(reasoning, "Current reasoning")
     }
+
+    func testMarkingPendingUpdatesOnlyRequestedInvocations() throws {
+        let requested = AFMFoundationToolInvocationSnapshot(
+            id: "call-1",
+            name: "lookup",
+            argumentsJSON: #"{"query":"CoreAI"}"#,
+            outputPreview: nil,
+            status: .requested
+        )
+        let completed = AFMFoundationToolInvocationSnapshot(
+            id: "call-2",
+            name: "lookup",
+            argumentsJSON: #"{"query":"done"}"#,
+            outputPreview: "Done",
+            status: .completed
+        )
+
+        let updated = AFMFoundationTranscriptSnapshotParser.markingPending(
+            [requested, completed],
+            as: .failed,
+            failurePreview: "Search unavailable",
+            previewLimit: 8
+        )
+
+        XCTAssertEqual(updated[0].status, .failed)
+        XCTAssertEqual(updated[0].failurePreview, "Search u…")
+        XCTAssertEqual(updated[1], completed)
+    }
 }
 #endif

@@ -6,6 +6,8 @@ import FoundationModels
 public enum AFMFoundationToolInvocationStatus: String, Sendable {
     case requested
     case completed
+    case failed
+    case cancelled
 }
 
 @available(macOS 27.0, *)
@@ -15,19 +17,22 @@ public struct AFMFoundationToolInvocationSnapshot: Equatable, Identifiable, Send
     public let argumentsJSON: String?
     public let outputPreview: String?
     public let status: AFMFoundationToolInvocationStatus
+    public let failurePreview: String?
 
     public init(
         id: String,
         name: String,
         argumentsJSON: String?,
         outputPreview: String?,
-        status: AFMFoundationToolInvocationStatus
+        status: AFMFoundationToolInvocationStatus,
+        failurePreview: String? = nil
     ) {
         self.id = id
         self.name = name
         self.argumentsJSON = argumentsJSON
         self.outputPreview = outputPreview
         self.status = status
+        self.failurePreview = failurePreview
     }
 }
 
@@ -55,7 +60,8 @@ public enum AFMFoundationTranscriptSnapshotParser {
                         name: call.toolName,
                         argumentsJSON: bounded(call.arguments.jsonString, limit: previewLimit),
                         outputPreview: existing?.outputPreview,
-                        status: existing?.status ?? .requested
+                        status: existing?.status ?? .requested,
+                        failurePreview: existing?.failurePreview
                     )
                 }
             case .toolOutput(let output):
@@ -82,6 +88,25 @@ public enum AFMFoundationTranscriptSnapshotParser {
         }
 
         return order.compactMap { invocations[$0] }
+    }
+
+    public static func markingPending(
+        _ invocations: [AFMFoundationToolInvocationSnapshot],
+        as status: AFMFoundationToolInvocationStatus,
+        failurePreview: String? = nil,
+        previewLimit: Int = defaultPreviewLimit
+    ) -> [AFMFoundationToolInvocationSnapshot] {
+        invocations.map { invocation in
+            guard invocation.status == .requested else { return invocation }
+            return AFMFoundationToolInvocationSnapshot(
+                id: invocation.id,
+                name: invocation.name,
+                argumentsJSON: invocation.argumentsJSON,
+                outputPreview: invocation.outputPreview,
+                status: status,
+                failurePreview: bounded(failurePreview, limit: previewLimit)
+            )
+        }
     }
 
     public static func reasoningContent<S: Sequence>(
