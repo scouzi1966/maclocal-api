@@ -348,6 +348,9 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Output raw model content without extracting <think> tags into reasoning_content")
     var raw: Bool = false
 
+    @Flag(name: .long, help: "Emit single-prompt result as OpenAI-compatible JSON")
+    var json: Bool = false
+
     @Option(name: [.short, .long], help: "Temperature for response generation (0.0-2.0)")
     var temperature: Double?
 
@@ -882,6 +885,10 @@ struct MlxCommand: ParsableCommand {
 
         switch output.value {
         case .success(let response):
+            if json {
+                try printJSONResponse(response, modelID: modelID)
+                return
+            }
             if raw {
                 if let reasoning = response.reasoningContent, !reasoning.isEmpty {
                     print("<think>\(reasoning)</think>\(response.content)")
@@ -902,6 +909,72 @@ struct MlxCommand: ParsableCommand {
         case .none:
             throw ExitCode.failure
         }
+    }
+
+    private func printJSONResponse(_ response: AFMResponse, modelID: String) throws {
+        let choiceLogprobs = Self.buildChoiceLogprobs(response.logprobs)
+        let encoded: ChatCompletionResponse
+        if let toolCalls = response.toolCalls, !toolCalls.isEmpty {
+            encoded = ChatCompletionResponse(
+                model: modelID,
+                toolCalls: toolCalls,
+                logprobs: choiceLogprobs,
+                promptTokens: response.promptTokens,
+                completionTokens: response.completionTokens,
+                cachedTokens: response.cachedPromptTokens
+            )
+        } else {
+            encoded = ChatCompletionResponse(
+                model: modelID,
+                content: response.content,
+                reasoningContent: response.reasoningContent,
+                logprobs: choiceLogprobs,
+                finishReason: Self.openAIFinishReason(response.finishReason),
+                promptTokens: response.promptTokens,
+                completionTokens: response.completionTokens,
+                cachedTokens: response.cachedPromptTokens
+            )
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(encoded)
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw ValidationError("Failed to encode JSON response as UTF-8")
+        }
+        print(text)
+    }
+
+    private static func openAIFinishReason(_ reason: AFMFinishReason) -> String {
+        switch reason {
+        case .stop: return "stop"
+        case .length: return "length"
+        case .toolCalls: return "tool_calls"
+        case .cancelled: return "cancelled"
+        case .contentFilter: return "content_filter"
+        case .error: return "error"
+        case .unknown: return "unknown"
+        }
+    }
+
+    private static func buildChoiceLogprobs(_ resolved: [ResolvedLogprob]?) -> ChoiceLogprobs? {
+        guard let resolved, !resolved.isEmpty else { return nil }
+        return ChoiceLogprobs(
+            content: resolved.map { entry in
+                TokenLogprobContent(
+                    token: entry.token,
+                    logprob: Double(entry.logprob),
+                    bytes: Array(entry.token.utf8).map { Int($0) },
+                    topLogprobs: entry.topTokens.map { top in
+                        TopLogprobEntry(
+                            token: top.token,
+                            logprob: Double(top.logprob),
+                            bytes: Array(top.token.utf8).map { Int($0) }
+                        )
+                    }
+                )
+            }
+        )
     }
 
     private static func afmJSONValue(from value: Any) throws -> AFMJSONValue {

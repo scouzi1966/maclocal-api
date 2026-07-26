@@ -12,8 +12,10 @@ HTTP /v1/chat/completions path on the same local model.
 Options:
   --model <id>        MLX model id or path. Also read from MACAFM_PARITY_MODEL.
   --prompt <text>     Prompt to send to both paths.
+  --instructions <s>  System instructions for both paths.
   --port <port>       HTTP server port. Default: 19741.
   --max-tokens <n>    Maximum completion tokens. Default: 24.
+  --max-logprobs <n>  Request top logprobs from both paths. Default: 0.
   --skip-build        Use existing .build/release/afm.
   -h, --help          Show this help.
 
@@ -25,8 +27,10 @@ USAGE
 
 MODEL="${MACAFM_PARITY_MODEL:-}"
 PROMPT="Reply exactly with: AFM parity ok"
+INSTRUCTIONS="You are a helpful assistant"
 PORT="19741"
 MAX_TOKENS="24"
+MAX_LOGPROBS="0"
 SKIP_BUILD="0"
 
 while [[ $# -gt 0 ]]; do
@@ -39,12 +43,20 @@ while [[ $# -gt 0 ]]; do
       PROMPT="${2:?missing --prompt value}"
       shift 2
       ;;
+    --instructions)
+      INSTRUCTIONS="${2:?missing --instructions value}"
+      shift 2
+      ;;
     --port)
       PORT="${2:?missing --port value}"
       shift 2
       ;;
     --max-tokens)
       MAX_TOKENS="${2:?missing --max-tokens value}"
+      shift 2
+      ;;
+    --max-logprobs)
+      MAX_LOGPROBS="${2:?missing --max-logprobs value}"
       shift 2
       ;;
     --skip-build)
@@ -99,9 +111,8 @@ fi
 
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/afmkit-http-parity.XXXXXX")"
 SERVER_LOG="$WORK_DIR/server.log"
-DIRECT_OUT="$WORK_DIR/direct.out"
+DIRECT_JSON="$WORK_DIR/direct.json"
 HTTP_JSON="$WORK_DIR/http.json"
-HTTP_TEXT="$WORK_DIR/http.out"
 
 SERVER_PID=""
 cleanup() {
@@ -113,19 +124,28 @@ cleanup() {
 trap cleanup EXIT
 
 echo "==> Direct AFMKit MLX path"
-"$AFM_BIN" mlx \
+DIRECT_ARGS=(
+  mlx
   --model "$MODEL" \
   --single-prompt "$PROMPT" \
+  --instructions "$INSTRUCTIONS" \
   --max-tokens "$MAX_TOKENS" \
   --temperature 0 \
   --top-p 1 \
   --seed 1 \
   --no-think \
-  >"$DIRECT_OUT"
+  --json
+)
+if [[ "$MAX_LOGPROBS" != "0" ]]; then
+  DIRECT_ARGS+=(--max-logprobs "$MAX_LOGPROBS")
+fi
+"$AFM_BIN" "${DIRECT_ARGS[@]}" >"$DIRECT_JSON"
 
 echo "==> Starting HTTP MLX server on 127.0.0.1:$PORT"
-"$AFM_BIN" mlx \
+SERVER_ARGS=(
+  mlx
   --model "$MODEL" \
+  --instructions "$INSTRUCTIONS" \
   --port "$PORT" \
   --hostname 127.0.0.1 \
   --prewarm n \
@@ -133,8 +153,12 @@ echo "==> Starting HTTP MLX server on 127.0.0.1:$PORT"
   --temperature 0 \
   --top-p 1 \
   --seed 1 \
-  --no-think \
-  >"$SERVER_LOG" 2>&1 &
+  --no-think
+)
+if [[ "$MAX_LOGPROBS" != "0" ]]; then
+  SERVER_ARGS+=(--max-logprobs "$MAX_LOGPROBS")
+fi
+"$AFM_BIN" "${SERVER_ARGS[@]}" >"$SERVER_LOG" 2>&1 &
 SERVER_PID="$!"
 
 for _ in $(seq 1 120); do
@@ -156,16 +180,21 @@ if ! curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
 fi
 
 echo "==> HTTP /v1/chat/completions path"
-python3 - "$MODEL" "$PROMPT" "$MAX_TOKENS" <<'PY' >"$WORK_DIR/request.json"
+python3 - "$MODEL" "$PROMPT" "$INSTRUCTIONS" "$MAX_TOKENS" "$MAX_LOGPROBS" <<'PY' >"$WORK_DIR/request.json"
 import json
 import sys
 
 model = sys.argv[1]
 prompt = sys.argv[2]
-max_tokens = int(sys.argv[3])
+instructions = sys.argv[3]
+max_tokens = int(sys.argv[4])
+max_logprobs = int(sys.argv[5])
 payload = {
     "model": model,
-    "messages": [{"role": "user", "content": prompt}],
+    "messages": [
+        {"role": "system", "content": instructions},
+        {"role": "user", "content": prompt},
+    ],
     "temperature": 0,
     "top_p": 1,
     "max_tokens": max_tokens,
@@ -173,6 +202,9 @@ payload = {
     "stream": False,
     "chat_template_kwargs": {"enable_thinking": False},
 }
+if max_logprobs > 0:
+    payload["logprobs"] = True
+    payload["top_logprobs"] = max_logprobs
 print(json.dumps(payload))
 PY
 
@@ -182,41 +214,80 @@ curl -fsS \
   --data-binary "@$WORK_DIR/request.json" \
   >"$HTTP_JSON"
 
-python3 - "$HTTP_JSON" >"$HTTP_TEXT" <<'PY'
+python3 - "$DIRECT_JSON" "$HTTP_JSON" "$SERVER_LOG" <<'PY'
 import json
-import sys
-
-with open(sys.argv[1], "r", encoding="utf-8") as f:
-    payload = json.load(f)
-try:
-    print(payload["choices"][0]["message"].get("content") or "")
-except Exception as exc:
-    raise SystemExit(f"failed to extract HTTP response content: {exc}\n{json.dumps(payload, indent=2)}")
-PY
-
-python3 - "$DIRECT_OUT" "$HTTP_TEXT" "$SERVER_LOG" "$HTTP_JSON" <<'PY'
 import pathlib
 import sys
 
-direct_path, http_path, server_log, http_json = map(pathlib.Path, sys.argv[1:])
+direct_path, http_path, server_log = map(pathlib.Path, sys.argv[1:])
 
-def normalize(text: str) -> str:
-    lines = [line.rstrip() for line in text.replace("\r\n", "\n").split("\n")]
-    return "\n".join(lines).strip()
+VOLATILE_USAGE_KEYS = {
+    "completion_time",
+    "prompt_time",
+    "total_time",
+    "completion_tokens_per_second",
+    "prompt_tokens_per_second",
+    "peak_memory_gib",
+}
 
-direct = normalize(direct_path.read_text(encoding="utf-8"))
-http = normalize(http_path.read_text(encoding="utf-8"))
+def load(path):
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+def normalize_tool_calls(calls):
+    result = []
+    for call in calls or []:
+        function = call.get("function") or {}
+        result.append({
+            "type": call.get("type"),
+            "function": {
+                "name": function.get("name"),
+                "arguments": function.get("arguments"),
+            },
+        })
+    return result
+
+def normalize_usage(usage):
+    usage = dict(usage or {})
+    for key in VOLATILE_USAGE_KEYS:
+        usage.pop(key, None)
+    return usage
+
+def canonical(payload):
+    choices = payload.get("choices") or []
+    if not choices:
+        raise SystemExit(f"missing choices in response:\n{json.dumps(payload, indent=2)}")
+    choice = choices[0]
+    message = choice.get("message") or {}
+    return {
+        "model": payload.get("model"),
+        "system_fingerprint": payload.get("system_fingerprint"),
+        "finish_reason": choice.get("finish_reason"),
+        "message": {
+            "role": message.get("role"),
+            "content": message.get("content") or "",
+            "reasoning_content": message.get("reasoning_content") or "",
+            "tool_calls": normalize_tool_calls(message.get("tool_calls")),
+        },
+        "logprobs": choice.get("logprobs"),
+        "usage": normalize_usage(payload.get("usage")),
+    }
+
+direct = canonical(load(direct_path))
+http = canonical(load(http_path))
 
 if direct != http:
-    print("AFMKit direct/HTTP parity mismatch", file=sys.stderr)
-    print(f"\n--- direct ({direct_path}) ---\n{direct}", file=sys.stderr)
-    print(f"\n--- http ({http_path}) ---\n{http}", file=sys.stderr)
+    print("AFMKit direct/HTTP contract parity mismatch", file=sys.stderr)
+    print(f"\n--- direct canonical ({direct_path}) ---", file=sys.stderr)
+    print(json.dumps(direct, indent=2, sort_keys=True), file=sys.stderr)
+    print(f"\n--- http canonical ({http_path}) ---", file=sys.stderr)
+    print(json.dumps(http, indent=2, sort_keys=True), file=sys.stderr)
     print(f"\nServer log: {server_log}", file=sys.stderr)
-    print(f"HTTP JSON: {http_json}", file=sys.stderr)
     raise SystemExit(1)
 
-print("AFMKit direct/HTTP parity passed.")
-print(f"Output: {direct}")
+content = direct["message"]["content"] or direct["message"]["reasoning_content"]
+print("AFMKit direct/HTTP contract parity passed.")
+print(f"Output: {content}")
 PY
 
 echo "Artifacts:"
