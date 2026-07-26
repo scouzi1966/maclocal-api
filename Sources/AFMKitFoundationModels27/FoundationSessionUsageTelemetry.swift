@@ -4,6 +4,15 @@ import FoundationModels
 
 @available(macOS 27.0, *)
 public extension AFMFoundationGenerationTelemetryCalculator {
+    static func usage(from usage: LanguageModelSession.Usage) -> AFMFoundationGenerationUsage {
+        AFMFoundationGenerationUsage(
+            inputTokens: usage.input.totalTokenCount,
+            cachedInputTokens: usage.input.cachedTokenCount,
+            outputTokens: usage.output.totalTokenCount,
+            reasoningTokens: usage.output.reasoningTokenCount
+        )
+    }
+
     static func telemetry(
         usage: LanguageModelSession.Usage,
         toolNames: [String],
@@ -14,10 +23,7 @@ public extension AFMFoundationGenerationTelemetryCalculator {
         streamChunkCount: Int
     ) -> AFMFoundationGenerationTelemetry {
         telemetry(
-            inputTokens: usage.input.totalTokenCount,
-            cachedInputTokens: usage.input.cachedTokenCount,
-            outputTokens: usage.output.totalTokenCount,
-            reasoningTokens: usage.output.reasoningTokenCount,
+            usage: self.usage(from: usage),
             toolNames: toolNames,
             contextAction: contextAction,
             startedAt: startedAt,

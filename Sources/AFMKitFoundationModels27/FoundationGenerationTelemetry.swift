@@ -1,5 +1,24 @@
 import Foundation
 
+public struct AFMFoundationGenerationUsage: Equatable, Sendable {
+    public var inputTokens: Int
+    public var cachedInputTokens: Int
+    public var outputTokens: Int
+    public var reasoningTokens: Int
+
+    public init(
+        inputTokens: Int,
+        cachedInputTokens: Int,
+        outputTokens: Int,
+        reasoningTokens: Int
+    ) {
+        self.inputTokens = inputTokens
+        self.cachedInputTokens = cachedInputTokens
+        self.outputTokens = outputTokens
+        self.reasoningTokens = reasoningTokens
+    }
+}
+
 public struct AFMFoundationGenerationTelemetry: Equatable, Sendable {
     public var inputTokens: Int
     public var cachedInputTokens: Int
@@ -41,6 +60,29 @@ public struct AFMFoundationGenerationTelemetry: Equatable, Sendable {
 }
 
 public enum AFMFoundationGenerationTelemetryCalculator {
+    public static func telemetry(
+        usage: AFMFoundationGenerationUsage,
+        toolNames: [String],
+        contextAction: String?,
+        startedAt: ContinuousClock.Instant,
+        firstChunkAt: ContinuousClock.Instant?,
+        sampledAt: ContinuousClock.Instant,
+        streamChunkCount: Int
+    ) -> AFMFoundationGenerationTelemetry {
+        telemetry(
+            inputTokens: usage.inputTokens,
+            cachedInputTokens: usage.cachedInputTokens,
+            outputTokens: usage.outputTokens,
+            reasoningTokens: usage.reasoningTokens,
+            toolNames: toolNames,
+            contextAction: contextAction,
+            startedAt: startedAt,
+            firstChunkAt: firstChunkAt,
+            sampledAt: sampledAt,
+            streamChunkCount: streamChunkCount
+        )
+    }
+
     public static func telemetry(
         inputTokens: Int,
         cachedInputTokens: Int,
