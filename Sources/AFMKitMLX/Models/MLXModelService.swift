@@ -2,6 +2,7 @@ import Foundation
 import AFMKitCore
 import AFMOpenAICompat
 import CoreImage
+import Metal
 import os
 import MLX
 import Cmlx
@@ -118,6 +119,7 @@ public enum MLXServiceError: Error, LocalizedError {
     case downloadFailed(String)
     case loadFailed(String)
     case noModelLoaded
+    case noMetalDevice
     case serviceShuttingDown
     case serverBusy(Int)
 
@@ -133,6 +135,8 @@ public enum MLXServiceError: Error, LocalizedError {
             return "Failed to load model: \(value)"
         case .noModelLoaded:
             return "No MLX model loaded"
+        case .noMetalDevice:
+            return "No Metal device is available to MLX in this process."
         case .serviceShuttingDown:
             return "MLX service is shutting down"
         case .serverBusy(let max):
@@ -458,8 +462,11 @@ public final class MLXModelService: @unchecked Sendable {
 
     /// Configure MLX GPU settings once, before first model load.
     /// Must be called after Metal is available (not during early init).
-    private func ensureGPUConfigured() {
+    private func ensureGPUConfigured() throws {
         guard !gpuInitialized else { return }
+        guard !MTLCopyAllDevices().isEmpty else {
+            throw MLXServiceError.noMetalDevice
+        }
         gpuInitialized = true
 
         let totalMemoryGB = ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024)
@@ -1277,7 +1284,7 @@ public final class MLXModelService: @unchecked Sendable {
             return cached.0
         }
 
-        ensureGPUConfigured()
+        try ensureGPUConfigured()
 
         // Loading priority:
         // 1. Absolute/relative path — use directly (no cache or download)
@@ -3512,18 +3519,24 @@ public final class MLXModelService: @unchecked Sendable {
             }
         }
 
-        // Ensure queued GPU work is complete before clearing recycled buffers.
-        // The BatchScheduler's decode loop synchronizes the GPU stream before
-        // exiting on cancellation, so this should be safe.
-        Stream.gpu.synchronize()
-        Stream.cpu.synchronize()
-        Memory.clearCache()
-        Stream.gpu.synchronize()
-        Memory.clearCache()
+        if gpuInitialized {
+            // Ensure queued GPU work is complete before clearing recycled buffers.
+            // The BatchScheduler's decode loop synchronizes the GPU stream before
+            // exiting on cancellation, so this should be safe.
+            Stream.gpu.synchronize()
+            Stream.cpu.synchronize()
+            Memory.clearCache()
+            Stream.gpu.synchronize()
+            Memory.clearCache()
+        }
 
         if verbose {
-            let snapshot = Memory.snapshot()
-            print("MLX memory after shutdown - active: \(formatBytes(snapshot.activeMemory)), cache: \(formatBytes(snapshot.cacheMemory)), peak: \(formatBytes(snapshot.peakMemory))")
+            if gpuInitialized {
+                let snapshot = Memory.snapshot()
+                print("MLX memory after shutdown - active: \(formatBytes(snapshot.activeMemory)), cache: \(formatBytes(snapshot.cacheMemory)), peak: \(formatBytes(snapshot.peakMemory))")
+            } else {
+                print("MLX memory after shutdown - GPU was not initialized")
+            }
         }
     }
 
