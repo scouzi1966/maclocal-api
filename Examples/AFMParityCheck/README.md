@@ -35,13 +35,25 @@ AFM_PARITY_MODEL=mlx-community/Llama-3.2-3B-Instruct-4bit \
 swift run AFMParityCheck
 ```
 
+To run the same battery across multiple cached model families, use
+`AFM_PARITY_MODELS`. The harness starts one local server per model sequentially,
+using `AFM_PARITY_PORT` for the first model and incrementing the port for each
+subsequent model:
+
+```bash
+AFM_BINARY=../../.build/release/afm \
+AFM_PARITY_MODELS=mlx-community/Llama-3.2-3B-Instruct-4bit,mlx-community/Qwen3-4B-4bit \
+swift run AFMParityCheck
+```
+
 ### Environment
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `AFM_PARITY_MODEL` | `mlx-community/Llama-3.2-3B-Instruct-4bit` | model used by both paths |
+| `AFM_PARITY_MODELS` | — | comma-separated model IDs; when set, overrides `AFM_PARITY_MODEL` and runs the same cases for each model |
 | `AFM_BINARY` | repo `.build/release/afm` (then `…/arm64-apple-macosx/release`, then `debug`) | server binary to spawn |
-| `AFM_PARITY_PORT` | `9998` | server port |
+| `AFM_PARITY_PORT` | `9998` | base server port; multi-model runs use this port plus the model index |
 | `AFM_PARITY_CASES` | all cases | comma-separated case IDs, for example `greedy-text,strict-json-schema` |
 | `MACAFM_MLX_MODEL_CACHE` | — | weight cache, shared by both paths (set it to avoid re-downloads) |
 

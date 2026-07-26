@@ -23,10 +23,16 @@ import Foundation
 
 enum Config {
     static let env = ProcessInfo.processInfo.environment
-    static let model = env["AFM_PARITY_MODEL"] ?? "mlx-community/Llama-3.2-3B-Instruct-4bit"
+    static let defaultModel = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+    static var models: [String] {
+        if let raw = env["AFM_PARITY_MODELS"], !raw.isEmpty {
+            let parsed = splitList(raw)
+            if !parsed.isEmpty { return parsed }
+        }
+        return [env["AFM_PARITY_MODEL"] ?? defaultModel]
+    }
     static let host = "127.0.0.1"
-    static let port = Int(env["AFM_PARITY_PORT"] ?? "9998") ?? 9998
-    static var baseURL: String { "http://\(host):\(port)" }
+    static let basePort = Int(env["AFM_PARITY_PORT"] ?? "9998") ?? 9998
 
     /// Resolve the `afm` binary: AFM_BINARY override, else the repo's release/debug build.
     static var binaryPath: String {
@@ -62,14 +68,25 @@ enum Config {
         guard let raw = env["AFM_PARITY_CASES"], !raw.isEmpty else {
             return Set(allCases)
         }
-        return Set(
-            raw.split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-        )
+        return Set(splitList(raw))
     }
     static func shouldRun(_ name: String) -> Bool {
         enabledCases.contains(name)
+    }
+
+    static func splitList(_ raw: String) -> [String] {
+        raw.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+}
+
+struct ModelRun {
+    let model: String
+    let port: Int
+
+    var baseURL: String {
+        "http://\(Config.host):\(port)"
     }
 }
 
@@ -106,12 +123,12 @@ enum HTTPError: Error, CustomStringConvertible {
     }
 }
 
-func chatRequest(_ body: [String: Any], stream: Bool) -> URLRequest {
-    var req = URLRequest(url: URL(string: "\(Config.baseURL)/v1/chat/completions")!)
+func chatRequest(_ body: [String: Any], stream: Bool, run: ModelRun) -> URLRequest {
+    var req = URLRequest(url: URL(string: "\(run.baseURL)/v1/chat/completions")!)
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     var b = body
-    b["model"] = Config.model
+    b["model"] = run.model
     b["stream"] = stream
     b["temperature"] = 0
     if b["max_tokens"] == nil { b["max_tokens"] = Config.maxTokens }
@@ -120,8 +137,8 @@ func chatRequest(_ body: [String: Any], stream: Bool) -> URLRequest {
 }
 
 /// Non-streaming POST → parsed top-level JSON object.
-func httpChat(_ body: [String: Any]) async throws -> [String: Any] {
-    let (data, resp) = try await URLSession.shared.data(for: chatRequest(body, stream: false))
+func httpChat(_ body: [String: Any], run: ModelRun) async throws -> [String: Any] {
+    let (data, resp) = try await URLSession.shared.data(for: chatRequest(body, stream: false, run: run))
     let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
     guard code == 200 else { throw HTTPError.status(code, String(data: data, encoding: .utf8) ?? "") }
     guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -131,8 +148,8 @@ func httpChat(_ body: [String: Any]) async throws -> [String: Any] {
 }
 
 /// Streaming POST → concatenated `choices[0].delta.content` across SSE chunks.
-func httpChatStreamConcat(_ body: [String: Any]) async throws -> String {
-    let (bytes, resp) = try await URLSession.shared.bytes(for: chatRequest(body, stream: true))
+func httpChatStreamConcat(_ body: [String: Any], run: ModelRun) async throws -> String {
+    let (bytes, resp) = try await URLSession.shared.bytes(for: chatRequest(body, stream: true, run: run))
     let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
     guard code == 200 else { throw HTTPError.status(code, "stream") }
     var out = ""
@@ -189,10 +206,10 @@ func canonicalJSON(_ s: String) -> String? {
 
 // MARK: - Server lifecycle
 
-func spawnServer() throws -> Process {
+func spawnServer(run: ModelRun) throws -> Process {
     let p = Process()
     p.executableURL = URL(fileURLWithPath: Config.binaryPath)
-    p.arguments = ["mlx", "-m", Config.model, "--port", "\(Config.port)"]
+    p.arguments = ["mlx", "-m", run.model, "--port", "\(run.port)"]
     // Pass the full environment (incl. MACAFM_MLX_MODEL_CACHE) through so the
     // server reuses the same local weights the direct engine loaded.
     p.environment = ProcessInfo.processInfo.environment
@@ -203,9 +220,9 @@ func spawnServer() throws -> Process {
     return p
 }
 
-func waitForServerReady() async throws {
+func waitForServerReady(run: ModelRun) async throws {
     let deadline = Date().addingTimeInterval(Config.serverReadyTimeout)
-    let url = URL(string: "\(Config.baseURL)/v1/models")!
+    let url = URL(string: "\(run.baseURL)/v1/models")!
     while Date() < deadline {
         if let (_, resp) = try? await URLSession.shared.data(from: url),
            (resp as? HTTPURLResponse)?.statusCode == 200 {
@@ -230,13 +247,31 @@ func wireMessages(_ text: String) -> [[String: String]] {
 @main
 struct AFMParityCheck {
     static func main() async {
-        print("AFMParityCheck — model=\(Config.model) port=\(Config.port)")
+        print("AFMParityCheck — models=\(Config.models.joined(separator: ",")) basePort=\(Config.basePort)")
         print("binary=\(Config.binaryPath)")
         print("cases=\(Config.allCases.filter(Config.shouldRun).joined(separator: ","))")
 
+        for (index, model) in Config.models.enumerated() {
+            let run = ModelRun(model: model, port: Config.basePort + index)
+            await runBattery(run: run)
+        }
+
+        // ---- Summary -------------------------------------------------------
+        let passed = await tally.passed, failed = await tally.failed, skipped = await tally.skipped
+        print("\n=====================================================")
+        print("PARITY: \(passed) passed, \(failed) failed, \(skipped) skipped")
+        print("=====================================================")
+        exit(failed == 0 ? 0 : 1)
+    }
+
+    static func runBattery(run: ModelRun) async {
+        print("\n=====================================================")
+        print("Model: \(run.model) port=\(run.port)")
+        print("=====================================================")
+
         // ---- (A) Build the in-process engine -------------------------------
         let engine = AFMEngine(
-            backend: .mlx(modelID: Config.model),
+            backend: .mlx(modelID: run.model),
             config: EngineConfig(enablePrefixCaching: false)
         )
         do {
@@ -251,9 +286,9 @@ struct AFMParityCheck {
         var server: Process
         do {
             print("spawning afm server…")
-            server = try spawnServer()
-            try await waitForServerReady()
-            print("server ready at \(Config.baseURL)")
+            server = try spawnServer(run: run)
+            try await waitForServerReady(run: run)
+            print("server ready at \(run.baseURL)")
         } catch {
             FileHandle.standardError.write(Data("FATAL: server did not start: \(error)\n".utf8))
             exit(2)
@@ -268,7 +303,7 @@ struct AFMParityCheck {
             let prompt = "Name three primary colors."
             let cfg = GenerationConfig(temperature: 0, maxTokens: Config.maxTokens)
             let direct = try await engine.respond(to: userMessages(prompt), cfg)
-            let http = try await httpChat(["messages": wireMessages(prompt)])
+            let http = try await httpChat(["messages": wireMessages(prompt)], run: run)
             let d = normalize(direct.content), h = normalize(contentOf(http))
             if d == h { await tally.pass("greedy-text") }
             else { await tally.fail("greedy-text", "direct: \(d)\nserver: \(h)") }
@@ -284,8 +319,8 @@ struct AFMParityCheck {
             var directStream = ""
             for try await delta in engine.streamRespond(to: userMessages(prompt), cfg) { directStream += delta }
             let directFull = try await engine.respond(to: userMessages(prompt), cfg)
-            let httpStream = try await httpChatStreamConcat(["messages": wireMessages(prompt)])
-            let httpFull = contentOf(try await httpChat(["messages": wireMessages(prompt)]))
+            let httpStream = try await httpChatStreamConcat(["messages": wireMessages(prompt)], run: run)
+            let httpFull = contentOf(try await httpChat(["messages": wireMessages(prompt)], run: run))
 
             let values = [normalize(directStream), normalize(directFull.content),
                           normalize(httpStream), normalize(httpFull)]
@@ -306,7 +341,7 @@ struct AFMParityCheck {
             let cfg = GenerationConfig(temperature: 0, maxTokens: Config.maxTokens, logprobs: true, topLogprobs: 0)
             let direct = try await engine.respond(to: userMessages(prompt), cfg)
             let http = try await httpChat(["messages": wireMessages(prompt),
-                                           "logprobs": true])
+                                           "logprobs": true], run: run)
             let dTokens = (direct.logprobs ?? []).map { (token: $0.token, logprob: Double($0.logprob)) }
             let hTokens = logprobTokensOf(http)
             if dTokens.isEmpty && hTokens.isEmpty {
@@ -338,7 +373,7 @@ struct AFMParityCheck {
             let cfg = GenerationConfig(temperature: 0, maxTokens: Config.maxTokens, responseFormat: fmt)
             let direct = try await engine.respond(to: userMessages(prompt), cfg)
             let http = contentOf(try await httpChat(["messages": wireMessages(prompt),
-                                                     "response_format": ["type": "json_object"]]))
+                                                     "response_format": ["type": "json_object"]], run: run))
             let dc = canonicalJSON(direct.content), hc = canonicalJSON(http)
             if let dc, let hc, dc == hc { await tally.pass("structured-json") }
             else {
@@ -377,7 +412,7 @@ struct AFMParityCheck {
                                    "required": ["location"]]
                 ]
             ]]
-            let http = try await httpChat(["messages": wireMessages(prompt), "tools": wireTools])
+            let http = try await httpChat(["messages": wireMessages(prompt), "tools": wireTools], run: run)
             let dTC = (direct.toolCalls ?? []).map { (name: $0.function.name, args: $0.function.arguments) }
             let hTC = toolCallsOf(http)
             if dTC.isEmpty && hTC.isEmpty {
@@ -408,7 +443,7 @@ struct AFMParityCheck {
             let http = try await httpChat([
                 "messages": wireMessages(prompt),
                 "stop": stop
-            ])
+            ], run: run)
             let d = normalize(direct.content), h = normalize(contentOf(http))
             if d == h { await tally.pass("stop-sequence") }
             else { await tally.fail("stop-sequence", "direct: \(d)\nserver: \(h)") }
@@ -451,7 +486,7 @@ struct AFMParityCheck {
                         "schema": schema
                     ]
                 ]
-            ]))
+            ], run: run))
             let dc = canonicalJSON(direct.content), hc = canonicalJSON(http)
             if let dc, let hc, dc == hc { await tally.pass("strict-json-schema") }
             else {
@@ -462,12 +497,6 @@ struct AFMParityCheck {
             }
         } catch { await tally.fail("strict-json-schema", "\(error)") } }
 
-        // ---- Summary -------------------------------------------------------
-        let passed = await tally.passed, failed = await tally.failed, skipped = await tally.skipped
-        print("\n=====================================================")
-        print("PARITY: \(passed) passed, \(failed) failed, \(skipped) skipped")
-        print("=====================================================")
         server.terminate()
-        exit(failed == 0 ? 0 : 1)
     }
 }
