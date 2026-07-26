@@ -175,6 +175,46 @@ final class AFMMLXProviderTests: XCTestCase {
         XCTAssertTrue(descriptor.capabilities.contains(.vision))
     }
 
+    func testDescriptorRequiresVisionFactoryForSparseVLMTextConfig() {
+        XCTAssertTrue(
+            AFMMLXModelDescriptor.requiresVisionModelFactory([
+                "model_type": "gemma3",
+                "text_config": ["model_type": "gemma"],
+                "vision_config": ["model_type": "siglip"],
+            ])
+        )
+    }
+
+    func testDescriptorDoesNotRequireVisionFactoryWhenTextConfigHasArchitectureFields() {
+        XCTAssertFalse(
+            AFMMLXModelDescriptor.requiresVisionModelFactory([
+                "model_type": "qwen3_5_moe",
+                "text_config": [
+                    "model_type": "qwen3_5_moe",
+                    "num_attention_heads": 16,
+                ],
+                "vision_config": ["model_type": "qwen3_vl"],
+            ])
+        )
+    }
+
+    func testDescriptorReadsVisionFactoryRequirementFromModelDirectory() throws {
+        let root = try makeModelCache(
+            config: [
+                "model_type": "gemma3",
+                "text_config": ["model_type": "gemma"],
+                "vision_config": ["model_type": "siglip"],
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        XCTAssertTrue(
+            AFMMLXModelDescriptor.requiresVisionModelFactory(
+                in: root.appendingPathComponent("test/model")
+            )
+        )
+    }
+
     func testUncachedDescriptorReportsNetworkRequirement() {
         let descriptor = AFMMLXModelDescriptor.describe(
             modelID: "missing/model",

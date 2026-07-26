@@ -5399,21 +5399,7 @@ public final class MLXModelService: @unchecked Sendable {
     /// (Qwen3_5MoE) properly reads from text_config with full field coverage.
     /// We detect the "sparse text_config" case by checking for missing key fields.
     private func isVLMOnlyConfig(directory: URL) -> Bool {
-        let configURL = directory.appendingPathComponent("config.json")
-        guard let data = try? Data(contentsOf: configURL),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let textConfig = json["text_config"] as? [String: Any],
-              json["vision_config"] != nil else {
-            return false
-        }
-        // If text_config lacks num_attention_heads AND the top-level config also lacks it,
-        // the LLM factory will use wrong defaults. Prefer VLM factory.
-        let hasTopLevelHeads = json["num_attention_heads"] != nil
-        let hasNestedHeads = textConfig["num_attention_heads"] != nil
-        if !hasTopLevelHeads && !hasNestedHeads {
-            return true
-        }
-        return false
+        AFMMLXModelDescriptor.requiresVisionModelFactory(in: directory)
     }
 
     private func isVisionModel(directory: URL) throws -> Bool {

@@ -434,6 +434,30 @@ public enum AFMMLXModelDescriptor {
         return false
     }
 
+    /// Returns true when the MLX configuration describes a VLM layout that
+    /// should be loaded through the VLM factory instead of the LLM factory.
+    /// Some multimodal configs store text architecture fields only in
+    /// `text_config`; the generic LLM factory can fill unsafe defaults when
+    /// those fields are absent at both levels.
+    public static func requiresVisionModelFactory(_ config: [String: Any]) -> Bool {
+        guard let textConfig = config["text_config"] as? [String: Any],
+              config["vision_config"] != nil else {
+            return false
+        }
+
+        let hasTopLevelHeads = config["num_attention_heads"] != nil
+        let hasNestedHeads = textConfig["num_attention_heads"] != nil
+        return !hasTopLevelHeads && !hasNestedHeads
+    }
+
+    public static func requiresVisionModelFactory(in modelDirectory: URL) -> Bool {
+        guard let config = jsonObject(at: modelDirectory.appendingPathComponent("config.json")) else {
+            return false
+        }
+
+        return requiresVisionModelFactory(config)
+    }
+
     private static func jsonObject(at url: URL) -> [String: Any]? {
         guard let data = try? Data(contentsOf: url) else { return nil }
         return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
