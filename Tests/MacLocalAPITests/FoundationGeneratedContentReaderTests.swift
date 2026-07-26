@@ -36,5 +36,44 @@ final class FoundationGeneratedContentReaderTests: XCTestCase {
             content.jsonString
         )
     }
+
+    func testNonEmptyRendererReturnsRenderedContent() throws {
+        let content = GeneratedContent(properties: [
+            "title": "Artifact"
+        ])
+
+        let rendered = try AFMFoundationGeneratedContentRenderer.nonEmptyRenderedContent(
+            content,
+            label: "Artifact"
+        ) { _ in
+            "Rendered"
+        }
+
+        XCTAssertEqual(rendered, "Rendered")
+    }
+
+    func testNonEmptyRendererThrowsForBlankContent() {
+        let content = GeneratedContent(properties: [
+            "title": "Artifact"
+        ])
+
+        XCTAssertThrowsError(
+            try AFMFoundationGeneratedContentRenderer.nonEmptyRenderedContent(
+                content,
+                label: "Artifact"
+            ) { _ in
+                "  \n\t"
+            }
+        ) { error in
+            XCTAssertEqual(
+                error as? AFMFoundationStructuredResponseError,
+                .emptyRenderedContent(label: "Artifact")
+            )
+            XCTAssertEqual(
+                (error as? LocalizedError)?.errorDescription,
+                "Artifact returned an empty structured response."
+            )
+        }
+    }
 }
 #endif

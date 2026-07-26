@@ -1,4 +1,5 @@
 #if canImport(FoundationModels)
+import Foundation
 import FoundationModels
 
 @available(macOS 27.0, *)
@@ -38,6 +39,33 @@ public enum AFMFoundationGeneratedContentReader {
         separator: String = "\n\n"
     ) -> String {
         sections.isEmpty ? content.jsonString : sections.joined(separator: separator)
+    }
+}
+
+@available(macOS 27.0, *)
+public enum AFMFoundationStructuredResponseError: Error, Equatable, LocalizedError {
+    case emptyRenderedContent(label: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .emptyRenderedContent(let label):
+            return "\(label) returned an empty structured response."
+        }
+    }
+}
+
+@available(macOS 27.0, *)
+public enum AFMFoundationGeneratedContentRenderer {
+    public static func nonEmptyRenderedContent(
+        _ content: GeneratedContent,
+        label: String,
+        render: (GeneratedContent) -> String
+    ) throws -> String {
+        let rendered = render(content)
+        guard !rendered.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AFMFoundationStructuredResponseError.emptyRenderedContent(label: label)
+        }
+        return rendered
     }
 }
 #endif
