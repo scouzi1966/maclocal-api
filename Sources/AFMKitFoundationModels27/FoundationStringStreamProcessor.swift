@@ -57,5 +57,19 @@ public struct AFMFoundationStringStreamProcessor<ProgressState: Equatable> {
         )
         return AFMFoundationStringStreamUpdate(snapshotUpdate: update, telemetry: telemetry)
     }
+
+    public func finalize(
+        _ telemetry: AFMFoundationGenerationTelemetry,
+        startedAt: ContinuousClock.Instant,
+        completedAt: ContinuousClock.Instant
+    ) -> AFMFoundationGenerationTelemetry {
+        AFMFoundationGenerationTelemetryCalculator.finalize(
+            telemetry,
+            startedAt: startedAt,
+            firstChunkAt: firstChunkAt,
+            completedAt: completedAt,
+            streamChunkCount: streamChunkCount
+        )
+    }
 }
 #endif
