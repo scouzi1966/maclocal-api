@@ -379,6 +379,48 @@ public struct AFMMLXModelStore: Sendable {
         return true
     }
 
+    /// Returns whether a model identifier belongs to a non-chat MLX specialty
+    /// family such as TTS, STT, speech, or vocoder models.
+    ///
+    /// AFMKit consumers can use this when presenting generic local-model
+    /// discovery results so speech/audio assets are not mixed into ordinary LLM
+    /// orphan-model cleanup flows.
+    public static func isSpecialtyModelIdentifier(_ modelID: String) -> Bool {
+        let lower = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        let knownSpecialtyRepos = [
+            "prince-canuma/kokoro-82m",
+            "mlx-community/orpheus-3b-0.1-ft-4bit",
+            "marvis-ai/marvis-tts-100m-v0.2-mlx-6bit",
+            "marvis-ai/marvis-tts-100m-v0.2-mlx-8bit",
+            "marvis-ai/marvis-tts-250m-v0.2-mlx-6bit",
+            "marvis-ai/marvis-tts-250m-v0.2-mlx-8bit",
+        ]
+        if knownSpecialtyRepos.contains(lower) { return true }
+
+        let specialtyKeywords = [
+            "tts",
+            "stt",
+            "whisper",
+            "vocoder",
+            "kokoro",
+            "marvis",
+            "orpheus",
+            "outetts",
+            "bark",
+            "speecht5",
+            "speech",
+        ]
+        if specialtyKeywords.contains(where: lower.contains) {
+            return true
+        }
+
+        let specialtyOrgs = ["prince-canuma", "marvis-ai"]
+        let organization = lower.split(separator: "/").first.map(String.init) ?? ""
+        return specialtyOrgs.contains(organization)
+    }
+
     /// Returns a complete snapshot directory for a specific revision inside a
     /// Hugging Face package root.
     public static func completeSnapshotDirectory(

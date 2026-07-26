@@ -110,6 +110,16 @@ final class AFMMLXModelStoreTests: XCTestCase {
         XCTAssertFalse(AFMMLXModelStore.isLikelyRepositoryIdentifier(" users/example "))
     }
 
+    func testSpecialtyModelIdentifierDetectsSpeechAndAudioModels() {
+        XCTAssertTrue(AFMMLXModelStore.isSpecialtyModelIdentifier("prince-canuma/Kokoro-82M"))
+        XCTAssertTrue(AFMMLXModelStore.isSpecialtyModelIdentifier("mlx-community/Orpheus-3B-0.1-ft-4bit"))
+        XCTAssertTrue(AFMMLXModelStore.isSpecialtyModelIdentifier("example-org/fast-whisper-large"))
+        XCTAssertTrue(AFMMLXModelStore.isSpecialtyModelIdentifier("marvis-ai/anything"))
+
+        XCTAssertFalse(AFMMLXModelStore.isSpecialtyModelIdentifier("mlx-community/Qwen3-4B-4bit"))
+        XCTAssertFalse(AFMMLXModelStore.isSpecialtyModelIdentifier("lmstudio-community/gemma-3-4b-it"))
+    }
+
     func testCompleteSnapshotDirectoryUsesExplicitRevision() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
