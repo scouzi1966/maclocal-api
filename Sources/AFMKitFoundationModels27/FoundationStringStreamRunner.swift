@@ -2,7 +2,7 @@
 import Foundation
 
 @available(macOS 27.0, *)
-public struct AFMFoundationStringStreamRunResult<ProgressState: Equatable>: Equatable {
+public struct AFMFoundationStringStreamRunResult<ProgressState: Equatable & Sendable>: Equatable, Sendable {
     public let telemetry: AFMFoundationGenerationTelemetry?
     public let progressState: ProgressState
     public let firstChunkAt: ContinuousClock.Instant?
@@ -23,7 +23,8 @@ public struct AFMFoundationStringStreamRunResult<ProgressState: Equatable>: Equa
 
 @available(macOS 27.0, *)
 public enum AFMFoundationStringStreamRunner {
-    public static func run<S: AsyncSequence, ProgressState: Equatable>(
+    @MainActor
+    public static func run<S: AsyncSequence, ProgressState: Equatable & Sendable>(
         _ snapshots: S,
         initialProgressState: ProgressState,
         contextAction: String?,
@@ -33,8 +34,8 @@ public enum AFMFoundationStringStreamRunner {
             inout AFMFoundationStringStreamProcessor<ProgressState>,
             String?,
             ContinuousClock.Instant
-        ) async throws -> AFMFoundationStringStreamUpdate<ProgressState>,
-        receive: (AFMFoundationStringStreamUpdate<ProgressState>) async throws -> Void
+        ) throws -> AFMFoundationStringStreamUpdate<ProgressState>,
+        receive: (AFMFoundationStringStreamUpdate<ProgressState>) throws -> Void
     ) async throws -> AFMFoundationStringStreamRunResult<ProgressState> {
         var processor = AFMFoundationStringStreamProcessor<ProgressState>(
             initialProgressState: initialProgressState
@@ -45,10 +46,10 @@ public enum AFMFoundationStringStreamRunner {
         for try await snapshot in snapshots {
             try Task.checkCancellation()
             let sampledAt = ContinuousClock.now
-            let update = try await consume(snapshot, &processor, contextAction, sampledAt)
+            let update = try consume(snapshot, &processor, contextAction, sampledAt)
             progressState = update.snapshotUpdate.progressState
             telemetry = update.telemetry
-            try await receive(update)
+            try receive(update)
         }
 
         let completedAt = ContinuousClock.now

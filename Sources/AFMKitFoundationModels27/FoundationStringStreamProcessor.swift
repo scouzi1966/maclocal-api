@@ -3,7 +3,7 @@ import Foundation
 import FoundationModels
 
 @available(macOS 27.0, *)
-public struct AFMFoundationStringStreamUpdate<ProgressState: Equatable>: Equatable {
+public struct AFMFoundationStringStreamUpdate<ProgressState: Equatable & Sendable>: Equatable, Sendable {
     public let snapshotUpdate: AFMFoundationSnapshotUpdate<ProgressState>
     public let telemetry: AFMFoundationGenerationTelemetry
 
@@ -17,7 +17,7 @@ public struct AFMFoundationStringStreamUpdate<ProgressState: Equatable>: Equatab
 }
 
 @available(macOS 27.0, *)
-public struct AFMFoundationStringStreamProcessor<ProgressState: Equatable> {
+public struct AFMFoundationStringStreamProcessor<ProgressState: Equatable & Sendable>: Sendable {
     private var accumulator: AFMFoundationSnapshotAccumulator<ProgressState>
     public private(set) var firstChunkAt: ContinuousClock.Instant?
 

@@ -2,7 +2,7 @@
 import Foundation
 
 @available(macOS 27.0, *)
-public struct AFMFoundationSnapshotUpdate<ProgressState: Equatable>: Equatable {
+public struct AFMFoundationSnapshotUpdate<ProgressState: Equatable & Sendable>: Equatable, Sendable {
     public let responseDelta: String?
     public let shouldYieldProgressUpdate: Bool
     public let firstChunkStarted: Bool
@@ -15,7 +15,7 @@ public struct AFMFoundationSnapshotUpdate<ProgressState: Equatable>: Equatable {
 /// Converts Foundation Models response snapshots into incremental UI-friendly
 /// deltas while tracking reasoning-only progress and tool progress refreshes.
 @available(macOS 27.0, *)
-public struct AFMFoundationSnapshotAccumulator<ProgressState: Equatable> {
+public struct AFMFoundationSnapshotAccumulator<ProgressState: Equatable & Sendable>: Sendable {
     private var previousResponseSnapshot = ""
     private var previousReasoningSnapshot = ""
     private(set) public var progressState: ProgressState
