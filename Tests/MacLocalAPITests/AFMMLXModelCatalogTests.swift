@@ -52,6 +52,48 @@ final class AFMMLXModelCatalogTests: XCTestCase {
         XCTAssertEqual(vision.generationPreset.maxTokens, 32768)
     }
 
+    func testGenerationConfigPresetReadsKnownSamplingKeys() throws {
+        let preset = try XCTUnwrap(AFMMLXGenerationPreset.generationConfigPreset([
+            "temperature": 0.2,
+            "top_p": 1,
+            "repetition_penalty": 1.05,
+            "max_new_tokens": 4096,
+            "ignored": "value",
+        ]))
+
+        XCTAssertEqual(preset.temperature, 0.2)
+        XCTAssertEqual(preset.topP, 1.0)
+        XCTAssertEqual(preset.repetitionPenalty, 1.05)
+        XCTAssertEqual(preset.maxTokens, 4096)
+    }
+
+    func testGenerationConfigPresetReturnsNilWithoutSamplingKeys() {
+        XCTAssertNil(AFMMLXGenerationPreset.generationConfigPreset([
+            "enable_thinking": true,
+            "chat_template": "{{ messages }}",
+        ]))
+    }
+
+    func testGenerationConfigPresetReadsModelDirectoryFile() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AFMMLXGenerationPreset-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let data = try JSONSerialization.data(withJSONObject: [
+            "temperature": 0.4,
+            "top_p": 0.9,
+            "max_new_tokens": 128,
+        ])
+        try data.write(to: directory.appendingPathComponent("generation_config.json"))
+
+        let preset = try XCTUnwrap(AFMMLXGenerationPreset.generationConfigPreset(in: directory))
+        XCTAssertEqual(preset.temperature, 0.4)
+        XCTAssertEqual(preset.topP, 0.9)
+        XCTAssertNil(preset.repetitionPenalty)
+        XCTAssertEqual(preset.maxTokens, 128)
+    }
+
     func testDescriptorsExposeCapabilitiesAndMetadata() throws {
         let model = try XCTUnwrap(
             AFMMLXModelCatalog.model(for: "mlx-community/Qwen3-VL-4B-Instruct-5bit")

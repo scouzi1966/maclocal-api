@@ -21,6 +21,60 @@ public struct AFMMLXGenerationPreset: Hashable, Sendable {
         self.repetitionPenalty = repetitionPenalty
         self.maxTokens = maxTokens
     }
+
+    public static func generationConfigPreset(_ json: [String: Any]) -> AFMMLXGenerationPreset? {
+        let temperature = doubleValue(json["temperature"])
+        let topP = doubleValue(json["top_p"])
+        let repetitionPenalty = doubleValue(json["repetition_penalty"])
+        let maxTokens = intValue(json["max_new_tokens"])
+
+        guard temperature != nil || topP != nil || repetitionPenalty != nil || maxTokens != nil else {
+            return nil
+        }
+
+        return AFMMLXGenerationPreset(
+            temperature: temperature,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            maxTokens: maxTokens
+        )
+    }
+
+    public static func generationConfigPreset(in modelDirectory: URL) -> AFMMLXGenerationPreset? {
+        let url = modelDirectory.appendingPathComponent("generation_config.json")
+        guard let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        return generationConfigPreset(json)
+    }
+
+    private static func doubleValue(_ value: Any?) -> Double? {
+        switch value {
+        case let value as Double:
+            return value
+        case let value as Int:
+            return Double(value)
+        case let value as NSNumber:
+            return value.doubleValue
+        default:
+            return nil
+        }
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        switch value {
+        case let value as Int:
+            return value
+        case let value as Double where value.rounded() == value:
+            return Int(value)
+        case let value as NSNumber:
+            return value.intValue
+        default:
+            return nil
+        }
+    }
 }
 
 public struct AFMMLXCuratedModel: Hashable, Identifiable, Sendable {
