@@ -94,6 +94,54 @@ final class AFMMLXModelCatalogTests: XCTestCase {
         XCTAssertEqual(preset.maxTokens, 128)
     }
 
+    func testLocalModelMetadataReadsDirectoryDefaults() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AFMMLXLocalModelMetadata-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try JSONSerialization.data(withJSONObject: [
+            "model_type": "qwen3.6",
+            "max_position_embeddings": 65_536,
+        ]).write(to: directory.appendingPathComponent("config.json"))
+        try JSONSerialization.data(withJSONObject: [
+            "temperature": 0.25,
+            "top_p": 0.9,
+            "enable_thinking": true,
+        ]).write(to: directory.appendingPathComponent("generation_config.json"))
+        try JSONSerialization.data(withJSONObject: [
+            "chat_template": "{% if add_generation_prompt %}{% if enable_thinking is false %}<think></think>{% else %}<think>{% endif %}{% endif %}",
+        ]).write(to: directory.appendingPathComponent("tokenizer_config.json"))
+
+        let metadata = AFMMLXLocalModelMetadata.inspect(
+            modelDirectory: directory,
+            modelName: "Qwen3.6-27B"
+        )
+
+        XCTAssertEqual(metadata.modelType, "qwen3.6")
+        XCTAssertEqual(metadata.contextWindow, 65_536)
+        XCTAssertEqual(metadata.generationPreset?.temperature, 0.25)
+        XCTAssertEqual(metadata.generationPreset?.topP, 0.9)
+        XCTAssertTrue(metadata.hasImplicitReasoning)
+        XCTAssertTrue(metadata.supportsThinkingToggle)
+    }
+
+    func testLocalModelMetadataUsesReasoningNameFallback() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AFMMLXLocalModelMetadata-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let metadata = AFMMLXLocalModelMetadata.inspect(
+            modelDirectory: directory,
+            modelName: "mlx-community/Kimi-K2.5-4bit"
+        )
+
+        XCTAssertTrue(metadata.hasImplicitReasoning)
+        XCTAssertFalse(metadata.supportsThinkingToggle)
+        XCTAssertNil(metadata.generationPreset)
+    }
+
     func testDescriptorsExposeCapabilitiesAndMetadata() throws {
         let model = try XCTUnwrap(
             AFMMLXModelCatalog.model(for: "mlx-community/Qwen3-VL-4B-Instruct-5bit")

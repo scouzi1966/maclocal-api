@@ -77,6 +77,96 @@ public struct AFMMLXGenerationPreset: Hashable, Sendable {
     }
 }
 
+public struct AFMMLXLocalModelMetadata: Hashable, Sendable {
+    public var modelType: String?
+    public var contextWindow: Int?
+    public var generationPreset: AFMMLXGenerationPreset?
+    public var hasImplicitReasoning: Bool
+    public var supportsThinkingToggle: Bool
+
+    public init(
+        modelType: String? = nil,
+        contextWindow: Int? = nil,
+        generationPreset: AFMMLXGenerationPreset? = nil,
+        hasImplicitReasoning: Bool = false,
+        supportsThinkingToggle: Bool = false
+    ) {
+        self.modelType = modelType
+        self.contextWindow = contextWindow
+        self.generationPreset = generationPreset
+        self.hasImplicitReasoning = hasImplicitReasoning
+        self.supportsThinkingToggle = supportsThinkingToggle
+    }
+
+    public static func inspect(
+        modelDirectory: URL,
+        modelName: String
+    ) -> AFMMLXLocalModelMetadata {
+        let config = jsonObject(at: modelDirectory.appendingPathComponent("config.json"))
+        let tokenizer = jsonObject(at: modelDirectory.appendingPathComponent("tokenizer_config.json"))
+        let generation = jsonObject(at: modelDirectory.appendingPathComponent("generation_config.json"))
+        let jinja = try? String(
+            contentsOf: modelDirectory.appendingPathComponent("chat_template.jinja"),
+            encoding: .utf8
+        )
+
+        let templates = chatTemplates(in: tokenizer)
+        let templateDefaultsToThinking = templates.contains(where: chatTemplateDefaultsToThinking)
+            || jinja.map(chatTemplateDefaultsToThinking) == true
+        let generationDefaultsToThinking = generation?["enable_thinking"] as? Bool == true
+        let implicitReasoning = templateDefaultsToThinking
+            || generationDefaultsToThinking
+            || modelNameLooksReasoningCapable(modelName)
+        let templateSupportsThinkingToggle = templates.contains { $0.contains("enable_thinking") }
+            || jinja?.contains("enable_thinking") == true
+
+        return AFMMLXLocalModelMetadata(
+            modelType: config?["model_type"] as? String,
+            contextWindow: config?["max_position_embeddings"] as? Int,
+            generationPreset: generation.flatMap(AFMMLXGenerationPreset.generationConfigPreset),
+            hasImplicitReasoning: implicitReasoning,
+            supportsThinkingToggle: implicitReasoning && templateSupportsThinkingToggle
+        )
+    }
+
+    private static func jsonObject(at url: URL) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: url) else {
+            return nil
+        }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    private static func chatTemplates(in tokenizerConfig: [String: Any]?) -> [String] {
+        guard let tokenizerConfig else { return [] }
+        if let template = tokenizerConfig["chat_template"] as? String {
+            return [template]
+        }
+        if let templates = tokenizerConfig["chat_template"] as? [[String: Any]] {
+            return templates.compactMap { $0["template"] as? String }
+        }
+        return []
+    }
+
+    private static func chatTemplateDefaultsToThinking(_ template: String) -> Bool {
+        guard template.contains("<think>") && template.contains("add_generation_prompt") else {
+            return false
+        }
+        if !template.contains("enable_thinking") {
+            return true
+        }
+        return template.contains("enable_thinking is false")
+    }
+
+    private static func modelNameLooksReasoningCapable(_ modelName: String) -> Bool {
+        let nameLower = modelName.lowercased()
+        return nameLower.contains("thinking") || nameLower.contains("nemotron") ||
+               nameLower.contains("glm-5") || nameLower.contains("glm-4.7") ||
+               nameLower.contains("glm 4.7") || nameLower.contains("minimax") ||
+               nameLower.contains("kimi-k2") || nameLower.contains("kimi k2") ||
+               nameLower.contains("kimi-dev")
+    }
+}
+
 public struct AFMMLXCuratedModel: Hashable, Identifiable, Sendable {
     public var id: String { repoID }
 
