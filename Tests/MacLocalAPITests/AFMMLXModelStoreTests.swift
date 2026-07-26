@@ -120,6 +120,39 @@ final class AFMMLXModelStoreTests: XCTestCase {
         XCTAssertFalse(AFMMLXModelStore.isSpecialtyModelIdentifier("lmstudio-community/gemma-3-4b-it"))
     }
 
+    func testCleanedPersistedModelRecordsPrefersCanonicalIDsAndFiltersInvalidEntries() {
+        struct Record: Equatable {
+            var id: String
+            var name: String
+        }
+
+        let records = [
+            Record(id: "Qwen3", name: "Qwen3"),
+            Record(id: "Volumes/Crucial4TB/Qwen3", name: "Qwen3"),
+            Record(id: "mlx-community/Qwen3", name: "Qwen3"),
+            Record(id: "mlx-community/Curated", name: "Curated"),
+            Record(id: "CustomBare", name: "CustomBare"),
+            Record(id: "example-org/Other", name: "Other"),
+            Record(id: "lmstudio-community/Other", name: "Other"),
+        ]
+
+        let cleaned = AFMMLXModelStore.cleanedPersistedModelRecords(
+            records,
+            id: \.id,
+            displayName: \.name,
+            isCurated: { $0 == "mlx-community/Curated" }
+        )
+
+        XCTAssertEqual(
+            cleaned,
+            [
+                Record(id: "mlx-community/Qwen3", name: "Qwen3"),
+                Record(id: "example-org/Other", name: "Other"),
+                Record(id: "CustomBare", name: "CustomBare"),
+            ]
+        )
+    }
+
     func testCompleteSnapshotDirectoryUsesExplicitRevision() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

@@ -421,6 +421,46 @@ public struct AFMMLXModelStore: Sendable {
         return specialtyOrgs.contains(organization)
     }
 
+    /// Cleans host-persisted MLX model records without requiring AFMKit to own
+    /// the host's storage type.
+    ///
+    /// Invalid filesystem-like identifiers and host-curated models are removed.
+    /// Duplicate display names are collapsed, preferring canonical `org/model`
+    /// identifiers over bare names to preserve stable Hugging Face resolution.
+    public static func cleanedPersistedModelRecords<Record>(
+        _ records: [Record],
+        id: (Record) -> String,
+        displayName: (Record) -> String,
+        isCurated: (String) -> Bool = { _ in false }
+    ) -> [Record] {
+        var seenNames = Set<String>()
+        var unique = [Record]()
+
+        for record in records {
+            let modelID = id(record).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !isCurated(modelID),
+                  isLikelyRepositoryIdentifier(modelID),
+                  modelID.contains("/"),
+                  seenNames.insert(displayName(record)).inserted else {
+                continue
+            }
+            unique.append(record)
+        }
+
+        for record in records {
+            let modelID = id(record).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !isCurated(modelID),
+                  isLikelyRepositoryIdentifier(modelID),
+                  !modelID.contains("/"),
+                  seenNames.insert(displayName(record)).inserted else {
+                continue
+            }
+            unique.append(record)
+        }
+
+        return unique
+    }
+
     /// Returns a complete snapshot directory for a specific revision inside a
     /// Hugging Face package root.
     public static func completeSnapshotDirectory(
