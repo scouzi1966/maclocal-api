@@ -4,6 +4,7 @@ import FoundationModels
 import XCTest
 
 @available(macOS 27.0, *)
+@MainActor
 final class FoundationTranscriptWindowPlannerTests: XCTestCase {
     func testTrimsOldestPromptTurnsAndPreservesInstructions() async throws {
         let instructions = Self.instructions("System")

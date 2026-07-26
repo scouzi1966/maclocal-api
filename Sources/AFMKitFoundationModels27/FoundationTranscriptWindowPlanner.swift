@@ -28,6 +28,7 @@ public enum AFMFoundationTranscriptWindowPlannerError: Error, Equatable {
 
 @available(macOS 27.0, *)
 public enum AFMFoundationTranscriptWindowPlanner {
+    @MainActor
     public static func trimmingOldestPromptTurns(
         _ transcript: [Transcript.Entry],
         maxTokenCount: Int,
