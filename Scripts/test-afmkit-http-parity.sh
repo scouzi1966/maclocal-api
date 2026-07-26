@@ -24,6 +24,8 @@ Options:
 Environment:
   MACAFM_MLX_MODEL_CACHE  Optional model cache root consumed by AFMKit.
   MACAFM_PARITY_MODEL     Default model id when --model is omitted.
+  AFM_PARITY_WORK_ROOT    Directory for generated parity artifacts.
+                          Default: <repo>/test-reports/afmkit-http-parity.
 USAGE
 }
 
@@ -121,7 +123,9 @@ if [[ -z "${MACAFM_MLX_METALLIB:-}" ]]; then
   exit 1
 fi
 
-WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/afmkit-http-parity.XXXXXX")"
+PARITY_WORK_ROOT="${AFM_PARITY_WORK_ROOT:-$ROOT_DIR/test-reports/afmkit-http-parity}"
+mkdir -p "$PARITY_WORK_ROOT"
+WORK_DIR="$(mktemp -d "$PARITY_WORK_ROOT/run.XXXXXX")"
 SERVER_LOG="$WORK_DIR/server.log"
 DIRECT_JSON="$WORK_DIR/direct.json"
 HTTP_JSON="$WORK_DIR/http.json"

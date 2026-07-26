@@ -196,3 +196,15 @@ These are the same services the `afm` server exposes at `/v1/audio/transcription
 **spawned `afm` HTTP server** at temperature 0 and asserts identical output. Run it to confirm
 the library vesta embeds produces byte-for-byte the same results as the server. See that
 example's README.
+
+For a live cached model, run the operator parity gate:
+
+```bash
+MACAFM_MLX_MODEL_CACHE=/path/to/model/cache \
+  Scripts/test-afmkit-http-parity.sh --model mlx-community/Qwen3.5-35B-A3B-4bit
+```
+
+The script writes direct-response JSON, HTTP-response JSON, the request payload, and the server
+log under `test-reports/afmkit-http-parity/run.*` by default so multi-day Vesta integration work
+does not depend on `/tmp`. Set `AFM_PARITY_WORK_ROOT=/path/to/reports` to override the artifact
+root.
