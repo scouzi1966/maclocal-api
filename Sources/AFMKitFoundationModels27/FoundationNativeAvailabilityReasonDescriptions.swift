@@ -1,5 +1,19 @@
 #if canImport(FoundationModels)
+import Foundation
 import FoundationModels
+
+public struct AFMFoundationPrivateCloudComputeQuotaLimitSnapshot: Equatable, Sendable {
+    public let resetDate: Date?
+    public let hasLimitIncreaseSuggestion: Bool
+
+    public init(
+        resetDate: Date?,
+        hasLimitIncreaseSuggestion: Bool
+    ) {
+        self.resetDate = resetDate
+        self.hasLimitIncreaseSuggestion = hasLimitIncreaseSuggestion
+    }
+}
 
 @available(macOS 27.0, *)
 public enum AFMFoundationNativeAvailabilityReasonDescriptions {
@@ -29,6 +43,30 @@ public enum AFMFoundationNativeAvailabilityReasonDescriptions {
         @unknown default:
             return "unknown PCC availability reason"
         }
+    }
+
+    public static func privateCloudComputeQuotaLimit(
+        _ snapshot: AFMFoundationPrivateCloudComputeQuotaLimitSnapshot
+    ) -> String {
+        var detail = "PCC quota limit reached"
+        if let resetDate = snapshot.resetDate {
+            detail += "; resets \(resetDate.formatted(date: .abbreviated, time: .shortened))"
+        }
+        if snapshot.hasLimitIncreaseSuggestion {
+            detail += "; limit increase available"
+        }
+        return detail
+    }
+
+    public static func privateCloudComputeQuotaLimit(
+        _ quota: PrivateCloudComputeLanguageModel.QuotaUsage
+    ) -> String {
+        privateCloudComputeQuotaLimit(
+            AFMFoundationPrivateCloudComputeQuotaLimitSnapshot(
+                resetDate: quota.resetDate,
+                hasLimitIncreaseSuggestion: quota.limitIncreaseSuggestion != nil
+            )
+        )
     }
 }
 #endif

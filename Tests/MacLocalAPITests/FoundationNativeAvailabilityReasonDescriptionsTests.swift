@@ -1,4 +1,5 @@
 #if canImport(FoundationModels)
+import Foundation
 import FoundationModels
 @testable import AFMKitFoundationModels27
 import XCTest
@@ -29,6 +30,30 @@ final class FoundationNativeAvailabilityReasonDescriptionsTests: XCTestCase {
             AFMFoundationNativeAvailabilityReasonDescriptions.privateCloudCompute(.systemNotReady),
             "system is not yet ready to serve PCC requests"
         )
+    }
+
+    func testPrivateCloudQuotaLimitDescriptionOmitsOptionalFields() {
+        let detail = AFMFoundationNativeAvailabilityReasonDescriptions.privateCloudComputeQuotaLimit(
+            AFMFoundationPrivateCloudComputeQuotaLimitSnapshot(
+                resetDate: nil,
+                hasLimitIncreaseSuggestion: false
+            )
+        )
+
+        XCTAssertEqual(detail, "PCC quota limit reached")
+    }
+
+    func testPrivateCloudQuotaLimitDescriptionIncludesOptionalFields() {
+        let resetDate = Date(timeIntervalSince1970: 1_800_000_000)
+        let detail = AFMFoundationNativeAvailabilityReasonDescriptions.privateCloudComputeQuotaLimit(
+            AFMFoundationPrivateCloudComputeQuotaLimitSnapshot(
+                resetDate: resetDate,
+                hasLimitIncreaseSuggestion: true
+            )
+        )
+
+        XCTAssertTrue(detail.hasPrefix("PCC quota limit reached; resets "))
+        XCTAssertTrue(detail.hasSuffix("; limit increase available"))
     }
 }
 #endif
