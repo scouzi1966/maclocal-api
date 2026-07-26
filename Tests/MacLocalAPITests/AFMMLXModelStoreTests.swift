@@ -437,11 +437,21 @@ final class AFMMLXModelStoreTests: XCTestCase {
         XCTAssertEqual(models[0].descriptor.contextWindow, 16_384)
         XCTAssertEqual(models[0].origin, .configuredCache)
         XCTAssertEqual(
+            models[0].packageDirectory.path,
+            flat.appendingPathComponent("org/flat-model").path
+        )
+        XCTAssertGreaterThan(models[0].sizeBytes, 0)
+        XCTAssertEqual(
             models[1].loadIdentifier,
             models[1].localDirectory.path
         )
         XCTAssertEqual(models[1].descriptor.contextWindow, 32_768)
         XCTAssertEqual(models[1].origin, .huggingFace)
+        XCTAssertEqual(
+            models[1].packageDirectory.path,
+            hub.appendingPathComponent("models--org--hub-model").path
+        )
+        XCTAssertGreaterThan(models[1].sizeBytes, 0)
     }
 
     func testDiscoveryDeduplicatesCanonicalIDByLocationPrecedence() throws {

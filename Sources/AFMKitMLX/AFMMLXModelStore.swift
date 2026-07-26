@@ -57,6 +57,8 @@ public struct AFMMLXDiscoveredModel: Hashable, Sendable {
     public var id: AFMModelID
     public var loadIdentifier: String
     public var localDirectory: URL
+    public var packageDirectory: URL
+    public var sizeBytes: Int64
     public var origin: AFMMLXModelOrigin
     public var descriptor: AFMModelDescriptor
 
@@ -64,12 +66,16 @@ public struct AFMMLXDiscoveredModel: Hashable, Sendable {
         id: AFMModelID,
         loadIdentifier: String,
         localDirectory: URL,
+        packageDirectory: URL,
+        sizeBytes: Int64,
         origin: AFMMLXModelOrigin,
         descriptor: AFMModelDescriptor
     ) {
         self.id = id
         self.loadIdentifier = loadIdentifier
         self.localDirectory = localDirectory
+        self.packageDirectory = packageDirectory
+        self.sizeBytes = sizeBytes
         self.origin = origin
         self.descriptor = descriptor
     }
@@ -385,6 +391,7 @@ public struct AFMMLXModelStore: Sendable {
                 let loadIdentifier = resolver.localModelDirectory(repoId: candidate.id) == nil
                     ? localDirectory.path
                     : candidate.id
+                let packageDirectory = packageDirectory(containing: localDirectory)
                 var descriptor = AFMMLXModelDescriptor.describe(
                     modelID: localDirectory.path,
                     resolver: resolver
@@ -400,6 +407,8 @@ public struct AFMMLXModelStore: Sendable {
                         id: id,
                         loadIdentifier: loadIdentifier,
                         localDirectory: localDirectory,
+                        packageDirectory: packageDirectory,
+                        sizeBytes: directorySize(at: packageDirectory),
                         origin: location.origin,
                         descriptor: descriptor
                     )
@@ -602,6 +611,29 @@ public struct AFMMLXModelStore: Sendable {
             return parent.deletingLastPathComponent()
         }
         return localDirectory
+    }
+
+    private func directorySize(at url: URL) -> Int64 {
+        let fileManager = FileManager.default
+        guard let enumerator = fileManager.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return 0
+        }
+
+        return enumerator.reduce(into: Int64(0)) { total, item in
+            guard let fileURL = item as? URL,
+                  let values = try? fileURL.resourceValues(
+                    forKeys: [.fileSizeKey, .isRegularFileKey]
+                  ),
+                  values.isRegularFile == true,
+                  let fileSize = values.fileSize else {
+                return
+            }
+            total += Int64(fileSize)
+        }
     }
 
     private static func downloadSnapshot(
