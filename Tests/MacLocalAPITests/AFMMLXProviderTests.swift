@@ -158,6 +158,23 @@ final class AFMMLXProviderTests: XCTestCase {
         XCTAssertTrue(descriptor.capabilities.contains(.speculativeDecoding))
     }
 
+    func testDescriptorInfersVisionFromArchitectureMetadata() throws {
+        let root = try makeModelCache(
+            config: [
+                "architectures": ["Qwen2VLForConditionalGeneration"],
+                "model_type": "qwen2"
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let descriptor = AFMMLXModelDescriptor.describe(
+            modelID: "test/model",
+            resolver: MLXCacheResolver(cacheRoot: root)
+        )
+
+        XCTAssertTrue(descriptor.capabilities.contains(.vision))
+    }
+
     func testUncachedDescriptorReportsNetworkRequirement() {
         let descriptor = AFMMLXModelDescriptor.describe(
             modelID: "missing/model",
@@ -292,9 +309,9 @@ final class AFMMLXProviderTests: XCTestCase {
 
     private func makeModelCache(
         config: [String: Any],
-        tokenizer: [String: Any],
-        generation: [String: Any],
-        includeMTP: Bool
+        tokenizer: [String: Any] = [:],
+        generation: [String: Any] = [:],
+        includeMTP: Bool = false
     ) throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("afmkit-provider-\(UUID().uuidString)")

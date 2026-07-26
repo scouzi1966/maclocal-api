@@ -188,6 +188,12 @@ public struct AFMMLXModelStore: Sendable {
         localDirectory(for: modelID) != nil
     }
 
+    /// Returns whether a locally resolved model advertises vision capability
+    /// through its model descriptor.
+    public func isVisionModel(_ modelID: String) -> Bool {
+        loadReference(for: modelID)?.descriptor.capabilities.contains(.vision) ?? false
+    }
+
     /// Returns the identifier a host should pass to MLX loading for a complete
     /// local model. Repository IDs stay stable when they resolve through the
     /// configured cache; direct filesystem paths resolve to their complete

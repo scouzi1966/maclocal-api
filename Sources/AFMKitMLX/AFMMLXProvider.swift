@@ -351,7 +351,7 @@ public enum AFMMLXModelDescriptor {
         var capabilities: AFMModelCapabilities = [
             .text, .streaming, .structuredOutput, .prefixCaching
         ]
-        if config?["vision_config"] != nil || config?["visual"] != nil {
+        if config.map(isVisionModelConfiguration) == true {
             capabilities.insert(.vision)
         }
         let reasoningPatterns = [
@@ -390,6 +390,48 @@ public enum AFMMLXModelDescriptor {
                 "defaultMaximumResponseTokens": .integer(8_192)
             ]
         )
+    }
+
+    /// Returns whether a decoded MLX `config.json` describes a vision-language
+    /// model. Some families use the same top-level `model_type` for text and
+    /// VLM variants, so this checks architectures and nested vision fields
+    /// rather than relying on one key.
+    public static func isVisionModelConfiguration(_ config: [String: Any]) -> Bool {
+        if let architectures = config["architectures"] as? [String] {
+            for architecture in architectures {
+                let lower = architecture.lowercased()
+                if lower.contains("vlm")
+                    || lower.contains("vision")
+                    || lower.contains("qwen2vl")
+                    || lower.contains("qwenvl")
+                    || lower.contains("llava")
+                    || lower.contains("pixtral") {
+                    return true
+                }
+            }
+        }
+
+        let modelType = (config["model_type"] as? String ?? "").lowercased()
+        if modelType.contains("vl")
+            || modelType.contains("vision")
+            || modelType.contains("qwen2_vl")
+            || modelType.contains("llava") {
+            return true
+        }
+
+        if config["text_config"] != nil && config["vision_config"] != nil {
+            return true
+        }
+
+        if config["vision_config"] != nil {
+            return true
+        }
+
+        if config["visual"] != nil {
+            return true
+        }
+
+        return false
     }
 
     private static func jsonObject(at url: URL) -> [String: Any]? {

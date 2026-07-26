@@ -224,6 +224,30 @@ final class AFMMLXModelStoreTests: XCTestCase {
         XCTAssertFalse(store.isAvailableLocally("missing/model"))
     }
 
+    func testIsVisionModelUsesLocalDescriptorCapabilities() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try makeModel(
+            at: root.appendingPathComponent("models/org/vision-model"),
+            config: [
+                "architectures": ["QwenVLForConditionalGeneration"],
+                "model_type": "qwen2"
+            ]
+        )
+        try makeModel(
+            at: root.appendingPathComponent("models/org/text-model"),
+            config: ["model_type": "qwen3"]
+        )
+
+        let store = AFMMLXModelStore(resolver: MLXCacheResolver(cacheRoot: root))
+
+        XCTAssertTrue(store.isVisionModel("org/vision-model"))
+        XCTAssertFalse(store.isVisionModel("org/text-model"))
+        XCTAssertFalse(store.isVisionModel("org/missing"))
+    }
+
     func testAbsoluteModelDirectoryUsesSharedValidation() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -588,15 +612,17 @@ final class AFMMLXModelStoreTests: XCTestCase {
 
     private func makeModel(
         at directory: URL,
-        contextWindow: Int? = nil
+        contextWindow: Int? = nil,
+        config explicitConfig: [String: Any]? = nil
     ) throws {
         try FileManager.default.createDirectory(
             at: directory,
             withIntermediateDirectories: true
         )
-        let config: [String: Any] = contextWindow.map {
-            ["max_position_embeddings": $0]
-        } ?? [:]
+        var config = explicitConfig ?? [:]
+        if let contextWindow {
+            config["max_position_embeddings"] = contextWindow
+        }
         try JSONSerialization.data(withJSONObject: config).write(
             to: directory.appendingPathComponent("config.json")
         )
