@@ -418,6 +418,9 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Tool call parser override: none, afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml. Omit for default native mode and MLX Python-style parity; Qwen XML models default to qwen3_xml. Use none for raw output with no AFM extraction. Use afm_adaptive_xml for opt-in repair behavior with JSON-in-XML fallback, type coercion, and optional xgrammar EBNF constrained decoding.")
     var toolCallParser: String?
 
+    @Option(name: .long, help: "OpenAI-compatible tools array JSON for single-prompt mode")
+    var toolsJson: String?
+
     @Flag(name: .long, help: "Opt-in repair helper: post-process tool call argument names to match the original tool schema (fixes model renaming e.g. path→filePath). Leave off for plain native/parity mode.")
     var fixToolArgs: Bool = false
 
@@ -841,6 +844,7 @@ struct MlxCommand: ParsableCommand {
                     let schema = try parseGuidedJsonSchema(guidedJson)
                     responseFormat = ResponseFormat(type: "json_schema", jsonSchema: schema)
                 }
+                let requestTools = try Self.parseToolsJSON(self.toolsJson)
                 let stopSequences: [String]? = stop.map { $0.split(separator: ",").map { String($0.trimmingCharacters(in: .whitespaces)) } }
                 var metadata: [String: AFMJSONValue] = [:]
                 if let encodedChatTemplateKwargs {
@@ -860,6 +864,7 @@ struct MlxCommand: ParsableCommand {
                     logprobs: maxLogprobs != nil,
                     topLogprobs: maxLogprobs,
                     stop: stopSequences,
+                    tools: requestTools,
                     responseFormat: responseFormat,
                     metadata: metadata
                     )
@@ -975,6 +980,20 @@ struct MlxCommand: ParsableCommand {
                 )
             }
         )
+    }
+
+    private static func parseToolsJSON(_ value: String?) throws -> [RequestTool]? {
+        guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        guard let data = value.data(using: .utf8) else {
+            throw ValidationError("--tools-json must be valid UTF-8")
+        }
+        do {
+            return try JSONDecoder().decode([RequestTool].self, from: data)
+        } catch {
+            throw ValidationError("--tools-json must be an OpenAI-compatible tools array: \(error.localizedDescription)")
+        }
     }
 
     private static func afmJSONValue(from value: Any) throws -> AFMJSONValue {

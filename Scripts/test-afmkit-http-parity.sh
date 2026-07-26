@@ -16,6 +16,7 @@ Options:
   --port <port>       HTTP server port. Default: 19741.
   --max-tokens <n>    Maximum completion tokens. Default: 24.
   --max-logprobs <n>  Request top logprobs from both paths. Default: 0.
+  --tools-json <json> OpenAI-compatible tools array for both paths.
   --skip-build        Use existing .build/release/afm.
   -h, --help          Show this help.
 
@@ -31,6 +32,7 @@ INSTRUCTIONS="You are a helpful assistant"
 PORT="19741"
 MAX_TOKENS="24"
 MAX_LOGPROBS="0"
+TOOLS_JSON=""
 SKIP_BUILD="0"
 
 while [[ $# -gt 0 ]]; do
@@ -57,6 +59,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --max-logprobs)
       MAX_LOGPROBS="${2:?missing --max-logprobs value}"
+      shift 2
+      ;;
+    --tools-json)
+      TOOLS_JSON="${2:?missing --tools-json value}"
       shift 2
       ;;
     --skip-build)
@@ -139,6 +145,9 @@ DIRECT_ARGS=(
 if [[ "$MAX_LOGPROBS" != "0" ]]; then
   DIRECT_ARGS+=(--max-logprobs "$MAX_LOGPROBS")
 fi
+if [[ -n "$TOOLS_JSON" ]]; then
+  DIRECT_ARGS+=(--tools-json "$TOOLS_JSON")
+fi
 "$AFM_BIN" "${DIRECT_ARGS[@]}" >"$DIRECT_JSON"
 
 echo "==> Starting HTTP MLX server on 127.0.0.1:$PORT"
@@ -180,7 +189,7 @@ if ! curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
 fi
 
 echo "==> HTTP /v1/chat/completions path"
-python3 - "$MODEL" "$PROMPT" "$INSTRUCTIONS" "$MAX_TOKENS" "$MAX_LOGPROBS" <<'PY' >"$WORK_DIR/request.json"
+python3 - "$MODEL" "$PROMPT" "$INSTRUCTIONS" "$MAX_TOKENS" "$MAX_LOGPROBS" "$TOOLS_JSON" <<'PY' >"$WORK_DIR/request.json"
 import json
 import sys
 
@@ -189,6 +198,7 @@ prompt = sys.argv[2]
 instructions = sys.argv[3]
 max_tokens = int(sys.argv[4])
 max_logprobs = int(sys.argv[5])
+tools_json = sys.argv[6]
 payload = {
     "model": model,
     "messages": [
@@ -205,6 +215,8 @@ payload = {
 if max_logprobs > 0:
     payload["logprobs"] = True
     payload["top_logprobs"] = max_logprobs
+if tools_json:
+    payload["tools"] = json.loads(tools_json)
 print(json.dumps(payload))
 PY
 
