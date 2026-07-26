@@ -1,5 +1,44 @@
 import Foundation
 
+public struct AFMMLXModelArchitecturePreflight: Hashable, Sendable {
+    public var modelID: String
+    public var modelType: String
+    public var canonicalModelType: String
+    public var isVisionConfiguration: Bool
+    public var requiresVisionModelFactory: Bool
+
+    public init(
+        modelID: String,
+        modelType: String,
+        canonicalModelType: String,
+        isVisionConfiguration: Bool,
+        requiresVisionModelFactory: Bool
+    ) {
+        self.modelID = modelID
+        self.modelType = modelType
+        self.canonicalModelType = canonicalModelType
+        self.isVisionConfiguration = isVisionConfiguration
+        self.requiresVisionModelFactory = requiresVisionModelFactory
+    }
+}
+
+public enum AFMMLXModelArchitecturePreflightError: Error, LocalizedError, Sendable {
+    case invalidConfiguration(String)
+    case unsupportedArchitecture(modelType: String, modelID: String)
+    case metalCrashArchitecture(modelType: String, modelID: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidConfiguration(let modelID):
+            return "Could not read model_type from \(modelID)'s config.json."
+        case .unsupportedArchitecture(let modelType, let modelID):
+            return "Unsupported model architecture '\(modelType)' for \(modelID)."
+        case .metalCrashArchitecture(let modelType, let modelID):
+            return "Model '\(modelID)' (architecture: \(modelType)) is blocked because it crashes the Metal GPU driver."
+        }
+    }
+}
+
 public enum AFMMLXModelArchitecture {
     public static func canonicalModelType(_ modelType: String) -> String {
         switch modelType.lowercased() {
@@ -146,6 +185,37 @@ public enum AFMMLXModelArchitecture {
             return false
         }
         return AFMMLXModelDescriptor.isVisionModelConfiguration(config)
+    }
+
+    public static func preflightConfiguration(
+        _ config: [String: Any],
+        modelID: String
+    ) throws -> AFMMLXModelArchitecturePreflight {
+        guard let modelType = config["model_type"] as? String else {
+            throw AFMMLXModelArchitecturePreflightError.invalidConfiguration(modelID)
+        }
+
+        guard isSupported(modelType) else {
+            throw AFMMLXModelArchitecturePreflightError.unsupportedArchitecture(
+                modelType: modelType,
+                modelID: modelID
+            )
+        }
+
+        if crashesMetal(modelType) {
+            throw AFMMLXModelArchitecturePreflightError.metalCrashArchitecture(
+                modelType: modelType,
+                modelID: modelID
+            )
+        }
+
+        return AFMMLXModelArchitecturePreflight(
+            modelID: modelID,
+            modelType: modelType,
+            canonicalModelType: canonicalModelType(modelType),
+            isVisionConfiguration: AFMMLXModelDescriptor.isVisionModelConfiguration(config),
+            requiresVisionModelFactory: AFMMLXModelDescriptor.requiresVisionModelFactory(config)
+        )
     }
 
     public static let supportedNamePatterns: [String] = [

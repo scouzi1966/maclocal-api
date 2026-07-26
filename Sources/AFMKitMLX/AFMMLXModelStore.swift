@@ -135,6 +135,7 @@ public struct AFMMLXModelDownloadResult: Hashable, Sendable {
 public enum AFMMLXModelStoreError: Error, LocalizedError, Sendable {
     case modelNotFound(String)
     case invalidRepositoryID(String)
+    case invalidModelConfiguration(String)
     case refusingToDeleteEmptyPath
 
     public var errorDescription: String? {
@@ -143,6 +144,8 @@ public enum AFMMLXModelStoreError: Error, LocalizedError, Sendable {
             return "No complete local MLX model was found for \(modelID)."
         case .invalidRepositoryID(let modelID):
             return "\(modelID) is not a valid Hugging Face repository ID."
+        case .invalidModelConfiguration(let modelID):
+            return "Could not decode \(modelID)'s config.json as a JSON object."
         case .refusingToDeleteEmptyPath:
             return "Refusing to delete an empty model path."
         }
@@ -300,6 +303,44 @@ public struct AFMMLXModelStore: Sendable {
     /// AFMKit MLX provider.
     public func descriptor(for modelID: String) -> AFMModelDescriptor {
         AFMMLXModelDescriptor.describe(modelID: modelID, resolver: resolver)
+    }
+
+    /// Fetches a Hugging Face model's `config.json` and applies AFMKit's shared
+    /// architecture/VLM preflight policy.
+    public func preflightRemoteArchitecture(
+        for modelID: String
+    ) async throws -> AFMMLXModelArchitecturePreflight {
+        let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !isPathLike(trimmed),
+              HuggingFace.Repo.ID(rawValue: trimmed) != nil else {
+            throw AFMMLXModelStoreError.invalidRepositoryID(modelID)
+        }
+
+        let config = try await remoteModelConfiguration(for: trimmed)
+        return try AFMMLXModelArchitecture.preflightConfiguration(config, modelID: trimmed)
+    }
+
+    /// Fetches a Hugging Face model's `config.json` without downloading model
+    /// weights. Hosts should prefer `preflightRemoteArchitecture(for:)` when
+    /// they only need loadability and modality decisions.
+    public func remoteModelConfiguration(for modelID: String) async throws -> [String: Any] {
+        let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !isPathLike(trimmed),
+              HuggingFace.Repo.ID(rawValue: trimmed) != nil else {
+            throw AFMMLXModelStoreError.invalidRepositoryID(modelID)
+        }
+
+        guard let configURL = URL(string: "https://huggingface.co/\(trimmed)/raw/main/config.json") else {
+            throw AFMMLXModelStoreError.invalidRepositoryID(trimmed)
+        }
+
+        let (data, _) = try await URLSession.shared.data(from: configURL)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw AFMMLXModelStoreError.invalidModelConfiguration(trimmed)
+        }
+        return json
     }
 
     /// Returns locally available descriptors from a host-provided candidate

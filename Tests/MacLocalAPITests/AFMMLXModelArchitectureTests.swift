@@ -46,6 +46,52 @@ final class AFMMLXModelArchitectureTests: XCTestCase {
         )
     }
 
+    func testPreflightConfigurationReturnsSharedLoadPolicy() throws {
+        let preflight = try AFMMLXModelArchitecture.preflightConfiguration(
+            [
+                "model_type": "qwen3.5",
+                "text_config": ["model_type": "qwen3_5"],
+                "vision_config": ["model_type": "qwen3_vl"],
+            ],
+            modelID: "mlx-community/Qwen3.5-35B-A3B-4bit"
+        )
+
+        XCTAssertEqual(preflight.modelType, "qwen3.5")
+        XCTAssertEqual(preflight.canonicalModelType, "qwen3_5")
+        XCTAssertTrue(preflight.isVisionConfiguration)
+        XCTAssertTrue(preflight.requiresVisionModelFactory)
+    }
+
+    func testPreflightConfigurationRejectsUnsupportedAndBlockedArchitectures() {
+        XCTAssertThrowsError(try AFMMLXModelArchitecture.preflightConfiguration(
+            ["model_type": "unknown_arch"],
+            modelID: "example/Unknown"
+        )) { error in
+            guard case AFMMLXModelArchitecturePreflightError.unsupportedArchitecture(
+                let modelType,
+                let modelID
+            ) = error else {
+                return XCTFail("unexpected error: \(error)")
+            }
+            XCTAssertEqual(modelType, "unknown_arch")
+            XCTAssertEqual(modelID, "example/Unknown")
+        }
+
+        XCTAssertThrowsError(try AFMMLXModelArchitecture.preflightConfiguration(
+            ["model_type": "afmoe"],
+            modelID: "apple/AFMoE"
+        )) { error in
+            guard case AFMMLXModelArchitecturePreflightError.metalCrashArchitecture(
+                let modelType,
+                let modelID
+            ) = error else {
+                return XCTFail("unexpected error: \(error)")
+            }
+            XCTAssertEqual(modelType, "afmoe")
+            XCTAssertEqual(modelID, "apple/AFMoE")
+        }
+    }
+
     func testRepositoryNameHeuristics() {
         XCTAssertTrue(AFMMLXModelArchitecture.matchesSupportedNamePattern("mlx-community/Qwen3-4B-4bit"))
         XCTAssertTrue(AFMMLXModelArchitecture.matchesSupportedNamePattern("mlx-community/FastVLM-1.5B"))
