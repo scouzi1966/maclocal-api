@@ -434,6 +434,14 @@ public enum AFMMLXModelDescriptor {
         return false
     }
 
+    public static func isVisionModelConfiguration(in modelDirectory: URL) -> Bool {
+        guard let config = jsonObject(at: modelDirectory.appendingPathComponent("config.json")) else {
+            return false
+        }
+
+        return isVisionModelConfiguration(config)
+    }
+
     /// Returns true when the MLX configuration describes a VLM layout that
     /// should be loaded through the VLM factory instead of the LLM factory.
     /// Some multimodal configs store text architecture fields only in

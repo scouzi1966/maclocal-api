@@ -175,6 +175,23 @@ final class AFMMLXProviderTests: XCTestCase {
         XCTAssertTrue(descriptor.capabilities.contains(.vision))
     }
 
+    func testDescriptorReadsVisionConfigurationFromModelDirectory() throws {
+        let root = try makeModelCache(
+            config: [
+                "model_type": "gemma3",
+                "text_config": ["model_type": "gemma"],
+                "vision_config": ["model_type": "siglip"],
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        XCTAssertTrue(
+            AFMMLXModelDescriptor.isVisionModelConfiguration(
+                in: root.appendingPathComponent("test/model")
+            )
+        )
+    }
+
     func testDescriptorRequiresVisionFactoryForSparseVLMTextConfig() {
         XCTAssertTrue(
             AFMMLXModelDescriptor.requiresVisionModelFactory([
