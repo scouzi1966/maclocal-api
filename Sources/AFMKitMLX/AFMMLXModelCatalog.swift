@@ -129,6 +129,12 @@ public struct AFMMLXLocalModelMetadata: Hashable, Sendable {
         )
     }
 
+    public static func inspect(modelName: String) -> AFMMLXLocalModelMetadata {
+        AFMMLXLocalModelMetadata(
+            hasImplicitReasoning: modelNameLooksReasoningCapable(modelName)
+        )
+    }
+
     private static func jsonObject(at url: URL) -> [String: Any]? {
         guard let data = try? Data(contentsOf: url) else {
             return nil
