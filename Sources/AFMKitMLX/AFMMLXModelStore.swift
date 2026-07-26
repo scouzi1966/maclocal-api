@@ -349,6 +349,36 @@ public struct AFMMLXModelStore: Sendable {
         return candidates.filter { seen.insert($0).inserted }
     }
 
+    /// Returns whether a persisted model identifier looks like a repository or
+    /// display identifier rather than an accidental filesystem path fragment.
+    ///
+    /// Hosts may persist user-selected model IDs over time. This helper keeps
+    /// cleanup policy shared while preserving compatibility with existing
+    /// app-side bare model names that are later expanded by
+    /// ``identifierCandidates(forModelName:curatedModels:defaultOrganizations:)``.
+    public static func isLikelyRepositoryIdentifier(_ modelID: String) -> Bool {
+        let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("/") else { return false }
+
+        let invalidAuthors = [
+            "volumes",
+            "users",
+            "private",
+            "tmp",
+            "var",
+            "etc",
+            "library",
+            "applications",
+            "system",
+        ]
+        let parts = trimmed.lowercased().split(separator: "/")
+        if let author = parts.first, invalidAuthors.contains(String(author)) {
+            return false
+        }
+
+        return true
+    }
+
     /// Returns a complete snapshot directory for a specific revision inside a
     /// Hugging Face package root.
     public static func completeSnapshotDirectory(

@@ -99,6 +99,17 @@ final class AFMMLXModelStoreTests: XCTestCase {
         XCTAssertEqual(AFMMLXModelStore.identifierCandidates(forModelName: "  "), [])
     }
 
+    func testLikelyRepositoryIdentifierRejectsPersistedFilesystemPaths() {
+        XCTAssertTrue(AFMMLXModelStore.isLikelyRepositoryIdentifier("mlx-community/Qwen3"))
+        XCTAssertTrue(AFMMLXModelStore.isLikelyRepositoryIdentifier("Qwen3"))
+
+        XCTAssertFalse(AFMMLXModelStore.isLikelyRepositoryIdentifier(""))
+        XCTAssertFalse(AFMMLXModelStore.isLikelyRepositoryIdentifier("   "))
+        XCTAssertFalse(AFMMLXModelStore.isLikelyRepositoryIdentifier("/Volumes/models/Qwen3"))
+        XCTAssertFalse(AFMMLXModelStore.isLikelyRepositoryIdentifier("Volumes/models/Qwen3"))
+        XCTAssertFalse(AFMMLXModelStore.isLikelyRepositoryIdentifier(" users/example "))
+    }
+
     func testCompleteSnapshotDirectoryUsesExplicitRevision() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
