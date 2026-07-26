@@ -84,7 +84,7 @@ final class MLXFoundationLanguageModelTests: XCTestCase {
             )
         ])
 
-        let messages = try MLXLanguageModelExecutor.messages(from: transcript)
+        let messages = try MLXFoundationRequestAdapter.messages(from: transcript)
 
         XCTAssertEqual(messages.map(\.role), ["system", "user", "assistant", "user"])
         XCTAssertEqual(
@@ -111,7 +111,7 @@ final class MLXFoundationLanguageModelTests: XCTestCase {
             )
         ])
 
-        let messages = try MLXLanguageModelExecutor.messages(from: transcript)
+        let messages = try MLXFoundationRequestAdapter.messages(from: transcript)
 
         XCTAssertEqual(messages.map(\.role), ["user", "assistant", "tool"])
         XCTAssertEqual(messages[1].toolCalls?.first?.id, "call_1")
@@ -148,7 +148,7 @@ final class MLXFoundationLanguageModelTests: XCTestCase {
             )
         ])
 
-        let messages = try MLXLanguageModelExecutor.messages(from: transcript)
+        let messages = try MLXFoundationRequestAdapter.messages(from: transcript)
         guard case .parts(let parts)? = messages.first?.content else {
             return XCTFail("Expected multimodal message parts.")
         }
@@ -178,7 +178,7 @@ final class MLXFoundationLanguageModelTests: XCTestCase {
             )
         ])
 
-        let messages = try MLXLanguageModelExecutor.messages(from: transcript)
+        let messages = try MLXFoundationRequestAdapter.messages(from: transcript)
 
         XCTAssertEqual(messages.count, 1)
         XCTAssertTrue(messages[0].textContent.contains("project-state"))
@@ -207,7 +207,7 @@ final class MLXFoundationLanguageModelTests: XCTestCase {
             metadata: ["requestID": "request-1"]
         )
 
-        let config = try MLXLanguageModelExecutor.generationConfig(
+        let config = try MLXFoundationRequestAdapter.generationConfig(
             from: request,
             model: model
         )
