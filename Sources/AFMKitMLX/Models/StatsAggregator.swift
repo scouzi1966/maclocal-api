@@ -1,8 +1,7 @@
 import Foundation
 import os
 
-/// Global thread-safe aggregator for AFM server metrics, exposed via
-/// `GET /metrics` in Prometheus text exposition format.
+/// Global thread-safe aggregator for AFM runtime metrics.
 ///
 /// Modelled after vLLM's `vllm/engine/metrics.py`:
 ///
@@ -16,6 +15,11 @@ import os
 /// authored against `vllm:*` work against `afm:*` after a search-and-replace
 /// of the namespace prefix.
 ///
+/// The server presents snapshots from this type through `GET /metrics`;
+/// the Prometheus exposition renderer intentionally lives in AFMServer so
+/// AFMKit stays a structured-runtime layer instead of an HTTP presentation
+/// layer.
+///
 /// Both the batched code path (`BatchScheduler`) and the serial
 /// single-sequence path (`MLXModelService.generate*`) call into the
 /// same singleton so `/metrics` always reflects the complete server
@@ -23,8 +27,8 @@ import os
 ///
 /// Live-state gauges (inflight, queue depth, gpu cache usage) are read
 /// through closures registered at startup by whichever component owns
-/// the state. This lets the metrics endpoint pull live values from
-/// existing nonisolated locks without hopping through any actor.
+/// the state. This lets presentation layers pull live values from existing
+/// nonisolated locks without hopping through any actor.
 public final class StatsAggregator: @unchecked Sendable {
 
     /// Process-wide singleton. All increment calls are O(1) under a

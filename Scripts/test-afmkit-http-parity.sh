@@ -11,6 +11,10 @@ HTTP /v1/chat/completions path on the same local model.
 
 Options:
   --model <id>        MLX model id or path. Also read from MACAFM_PARITY_MODEL.
+  --case <name>       Scenario to run: text, logprobs, tools, reasoning.
+                      May be repeated. Default: text.
+  --all-cases         Run every built-in scenario.
+  --list-cases        Print built-in scenarios and exit.
   --prompt <text>     Prompt to send to both paths.
   --instructions <s>  System instructions for both paths.
   --port <port>       HTTP server port. Default: 19741.
@@ -38,6 +42,16 @@ MAX_LOGPROBS="0"
 TOOLS_JSON=""
 ENABLE_THINKING="0"
 SKIP_BUILD="0"
+ALL_CASES="0"
+LIST_CASES="0"
+CASES=()
+
+PROMPT_OVERRIDDEN="0"
+INSTRUCTIONS_OVERRIDDEN="0"
+MAX_TOKENS_OVERRIDDEN="0"
+MAX_LOGPROBS_OVERRIDDEN="0"
+TOOLS_JSON_OVERRIDDEN="0"
+ENABLE_THINKING_OVERRIDDEN="0"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -45,12 +59,26 @@ while [[ $# -gt 0 ]]; do
       MODEL="${2:?missing --model value}"
       shift 2
       ;;
+    --case)
+      CASES+=("${2:?missing --case value}")
+      shift 2
+      ;;
+    --all-cases)
+      ALL_CASES="1"
+      shift
+      ;;
+    --list-cases)
+      LIST_CASES="1"
+      shift
+      ;;
     --prompt)
       PROMPT="${2:?missing --prompt value}"
+      PROMPT_OVERRIDDEN="1"
       shift 2
       ;;
     --instructions)
       INSTRUCTIONS="${2:?missing --instructions value}"
+      INSTRUCTIONS_OVERRIDDEN="1"
       shift 2
       ;;
     --port)
@@ -59,18 +87,22 @@ while [[ $# -gt 0 ]]; do
       ;;
     --max-tokens)
       MAX_TOKENS="${2:?missing --max-tokens value}"
+      MAX_TOKENS_OVERRIDDEN="1"
       shift 2
       ;;
     --max-logprobs)
       MAX_LOGPROBS="${2:?missing --max-logprobs value}"
+      MAX_LOGPROBS_OVERRIDDEN="1"
       shift 2
       ;;
     --tools-json)
       TOOLS_JSON="${2:?missing --tools-json value}"
+      TOOLS_JSON_OVERRIDDEN="1"
       shift 2
       ;;
     --enable-thinking)
       ENABLE_THINKING="1"
+      ENABLE_THINKING_OVERRIDDEN="1"
       shift
       ;;
     --skip-build)
@@ -89,6 +121,25 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+BUILTIN_CASES=(text logprobs tools reasoning)
+
+case_description() {
+  case "$1" in
+    text) echo "plain non-streaming chat completion" ;;
+    logprobs) echo "plain completion with top logprob contract enabled" ;;
+    tools) echo "tool schema round trip through direct and HTTP paths" ;;
+    reasoning) echo "reasoning-enabled chat template path" ;;
+    *) return 1 ;;
+  esac
+}
+
+if [[ "$LIST_CASES" == "1" ]]; then
+  for parity_case in "${BUILTIN_CASES[@]}"; do
+    printf '%-10s %s\n' "$parity_case" "$(case_description "$parity_case")"
+  done
+  exit 0
+fi
+
 if [[ -z "$MODEL" ]]; then
   echo "error: --model is required unless MACAFM_PARITY_MODEL is set" >&2
   usage >&2
@@ -101,6 +152,92 @@ cd "$ROOT_DIR"
 AFM_BIN="$ROOT_DIR/.build/release/afm"
 if [[ "$SKIP_BUILD" != "1" || ! -x "$AFM_BIN" ]]; then
   swift build -c release --product afm
+fi
+
+if [[ "$ALL_CASES" == "1" ]]; then
+  CASES=("${BUILTIN_CASES[@]}")
+elif [[ ${#CASES[@]} -eq 0 ]]; then
+  CASES=(text)
+fi
+
+if [[ ${#CASES[@]} -gt 1 ]]; then
+  base_args=(
+    --model "$MODEL"
+    --port "$PORT"
+    --skip-build
+  )
+  if [[ "$PROMPT_OVERRIDDEN" == "1" ]]; then
+    base_args+=(--prompt "$PROMPT")
+  fi
+  if [[ "$INSTRUCTIONS_OVERRIDDEN" == "1" ]]; then
+    base_args+=(--instructions "$INSTRUCTIONS")
+  fi
+  if [[ "$MAX_TOKENS_OVERRIDDEN" == "1" ]]; then
+    base_args+=(--max-tokens "$MAX_TOKENS")
+  fi
+  if [[ "$MAX_LOGPROBS_OVERRIDDEN" == "1" ]]; then
+    base_args+=(--max-logprobs "$MAX_LOGPROBS")
+  fi
+  if [[ "$TOOLS_JSON_OVERRIDDEN" == "1" ]]; then
+    base_args+=(--tools-json "$TOOLS_JSON")
+  fi
+  if [[ "$ENABLE_THINKING_OVERRIDDEN" == "1" ]]; then
+    base_args+=(--enable-thinking)
+  fi
+  for parity_case in "${CASES[@]}"; do
+    if ! case_description "$parity_case" >/dev/null; then
+      echo "error: unknown --case '$parity_case'" >&2
+      usage >&2
+      exit 2
+    fi
+    echo
+    echo "==> AFMKit direct/HTTP parity case: $parity_case"
+    "$0" "${base_args[@]}" --case "$parity_case"
+  done
+  exit 0
+fi
+
+PARITY_CASE="${CASES[0]}"
+if ! case_description "$PARITY_CASE" >/dev/null; then
+  echo "error: unknown --case '$PARITY_CASE'" >&2
+  usage >&2
+  exit 2
+fi
+
+case "$PARITY_CASE" in
+  text)
+    ;;
+  logprobs)
+    if [[ "$PROMPT_OVERRIDDEN" != "1" ]]; then
+      PROMPT="Reply exactly with: parity logprobs ok"
+    fi
+    if [[ "$MAX_LOGPROBS_OVERRIDDEN" != "1" ]]; then
+      MAX_LOGPROBS="3"
+    fi
+    ;;
+  tools)
+    if [[ "$PROMPT_OVERRIDDEN" != "1" ]]; then
+      PROMPT="Use the echo tool with text set to AFM tool parity ok."
+    fi
+    if [[ "$TOOLS_JSON_OVERRIDDEN" != "1" ]]; then
+      TOOLS_JSON='[{"type":"function","function":{"name":"echo","description":"Echo a short text string.","parameters":{"type":"object","properties":{"text":{"type":"string","description":"Text to echo."}},"required":["text"]}}}]'
+    fi
+    ;;
+  reasoning)
+    if [[ "$PROMPT_OVERRIDDEN" != "1" ]]; then
+      PROMPT="Think briefly, then reply exactly with: AFM reasoning parity ok"
+    fi
+    if [[ "$MAX_TOKENS_OVERRIDDEN" != "1" ]]; then
+      MAX_TOKENS="64"
+    fi
+    if [[ "$ENABLE_THINKING_OVERRIDDEN" != "1" ]]; then
+      ENABLE_THINKING="1"
+    fi
+    ;;
+esac
+
+if [[ "$INSTRUCTIONS_OVERRIDDEN" != "1" && "$PARITY_CASE" == "tools" ]]; then
+  INSTRUCTIONS="You are a helpful assistant. Use tools when the user asks for a tool."
 fi
 
 if [[ -z "${MACAFM_MLX_METALLIB:-}" ]]; then
@@ -140,6 +277,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "==> Direct AFMKit MLX path"
+echo "==> Case: $PARITY_CASE ($(case_description "$PARITY_CASE"))"
 DIRECT_ARGS=(
   mlx
   --model "$MODEL" \

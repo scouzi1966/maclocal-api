@@ -208,3 +208,18 @@ The script writes direct-response JSON, HTTP-response JSON, the request payload,
 log under `test-reports/afmkit-http-parity/run.*` by default so multi-day Vesta integration work
 does not depend on `/tmp`. Set `AFM_PARITY_WORK_ROOT=/path/to/reports` to override the artifact
 root.
+
+To choose a narrower or broader contract slice, list and select the built-in cases:
+
+```bash
+Scripts/test-afmkit-http-parity.sh --list-cases
+
+MACAFM_MLX_MODEL_CACHE=/path/to/model/cache \
+  Scripts/test-afmkit-http-parity.sh \
+  --model mlx-community/Qwen3.5-35B-A3B-4bit \
+  --case text \
+  --case logprobs
+```
+
+Use `--all-cases` for the current operator matrix: plain text, logprobs, tool-schema round trip,
+and reasoning-enabled template handling.
