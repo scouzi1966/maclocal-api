@@ -17,6 +17,7 @@ Options:
   --max-tokens <n>    Maximum completion tokens. Default: 24.
   --max-logprobs <n>  Request top logprobs from both paths. Default: 0.
   --tools-json <json> OpenAI-compatible tools array for both paths.
+  --enable-thinking   Request model reasoning instead of the default no-think mode.
   --skip-build        Use existing .build/release/afm.
   -h, --help          Show this help.
 
@@ -33,6 +34,7 @@ PORT="19741"
 MAX_TOKENS="24"
 MAX_LOGPROBS="0"
 TOOLS_JSON=""
+ENABLE_THINKING="0"
 SKIP_BUILD="0"
 
 while [[ $# -gt 0 ]]; do
@@ -64,6 +66,10 @@ while [[ $# -gt 0 ]]; do
     --tools-json)
       TOOLS_JSON="${2:?missing --tools-json value}"
       shift 2
+      ;;
+    --enable-thinking)
+      ENABLE_THINKING="1"
+      shift
       ;;
     --skip-build)
       SKIP_BUILD="1"
@@ -139,9 +145,13 @@ DIRECT_ARGS=(
   --temperature 0 \
   --top-p 1 \
   --seed 1 \
-  --no-think \
   --json
 )
+if [[ "$ENABLE_THINKING" == "1" ]]; then
+  DIRECT_ARGS+=(--default-chat-template-kwargs '{"enable_thinking":true}')
+else
+  DIRECT_ARGS+=(--no-think)
+fi
 if [[ "$MAX_LOGPROBS" != "0" ]]; then
   DIRECT_ARGS+=(--max-logprobs "$MAX_LOGPROBS")
 fi
@@ -161,9 +171,13 @@ SERVER_ARGS=(
   --max-tokens "$MAX_TOKENS" \
   --temperature 0 \
   --top-p 1 \
-  --seed 1 \
-  --no-think
+  --seed 1
 )
+if [[ "$ENABLE_THINKING" == "1" ]]; then
+  SERVER_ARGS+=(--default-chat-template-kwargs '{"enable_thinking":true}')
+else
+  SERVER_ARGS+=(--no-think)
+fi
 if [[ "$MAX_LOGPROBS" != "0" ]]; then
   SERVER_ARGS+=(--max-logprobs "$MAX_LOGPROBS")
 fi
@@ -189,7 +203,7 @@ if ! curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
 fi
 
 echo "==> HTTP /v1/chat/completions path"
-python3 - "$MODEL" "$PROMPT" "$INSTRUCTIONS" "$MAX_TOKENS" "$MAX_LOGPROBS" "$TOOLS_JSON" <<'PY' >"$WORK_DIR/request.json"
+python3 - "$MODEL" "$PROMPT" "$INSTRUCTIONS" "$MAX_TOKENS" "$MAX_LOGPROBS" "$TOOLS_JSON" "$ENABLE_THINKING" <<'PY' >"$WORK_DIR/request.json"
 import json
 import sys
 
@@ -199,6 +213,7 @@ instructions = sys.argv[3]
 max_tokens = int(sys.argv[4])
 max_logprobs = int(sys.argv[5])
 tools_json = sys.argv[6]
+enable_thinking = sys.argv[7] == "1"
 payload = {
     "model": model,
     "messages": [
@@ -210,7 +225,7 @@ payload = {
     "max_tokens": max_tokens,
     "seed": 1,
     "stream": False,
-    "chat_template_kwargs": {"enable_thinking": False},
+    "chat_template_kwargs": {"enable_thinking": enable_thinking},
 }
 if max_logprobs > 0:
     payload["logprobs"] = True

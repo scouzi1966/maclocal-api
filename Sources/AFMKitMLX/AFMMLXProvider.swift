@@ -142,6 +142,12 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                 toolCalls,
                 for: request
             )
+            let finishReason = Self.finishReason(
+                toolCalls: result.toolCalls,
+                stoppedBySequence: result.stoppedBySequence,
+                completionTokens: result.completionTokens,
+                maximumResponseTokens: request.options.maximumResponseTokens
+            )
             return AFMModelResponse(
                 text: split.text,
                 reasoning: split.reasoning,
@@ -151,7 +157,7 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                     cachedInputTokens: result.cachedTokens,
                     outputTokens: result.completionTokens
                 ),
-                finishReason: result.toolCalls?.isEmpty == false ? .toolCalls : .stop,
+                finishReason: finishReason,
                 tokenLogprobs: result.tokenLogprobs?.map {
                     AFMTokenLogProbability(
                         token: $0.token,
@@ -279,7 +285,29 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                 break
             }
         }
-        return (text, reasoning.isEmpty ? nil : reasoning)
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedReasoning = reasoning.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (trimmedText, trimmedReasoning.isEmpty ? nil : trimmedReasoning)
+    }
+
+    private static func finishReason(
+        toolCalls: [ResponseToolCall]?,
+        stoppedBySequence: Bool,
+        completionTokens: Int,
+        maximumResponseTokens: Int?
+    ) -> AFMFinishReason {
+        if toolCalls?.isEmpty == false {
+            return .toolCalls
+        }
+        if stoppedBySequence {
+            return .stop
+        }
+        if let maximumResponseTokens,
+           maximumResponseTokens > 0,
+           completionTokens >= maximumResponseTokens {
+            return .length
+        }
+        return .stop
     }
 }
 
