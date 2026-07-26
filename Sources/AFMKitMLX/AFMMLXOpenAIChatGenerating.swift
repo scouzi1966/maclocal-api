@@ -62,7 +62,10 @@ public extension AFMMLXOpenAIChatServing {
     var defaultGuidedJsonSchema: ResponseFormat? { nil }
 
     func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? {
-        requestFormat ?? defaultGuidedJsonSchema
+        OpenAIResponseFormatPolicy.effectiveResponseFormat(
+            requestFormat: requestFormat,
+            serverDefault: defaultGuidedJsonSchema
+        )
     }
 }
 

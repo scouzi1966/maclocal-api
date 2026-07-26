@@ -15,10 +15,6 @@ struct FinalizedAssistantTurn {
 
 struct MLXChatCompletionsController: RouteCollection {
     private static let degenerateTailRegex = try! NSRegularExpression(pattern: "([!?.:,;`~_\\-*=|])\\1{79,}$")
-    private static let fencedStructuredOutputRegex = try! NSRegularExpression(
-        pattern: #"^\s*```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)\s*```\s*$"#,
-        options: []
-    )
 
     /// Max time (seconds) to wait for a concurrent slot before returning 503.
     /// RotatingKVCache models run serial, so queued requests can wait a long time.
@@ -1408,22 +1404,11 @@ struct MLXChatCompletionsController: RouteCollection {
     }
 
     static func requiresStructuredOutputSanitization(_ responseFormat: ResponseFormat?) -> Bool {
-        guard let type = responseFormat?.type else { return false }
-        return type == "json_schema" || type == "json_object"
+        OpenAIResponseFormatPolicy.requiresStructuredOutputSanitization(responseFormat)
     }
 
     static func sanitizeStructuredOutput(_ text: String, responseFormat: ResponseFormat?) -> String {
-        guard requiresStructuredOutputSanitization(responseFormat) else {
-            return text
-        }
-
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let match = Self.fencedStructuredOutputRegex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
-        let contentRange = Range(match.range(at: 1), in: trimmed) else {
-            return trimmed
-        }
-
-        return String(trimmed[contentRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+        OpenAIResponseFormatPolicy.sanitizeStructuredOutput(text, responseFormat: responseFormat)
     }
 
     private func createSuccessResponse(req: Request, response: ChatCompletionResponse, grammarDowngraded: Bool = false) async throws -> Response {

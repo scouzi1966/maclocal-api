@@ -245,7 +245,10 @@ public final class MLXModelService: @unchecked Sendable {
     /// Per-request `response_format` takes precedence over the server-level
     /// `--guided-json` default. (#97)
     public func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? {
-        requestFormat ?? defaultGuidedJsonSchema
+        OpenAIResponseFormatPolicy.effectiveResponseFormat(
+            requestFormat: requestFormat,
+            serverDefault: defaultGuidedJsonSchema
+        )
     }
 
     public var enableGrammarConstraints: Bool = false { didSet { grammarConstraintsActive = enableGrammarConstraints } }

@@ -219,7 +219,7 @@ struct BatchCompletionsController: RouteCollection {
                 var hasToolCalls = false
                 var fullText = ""
                 let deferStructuredOutputContent =
-                    MLXChatCompletionsController.requiresStructuredOutputSanitization(effectiveResponseFormat)
+                    OpenAIResponseFormatPolicy.requiresStructuredOutputSanitization(effectiveResponseFormat)
 
                 // Think extraction state
                 var thinkBuffer = ""
@@ -315,7 +315,7 @@ struct BatchCompletionsController: RouteCollection {
                         }
 
                         if deferStructuredOutputContent && !hasToolCalls && chunk.toolCalls == nil {
-                            let sanitized = MLXChatCompletionsController.sanitizeStructuredOutput(
+                            let sanitized = OpenAIResponseFormatPolicy.sanitizeStructuredOutput(
                                 fullText,
                                 responseFormat: effectiveResponseFormat
                             )
@@ -367,7 +367,7 @@ struct BatchCompletionsController: RouteCollection {
                         ] as [String: Any]
                     }
                 } else {
-                    message["content"] = MLXChatCompletionsController.sanitizeStructuredOutput(
+                    message["content"] = OpenAIResponseFormatPolicy.sanitizeStructuredOutput(
                         collected.content ?? "",
                         responseFormat: effectiveResponseFormat
                     )

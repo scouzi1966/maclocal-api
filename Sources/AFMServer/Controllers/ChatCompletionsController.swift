@@ -629,14 +629,10 @@ struct ChatCompletionsController: RouteCollection {
         requestFormat: ResponseFormat?,
         serverDefault: ResponseFormat?
     ) -> ResponseJsonSchema? {
-        let format = requestFormat ?? serverDefault
-        guard let format,
-              format.type == "json_schema",
-              let jsonSchema = format.jsonSchema,
-              jsonSchema.strict == true else {
-            return nil
-        }
-        return jsonSchema
+        OpenAIResponseFormatPolicy.effectiveStrictJsonSchema(
+            requestFormat: requestFormat,
+            serverDefault: serverDefault
+        )
     }
 
     private func encodeJSON<T: Encodable>(_ value: T) -> String {
