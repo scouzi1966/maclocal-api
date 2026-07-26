@@ -35,5 +35,34 @@ final class FoundationSessionUsageTelemetryTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(telemetry.streamingMilliseconds), 500, accuracy: 0.001)
         XCTAssertEqual(try XCTUnwrap(telemetry.tokensPerSecond), 60, accuracy: 0.001)
     }
+
+    func testSingleResponseTelemetryUsesCompletionAsFirstChunk() {
+        let clock = ContinuousClock()
+        let startedAt = clock.now
+        let completedAt = startedAt.advanced(by: .milliseconds(750))
+        let usage = LanguageModelSession.Usage(
+            input: .init(totalTokenCount: 9, cachedTokenCount: 2),
+            output: .init(totalTokenCount: 12, reasoningTokenCount: 1)
+        )
+
+        let telemetry = AFMFoundationGenerationTelemetryCalculator.singleResponseTelemetry(
+            usage: usage,
+            toolNames: ["extract"],
+            contextAction: "trim",
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+
+        XCTAssertEqual(telemetry.inputTokens, 9)
+        XCTAssertEqual(telemetry.cachedInputTokens, 2)
+        XCTAssertEqual(telemetry.outputTokens, 12)
+        XCTAssertEqual(telemetry.reasoningTokens, 1)
+        XCTAssertEqual(telemetry.toolNames, ["extract"])
+        XCTAssertEqual(telemetry.contextAction, "trim")
+        XCTAssertEqual(try XCTUnwrap(telemetry.timeToFirstTokenMilliseconds), 750, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(telemetry.streamingMilliseconds), 0, accuracy: 0.001)
+        XCTAssertNil(telemetry.tokensPerSecond)
+        XCTAssertEqual(telemetry.streamChunkCount, 1)
+    }
 }
 #endif

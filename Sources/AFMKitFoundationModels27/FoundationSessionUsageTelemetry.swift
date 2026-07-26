@@ -26,5 +26,23 @@ public extension AFMFoundationGenerationTelemetryCalculator {
             streamChunkCount: streamChunkCount
         )
     }
+
+    static func singleResponseTelemetry(
+        usage: LanguageModelSession.Usage,
+        toolNames: [String],
+        contextAction: String?,
+        startedAt: ContinuousClock.Instant,
+        completedAt: ContinuousClock.Instant
+    ) -> AFMFoundationGenerationTelemetry {
+        telemetry(
+            usage: usage,
+            toolNames: toolNames,
+            contextAction: contextAction,
+            startedAt: startedAt,
+            firstChunkAt: completedAt,
+            sampledAt: completedAt,
+            streamChunkCount: 1
+        )
+    }
 }
 #endif
