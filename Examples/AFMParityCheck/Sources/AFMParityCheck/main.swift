@@ -49,6 +49,28 @@ enum Config {
     static let serverReadyTimeout: TimeInterval = 120
     static let serverPollInterval: TimeInterval = 1.0
     static let maxTokens = 64
+    static let allCases: [String] = [
+        "greedy-text",
+        "streaming-concat",
+        "logprobs",
+        "structured-json-object",
+        "tool-call",
+        "stop-sequence",
+        "strict-json-schema"
+    ]
+    static var enabledCases: Set<String> {
+        guard let raw = env["AFM_PARITY_CASES"], !raw.isEmpty else {
+            return Set(allCases)
+        }
+        return Set(
+            raw.split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
+    }
+    static func shouldRun(_ name: String) -> Bool {
+        enabledCases.contains(name)
+    }
 }
 
 // MARK: - Result tracking
@@ -56,12 +78,14 @@ enum Config {
 actor Tally {
     private(set) var passed = 0
     private(set) var failed = 0
+    private(set) var skipped = 0
     func pass(_ name: String) { passed += 1; print("  ✅ PASS  \(name)") }
     func fail(_ name: String, _ detail: String) {
         failed += 1
         print("  ❌ FAIL  \(name)")
         for line in detail.split(separator: "\n") { print("           \(line)") }
     }
+    func skip(_ name: String) { skipped += 1; print("  ⏭️ SKIP  \(name)") }
 }
 let tally = Tally()
 
@@ -208,6 +232,7 @@ struct AFMParityCheck {
     static func main() async {
         print("AFMParityCheck — model=\(Config.model) port=\(Config.port)")
         print("binary=\(Config.binaryPath)")
+        print("cases=\(Config.allCases.filter(Config.shouldRun).joined(separator: ","))")
 
         // ---- (A) Build the in-process engine -------------------------------
         let engine = AFMEngine(
@@ -237,7 +262,9 @@ struct AFMParityCheck {
 
         // ---- Case 1: greedy chat text --------------------------------------
         print("\n[1] greedy chat text")
-        do {
+        if !Config.shouldRun("greedy-text") {
+            await tally.skip("greedy-text")
+        } else { do {
             let prompt = "Name three primary colors."
             let cfg = GenerationConfig(temperature: 0, maxTokens: Config.maxTokens)
             let direct = try await engine.respond(to: userMessages(prompt), cfg)
@@ -245,11 +272,13 @@ struct AFMParityCheck {
             let d = normalize(direct.content), h = normalize(contentOf(http))
             if d == h { await tally.pass("greedy-text") }
             else { await tally.fail("greedy-text", "direct: \(d)\nserver: \(h)") }
-        } catch { await tally.fail("greedy-text", "\(error)") }
+        } catch { await tally.fail("greedy-text", "\(error)") } }
 
         // ---- Case 2: streaming concat == non-streaming ---------------------
         print("\n[2] streaming determinism (deltas concat == full)")
-        do {
+        if !Config.shouldRun("streaming-concat") {
+            await tally.skip("streaming-concat")
+        } else { do {
             let prompt = "List the days of the week."
             let cfg = GenerationConfig(temperature: 0, maxTokens: Config.maxTokens)
             var directStream = ""
@@ -266,11 +295,13 @@ struct AFMParityCheck {
                     "direct.stream: \(values[0])\ndirect.full:   \(values[1])\n"
                     + "server.stream: \(values[2])\nserver.full:   \(values[3])")
             }
-        } catch { await tally.fail("streaming-concat", "\(error)") }
+        } catch { await tally.fail("streaming-concat", "\(error)") } }
 
         // ---- Case 3: logprobs (token + value) ------------------------------
         print("\n[3] logprobs parity")
-        do {
+        if !Config.shouldRun("logprobs") {
+            await tally.skip("logprobs")
+        } else { do {
             let prompt = "Reply with exactly: OK"
             let cfg = GenerationConfig(temperature: 0, maxTokens: Config.maxTokens, logprobs: true, topLogprobs: 0)
             let direct = try await engine.respond(to: userMessages(prompt), cfg)
@@ -295,11 +326,13 @@ struct AFMParityCheck {
                 if let m = mismatch { await tally.fail("logprobs", m) }
                 else { await tally.pass("logprobs") }
             }
-        } catch { await tally.fail("logprobs", "\(error)") }
+        } catch { await tally.fail("logprobs", "\(error)") } }
 
         // ---- Case 4: structured JSON (response_format) ---------------------
         print("\n[4] structured JSON (response_format=json_object)")
-        do {
+        if !Config.shouldRun("structured-json-object") {
+            await tally.skip("structured-json-object")
+        } else { do {
             let prompt = "Return a JSON object with keys \"city\" and \"country\" for Paris."
             let fmt = ResponseFormat(type: "json_object")
             let cfg = GenerationConfig(temperature: 0, maxTokens: Config.maxTokens, responseFormat: fmt)
@@ -312,11 +345,13 @@ struct AFMParityCheck {
                 await tally.fail("structured-json",
                     "direct: \(direct.content)\nserver: \(http)\n(parsed-equal: \(dc != nil && dc == hc))")
             }
-        } catch { await tally.fail("structured-json", "\(error)") }
+        } catch { await tally.fail("structured-json-object", "\(error)") } }
 
         // ---- Case 5: tool call (name + arguments) --------------------------
         print("\n[5] tool call parity")
-        do {
+        if !Config.shouldRun("tool-call") {
+            await tally.skip("tool-call")
+        } else { do {
             let schema = AnyCodable([
                 "type": "object",
                 "properties": ["location": ["type": "string"]],
@@ -355,12 +390,82 @@ struct AFMParityCheck {
                 if da == ha { await tally.pass("tool-call") }
                 else { await tally.fail("tool-call", "args: direct=\(da) server=\(ha)") }
             }
-        } catch { await tally.fail("tool-call", "\(error)") }
+        } catch { await tally.fail("tool-call", "\(error)") } }
+
+        // ---- Case 6: stop sequence -----------------------------------------
+        print("\n[6] stop sequence parity")
+        if !Config.shouldRun("stop-sequence") {
+            await tally.skip("stop-sequence")
+        } else { do {
+            let prompt = "Write exactly: alpha STOP beta"
+            let stop = [" STOP"]
+            let cfg = GenerationConfig(
+                temperature: 0,
+                maxTokens: Config.maxTokens,
+                stop: stop
+            )
+            let direct = try await engine.respond(to: userMessages(prompt), cfg)
+            let http = try await httpChat([
+                "messages": wireMessages(prompt),
+                "stop": stop
+            ])
+            let d = normalize(direct.content), h = normalize(contentOf(http))
+            if d == h { await tally.pass("stop-sequence") }
+            else { await tally.fail("stop-sequence", "direct: \(d)\nserver: \(h)") }
+        } catch { await tally.fail("stop-sequence", "\(error)") } }
+
+        // ---- Case 7: strict JSON schema ------------------------------------
+        print("\n[7] strict JSON schema parity")
+        if !Config.shouldRun("strict-json-schema") {
+            await tally.skip("strict-json-schema")
+        } else { do {
+            let schema: [String: Any] = [
+                "type": "object",
+                "properties": ["answer": ["type": "string"]],
+                "required": ["answer"],
+                "additionalProperties": false
+            ]
+            let prompt = "Return JSON with one string field named answer and value yes."
+            let fmt = ResponseFormat(
+                type: "json_schema",
+                jsonSchema: ResponseJsonSchema(
+                    name: "answer_schema",
+                    description: nil,
+                    schema: AnyCodable(schema),
+                    strict: true
+                )
+            )
+            let cfg = GenerationConfig(
+                temperature: 0,
+                maxTokens: Config.maxTokens,
+                responseFormat: fmt
+            )
+            let direct = try await engine.respond(to: userMessages(prompt), cfg)
+            let http = contentOf(try await httpChat([
+                "messages": wireMessages(prompt),
+                "response_format": [
+                    "type": "json_schema",
+                    "json_schema": [
+                        "name": "answer_schema",
+                        "strict": true,
+                        "schema": schema
+                    ]
+                ]
+            ]))
+            let dc = canonicalJSON(direct.content), hc = canonicalJSON(http)
+            if let dc, let hc, dc == hc { await tally.pass("strict-json-schema") }
+            else {
+                await tally.fail(
+                    "strict-json-schema",
+                    "direct: \(direct.content)\nserver: \(http)\n(parsed-equal: \(dc != nil && dc == hc))"
+                )
+            }
+        } catch { await tally.fail("strict-json-schema", "\(error)") } }
 
         // ---- Summary -------------------------------------------------------
-        let passed = await tally.passed, failed = await tally.failed
+        let passed = await tally.passed, failed = await tally.failed, skipped = await tally.skipped
         print("\n=====================================================")
-        print("PARITY: \(passed) passed, \(failed) failed")
+        print("PARITY: \(passed) passed, \(failed) failed, \(skipped) skipped")
         print("=====================================================")
         server.terminate()
         exit(failed == 0 ? 0 : 1)

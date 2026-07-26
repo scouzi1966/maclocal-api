@@ -16,8 +16,10 @@ asserts the two agree:
 | 1 | greedy chat text | `direct.content == server message.content` |
 | 2 | streaming determinism | `direct.stream == direct.full == server.stream == server.full` |
 | 3 | logprobs | same token sequence; values within `1e-3` |
-| 4 | structured JSON (`response_format`) | both parse and canonicalize to the same object |
+| 4 | structured JSON object (`response_format`) | both parse and canonicalize to the same object |
 | 5 | tool call | same function name; arguments canonicalize equal |
+| 6 | stop sequence | same text when the same stop sequence is applied |
+| 7 | strict JSON schema | same canonical JSON under `response_format=json_schema` |
 
 Exit code `0` = full parity; non-zero = at least one mismatch (details printed per case).
 
@@ -40,6 +42,7 @@ swift run AFMParityCheck
 | `AFM_PARITY_MODEL` | `mlx-community/Llama-3.2-3B-Instruct-4bit` | model used by both paths |
 | `AFM_BINARY` | repo `.build/release/afm` (then `…/arm64-apple-macosx/release`, then `debug`) | server binary to spawn |
 | `AFM_PARITY_PORT` | `9998` | server port |
+| `AFM_PARITY_CASES` | all cases | comma-separated case IDs, for example `greedy-text,strict-json-schema` |
 | `MACAFM_MLX_MODEL_CACHE` | — | weight cache, shared by both paths (set it to avoid re-downloads) |
 
 ## Notes

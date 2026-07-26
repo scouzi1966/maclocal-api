@@ -11,7 +11,7 @@ let package = Package(
     name: "AFMParityCheck",
     platforms: [.macOS("26.0")],
     dependencies: [
-        .package(path: "../..")
+        .package(name: "maclocal-api", path: "../..")
     ],
     targets: [
         .executableTarget(
