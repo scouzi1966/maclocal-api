@@ -132,6 +132,45 @@ public struct AFMMLXModelDownloadResult: Hashable, Sendable {
     }
 }
 
+public struct AFMMLXModelCandidate: Hashable, Sendable {
+    public var id: String
+    public var displayName: String?
+    public var sourceTag: String
+
+    public init(
+        id: String,
+        displayName: String? = nil,
+        sourceTag: String
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.sourceTag = sourceTag
+    }
+}
+
+public struct AFMMLXModelSelectionOption: Hashable, Sendable {
+    public var id: String
+    public var displayName: String
+    public var sourceTag: String
+    public var loadReference: AFMMLXModelLoadReference?
+
+    public init(
+        id: String,
+        displayName: String,
+        sourceTag: String,
+        loadReference: AFMMLXModelLoadReference?
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.sourceTag = sourceTag
+        self.loadReference = loadReference
+    }
+
+    public var isAvailableLocally: Bool {
+        loadReference != nil
+    }
+}
+
 public enum AFMMLXModelStoreError: Error, LocalizedError, Sendable {
     case modelNotFound(String)
     case invalidRepositoryID(String)
@@ -360,6 +399,61 @@ public struct AFMMLXModelStore: Sendable {
         }
     }
 
+    /// Resolves host-provided model candidates into user-selectable options,
+    /// preserving host source labels while centralizing AFMKit local cache
+    /// validation, load-reference resolution, de-duplication, and selected
+    /// custom-model fallback behavior.
+    public func modelSelectionOptions(
+        selectedModelID: String?,
+        loadedModelID: String?,
+        loadedDisplayName: String?,
+        loadedSourceTag: String = "loaded",
+        customSourceTag: String = "custom",
+        candidates: [AFMMLXModelCandidate]
+    ) -> [AFMMLXModelSelectionOption] {
+        var allCandidates: [AFMMLXModelCandidate] = []
+        if let loadedModelID = normalizedIdentifier(loadedModelID) {
+            allCandidates.append(AFMMLXModelCandidate(
+                id: loadedModelID,
+                displayName: normalizedIdentifier(loadedDisplayName) ?? defaultDisplayName(for: loadedModelID),
+                sourceTag: loadedSourceTag
+            ))
+        }
+        allCandidates.append(contentsOf: candidates)
+
+        var options: [AFMMLXModelSelectionOption] = []
+        var attempted = Set<String>()
+        var included = Set<String>()
+
+        for candidate in allCandidates {
+            guard let identifier = normalizedIdentifier(candidate.id),
+                  attempted.insert(identifier).inserted,
+                  let reference = loadReference(for: identifier) else {
+                continue
+            }
+            included.insert(identifier)
+            options.append(AFMMLXModelSelectionOption(
+                id: identifier,
+                displayName: normalizedIdentifier(candidate.displayName) ?? reference.descriptor.displayName,
+                sourceTag: candidate.sourceTag,
+                loadReference: reference
+            ))
+        }
+
+        if let selectedModelID = normalizedIdentifier(selectedModelID),
+           !included.contains(selectedModelID) {
+            let reference = loadReference(for: selectedModelID)
+            options.append(AFMMLXModelSelectionOption(
+                id: selectedModelID,
+                displayName: reference.map(\.descriptor.displayName) ?? defaultDisplayName(for: selectedModelID),
+                sourceTag: customSourceTag,
+                loadReference: reference
+            ))
+        }
+
+        return options
+    }
+
     /// Returns whether a directory contains a complete local MLX model package.
     public static func isCompleteModelDirectory(_ directory: URL) -> Bool {
         MLXCacheResolver(cacheRoot: nil).hasRequiredFiles(directory)
@@ -394,6 +488,18 @@ public struct AFMMLXModelStore: Sendable {
 
         var seen = Set<String>()
         return candidates.filter { seen.insert($0).inserted }
+    }
+
+    private func normalizedIdentifier(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private func defaultDisplayName(for identifier: String) -> String {
+        identifier.split(separator: "/").last.map(String.init) ?? identifier
     }
 
     /// Returns whether a persisted model identifier looks like a repository or

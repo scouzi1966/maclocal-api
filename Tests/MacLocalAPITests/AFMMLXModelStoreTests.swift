@@ -224,6 +224,37 @@ final class AFMMLXModelStoreTests: XCTestCase {
         XCTAssertFalse(store.isAvailableLocally("missing/model"))
     }
 
+    func testModelSelectionOptionsDeduplicateAndPreserveLoadedSource() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try makeModel(at: root.appendingPathComponent("models/org/loaded"))
+        try makeModel(at: root.appendingPathComponent("models/org/other"))
+
+        let store = AFMMLXModelStore(resolver: MLXCacheResolver(cacheRoot: root))
+        let options = store.modelSelectionOptions(
+            selectedModelID: "org/missing",
+            loadedModelID: "org/loaded",
+            loadedDisplayName: "Loaded display",
+            candidates: [
+                AFMMLXModelCandidate(id: "org/loaded", displayName: "Downloaded display", sourceTag: "downloaded"),
+                AFMMLXModelCandidate(id: "org/other", displayName: "Other display", sourceTag: "curated"),
+                AFMMLXModelCandidate(id: "org/missing", displayName: "Missing display", sourceTag: "curated")
+            ]
+        )
+
+        XCTAssertEqual(options.map(\.id), ["org/loaded", "org/other", "org/missing"])
+        XCTAssertEqual(options[0].displayName, "Loaded display")
+        XCTAssertEqual(options[0].sourceTag, "loaded")
+        XCTAssertTrue(options[0].isAvailableLocally)
+        XCTAssertEqual(options[1].displayName, "Other display")
+        XCTAssertEqual(options[1].sourceTag, "curated")
+        XCTAssertTrue(options[1].isAvailableLocally)
+        XCTAssertEqual(options[2].sourceTag, "custom")
+        XCTAssertFalse(options[2].isAvailableLocally)
+    }
+
     func testIsVisionModelUsesLocalDescriptorCapabilities() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
