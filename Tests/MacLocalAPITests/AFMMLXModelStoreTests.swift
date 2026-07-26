@@ -3,6 +3,110 @@ import XCTest
 @testable import AFMKitMLX
 
 final class AFMMLXModelStoreTests: XCTestCase {
+    func testCompleteModelDirectoryRequiresConfigAndWeights() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        XCTAssertFalse(AFMMLXModelStore.isCompleteModelDirectory(root))
+
+        try JSONSerialization.data(withJSONObject: [:]).write(
+            to: root.appendingPathComponent("config.json")
+        )
+        XCTAssertFalse(AFMMLXModelStore.isCompleteModelDirectory(root))
+
+        try Data("weights".utf8).write(
+            to: root.appendingPathComponent("weights.safetensors")
+        )
+        XCTAssertTrue(AFMMLXModelStore.isCompleteModelDirectory(root))
+    }
+
+    func testCompleteModelDirectoryRequiresEveryIndexedShard() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        try JSONSerialization.data(withJSONObject: [:]).write(
+            to: root.appendingPathComponent("config.json")
+        )
+        let index: [String: Any] = [
+            "weight_map": [
+                "layer.0": "model-00001-of-00002.safetensors",
+                "layer.1": "model-00002-of-00002.safetensors"
+            ]
+        ]
+        try JSONSerialization.data(withJSONObject: index).write(
+            to: root.appendingPathComponent("model.safetensors.index.json")
+        )
+
+        XCTAssertFalse(AFMMLXModelStore.isCompleteModelDirectory(root))
+
+        try Data("weights".utf8).write(
+            to: root.appendingPathComponent("model-00001-of-00002.safetensors")
+        )
+        XCTAssertFalse(AFMMLXModelStore.isCompleteModelDirectory(root))
+
+        try Data("weights".utf8).write(
+            to: root.appendingPathComponent("model-00002-of-00002.safetensors")
+        )
+        XCTAssertTrue(AFMMLXModelStore.isCompleteModelDirectory(root))
+    }
+
+    func testCompleteSnapshotDirectoryUsesExplicitRevision() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let snapshots = root.appendingPathComponent("snapshots", isDirectory: true)
+        let resolved = snapshots.appendingPathComponent("aaa-resolved", isDirectory: true)
+        let other = snapshots.appendingPathComponent("zzz-other", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try makeModel(at: resolved)
+        try makeModel(at: other)
+
+        XCTAssertEqual(
+            AFMMLXModelStore.completeSnapshotDirectory(
+                in: root,
+                revision: "aaa-resolved"
+            )?.path,
+            resolved.path
+        )
+    }
+
+    func testNewestCompleteSnapshotDirectoryUsesNewestCompleteSnapshot() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let snapshots = root.appendingPathComponent("snapshots", isDirectory: true)
+        let incomplete = snapshots.appendingPathComponent("000-incomplete", isDirectory: true)
+        let olderLexicographicallyLarger = snapshots.appendingPathComponent("zzz-older", isDirectory: true)
+        let newerLexicographicallySmaller = snapshots.appendingPathComponent("aaa-newer", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try FileManager.default.createDirectory(at: incomplete, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: [:]).write(
+            to: incomplete.appendingPathComponent("config.json")
+        )
+        try makeModel(at: olderLexicographicallyLarger)
+        try makeModel(at: newerLexicographicallySmaller)
+
+        let oldDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let newDate = Date(timeIntervalSince1970: 1_800_000_000)
+        try FileManager.default.setAttributes(
+            [.modificationDate: oldDate],
+            ofItemAtPath: olderLexicographicallyLarger.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: newDate],
+            ofItemAtPath: newerLexicographicallySmaller.path
+        )
+
+        XCTAssertEqual(
+            AFMMLXModelStore.newestCompleteSnapshotDirectory(in: root)?.path,
+            newerLexicographicallySmaller.path
+        )
+    }
+
     func testLocalDescriptorsValidateDeduplicateAndPreserveOrder() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

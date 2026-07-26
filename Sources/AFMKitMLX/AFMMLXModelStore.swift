@@ -307,6 +307,52 @@ public struct AFMMLXModelStore: Sendable {
         }
     }
 
+    /// Returns whether a directory contains a complete local MLX model package.
+    public static func isCompleteModelDirectory(_ directory: URL) -> Bool {
+        MLXCacheResolver(cacheRoot: nil).hasRequiredFiles(directory)
+    }
+
+    /// Returns a complete snapshot directory for a specific revision inside a
+    /// Hugging Face package root.
+    public static func completeSnapshotDirectory(
+        in repositoryDirectory: URL,
+        revision: String
+    ) -> URL? {
+        let snapshotDirectory = repositoryDirectory
+            .appendingPathComponent("snapshots")
+            .appendingPathComponent(revision)
+        return isCompleteModelDirectory(snapshotDirectory) ? snapshotDirectory : nil
+    }
+
+    /// Returns the newest complete snapshot directory inside a Hugging Face
+    /// package root. Modification date wins; path name is a deterministic
+    /// fallback for equal dates.
+    public static func newestCompleteSnapshotDirectory(
+        in repositoryDirectory: URL
+    ) -> URL? {
+        let snapshotsDirectory = repositoryDirectory.appendingPathComponent("snapshots")
+        guard let snapshots = try? FileManager.default.contentsOfDirectory(
+            atPath: snapshotsDirectory.path
+        ) else {
+            return nil
+        }
+
+        return snapshots
+            .map { snapshotsDirectory.appendingPathComponent($0) }
+            .filter { isCompleteModelDirectory($0) }
+            .sorted { lhs, rhs in
+                let lhsDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+                    ?? .distantPast
+                let rhsDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+                    ?? .distantPast
+                if lhsDate == rhsDate {
+                    return lhs.lastPathComponent > rhs.lastPathComponent
+                }
+                return lhsDate > rhsDate
+            }
+            .first
+    }
+
     /// Discovers complete local models across AFM, Hugging Face, Swift Hub,
     /// system, and LM Studio caches.
     public func discoverLocalModels() -> [AFMMLXDiscoveredModel] {

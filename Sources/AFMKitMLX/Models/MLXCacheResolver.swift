@@ -131,34 +131,11 @@ public struct MLXCacheResolver: Sendable {
         let fm = FileManager.default
         if !fm.fileExists(atPath: path.path) { return nil }
 
-        let snapshots = path.appendingPathComponent("snapshots")
-        if fm.fileExists(atPath: snapshots.path),
-           let snapshotDir = newestCompleteSnapshotDirectory(in: snapshots) {
+        if let snapshotDir = AFMMLXModelStore.newestCompleteSnapshotDirectory(in: path) {
             return snapshotDir
         }
 
         return hasRequiredFiles(path) ? path : nil
-    }
-
-    private func newestCompleteSnapshotDirectory(in snapshots: URL) -> URL? {
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: snapshots.path) else {
-            return nil
-        }
-
-        return names
-            .map { snapshots.appendingPathComponent($0) }
-            .filter { hasRequiredFiles($0) }
-            .sorted { lhs, rhs in
-                let lhsDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
-                    ?? .distantPast
-                let rhsDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
-                    ?? .distantPast
-                if lhsDate == rhsDate {
-                    return lhs.lastPathComponent > rhs.lastPathComponent
-                }
-                return lhsDate > rhsDate
-            }
-            .first
     }
 
     func hasRequiredFiles(_ dir: URL) -> Bool {
