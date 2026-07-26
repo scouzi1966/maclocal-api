@@ -7,6 +7,12 @@ import XCTest
 
 @available(macOS 27.0, *)
 final class MLXFoundationLanguageModelTests: XCTestCase {
+    @Generable
+    struct TestStructuredAnswer {
+        @Guide(description: "Short answer text")
+        let answer: String
+    }
+
     private struct TestCustomSegment: Transcript.CustomSegment {
         struct Content: Codable, Equatable, Sendable {
             let value: String
@@ -221,6 +227,55 @@ final class MLXFoundationLanguageModelTests: XCTestCase {
         XCTAssertEqual(config.metadata["toolCallingMode"], .string("disallowed"))
         XCTAssertEqual(config.metadata["reasoningLevel"], .string("deep"))
         XCTAssertEqual(config.metadata["requestID"], .string("request-1"))
+    }
+
+    func testGenerationConfigMapsGenerationSchemaToStrictJSONResponseFormat() throws {
+        let model = MLXLanguageModel(
+            modelID: "mlx-community/model-a",
+            defaultMaximumResponseTokens: 2_048,
+            supportsGuidedGeneration: true
+        )
+        let request = LanguageModelExecutorGenerationRequest(
+            id: UUID(),
+            transcript: Transcript(),
+            enabledTools: [],
+            schema: GenerationSchema(
+                type: TestStructuredAnswer.self,
+                properties: [
+                    GenerationSchema.Property(
+                        name: "answer",
+                        description: "Short answer text",
+                        type: String.self
+                    )
+                ]
+            ),
+            generationOptions: GenerationOptions(maximumResponseTokens: 128),
+            contextOptions: ContextOptions(),
+            metadata: [:]
+        )
+
+        let config = try MLXFoundationRequestAdapter.generationConfig(
+            from: request,
+            model: model
+        )
+
+        XCTAssertEqual(config.responseFormat?.type, "json_schema")
+        XCTAssertEqual(config.responseFormat?.jsonSchema?.name, "TestStructuredAnswer")
+        XCTAssertEqual(config.responseFormat?.jsonSchema?.strict, true)
+        let schemaPayload = try XCTUnwrap(config.responseFormat?.jsonSchema?.schema)
+        guard case .object(let schema) = schemaPayload.value else {
+            XCTFail("Expected object schema, got \(schemaPayload.value)")
+            return
+        }
+        guard case .string("object")? = schema["type"] else {
+            XCTFail("Expected object schema type, got \(String(describing: schema["type"]))")
+            return
+        }
+        guard case .object(let properties)? = schema["properties"] else {
+            XCTFail("Expected object properties, got \(String(describing: schema["properties"]))")
+            return
+        }
+        XCTAssertNotNil(properties["answer"])
     }
 
     func testEventChannelAdapterTracksFallbackUsageFromTextTokens() {
