@@ -1,5 +1,6 @@
 import Vapor
 import AFMKit
+import AFMKitCore
 import AFMKitMLX
 import Foundation
 import MLX
@@ -1781,43 +1782,11 @@ struct MLXChatCompletionsController: RouteCollection {
 
     /// Extract think tags from a complete (non-streaming) response.
     static func extractThinkContent(from text: String, startTag: String = "<think>", endTag: String = "</think>") -> (content: String, reasoning: String?) {
-        guard text.contains(startTag) else {
-            // Orphan end tag with no start tag: the template opened (or pre-closed) the
-            // thinking block, but the model reasoned anyway and only emitted the end tag
-            // (observed with Cohere cohere2_moe under enable_thinking=false). Everything
-            // before the first end tag is reasoning. (#148)
-            if let endRange = text.range(of: endTag) {
-                let reasoning = String(text[..<endRange.lowerBound])
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let content = String(text[endRange.upperBound...])
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                return (content, reasoning.isEmpty ? nil : reasoning)
-            }
-            return (text, nil)
-        }
-        var buffer = text
-        var inside = false
-        var allReasoning = ""
-        var allContent = ""
-
-        while !buffer.isEmpty {
-            let extracted = extractThinkTags(buffer: &buffer, insideThinkBlock: &inside, startTag: startTag, endTag: endTag)
-            if let r = extracted.reasoning { allReasoning += r }
-            if let c = extracted.content { allContent += c }
-            if extracted.reasoning == nil && extracted.content == nil { break }
-        }
-        // Flush remaining buffer
-        if !buffer.isEmpty {
-            if inside {
-                allReasoning += buffer
-            } else {
-                allContent += buffer
-            }
-        }
-
-        let reasoning: String? = allReasoning.isEmpty ? nil : allReasoning.trimmingCharacters(in: .whitespacesAndNewlines)
-        let content = allContent.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (content, reasoning)
+        AFMReasoningOutputExtractor.extractThinkContent(
+            from: text,
+            startTag: startTag,
+            endTag: endTag
+        )
     }
 
     static func finalizeAssistantTurn(

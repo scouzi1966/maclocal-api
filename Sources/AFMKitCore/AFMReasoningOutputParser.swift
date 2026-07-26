@@ -91,7 +91,16 @@ public enum AFMReasoningOutputExtractor {
         startTag: String = "<think>",
         endTag: String = "</think>"
     ) -> (content: String, reasoning: String?) {
-        guard text.contains(startTag) else { return (text, nil) }
+        guard text.contains(startTag) else {
+            if let endRange = text.range(of: endTag) {
+                let reasoning = String(text[..<endRange.lowerBound])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let content = String(text[endRange.upperBound...])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return (content, reasoning.isEmpty ? nil : reasoning)
+            }
+            return (text, nil)
+        }
         var buffer = text
         var inside = false
         var allReasoning = ""

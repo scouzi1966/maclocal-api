@@ -88,4 +88,13 @@ final class AFMReasoningOutputParserTests: XCTestCase {
         XCTAssertEqual(extracted.reasoning, "plan")
         XCTAssertEqual(extracted.content, "Answer")
     }
+
+    func testFullTextExtractorHandlesOrphanEndTag() {
+        let extracted = AFMReasoningOutputExtractor.extractThinkContent(
+            from: "reasoning trace</think>\nAnswer"
+        )
+
+        XCTAssertEqual(extracted.reasoning, "reasoning trace")
+        XCTAssertEqual(extracted.content, "Answer")
+    }
 }
