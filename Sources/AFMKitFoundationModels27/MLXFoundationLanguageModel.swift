@@ -180,98 +180,11 @@ public final class MLXLanguageModelExecutor: LanguageModelExecutor, @unchecked S
         let engine = try await runtime.preparedEngine()
         let options = try MLXFoundationRequestAdapter.generationConfig(from: request, model: model)
 
-        var sentUsage = false
-        var streamedTokens = 0
+        var channelAdapter = MLXFoundationEventChannelAdapter()
         for try await event in engine.streamEvents(to: messages, options) {
-            switch event {
-            case .text(let text, let tokenCount):
-                streamedTokens += tokenCount
-                await channel.send(
-                    .response(action: .appendText(text, tokenCount: tokenCount))
-                )
-            case .usage(let promptTokens, let completionTokens, let cachedTokens):
-                sentUsage = true
-                await channel.send(
-                    .response(
-                        action: .updateUsage(
-                            input: .init(
-                                totalTokenCount: promptTokens,
-                                cachedTokenCount: cachedTokens
-                            ),
-                            output: .init(
-                                totalTokenCount: completionTokens,
-                                reasoningTokenCount: 0
-                            )
-                        )
-                    )
-                )
-            case .reasoning(let text, let tokenCount):
-                await channel.send(
-                    .reasoning(action: .appendText(text, tokenCount: tokenCount))
-                )
-            case .tokenLogprobs:
-                continue
-            case .toolCall(let call, let stage):
-                switch stage {
-                case .started:
-                    await channel.send(
-                        .toolCalls(
-                            action: .toolCall(
-                                id: call.id,
-                                name: call.name,
-                                action: .appendArguments("", tokenCount: 0)
-                            )
-                        )
-                    )
-                case .argumentsDelta(let delta):
-                    await channel.send(
-                        .toolCalls(
-                            action: .toolCall(
-                                id: call.id,
-                                name: call.name,
-                                action: .appendArguments(delta, tokenCount: 0)
-                            )
-                        )
-                    )
-                case .completed, .retracted:
-                    continue
-                }
-            case .metadata(let values):
-                await channel.send(
-                    .response(action: .updateMetadata(MLXFoundationRequestAdapter.foundationMetadata(values)))
-                )
-            case .custom(let type, let payload):
-                await channel.send(
-                    .response(
-                        action: .updateMetadata([
-                            "afm.custom.\(type)": payload.base64EncodedString()
-                        ])
-                    )
-                )
-            case .completed(let reason):
-                await channel.send(
-                    .response(
-                        action: .updateMetadata([
-                            "afm.finishReason": String(describing: reason)
-                        ])
-                    )
-                )
-            }
+            await channelAdapter.send(event, into: channel)
         }
-
-        if !sentUsage {
-            await channel.send(
-                .response(
-                    action: .updateUsage(
-                        input: .init(totalTokenCount: 0, cachedTokenCount: 0),
-                        output: .init(
-                            totalTokenCount: streamedTokens,
-                            reasoningTokenCount: 0
-                        )
-                    )
-                )
-            )
-        }
+        await channelAdapter.finish(into: channel)
     }
 
 }

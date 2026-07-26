@@ -222,5 +222,63 @@ final class MLXFoundationLanguageModelTests: XCTestCase {
         XCTAssertEqual(config.metadata["reasoningLevel"], .string("deep"))
         XCTAssertEqual(config.metadata["requestID"], .string("request-1"))
     }
+
+    func testEventChannelAdapterTracksFallbackUsageFromTextTokens() {
+        var adapter = MLXFoundationEventChannelAdapter()
+
+        XCTAssertEqual(
+            adapter.consume(.text("Hello", tokenCount: 2)),
+            .responseText("Hello", tokenCount: 2)
+        )
+        XCTAssertEqual(
+            adapter.consume(.reasoning("Think", tokenCount: 3)),
+            .reasoningText("Think", tokenCount: 3)
+        )
+
+        XCTAssertEqual(adapter.finishPlan(), .usage(AFMUsage(outputTokens: 2)))
+    }
+
+    func testEventChannelAdapterSuppressesFallbackAfterUsageEvent() {
+        var adapter = MLXFoundationEventChannelAdapter()
+
+        XCTAssertEqual(
+            adapter.consume(.text("Hello", tokenCount: 2)),
+            .responseText("Hello", tokenCount: 2)
+        )
+        XCTAssertEqual(
+            adapter.consume(.usage(promptTokens: 7, completionTokens: 11, cachedTokens: 5)),
+            .usage(AFMUsage(inputTokens: 7, cachedInputTokens: 5, outputTokens: 11))
+        )
+
+        XCTAssertNil(adapter.finishPlan())
+    }
+
+    func testEventChannelAdapterMapsToolMetadataAndFinishEvents() {
+        var adapter = MLXFoundationEventChannelAdapter()
+        let call = AFMToolCall(id: "call_1", name: "weather", arguments: "")
+
+        XCTAssertEqual(
+            adapter.consume(.toolCall(call, stage: .started)),
+            .toolArguments(id: "call_1", name: "weather", arguments: "")
+        )
+        XCTAssertEqual(
+            adapter.consume(.toolCall(call, stage: .argumentsDelta("{\"city\":\"Paris\"}"))),
+            .toolArguments(id: "call_1", name: "weather", arguments: "{\"city\":\"Paris\"}")
+        )
+        XCTAssertNil(adapter.consume(.toolCall(call, stage: .completed)))
+        XCTAssertEqual(
+            adapter.consume(.metadata(["provider": .string("mlx")])),
+            .metadata(["provider": .string("mlx")])
+        )
+        XCTAssertEqual(
+            adapter.consume(.custom(type: "blob", payload: Data([0x01, 0x02]))),
+            .customMetadata(key: "afm.custom.blob", value: "AQI=")
+        )
+        XCTAssertEqual(
+            adapter.consume(.completed(.length)),
+            .finishReason("length")
+        )
+        XCTAssertNil(adapter.consume(.tokenLogprobs([])))
+    }
 }
 #endif
