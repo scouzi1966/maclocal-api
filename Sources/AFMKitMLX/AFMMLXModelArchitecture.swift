@@ -187,6 +187,15 @@ public enum AFMMLXModelArchitecture {
         return AFMMLXModelDescriptor.isVisionModelConfiguration(config)
     }
 
+    public static func isDualModeConfiguration(in modelDirectory: URL) -> Bool {
+        let configURL = modelDirectory.appendingPathComponent("config.json")
+        guard let data = try? Data(contentsOf: configURL),
+              let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+        return isDualModeConfiguration(config)
+    }
+
     public static func preflightConfiguration(
         _ config: [String: Any],
         modelID: String

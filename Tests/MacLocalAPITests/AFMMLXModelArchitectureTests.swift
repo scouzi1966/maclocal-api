@@ -46,6 +46,23 @@ final class AFMMLXModelArchitectureTests: XCTestCase {
         )
     }
 
+    func testDualModeConfigurationReadsModelDirectory() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let config: [String: Any] = [
+            "model_type": "qwen3.5",
+            "text_config": ["model_type": "qwen3_5"],
+            "vision_config": ["model_type": "qwen3_vl"],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: config)
+        try data.write(to: directory.appendingPathComponent("config.json"))
+
+        XCTAssertTrue(AFMMLXModelArchitecture.isDualModeConfiguration(in: directory))
+    }
+
     func testPreflightConfigurationReturnsSharedLoadPolicy() throws {
         let preflight = try AFMMLXModelArchitecture.preflightConfiguration(
             [
