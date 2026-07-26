@@ -1,0 +1,177 @@
+import AFMKitMLX
+import XCTest
+
+final class AFMMLXSpeculativeDecodingTests: XCTestCase {
+    func testModeLabelsAreStableForUI() {
+        XCTAssertEqual(AFMMLXSpeculativeDecodingMode.off.displayName, "Off")
+        XCTAssertEqual(AFMMLXSpeculativeDecodingMode.auto.displayName, "Auto")
+        XCTAssertEqual(AFMMLXSpeculativeDecodingMode.mtp.displayName, "MTP")
+        XCTAssertEqual(AFMMLXSpeculativeDecodingMode.eagle3.displayName, "EAGLE3")
+    }
+
+    func testAutoModeFallsBackWhenSamplingIsEnabled() {
+        let decision = AFMMLXSpeculativeGenerationDecision.evaluate(
+            mode: .auto,
+            installedRuntime: .mtp,
+            temperature: 0.7,
+            hasUnsupportedGenerationModifiers: false,
+            hasReasoningOutput: false,
+            hasImages: false,
+            hasStopSequences: false
+        )
+
+        XCTAssertEqual(decision.path, .fallback)
+        XCTAssertEqual(decision.reason, .samplingEnabled)
+    }
+
+    func testAutoModeUsesMTPWhenGreedyAndRuntimeIsReady() {
+        let decision = AFMMLXSpeculativeGenerationDecision.evaluate(
+            mode: .auto,
+            installedRuntime: .mtp,
+            temperature: 0,
+            hasUnsupportedGenerationModifiers: false,
+            hasReasoningOutput: false,
+            hasImages: false,
+            hasStopSequences: false
+        )
+
+        XCTAssertEqual(decision.path, .mtp)
+        XCTAssertNil(decision.reason)
+    }
+
+    func testExplicitEagle3FallsBackWhenVisionInputIsPresent() {
+        let decision = AFMMLXSpeculativeGenerationDecision.evaluate(
+            mode: .eagle3,
+            installedRuntime: .eagle3,
+            temperature: 0,
+            hasUnsupportedGenerationModifiers: false,
+            hasReasoningOutput: false,
+            hasImages: true,
+            hasStopSequences: false
+        )
+
+        XCTAssertEqual(decision.path, .fallback)
+        XCTAssertEqual(decision.reason, .visionInput)
+    }
+
+    func testExplicitModeReportsUnavailableRuntime() {
+        let decision = AFMMLXSpeculativeGenerationDecision.evaluate(
+            mode: .mtp,
+            installedRuntime: .none,
+            temperature: 0,
+            hasUnsupportedGenerationModifiers: false,
+            hasReasoningOutput: false,
+            hasImages: false,
+            hasStopSequences: false
+        )
+
+        XCTAssertEqual(decision.path, .fallback)
+        XCTAssertEqual(decision.reason, .runtimeUnavailable)
+    }
+
+    func testExplicitEagle3DoesNotUseMTPRuntime() {
+        let decision = AFMMLXSpeculativeGenerationDecision.evaluate(
+            mode: .eagle3,
+            installedRuntime: .mtp,
+            temperature: 0,
+            hasUnsupportedGenerationModifiers: false,
+            hasReasoningOutput: false,
+            hasImages: false,
+            hasStopSequences: false
+        )
+
+        XCTAssertEqual(decision.path, .fallback)
+        XCTAssertEqual(decision.reason, .runtimeUnavailable)
+    }
+
+    func testGreedyModeFallsBackWhenGenerationModifiersAreEnabled() {
+        let decision = AFMMLXSpeculativeGenerationDecision.evaluate(
+            mode: .auto,
+            installedRuntime: .mtp,
+            temperature: 0,
+            hasUnsupportedGenerationModifiers: true,
+            hasReasoningOutput: false,
+            hasImages: false,
+            hasStopSequences: false
+        )
+
+        XCTAssertEqual(decision.path, .fallback)
+        XCTAssertEqual(decision.reason, .generationModifiers)
+    }
+
+    func testGreedyModeFallsBackWhenReasoningOutputIsEnabled() {
+        let decision = AFMMLXSpeculativeGenerationDecision.evaluate(
+            mode: .auto,
+            installedRuntime: .mtp,
+            temperature: 0,
+            hasUnsupportedGenerationModifiers: false,
+            hasReasoningOutput: true,
+            hasImages: false,
+            hasStopSequences: false
+        )
+
+        XCTAssertEqual(decision.path, .fallback)
+        XCTAssertEqual(decision.reason, .reasoningOutput)
+    }
+
+    func testAvailabilityDisablesAccelerationModesWhenNoModelIsLoaded() {
+        let availability = AFMMLXSpeculativeModeAvailability.evaluate(
+            modelLoaded: false,
+            mtpCompatible: false,
+            denseGemma4Verifier: false
+        )
+
+        XCTAssertTrue(availability[.off]?.isSelectable == true)
+        XCTAssertFalse(availability[.auto]?.isSelectable == true)
+        XCTAssertFalse(availability[.mtp]?.isSelectable == true)
+        XCTAssertFalse(availability[.eagle3]?.isSelectable == true)
+    }
+
+    func testAvailabilityEnablesOnlyMTPWhenCompatibleSidecarExists() {
+        let availability = AFMMLXSpeculativeModeAvailability.evaluate(
+            modelLoaded: true,
+            mtpCompatible: true,
+            denseGemma4Verifier: false
+        )
+
+        XCTAssertTrue(availability[.auto]?.isSelectable == true)
+        XCTAssertTrue(availability[.mtp]?.isSelectable == true)
+        XCTAssertFalse(availability[.eagle3]?.isSelectable == true)
+    }
+
+    func testAvailabilityEnablesEagle3ForDenseGemma4EvenBeforeDrafterDownload() {
+        let availability = AFMMLXSpeculativeModeAvailability.evaluate(
+            modelLoaded: true,
+            mtpCompatible: false,
+            denseGemma4Verifier: true
+        )
+
+        XCTAssertTrue(availability[.auto]?.isSelectable == true)
+        XCTAssertFalse(availability[.mtp]?.isSelectable == true)
+        XCTAssertTrue(availability[.eagle3]?.isSelectable == true)
+    }
+
+    func testPendingSelectionEnablesMTPBeforeModelLoadWhenSidecarIsDetected() {
+        let availability = AFMMLXSpeculativeModeAvailability.pendingSelection(
+            mtpCompatible: true,
+            denseGemma4Verifier: false
+        )
+
+        XCTAssertTrue(availability[.off]?.isSelectable == true)
+        XCTAssertTrue(availability[.auto]?.isSelectable == true)
+        XCTAssertTrue(availability[.mtp]?.isSelectable == true)
+        XCTAssertFalse(availability[.eagle3]?.isSelectable == true)
+    }
+
+    func testPendingSelectionKeepsUnsupportedModesDisabledBeforeModelLoad() {
+        let availability = AFMMLXSpeculativeModeAvailability.pendingSelection(
+            mtpCompatible: false,
+            denseGemma4Verifier: false
+        )
+
+        XCTAssertTrue(availability[.off]?.isSelectable == true)
+        XCTAssertFalse(availability[.auto]?.isSelectable == true)
+        XCTAssertFalse(availability[.mtp]?.isSelectable == true)
+        XCTAssertFalse(availability[.eagle3]?.isSelectable == true)
+    }
+}
