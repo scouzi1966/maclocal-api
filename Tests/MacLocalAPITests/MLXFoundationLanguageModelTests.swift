@@ -13,6 +13,12 @@ final class MLXFoundationLanguageModelTests: XCTestCase {
         let answer: String
     }
 
+    @Generable
+    struct TestWeatherToolArguments {
+        @Guide(description: "City name")
+        let city: String
+    }
+
     private struct TestCustomSegment: Transcript.CustomSegment {
         struct Content: Codable, Equatable, Sendable {
             let value: String
@@ -276,6 +282,59 @@ final class MLXFoundationLanguageModelTests: XCTestCase {
             return
         }
         XCTAssertNotNil(properties["answer"])
+    }
+
+    func testGenerationConfigForwardsEnabledToolDefinitions() throws {
+        let model = MLXLanguageModel(
+            modelID: "mlx-community/model-a",
+            defaultMaximumResponseTokens: 2_048,
+            supportsToolCalling: true
+        )
+        let weatherTool = Transcript.ToolDefinition(
+            name: "weather",
+            description: "Look up weather by city.",
+            parameters: GenerationSchema(
+                type: TestWeatherToolArguments.self,
+                properties: [
+                    GenerationSchema.Property(
+                        name: "city",
+                        description: "City name",
+                        type: String.self
+                    )
+                ]
+            )
+        )
+        let request = LanguageModelExecutorGenerationRequest(
+            id: UUID(),
+            transcript: Transcript(entries: [
+                .prompt(.init(segments: [.text(.init(content: "Weather in Toronto?"))]))
+            ]),
+            enabledTools: [weatherTool],
+            generationOptions: GenerationOptions(toolCallingMode: .required),
+            contextOptions: ContextOptions(),
+            metadata: [:]
+        )
+
+        let config = try MLXFoundationRequestAdapter.generationConfig(
+            from: request,
+            model: model
+        )
+
+        let tool = try XCTUnwrap(config.tools?.first)
+        XCTAssertEqual(tool.type, "function")
+        XCTAssertEqual(tool.function.name, "weather")
+        XCTAssertEqual(tool.function.description, "Look up weather by city.")
+        XCTAssertEqual(tool.function.strict, true)
+        guard case .object(let parameters) = try XCTUnwrap(tool.function.parameters).value else {
+            XCTFail("Expected object parameters, got \(String(describing: tool.function.parameters?.value))")
+            return
+        }
+        guard case .object(let properties)? = parameters["properties"] else {
+            XCTFail("Expected tool parameter properties, got \(String(describing: parameters["properties"]))")
+            return
+        }
+        XCTAssertNotNil(properties["city"])
+        XCTAssertEqual(config.metadata["toolCallingMode"], .string("required"))
     }
 
     func testEventChannelAdapterTracksFallbackUsageFromTextTokens() {
