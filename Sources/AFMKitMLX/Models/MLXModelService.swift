@@ -4911,7 +4911,7 @@ public final class MLXModelService: @unchecked Sendable {
 
     /// Check whether any tool in the request has `strict: true`.
     static func hasStrictTools(_ tools: [RequestTool]?) -> Bool {
-        tools?.contains { $0.function.strict == true } ?? false
+        AFMMLXGrammarPolicy.hasStrictTools(tools)
     }
 
     /// The lock-free path is for plain text generation only. Tool requests use
@@ -4933,7 +4933,7 @@ public final class MLXModelService: @unchecked Sendable {
 
     /// Check whether a response_format has json_schema with strict: true.
     static func hasStrictSchema(_ responseFormat: ResponseFormat?) -> Bool {
-        responseFormat?.type == "json_schema" && responseFormat?.jsonSchema?.strict == true
+        AFMMLXGrammarPolicy.hasStrictSchema(responseFormat)
     }
 
     public static func shouldDowngradeGrammarConstraints(
@@ -4942,9 +4942,12 @@ public final class MLXModelService: @unchecked Sendable {
         supportsStrictToolGrammar: Bool,
         enableGrammarConstraints: Bool
     ) -> Bool {
-        let strictSchema = hasStrictSchema(responseFormat)
-        let strictTools = hasStrictTools(tools) && supportsStrictToolGrammar
-        return (strictSchema || strictTools) && !enableGrammarConstraints
+        AFMMLXGrammarPolicy.shouldDowngradeGrammarConstraints(
+            responseFormat: responseFormat,
+            tools: tools,
+            supportsStrictToolGrammar: supportsStrictToolGrammar,
+            enableGrammarConstraints: enableGrammarConstraints
+        )
     }
 
     /// Set up grammar-constrained decoding based on strict × CLI policy.

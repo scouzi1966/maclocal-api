@@ -272,6 +272,36 @@ final class AFMMLXProviderTests: XCTestCase {
         )
     }
 
+    func testGrammarPolicyDowngradesStrictToolsWithoutAdminOptIn() {
+        let tool = RequestTool(
+            type: "function",
+            function: RequestToolFunction(
+                name: "get_weather",
+                description: nil,
+                parameters: AnyCodable(["type": "object"]),
+                strict: true
+            )
+        )
+
+        XCTAssertTrue(AFMMLXGrammarPolicy.hasStrictTools([tool]))
+        XCTAssertTrue(
+            AFMMLXGrammarPolicy.shouldDowngradeGrammarConstraints(
+                responseFormat: nil,
+                tools: [tool],
+                supportsStrictToolGrammar: true,
+                enableGrammarConstraints: false
+            )
+        )
+        XCTAssertFalse(
+            AFMMLXGrammarPolicy.shouldDowngradeGrammarConstraints(
+                responseFormat: nil,
+                tools: [tool],
+                supportsStrictToolGrammar: false,
+                enableGrammarConstraints: false
+            )
+        )
+    }
+
     func testToolPolicyDisablesExplicitNoneParser() {
         XCTAssertTrue(AFMMLXToolCallPolicy.isToolCallParserDisabled(" none "))
         XCTAssertFalse(AFMMLXToolCallPolicy.isToolCallParserDisabled("afm_adaptive_xml"))
