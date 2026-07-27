@@ -303,7 +303,10 @@ final class AFMMLXProviderTests: XCTestCase {
     }
 
     func testToolPolicyDisablesExplicitNoneParser() {
+        XCTAssertTrue(AFMMLXToolCallPolicy.isToolCallParserDisabled("none"))
         XCTAssertTrue(AFMMLXToolCallPolicy.isToolCallParserDisabled(" none "))
+        XCTAssertTrue(AFMMLXToolCallPolicy.isToolCallParserDisabled(" NONE "))
+        XCTAssertFalse(AFMMLXToolCallPolicy.isToolCallParserDisabled(nil))
         XCTAssertFalse(AFMMLXToolCallPolicy.isToolCallParserDisabled("afm_adaptive_xml"))
     }
 

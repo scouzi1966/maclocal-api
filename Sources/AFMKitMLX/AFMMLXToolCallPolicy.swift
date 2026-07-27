@@ -3,7 +3,7 @@ import MLXLMCommon
 
 public enum AFMMLXToolCallPolicy {
     public static func isToolCallParserDisabled(_ parser: String?) -> Bool {
-        MLXModelService.isToolCallParserDisabled(parser)
+        parser?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "none"
     }
 
     public static func normalizeToolCalls(

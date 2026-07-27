@@ -365,7 +365,7 @@ public final class MLXModelService: @unchecked Sendable {
     }
 
     public static func isToolCallParserDisabled(_ parser: String?) -> Bool {
-        parser?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "none"
+        AFMMLXToolCallPolicy.isToolCallParserDisabled(parser)
     }
 
     /// Raw mode (`--tool-call-parser none`): every extraction path — streaming
