@@ -24,7 +24,8 @@ asserts the two agree:
 Exit code `0` = full parity; non-zero = at least one mismatch (details printed per case).
 When `AFM_PARITY_REPORT` is set, the run also writes a JSON report with the
 models, enabled cases, required cases, per-case records, and any missing
-required model/case pairs.
+required model/case pairs. It also records whether no-thinking mode and grammar
+constraints were enabled for the run.
 
 ## Running
 
@@ -60,6 +61,8 @@ swift run AFMParityCheck
 | `AFM_PARITY_PORT` | `9998` | base server port; multi-model runs use this port plus the model index |
 | `AFM_PARITY_CASES` | all cases | comma-separated case IDs, for example `greedy-text,strict-json-schema` |
 | `AFM_PARITY_REQUIRED_CASES` | all cases | comma-separated case IDs that must pass for every model; useful when intentionally running a narrowed smoke report |
+| `AFM_PARITY_NO_THINK` | disabled | set to `1`, `true`, `yes`, or `y` to pass `enable_thinking=false` through both AFMKit-direct and HTTP paths |
+| `AFM_PARITY_ENABLE_GRAMMAR` | disabled | set to `1`, `true`, `yes`, or `y` to enable grammar-constrained decoding in both AFMKit-direct and spawned server paths |
 | `AFM_PARITY_REPORT` | — | JSON report path for durable PR/release evidence |
 | `MACAFM_MLX_MODEL_CACHE` | — | weight cache, shared by both paths (set it to avoid re-downloads) |
 

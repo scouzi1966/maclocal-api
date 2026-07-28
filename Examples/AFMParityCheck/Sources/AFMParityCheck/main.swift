@@ -55,6 +55,18 @@ enum Config {
     static let serverReadyTimeout: TimeInterval = 120
     static let serverPollInterval: TimeInterval = 1.0
     static let maxTokens = 64
+    static let disableThinking: Bool = {
+        let raw = (env["AFM_PARITY_NO_THINK"] ?? "").lowercased()
+        return raw == "1" || raw == "true" || raw == "yes" || raw == "y"
+    }()
+    static let enableGrammarConstraints: Bool = {
+        let raw = (env["AFM_PARITY_ENABLE_GRAMMAR"] ?? "").lowercased()
+        return raw == "1" || raw == "true" || raw == "yes" || raw == "y"
+    }()
+    static var generationMetadata: [String: AFMJSONValue] {
+        guard disableThinking else { return [:] }
+        return ["chatTemplateKwargs": .object(["enable_thinking": .bool(false)])]
+    }
     static let allCases: [String] = [
         "greedy-text",
         "streaming-concat",
@@ -120,6 +132,8 @@ struct ParityReport: Codable, Sendable {
     let models: [String]
     let enabledCases: [String]
     let requiredCases: [String]
+    let noThink: Bool
+    let grammarConstraints: Bool
     let missingRequiredCases: [String]
     let binaryPath: String
     let passed: Int
@@ -177,6 +191,8 @@ actor Tally {
             models: models,
             enabledCases: enabledCases.sorted(),
             requiredCases: requiredCases.sorted(),
+            noThink: Config.disableThinking,
+            grammarConstraints: Config.enableGrammarConstraints,
             missingRequiredCases: missingRequiredCases,
             binaryPath: Config.binaryPath,
             passed: passed,
@@ -214,6 +230,9 @@ func chatRequest(_ body: [String: Any], stream: Bool, run: ModelRun) -> URLReque
     b["stream"] = stream
     b["temperature"] = 0
     if b["max_tokens"] == nil { b["max_tokens"] = Config.maxTokens }
+    if Config.disableThinking, b["chat_template_kwargs"] == nil {
+        b["chat_template_kwargs"] = ["enable_thinking": false]
+    }
     req.httpBody = try! JSONSerialization.data(withJSONObject: b)
     return req
 }
@@ -292,6 +311,12 @@ func spawnServer(run: ModelRun) throws -> Process {
     let p = Process()
     p.executableURL = URL(fileURLWithPath: Config.binaryPath)
     p.arguments = ["mlx", "-m", run.model, "--port", "\(run.port)"]
+    if Config.disableThinking {
+        p.arguments?.append("--no-think")
+    }
+    if Config.enableGrammarConstraints {
+        p.arguments?.append("--enable-grammar-constraints")
+    }
     // Pass the full environment (incl. MACAFM_MLX_MODEL_CACHE) through so the
     // server reuses the same local weights the direct engine loaded.
     p.environment = ProcessInfo.processInfo.environment
@@ -387,7 +412,10 @@ struct AFMParityCheck {
         // ---- (A) Build the in-process engine -------------------------------
         let engine = AFMEngine(
             backend: .mlx(modelID: run.model),
-            config: EngineConfig(enablePrefixCaching: false)
+            config: EngineConfig(
+                enablePrefixCaching: false,
+                enableGrammarConstraints: Config.enableGrammarConstraints
+            )
         )
         do {
             print("loading model (direct)…")
@@ -416,7 +444,11 @@ struct AFMParityCheck {
             await tally.skip("greedy-text", model: run.model)
         } else { do {
             let prompt = "Name three primary colors."
-            let cfg = GenerationConfig(temperature: 0, maxTokens: Config.maxTokens)
+            let cfg = GenerationConfig(
+                temperature: 0,
+                maxTokens: Config.maxTokens,
+                metadata: Config.generationMetadata
+            )
             let direct = try await engine.respond(to: userMessages(prompt), cfg)
             let http = try await httpChat(["messages": wireMessages(prompt)], run: run)
             let d = normalize(direct.content), h = normalize(contentOf(http))
@@ -430,7 +462,11 @@ struct AFMParityCheck {
             await tally.skip("streaming-concat", model: run.model)
         } else { do {
             let prompt = "List the days of the week."
-            let cfg = GenerationConfig(temperature: 0, maxTokens: Config.maxTokens)
+            let cfg = GenerationConfig(
+                temperature: 0,
+                maxTokens: Config.maxTokens,
+                metadata: Config.generationMetadata
+            )
             var directStream = ""
             for try await delta in engine.streamRespond(to: userMessages(prompt), cfg) { directStream += delta }
             let directFull = try await engine.respond(to: userMessages(prompt), cfg)
@@ -453,7 +489,13 @@ struct AFMParityCheck {
             await tally.skip("logprobs", model: run.model)
         } else { do {
             let prompt = "Reply with exactly: OK"
-            let cfg = GenerationConfig(temperature: 0, maxTokens: Config.maxTokens, logprobs: true, topLogprobs: 0)
+            let cfg = GenerationConfig(
+                temperature: 0,
+                maxTokens: Config.maxTokens,
+                logprobs: true,
+                topLogprobs: 0,
+                metadata: Config.generationMetadata
+            )
             let direct = try await engine.respond(to: userMessages(prompt), cfg)
             let http = try await httpChat(["messages": wireMessages(prompt),
                                            "logprobs": true], run: run)
@@ -485,7 +527,12 @@ struct AFMParityCheck {
         } else { do {
             let prompt = "Return a JSON object with keys \"city\" and \"country\" for Paris."
             let fmt = ResponseFormat(type: "json_object")
-            let cfg = GenerationConfig(temperature: 0, maxTokens: Config.maxTokens, responseFormat: fmt)
+            let cfg = GenerationConfig(
+                temperature: 0,
+                maxTokens: Config.maxTokens,
+                responseFormat: fmt,
+                metadata: Config.generationMetadata
+            )
             let direct = try await engine.respond(to: userMessages(prompt), cfg)
             let http = contentOf(try await httpChat(["messages": wireMessages(prompt),
                                                      "response_format": ["type": "json_object"]], run: run))
@@ -515,7 +562,12 @@ struct AFMParityCheck {
                     parameters: schema,
                     strict: nil))
             let prompt = "What's the weather in Tokyo? Use the tool."
-            let cfg = GenerationConfig(temperature: 0, maxTokens: Config.maxTokens, tools: [tool])
+            let cfg = GenerationConfig(
+                temperature: 0,
+                maxTokens: Config.maxTokens,
+                tools: [tool],
+                metadata: Config.generationMetadata
+            )
             let direct = try await engine.respond(to: userMessages(prompt), cfg)
             let wireTools: [[String: Any]] = [[
                 "type": "function",
@@ -552,7 +604,8 @@ struct AFMParityCheck {
             let cfg = GenerationConfig(
                 temperature: 0,
                 maxTokens: Config.maxTokens,
-                stop: stop
+                stop: stop,
+                metadata: Config.generationMetadata
             )
             let direct = try await engine.respond(to: userMessages(prompt), cfg)
             let http = try await httpChat([
@@ -588,7 +641,8 @@ struct AFMParityCheck {
             let cfg = GenerationConfig(
                 temperature: 0,
                 maxTokens: Config.maxTokens,
-                responseFormat: fmt
+                responseFormat: fmt,
+                metadata: Config.generationMetadata
             )
             let direct = try await engine.respond(to: userMessages(prompt), cfg)
             let http = contentOf(try await httpChat([
