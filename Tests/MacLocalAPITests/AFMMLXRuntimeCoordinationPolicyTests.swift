@@ -123,6 +123,26 @@ final class AFMMLXRuntimeCoordinationPolicyTests: XCTestCase {
         )
     }
 
+    func testCancelledLoadingStateRequestsCancellationAndPublishesUserMessage() {
+        let state = AFMMLXRuntimeCoordinationPolicy.cancelledLoadingState()
+
+        XCTAssertTrue(state.shouldCancelLoading)
+        XCTAssertFalse(state.loadingState.isLoadingModel)
+        XCTAssertNil(state.loadingState.loadingModelName)
+        XCTAssertEqual(state.loadingState.downloadProgress, 0)
+        XCTAssertEqual(state.loadingState.lastReportedProgress, 0)
+        XCTAssertEqual(state.loadingState.errorMessage, "Model download cancelled by user")
+    }
+
+    func testCancelledLoadingStateCanUseCustomMessage() {
+        let state = AFMMLXRuntimeCoordinationPolicy.cancelledLoadingState(
+            errorMessage: "Load cancelled"
+        )
+
+        XCTAssertTrue(state.shouldCancelLoading)
+        XCTAssertEqual(state.loadingState.errorMessage, "Load cancelled")
+    }
+
     func testProgressStateSuppressesSmallIntermediateUpdates() {
         let state = AFMMLXRuntimeCoordinationPolicy.progressState(
             newProgress: 0.105,

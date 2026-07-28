@@ -119,6 +119,19 @@ public struct AFMMLXRuntimeLoadingState: Equatable, Sendable {
     }
 }
 
+public struct AFMMLXRuntimeCancellationState: Equatable, Sendable {
+    public let shouldCancelLoading: Bool
+    public let loadingState: AFMMLXRuntimeLoadingState
+
+    public init(
+        shouldCancelLoading: Bool,
+        loadingState: AFMMLXRuntimeLoadingState
+    ) {
+        self.shouldCancelLoading = shouldCancelLoading
+        self.loadingState = loadingState
+    }
+}
+
 public struct AFMMLXRuntimeLoadedState: Equatable, Sendable {
     public let loadedModelName: String
     public let loadedModelRepoID: String
@@ -169,6 +182,7 @@ public struct AFMMLXRuntimeProgressState: Equatable, Sendable {
 public enum AFMMLXRuntimeCoordinationPolicy {
     public nonisolated static let defaultProgressPublicationThreshold = 0.01
     public nonisolated static let defaultCompletionProgressThreshold = 0.99
+    public nonisolated static let defaultCancellationMessage = "Model download cancelled by user"
 
     public nonisolated static func cacheKey(
         modelName: String,
@@ -234,6 +248,21 @@ public enum AFMMLXRuntimeCoordinationPolicy {
             resolvedErrorMessage = "Failed to load model: \(localizedDescription)"
         }
         return failedLoadingState(errorMessage: resolvedErrorMessage)
+    }
+
+    public nonisolated static func cancelledLoadingState(
+        errorMessage: String = Self.defaultCancellationMessage
+    ) -> AFMMLXRuntimeCancellationState {
+        AFMMLXRuntimeCancellationState(
+            shouldCancelLoading: true,
+            loadingState: AFMMLXRuntimeLoadingState(
+                isLoadingModel: false,
+                loadingModelName: nil,
+                downloadProgress: 0,
+                lastReportedProgress: 0,
+                errorMessage: errorMessage
+            )
+        )
     }
 
     public nonisolated static func loadedState(
