@@ -120,6 +120,17 @@ public enum AFMMLXEagle3DrafterDownloadPolicy {
 }
 
 public enum AFMMLXSpeculativeRuntimeSetupPlanner {
+    public static func unloadedState(
+        selectedMode: AFMMLXSpeculativeDecodingMode
+    ) -> AFMMLXSpeculativeRuntimeSetupState {
+        AFMMLXSpeculativeRuntimeSetupState(
+            availability: AFMMLXSpeculativeModeAvailability.unloaded,
+            statusKind: .none,
+            statusText: selectedMode == .off ? "Acceleration off" : "Acceleration not loaded",
+            shouldAskToDownloadEagle3Drafter: false
+        )
+    }
+
     public static func make(
         selectedMode: AFMMLXSpeculativeDecodingMode,
         modelDirectoryAvailable: Bool,

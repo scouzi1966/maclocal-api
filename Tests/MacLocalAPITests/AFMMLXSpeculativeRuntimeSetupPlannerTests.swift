@@ -2,6 +2,20 @@ import XCTest
 import AFMKitMLX
 
 final class AFMMLXSpeculativeRuntimeSetupPlannerTests: XCTestCase {
+    func testUnloadedStateReflectsSelectedMode() {
+        let off = AFMMLXSpeculativeRuntimeSetupPlanner.unloadedState(selectedMode: .off)
+        XCTAssertEqual(off.statusKind, .none)
+        XCTAssertEqual(off.statusText, "Acceleration off")
+        XCTAssertEqual(off.availability, AFMMLXSpeculativeModeAvailability.unloaded)
+        XCTAssertFalse(off.shouldAskToDownloadEagle3Drafter)
+
+        let auto = AFMMLXSpeculativeRuntimeSetupPlanner.unloadedState(selectedMode: .auto)
+        XCTAssertEqual(auto.statusKind, .none)
+        XCTAssertEqual(auto.statusText, "Acceleration not loaded")
+        XCTAssertEqual(auto.availability, AFMMLXSpeculativeModeAvailability.unloaded)
+        XCTAssertFalse(auto.shouldAskToDownloadEagle3Drafter)
+    }
+
     func testOffModeDoesNotAttemptAcceleration() {
         let plan = AFMMLXSpeculativeRuntimeSetupPlanner.make(
             selectedMode: .off,
