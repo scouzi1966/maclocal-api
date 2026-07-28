@@ -323,6 +323,30 @@ public struct AFMMLXModelStore: Sendable {
         )
     }
 
+    /// Returns the host-facing presentation for a configured model identifier
+    /// after resolving it through an optional concrete local load identifier.
+    ///
+    /// Use `resolvedID` when the host stores a security-scoped or user-facing
+    /// identifier but must load from a resolved local path. The returned
+    /// descriptor keeps the host's configured ID while all local metadata comes
+    /// from AFMKit's model-store resolution.
+    public func modelPresentation(
+        configuredID: String,
+        resolvedID: String? = nil
+    ) -> AFMMLXModelPresentation? {
+        guard let configured = normalizedIdentifier(configuredID) else {
+            return nil
+        }
+        let resolved = normalizedIdentifier(resolvedID) ?? configured
+        guard let reference = loadReference(for: resolved) else {
+            return nil
+        }
+        return AFMMLXModelPresentation.make(
+            configuredID: configured,
+            loadReference: reference
+        )
+    }
+
     /// Returns the directory that should be removed for a locally available
     /// model. Hugging Face cache snapshots resolve to their repository package
     /// directory (`models--org--repo`); flat cache models resolve to the model

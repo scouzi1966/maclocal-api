@@ -349,6 +349,49 @@ final class AFMMLXModelStoreTests: XCTestCase {
         XCTAssertTrue(repoPresentation.capabilityLabels.contains("structured"))
     }
 
+    func testModelPresentationResolvesAlternateLoadIdentifier() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("models/org/imported-model")
+        try makeModel(
+            at: directory,
+            config: [
+                "model_type": "qwen3_vl",
+                "max_position_embeddings": 65_536,
+                "vision_config": ["hidden_size": 128]
+            ],
+            tokenizer: ["chat_template": "<think>{{ tools }}<tool_call>"]
+        )
+
+        let store = AFMMLXModelStore(resolver: MLXCacheResolver(cacheRoot: root))
+        let presentation = try XCTUnwrap(
+            store.modelPresentation(
+                configuredID: "/Volumes/External/ImportedModel",
+                resolvedID: "org/imported-model"
+            )
+        )
+
+        XCTAssertEqual(presentation.configuredID, "/Volumes/External/ImportedModel")
+        XCTAssertEqual(presentation.localDirectory.path, directory.path)
+        XCTAssertEqual(presentation.descriptor.modelID.rawValue, "/Volumes/External/ImportedModel")
+        XCTAssertEqual(presentation.descriptor.displayName, directory.lastPathComponent)
+        XCTAssertEqual(presentation.descriptor.contextWindow, 65_536)
+        XCTAssertEqual(presentation.descriptor.requiresNetwork, false)
+        XCTAssertTrue(presentation.capabilityLabels.contains("vision"))
+        XCTAssertTrue(presentation.capabilityLabels.contains("tools"))
+    }
+
+    func testModelPresentationReturnsNilForBlankOrMissingModel() {
+        let store = AFMMLXModelStore()
+
+        XCTAssertNil(store.modelPresentation(configuredID: "  "))
+        XCTAssertNil(store.modelPresentation(
+            configuredID: "configured/model",
+            resolvedID: "/missing/model-\(UUID().uuidString)"
+        ))
+    }
+
     func testLoadReferenceResolvesSwiftHubFlatModelByRepoID() throws {
         let documents = try XCTUnwrap(
             FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
