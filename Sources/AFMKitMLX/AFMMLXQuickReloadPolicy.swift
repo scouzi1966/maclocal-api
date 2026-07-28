@@ -19,6 +19,18 @@ public enum AFMMLXQuickReloadPlan: Equatable, Sendable {
     case unavailable
 }
 
+public struct AFMMLXImportedFallbackAccess: Equatable, Sendable {
+    public let rawPath: String
+    public let name: String
+    public let isVision: Bool
+
+    public init(rawPath: String, name: String, isVision: Bool) {
+        self.rawPath = rawPath
+        self.name = name
+        self.isVision = isVision
+    }
+}
+
 public enum AFMMLXQuickReloadPolicy {
     public static func make(
         loadedModelRepoID: String?,
@@ -52,5 +64,19 @@ public enum AFMMLXQuickReloadPolicy {
             return String(trimmed.dropFirst("imported:".count))
         }
         return trimmed.hasPrefix("/") ? trimmed : nil
+    }
+
+    public static func fallbackImportedAccess(
+        rawPath: String,
+        isVision: Bool
+    ) -> AFMMLXImportedFallbackAccess? {
+        guard let importedPath = importedPath(from: rawPath) else {
+            return nil
+        }
+        return AFMMLXImportedFallbackAccess(
+            rawPath: importedPath,
+            name: URL(fileURLWithPath: importedPath).lastPathComponent,
+            isVision: isVision
+        )
     }
 }

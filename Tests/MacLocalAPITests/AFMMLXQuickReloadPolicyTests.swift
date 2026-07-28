@@ -89,4 +89,39 @@ final class AFMMLXQuickReloadPolicyTests: XCTestCase {
         )
         XCTAssertNil(AFMMLXQuickReloadPolicy.importedPath(from: "mlx-community/model"))
     }
+
+    func testFallbackImportedAccessUsesNormalizedPathNameAndVisionMode() {
+        XCTAssertEqual(
+            AFMMLXQuickReloadPolicy.fallbackImportedAccess(
+                rawPath: " imported:/Volumes/models/local-model ",
+                isVision: true
+            ),
+            AFMMLXImportedFallbackAccess(
+                rawPath: "/Volumes/models/local-model",
+                name: "local-model",
+                isVision: true
+            )
+        )
+
+        XCTAssertEqual(
+            AFMMLXQuickReloadPolicy.fallbackImportedAccess(
+                rawPath: " /Volumes/models/text-model ",
+                isVision: false
+            ),
+            AFMMLXImportedFallbackAccess(
+                rawPath: "/Volumes/models/text-model",
+                name: "text-model",
+                isVision: false
+            )
+        )
+    }
+
+    func testFallbackImportedAccessRejectsRepositoryIdentifier() {
+        XCTAssertNil(
+            AFMMLXQuickReloadPolicy.fallbackImportedAccess(
+                rawPath: "mlx-community/model",
+                isVision: true
+            )
+        )
+    }
 }
