@@ -97,6 +97,59 @@ public struct AFMMLXRuntimeUnloadState: Equatable, Sendable {
     }
 }
 
+public struct AFMMLXRuntimeLoadingState: Equatable, Sendable {
+    public let isLoadingModel: Bool
+    public let loadingModelName: String?
+    public let downloadProgress: Double
+    public let lastReportedProgress: Double
+    public let errorMessage: String?
+
+    public init(
+        isLoadingModel: Bool,
+        loadingModelName: String?,
+        downloadProgress: Double,
+        lastReportedProgress: Double,
+        errorMessage: String?
+    ) {
+        self.isLoadingModel = isLoadingModel
+        self.loadingModelName = loadingModelName
+        self.downloadProgress = downloadProgress
+        self.lastReportedProgress = lastReportedProgress
+        self.errorMessage = errorMessage
+    }
+}
+
+public struct AFMMLXRuntimeLoadedState: Equatable, Sendable {
+    public let loadedModelName: String
+    public let loadedModelRepoID: String
+    public let isModelLoaded: Bool
+    public let isLoadedModelVLM: Bool
+    public let isLoadingModel: Bool
+    public let loadingModelName: String?
+    public let isDownloadingPhase: Bool
+    public let downloadProgress: Double
+
+    public init(
+        loadedModelName: String,
+        loadedModelRepoID: String,
+        isModelLoaded: Bool,
+        isLoadedModelVLM: Bool,
+        isLoadingModel: Bool,
+        loadingModelName: String?,
+        isDownloadingPhase: Bool,
+        downloadProgress: Double
+    ) {
+        self.loadedModelName = loadedModelName
+        self.loadedModelRepoID = loadedModelRepoID
+        self.isModelLoaded = isModelLoaded
+        self.isLoadedModelVLM = isLoadedModelVLM
+        self.isLoadingModel = isLoadingModel
+        self.loadingModelName = loadingModelName
+        self.isDownloadingPhase = isDownloadingPhase
+        self.downloadProgress = downloadProgress
+    }
+}
+
 public enum AFMMLXRuntimeCoordinationPolicy {
     public nonisolated static func cacheKey(
         modelName: String,
@@ -120,6 +173,43 @@ public enum AFMMLXRuntimeCoordinationPolicy {
             speculativeModeAvailability: AFMMLXSpeculativeModeAvailability.unloaded,
             lastSpeculativeGenerationPath: .normal,
             shouldAskToDownloadEagle3Drafter: false
+        )
+    }
+
+    public nonisolated static func loadingState(modelName: String) -> AFMMLXRuntimeLoadingState {
+        AFMMLXRuntimeLoadingState(
+            isLoadingModel: true,
+            loadingModelName: modelName.trimmingCharacters(in: .whitespacesAndNewlines),
+            downloadProgress: 0,
+            lastReportedProgress: 0,
+            errorMessage: nil
+        )
+    }
+
+    public nonisolated static func failedLoadingState(errorMessage: String) -> AFMMLXRuntimeLoadingState {
+        AFMMLXRuntimeLoadingState(
+            isLoadingModel: false,
+            loadingModelName: nil,
+            downloadProgress: 0,
+            lastReportedProgress: 0,
+            errorMessage: errorMessage
+        )
+    }
+
+    public nonisolated static func loadedState(
+        modelName: String,
+        repoID: String,
+        isVision: Bool
+    ) -> AFMMLXRuntimeLoadedState {
+        AFMMLXRuntimeLoadedState(
+            loadedModelName: modelName,
+            loadedModelRepoID: repoID,
+            isModelLoaded: true,
+            isLoadedModelVLM: isVision,
+            isLoadingModel: false,
+            loadingModelName: nil,
+            isDownloadingPhase: false,
+            downloadProgress: 1
         )
     }
 

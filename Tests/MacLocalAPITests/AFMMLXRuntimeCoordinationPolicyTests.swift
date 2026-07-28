@@ -45,6 +45,47 @@ final class AFMMLXRuntimeCoordinationPolicyTests: XCTestCase {
         XCTAssertFalse(state.shouldAskToDownloadEagle3Drafter)
     }
 
+    func testLoadingStateResetsProgressAndClearsPreviousError() {
+        let state = AFMMLXRuntimeCoordinationPolicy.loadingState(
+            modelName: "  mlx-community/Qwen3.5  "
+        )
+
+        XCTAssertTrue(state.isLoadingModel)
+        XCTAssertEqual(state.loadingModelName, "mlx-community/Qwen3.5")
+        XCTAssertEqual(state.downloadProgress, 0)
+        XCTAssertEqual(state.lastReportedProgress, 0)
+        XCTAssertNil(state.errorMessage)
+    }
+
+    func testLoadedStatePublishesRuntimeIdentityAndCompletionProgress() {
+        let state = AFMMLXRuntimeCoordinationPolicy.loadedState(
+            modelName: "Qwen3.5",
+            repoID: "mlx-community/Qwen3.5",
+            isVision: true
+        )
+
+        XCTAssertEqual(state.loadedModelName, "Qwen3.5")
+        XCTAssertEqual(state.loadedModelRepoID, "mlx-community/Qwen3.5")
+        XCTAssertTrue(state.isModelLoaded)
+        XCTAssertTrue(state.isLoadedModelVLM)
+        XCTAssertFalse(state.isLoadingModel)
+        XCTAssertNil(state.loadingModelName)
+        XCTAssertFalse(state.isDownloadingPhase)
+        XCTAssertEqual(state.downloadProgress, 1)
+    }
+
+    func testFailedLoadingStateStopsLoadingAndCarriesMessage() {
+        let state = AFMMLXRuntimeCoordinationPolicy.failedLoadingState(
+            errorMessage: "Failed to load model"
+        )
+
+        XCTAssertFalse(state.isLoadingModel)
+        XCTAssertNil(state.loadingModelName)
+        XCTAssertEqual(state.downloadProgress, 0)
+        XCTAssertEqual(state.lastReportedProgress, 0)
+        XCTAssertEqual(state.errorMessage, "Failed to load model")
+    }
+
     func testDefaultArgumentsInitializeLegacyRuntime() {
         let policy = AFMMLXRuntimeStartupPolicy.make(arguments: ["afm"])
 
