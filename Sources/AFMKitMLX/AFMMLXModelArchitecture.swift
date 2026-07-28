@@ -22,6 +22,31 @@ public struct AFMMLXModelArchitecturePreflight: Hashable, Sendable {
     }
 }
 
+public struct AFMMLXRemoteModelLoadPlan: Hashable, Sendable {
+    public let repoID: String
+    public let modelName: String
+    public let isVision: Bool
+    public let preflightModelType: String?
+    public let correctedVisionFromRequest: Bool
+    public let forceLLMOnlyApplied: Bool
+
+    public init(
+        repoID: String,
+        modelName: String,
+        isVision: Bool,
+        preflightModelType: String?,
+        correctedVisionFromRequest: Bool,
+        forceLLMOnlyApplied: Bool
+    ) {
+        self.repoID = repoID
+        self.modelName = modelName
+        self.isVision = isVision
+        self.preflightModelType = preflightModelType
+        self.correctedVisionFromRequest = correctedVisionFromRequest
+        self.forceLLMOnlyApplied = forceLLMOnlyApplied
+    }
+}
+
 public enum AFMMLXModelArchitecturePreflightError: Error, LocalizedError, Sendable {
     case invalidConfiguration(String)
     case unsupportedArchitecture(modelType: String, modelID: String)
@@ -36,6 +61,35 @@ public enum AFMMLXModelArchitecturePreflightError: Error, LocalizedError, Sendab
         case .metalCrashArchitecture(let modelType, let modelID):
             return "Model '\(modelID)' (architecture: \(modelType)) is blocked because it crashes the Metal GPU driver."
         }
+    }
+}
+
+public enum AFMMLXRemoteModelLoadPolicy {
+    public static func modelName(from repoID: String) -> String {
+        String(repoID.split(separator: "/").last ?? Substring(repoID))
+    }
+
+    public static func plan(
+        repoID: String,
+        requestedIsVision: Bool,
+        forceLLMOnly: Bool,
+        preflight: AFMMLXModelArchitecturePreflight?
+    ) -> AFMMLXRemoteModelLoadPlan {
+        var resolvedIsVision = preflight?.isVisionConfiguration ?? requestedIsVision
+        let correctedVisionFromRequest = resolvedIsVision != requestedIsVision
+        let forceLLMOnlyApplied = forceLLMOnly && resolvedIsVision
+        if forceLLMOnlyApplied {
+            resolvedIsVision = false
+        }
+
+        return AFMMLXRemoteModelLoadPlan(
+            repoID: repoID,
+            modelName: modelName(from: repoID),
+            isVision: resolvedIsVision,
+            preflightModelType: preflight?.modelType,
+            correctedVisionFromRequest: correctedVisionFromRequest,
+            forceLLMOnlyApplied: forceLLMOnlyApplied
+        )
     }
 }
 

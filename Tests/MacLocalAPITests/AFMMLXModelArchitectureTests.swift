@@ -79,6 +79,66 @@ final class AFMMLXModelArchitectureTests: XCTestCase {
         XCTAssertTrue(preflight.requiresVisionModelFactory)
     }
 
+    func testRemoteModelLoadPlanUsesRequestedVisionWithoutPreflight() {
+        let plan = AFMMLXRemoteModelLoadPolicy.plan(
+            repoID: "mlx-community/Qwen3-4B-4bit",
+            requestedIsVision: false,
+            forceLLMOnly: false,
+            preflight: nil
+        )
+
+        XCTAssertEqual(plan.repoID, "mlx-community/Qwen3-4B-4bit")
+        XCTAssertEqual(plan.modelName, "Qwen3-4B-4bit")
+        XCTAssertFalse(plan.isVision)
+        XCTAssertNil(plan.preflightModelType)
+        XCTAssertFalse(plan.correctedVisionFromRequest)
+        XCTAssertFalse(plan.forceLLMOnlyApplied)
+    }
+
+    func testRemoteModelLoadPlanCorrectsVisionFromPreflight() {
+        let preflight = AFMMLXModelArchitecturePreflight(
+            modelID: "mlx-community/Qwen3.5-35B-A3B-4bit",
+            modelType: "qwen3.5",
+            canonicalModelType: "qwen3_5",
+            isVisionConfiguration: true,
+            requiresVisionModelFactory: true
+        )
+
+        let plan = AFMMLXRemoteModelLoadPolicy.plan(
+            repoID: preflight.modelID,
+            requestedIsVision: false,
+            forceLLMOnly: false,
+            preflight: preflight
+        )
+
+        XCTAssertEqual(plan.modelName, "Qwen3.5-35B-A3B-4bit")
+        XCTAssertTrue(plan.isVision)
+        XCTAssertEqual(plan.preflightModelType, "qwen3.5")
+        XCTAssertTrue(plan.correctedVisionFromRequest)
+        XCTAssertFalse(plan.forceLLMOnlyApplied)
+    }
+
+    func testRemoteModelLoadPlanForceLLMOnlyOverridesVisionPreflight() {
+        let preflight = AFMMLXModelArchitecturePreflight(
+            modelID: "mlx-community/Qwen3.5-35B-A3B-4bit",
+            modelType: "qwen3.5",
+            canonicalModelType: "qwen3_5",
+            isVisionConfiguration: true,
+            requiresVisionModelFactory: true
+        )
+
+        let plan = AFMMLXRemoteModelLoadPolicy.plan(
+            repoID: preflight.modelID,
+            requestedIsVision: true,
+            forceLLMOnly: true,
+            preflight: preflight
+        )
+
+        XCTAssertFalse(plan.isVision)
+        XCTAssertFalse(plan.correctedVisionFromRequest)
+        XCTAssertTrue(plan.forceLLMOnlyApplied)
+    }
+
     func testPreflightConfigurationRejectsUnsupportedAndBlockedArchitectures() {
         XCTAssertThrowsError(try AFMMLXModelArchitecture.preflightConfiguration(
             ["model_type": "unknown_arch"],
