@@ -278,6 +278,19 @@ public enum AFMMLXLoadSelectionPolicy {
         return result
     }
 
+    /// Convert a UI quick-picker selection into the canonical persisted model
+    /// identifier. Imported entries are persisted as their raw local path.
+    public static func persistedSelectionID(for selectionID: String) -> String? {
+        guard let trimmedSelection = normalized(selectionID) else {
+            return nil
+        }
+        let importedPrefix = "imported:"
+        if trimmedSelection.hasPrefix(importedPrefix) {
+            return normalized(String(trimmedSelection.dropFirst(importedPrefix.count)))
+        }
+        return trimmedSelection
+    }
+
     public static func quickPickerOptions(
         loadedModelID: String?,
         loadedModelName: String?,
@@ -376,5 +389,13 @@ public enum AFMMLXLoadSelectionPolicy {
             return downloaded.isVision
         }
         return nil
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 }

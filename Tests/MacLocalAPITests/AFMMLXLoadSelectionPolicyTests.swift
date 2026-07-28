@@ -400,6 +400,25 @@ final class AFMMLXLoadSelectionPolicyTests: XCTestCase {
         )
     }
 
+    func testPersistedSelectionIDTrimsRepositorySelection() {
+        XCTAssertEqual(
+            AFMMLXLoadSelectionPolicy.persistedSelectionID(for: " mlx-community/Qwen3-4B "),
+            "mlx-community/Qwen3-4B"
+        )
+    }
+
+    func testPersistedSelectionIDStripsImportedPrefix() {
+        XCTAssertEqual(
+            AFMMLXLoadSelectionPolicy.persistedSelectionID(for: " imported:/Volumes/models/local-vlm "),
+            "/Volumes/models/local-vlm"
+        )
+    }
+
+    func testPersistedSelectionIDRejectsBlankAndBlankImportedSelection() {
+        XCTAssertNil(AFMMLXLoadSelectionPolicy.persistedSelectionID(for: " \n "))
+        XCTAssertNil(AFMMLXLoadSelectionPolicy.persistedSelectionID(for: " imported: \n "))
+    }
+
     func testQuickPickerOptionsPreserveSectionsAndFilterUnavailableModels() {
         XCTAssertEqual(
             AFMMLXLoadSelectionPolicy.quickPickerOptions(
