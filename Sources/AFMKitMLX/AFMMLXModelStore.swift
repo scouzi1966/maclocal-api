@@ -100,6 +100,70 @@ public struct AFMMLXModelLoadReference: Hashable, Sendable {
     }
 }
 
+public struct AFMMLXModelPresentation: Hashable, Sendable {
+    public var configuredID: String
+    public var localDirectory: URL
+    public var descriptor: AFMModelDescriptor
+    public var capabilityLabels: [String]
+
+    public init(
+        configuredID: String,
+        localDirectory: URL,
+        descriptor: AFMModelDescriptor,
+        capabilityLabels: [String]
+    ) {
+        self.configuredID = configuredID
+        self.localDirectory = localDirectory
+        self.descriptor = descriptor
+        self.capabilityLabels = capabilityLabels
+    }
+
+    public static func make(
+        configuredID: String,
+        loadReference: AFMMLXModelLoadReference
+    ) -> AFMMLXModelPresentation {
+        var descriptor = loadReference.descriptor
+        descriptor.modelID = AFMModelID(rawValue: configuredID)
+        descriptor.displayName = displayName(
+            for: configuredID,
+            localDirectory: loadReference.localDirectory
+        )
+        descriptor.requiresNetwork = false
+
+        return AFMMLXModelPresentation(
+            configuredID: configuredID,
+            localDirectory: loadReference.localDirectory,
+            descriptor: descriptor,
+            capabilityLabels: capabilityLabels(for: descriptor.capabilities)
+        )
+    }
+
+    public static func displayName(
+        for configuredID: String,
+        localDirectory: URL
+    ) -> String {
+        if configuredID.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/") {
+            return localDirectory.lastPathComponent
+        }
+        return configuredID.split(separator: "/").last.map(String.init) ?? configuredID
+    }
+
+    public static func capabilityLabels(for capabilities: AFMModelCapabilities) -> [String] {
+        [
+            (.text, "text"),
+            (.vision, "vision"),
+            (.reasoning, "reasoning"),
+            (.toolCalling, "tools"),
+            (.structuredOutput, "structured"),
+            (.streaming, "streaming"),
+            (.prefixCaching, "prefix cache"),
+            (.speculativeDecoding, "spec decoding")
+        ].compactMap { capability, label in
+            capabilities.contains(capability) ? label : nil
+        }
+    }
+}
+
 public struct AFMMLXModelDeleteResult: Hashable, Sendable {
     public var requestedID: String
     public var removedDirectory: URL

@@ -311,6 +311,44 @@ final class AFMMLXModelStoreTests: XCTestCase {
         XCTAssertEqual(reference.descriptor.requiresNetwork, false)
     }
 
+    func testModelPresentationOverridesConfiguredIDDisplayNameAndCapabilityLabels() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("models/org/vision-model")
+        try makeModel(
+            at: directory,
+            config: [
+                "architectures": ["QwenVLForConditionalGeneration"],
+                "model_type": "qwen2"
+            ],
+            tokenizer: ["chat_template": "<think>{{ tools }}<tool_call>"]
+        )
+        let reference = try XCTUnwrap(
+            AFMMLXModelStore(resolver: MLXCacheResolver(cacheRoot: root))
+                .loadReference(for: "org/vision-model")
+        )
+
+        let repoPresentation = AFMMLXModelPresentation.make(
+            configuredID: "custom/RuntimeID",
+            loadReference: reference
+        )
+        let pathPresentation = AFMMLXModelPresentation.make(
+            configuredID: "/custom/path/RuntimeID",
+            loadReference: reference
+        )
+
+        XCTAssertEqual(repoPresentation.configuredID, "custom/RuntimeID")
+        XCTAssertEqual(repoPresentation.localDirectory.path, directory.path)
+        XCTAssertEqual(repoPresentation.descriptor.modelID.rawValue, "custom/RuntimeID")
+        XCTAssertEqual(repoPresentation.descriptor.displayName, "RuntimeID")
+        XCTAssertEqual(repoPresentation.descriptor.requiresNetwork, false)
+        XCTAssertEqual(pathPresentation.descriptor.displayName, directory.lastPathComponent)
+        XCTAssertTrue(repoPresentation.capabilityLabels.contains("vision"))
+        XCTAssertTrue(repoPresentation.capabilityLabels.contains("tools"))
+        XCTAssertTrue(repoPresentation.capabilityLabels.contains("structured"))
+    }
+
     func testLoadReferenceResolvesSwiftHubFlatModelByRepoID() throws {
         let documents = try XCTUnwrap(
             FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
@@ -644,7 +682,8 @@ final class AFMMLXModelStoreTests: XCTestCase {
     private func makeModel(
         at directory: URL,
         contextWindow: Int? = nil,
-        config explicitConfig: [String: Any]? = nil
+        config explicitConfig: [String: Any]? = nil,
+        tokenizer: [String: Any]? = nil
     ) throws {
         try FileManager.default.createDirectory(
             at: directory,
@@ -657,6 +696,11 @@ final class AFMMLXModelStoreTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: config).write(
             to: directory.appendingPathComponent("config.json")
         )
+        if let tokenizer {
+            try JSONSerialization.data(withJSONObject: tokenizer).write(
+                to: directory.appendingPathComponent("tokenizer_config.json")
+            )
+        }
         try Data("weights".utf8).write(
             to: directory.appendingPathComponent("weights.safetensors")
         )
