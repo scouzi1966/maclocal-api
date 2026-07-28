@@ -2,6 +2,49 @@ import XCTest
 @testable import AFMKitMLX
 
 final class AFMMLXRuntimeCoordinationPolicyTests: XCTestCase {
+    func testCacheKeySeparatesLLMAndVLMContainers() {
+        let llm = AFMMLXRuntimeCoordinationPolicy.cacheKey(
+            modelName: "Qwen3-4bit",
+            isVision: false
+        )
+        let vlm = AFMMLXRuntimeCoordinationPolicy.cacheKey(
+            modelName: "Qwen3-4bit",
+            isVision: true
+        )
+
+        XCTAssertEqual(llm.value, "Qwen3-4bit#llm")
+        XCTAssertEqual(vlm.value, "Qwen3-4bit#vlm")
+        XCTAssertNotEqual(llm, vlm)
+    }
+
+    func testCacheKeyTrimsModelName() {
+        let key = AFMMLXRuntimeCoordinationPolicy.cacheKey(
+            modelName: "  mlx-community/Gemma-4bit  ",
+            isVision: false
+        )
+
+        XCTAssertEqual(key.modelName, "mlx-community/Gemma-4bit")
+        XCTAssertEqual(key.value, "mlx-community/Gemma-4bit#llm")
+    }
+
+    func testUnloadedStateResetsRuntimeAndSpeculativeStatus() {
+        let state = AFMMLXRuntimeCoordinationPolicy.unloadedState()
+
+        XCTAssertNil(state.loadedModelName)
+        XCTAssertFalse(state.isModelLoaded)
+        XCTAssertFalse(state.isLoadedModelVLM)
+        XCTAssertNil(state.loadedModelRepoID)
+        XCTAssertNil(state.loadedModelType)
+        XCTAssertFalse(state.loadedModelHasImplicitReasoning)
+        XCTAssertFalse(state.supportsThinkingToggle)
+        XCTAssertNil(state.modelContextWindow)
+        XCTAssertEqual(state.speculativeStatusText, "Acceleration not loaded")
+        XCTAssertEqual(state.speculativeStatusKind, .none)
+        XCTAssertEqual(state.speculativeModeAvailability, AFMMLXSpeculativeModeAvailability.unloaded)
+        XCTAssertEqual(state.lastSpeculativeGenerationPath, .normal)
+        XCTAssertFalse(state.shouldAskToDownloadEagle3Drafter)
+    }
+
     func testDefaultArgumentsInitializeLegacyRuntime() {
         let policy = AFMMLXRuntimeStartupPolicy.make(arguments: ["afm"])
 
