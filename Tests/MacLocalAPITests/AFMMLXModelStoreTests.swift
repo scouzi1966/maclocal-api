@@ -661,6 +661,41 @@ final class AFMMLXModelStoreTests: XCTestCase {
         XCTAssertEqual(result.loadReference.localDirectory.path, directory.path)
     }
 
+    func testDownloadTTSModelPackageUsesSpecialtyPatterns() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let directory = root.appendingPathComponent("models/org/tts-model")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        final class DownloadProbe: @unchecked Sendable {
+            var matching: [String] = []
+        }
+        let probe = DownloadProbe()
+        let store = AFMMLXModelStore(
+            resolver: MLXCacheResolver(cacheRoot: root),
+            downloadSnapshot: { _, matching, _ in
+                probe.matching = matching
+                try FileManager.default.createDirectory(
+                    at: directory,
+                    withIntermediateDirectories: true
+                )
+                try JSONSerialization.data(withJSONObject: [:]).write(
+                    to: directory.appendingPathComponent("config.json")
+                )
+                try Data("weights".utf8).write(
+                    to: directory.appendingPathComponent("weights.safetensors")
+                )
+                return directory
+            }
+        )
+
+        let result = try await store.downloadTTSModelPackage(for: "org/tts-model")
+
+        XCTAssertEqual(probe.matching, AFMMLXModelStore.ttsDownloadPatterns)
+        XCTAssertEqual(result.requestedID, "org/tts-model")
+        XCTAssertEqual(result.loadReference.localDirectory.path, directory.path)
+    }
+
     func testDiscoveryReturnsTypedFlatAndHuggingFaceModels() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

@@ -273,6 +273,13 @@ public struct AFMMLXModelStore: Sendable {
         "*.bin"
     ]
 
+    public static let ttsDownloadPatterns = [
+        "*.safetensors",
+        "*.json",
+        "*.jinja",
+        "tiktoken.model"
+    ]
+
     private let resolver: MLXCacheResolver
     private let downloadSnapshot: AFMMLXModelDownloadSnapshot
 
@@ -424,6 +431,19 @@ public struct AFMMLXModelStore: Sendable {
         }
 
         throw AFMMLXModelStoreError.modelNotFound(trimmed)
+    }
+
+    /// Downloads a Hugging Face MLX TTS/speech package using AFMKit's shared
+    /// specialty-model package shape.
+    public func downloadTTSModelPackage(
+        for modelID: String,
+        progress: (@Sendable (Progress) -> Void)? = nil
+    ) async throws -> AFMMLXModelDownloadResult {
+        try await downloadModelPackage(
+            for: modelID,
+            matching: Self.ttsDownloadPatterns,
+            progress: progress
+        )
     }
 
     /// Describes a model using the same assets and capability inference as the
