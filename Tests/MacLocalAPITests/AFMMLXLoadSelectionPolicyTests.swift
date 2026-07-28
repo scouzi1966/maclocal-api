@@ -369,6 +369,37 @@ final class AFMMLXLoadSelectionPolicyTests: XCTestCase {
         )
     }
 
+    func testDeduplicatedSelectionIDsPreserveLoadedCuratedDownloadedImportedOrder() {
+        let firstImported = URL(fileURLWithPath: "/Volumes/models/imported-one")
+        let secondImported = URL(fileURLWithPath: "/Volumes/models/imported-two")
+
+        XCTAssertEqual(
+            AFMMLXLoadSelectionPolicy.deduplicatedSelectionIDs(
+                loadedModelID: "mlx-community/loaded-model",
+                curatedIDs: [
+                    "mlx-community/loaded-model",
+                    "mlx-community/curated-model",
+                ],
+                downloadedIDs: [
+                    "mlx-community/curated-model",
+                    "custom/downloaded-model",
+                ],
+                importedModelPaths: [
+                    firstImported,
+                    secondImported,
+                    firstImported,
+                ]
+            ),
+            [
+                "mlx-community/loaded-model",
+                "mlx-community/curated-model",
+                "custom/downloaded-model",
+                "imported:/Volumes/models/imported-one",
+                "imported:/Volumes/models/imported-two",
+            ]
+        )
+    }
+
     func testInitialQuickSelectionPrefersLoadedModel() {
         XCTAssertEqual(
             AFMMLXLoadSelectionPolicy.initialQuickSelection(

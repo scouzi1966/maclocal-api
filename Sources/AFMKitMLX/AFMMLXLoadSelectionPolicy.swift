@@ -228,6 +228,21 @@ public enum AFMMLXLoadSelectionPolicy {
         return trimmedLoadedName == selectedName || trimmedLoadedID == trimmedSelection
     }
 
+    public static func deduplicatedSelectionIDs(
+        loadedModelID: String?,
+        curatedIDs: [String],
+        downloadedIDs: [String],
+        importedModelPaths: [URL]
+    ) -> [String] {
+        var result: [String] = []
+        let importedIDs = importedModelPaths.map { "imported:\($0.path)" }
+        for id in [loadedModelID].compactMap({ $0 }) + curatedIDs + downloadedIDs + importedIDs {
+            guard !id.isEmpty, !result.contains(id) else { continue }
+            result.append(id)
+        }
+        return result
+    }
+
     public static func initialQuickSelection(
         loadedModelID: String?,
         loadedModelIsVLM: Bool,
