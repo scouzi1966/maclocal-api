@@ -2,10 +2,8 @@ import Foundation
 import AFMKitCore
 import AFMOpenAICompat
 import CoreImage
-import Metal
 import os
 import MLX
-import Cmlx
 import MLXLLM
 import MLXVLM
 // @preconcurrency: MLXLMCommon predates Swift 6 concurrency. Its value types
@@ -464,27 +462,16 @@ public final class MLXModelService: @unchecked Sendable {
     /// Must be called after Metal is available (not during early init).
     private func ensureGPUConfigured() throws {
         guard !gpuInitialized else { return }
-        guard !MTLCopyAllDevices().isEmpty else {
+        guard AFMMLXRuntimeMemoryController.hasMetalDevice else {
             throw MLXServiceError.noMetalDevice
         }
         gpuInitialized = true
 
-        let totalMemoryGB = ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024)
-        let cacheMB: Int
-        switch totalMemoryGB {
-        case 0..<12:  cacheMB = 128
-        case 12..<24: cacheMB = 256
-        case 24..<48: cacheMB = 512
-        default:      cacheMB = 1024
-        }
-        Memory.cacheLimit = cacheMB * 1024 * 1024
+        let defaults = AFMMLXRuntimeMemoryController.applyDefaults(compileEnabled: nil)
+        let cacheMB = defaults.cacheLimitBytes / AFMMLXRuntimeMemoryController.bytesPerMB
+        let wiredMB = defaults.wiredLimitBytes / AFMMLXRuntimeMemoryController.bytesPerMB
 
-        let maxWorkingSet = GPU.deviceInfo().maxRecommendedWorkingSetSize
-        let wiredLimitBytes = Int(Double(maxWorkingSet) * 0.9)
-        var previousWired: size_t = 0
-        mlx_set_wired_limit(&previousWired, size_t(wiredLimitBytes))
-
-        print("[\(ts())] MLX GPU: cache=\(cacheMB)MB wired=\(wiredLimitBytes / (1024*1024))MB (system \(totalMemoryGB)GB)")
+        print("[\(ts())] MLX GPU: cache=\(cacheMB)MB wired=\(wiredMB)MB (system \(defaults.totalMemoryGB)GB)")
     }
 
     // MARK: - GPU Capture & Profiling
