@@ -168,4 +168,15 @@ final class AFMMLXModelCatalogTests: XCTestCase {
 
         XCTAssertNil(AFMMLXModelCatalog.modelConfiguration(for: "example/missing"))
     }
+
+    func testGenericRuntimeConfigurationsProvideStableFallbacks() {
+        XCTAssertEqual(
+            AFMMLXModelCatalog.genericModelConfiguration(isVision: false).name,
+            "mlx-community/Llama-3.2-1B-Instruct-4bit"
+        )
+        XCTAssertEqual(
+            AFMMLXModelCatalog.genericModelConfiguration(isVision: true).name,
+            "lmstudio-community/Qwen3-VL-4B-Instruct-MLX-4bit"
+        )
+    }
 }

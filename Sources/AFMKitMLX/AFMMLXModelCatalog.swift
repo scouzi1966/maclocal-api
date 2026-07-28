@@ -330,6 +330,18 @@ public enum AFMMLXModelCatalog {
         availableModels.first { $0.repoID == repoID }
     }
 
+    public static var genericTextModelConfiguration: ModelConfiguration {
+        LLMRegistry.llama3_2_1B_4bit
+    }
+
+    public static var genericVisionModelConfiguration: ModelConfiguration {
+        VLMRegistry.qwen3VL4BInstruct4Bit
+    }
+
+    public static func genericModelConfiguration(isVision: Bool) -> ModelConfiguration {
+        isVision ? genericVisionModelConfiguration : genericTextModelConfiguration
+    }
+
     public static func modelConfiguration(for repoID: String) -> ModelConfiguration? {
         switch repoID {
         case "mlx-community/Qwen3-0.6B-4bit",
