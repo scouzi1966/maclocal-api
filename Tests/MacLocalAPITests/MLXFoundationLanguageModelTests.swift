@@ -28,6 +28,56 @@ final class MLXFoundationLanguageModelTests: XCTestCase {
         let content: Content
     }
 
+    func testLanguageModelPlanProjectsAFMKitDescriptorCapabilities() {
+        let descriptor = AFMModelDescriptor(
+            providerID: "afmkit.mlx",
+            modelID: "mlx-community/model-a",
+            displayName: "Model A",
+            capabilities: [.text, .vision, .reasoning, .toolCalling, .structuredOutput],
+            contextWindow: 16_384,
+            privacyBoundary: .device,
+            requiresNetwork: false
+        )
+
+        let plan = AFMMLXFoundationLanguageModelPlan.make(
+            modelID: "/cache/model-a",
+            descriptor: descriptor,
+            defaultMaximumResponseTokens: 768
+        )
+
+        XCTAssertEqual(plan.modelID, "/cache/model-a")
+        XCTAssertEqual(plan.defaultMaximumResponseTokens, 768)
+        XCTAssertTrue(plan.enablePrefixCaching)
+        XCTAssertTrue(plan.supportsVision)
+        XCTAssertTrue(plan.supportsReasoning)
+        XCTAssertTrue(plan.supportsToolCalling)
+        XCTAssertTrue(plan.supportsGuidedGeneration)
+        XCTAssertTrue(plan.acceptsImageInput(true))
+        XCTAssertFalse(plan.acceptsImageInput(false))
+    }
+
+    func testLanguageModelPlanBuildsMLXLanguageModelConfiguration() {
+        let plan = AFMMLXFoundationLanguageModelPlan(
+            modelID: "/cache/model-a",
+            defaultMaximumResponseTokens: 384,
+            enablePrefixCaching: false,
+            supportsVision: true,
+            supportsReasoning: true,
+            supportsToolCalling: false,
+            supportsGuidedGeneration: true
+        )
+
+        let model = plan.languageModel()
+
+        XCTAssertEqual(model.modelID, "/cache/model-a")
+        XCTAssertEqual(model.executorConfiguration.defaultMaximumResponseTokens, 384)
+        XCTAssertFalse(model.executorConfiguration.enablePrefixCaching)
+        XCTAssertTrue(model.executorConfiguration.supportsVision)
+        XCTAssertTrue(model.executorConfiguration.supportsReasoning)
+        XCTAssertFalse(model.executorConfiguration.supportsToolCalling)
+        XCTAssertTrue(model.executorConfiguration.supportsGuidedGeneration)
+    }
+
     func testExecutorConfigurationIncludesModelAndRuntimeIdentity() {
         let first = MLXLanguageModel(
             modelID: "mlx-community/model-a",
