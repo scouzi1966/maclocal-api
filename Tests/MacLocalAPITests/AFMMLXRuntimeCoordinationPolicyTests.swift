@@ -86,6 +86,39 @@ final class AFMMLXRuntimeCoordinationPolicyTests: XCTestCase {
         XCTAssertEqual(state.errorMessage, "Failed to load model")
     }
 
+    func testProgressStateSuppressesSmallIntermediateUpdates() {
+        let state = AFMMLXRuntimeCoordinationPolicy.progressState(
+            newProgress: 0.105,
+            lastReportedProgress: 0.10
+        )
+
+        XCTAssertFalse(state.shouldPublish)
+        XCTAssertEqual(state.downloadProgress, 0.10)
+        XCTAssertEqual(state.lastReportedProgress, 0.10)
+    }
+
+    func testProgressStatePublishesAboveThreshold() {
+        let state = AFMMLXRuntimeCoordinationPolicy.progressState(
+            newProgress: 0.12,
+            lastReportedProgress: 0.10
+        )
+
+        XCTAssertTrue(state.shouldPublish)
+        XCTAssertEqual(state.downloadProgress, 0.12)
+        XCTAssertEqual(state.lastReportedProgress, 0.12)
+    }
+
+    func testProgressStatePublishesCompletionProgress() {
+        let state = AFMMLXRuntimeCoordinationPolicy.progressState(
+            newProgress: 0.995,
+            lastReportedProgress: 0.991
+        )
+
+        XCTAssertTrue(state.shouldPublish)
+        XCTAssertEqual(state.downloadProgress, 0.995)
+        XCTAssertEqual(state.lastReportedProgress, 0.995)
+    }
+
     func testDefaultArgumentsInitializeLegacyRuntime() {
         let policy = AFMMLXRuntimeStartupPolicy.make(arguments: ["afm"])
 

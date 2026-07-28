@@ -150,7 +150,26 @@ public struct AFMMLXRuntimeLoadedState: Equatable, Sendable {
     }
 }
 
+public struct AFMMLXRuntimeProgressState: Equatable, Sendable {
+    public let shouldPublish: Bool
+    public let downloadProgress: Double
+    public let lastReportedProgress: Double
+
+    public init(
+        shouldPublish: Bool,
+        downloadProgress: Double,
+        lastReportedProgress: Double
+    ) {
+        self.shouldPublish = shouldPublish
+        self.downloadProgress = downloadProgress
+        self.lastReportedProgress = lastReportedProgress
+    }
+}
+
 public enum AFMMLXRuntimeCoordinationPolicy {
+    public nonisolated static let defaultProgressPublicationThreshold = 0.01
+    public nonisolated static let defaultCompletionProgressThreshold = 0.99
+
     public nonisolated static func cacheKey(
         modelName: String,
         isVision: Bool
@@ -210,6 +229,21 @@ public enum AFMMLXRuntimeCoordinationPolicy {
             loadingModelName: nil,
             isDownloadingPhase: false,
             downloadProgress: 1
+        )
+    }
+
+    public nonisolated static func progressState(
+        newProgress: Double,
+        lastReportedProgress: Double,
+        publicationThreshold: Double = Self.defaultProgressPublicationThreshold,
+        completionThreshold: Double = Self.defaultCompletionProgressThreshold
+    ) -> AFMMLXRuntimeProgressState {
+        let shouldPublish = newProgress - lastReportedProgress >= publicationThreshold
+            || newProgress >= completionThreshold
+        return AFMMLXRuntimeProgressState(
+            shouldPublish: shouldPublish,
+            downloadProgress: shouldPublish ? newProgress : lastReportedProgress,
+            lastReportedProgress: shouldPublish ? newProgress : lastReportedProgress
         )
     }
 
