@@ -604,7 +604,7 @@ struct MlxCommand: ParsableCommand {
 
         if openclawConfig {
             let chosenPort = port ?? 9999
-            printOpenClawConfig(model: selectedModel, hostname: hostname, port: chosenPort, resolver: resolver)
+            printOpenClawConfig(model: selectedModel, hostname: hostname, port: chosenPort, modelStore: modelStore)
             return
         }
 
@@ -1047,56 +1047,16 @@ struct MlxCommand: ParsableCommand {
         return content
     }
 
-    private func printOpenClawConfig(model: String, hostname: String, port: Int, resolver: MLXCacheResolver) {
-        // Auto-detect capabilities from cached config.json
-        var supportsVision = false
-        var supportsReasoning = false
-        var contextWindow = 131072
-        var defaultMaxTokens = 8192
-
-        if let modelDir = resolver.localModelDirectory(repoId: model) {
-            let configURL = modelDir.appendingPathComponent("config.json")
-            if let data = try? Data(contentsOf: configURL),
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                // Vision: check for vision_config or visual key
-                if json["vision_config"] != nil || json["visual"] != nil {
-                    supportsVision = true
-                }
-                // Context window from max_position_embeddings
-                if let maxPos = json["max_position_embeddings"] as? Int {
-                    contextWindow = maxPos
-                }
-            }
-            // Reasoning: check chat_template for <think> tags
-            let templateURL = modelDir.appendingPathComponent("tokenizer_config.json")
-            if let data = try? Data(contentsOf: templateURL),
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                if let chatTemplate = json["chat_template"] as? String, chatTemplate.contains("<think>") {
-                    supportsReasoning = true
-                }
-            }
-            // Reasoning: check generation_config.json for enable_thinking
-            let genConfigURL = modelDir.appendingPathComponent("generation_config.json")
-            if let data = try? Data(contentsOf: genConfigURL),
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let enableThinking = json["enable_thinking"] as? Bool, enableThinking {
-                supportsReasoning = true
-            }
-        }
-
-        // Fallback: detect reasoning from known model family name patterns
-        if !supportsReasoning {
-            let lower = model.lowercased()
-            let reasoningPatterns = [
-                "qwen3", "deepseek-r", "glm-4", "glm-5", "kimi",
-                "qwq", "marco-o1", "skywork-o1", "ling-",
-                "nemotron", "minimax", "gpt-oss"
-            ]
-            supportsReasoning = reasoningPatterns.contains(where: { lower.contains($0) })
-        }
-
-        // Short model name (strip org prefix for display)
-        let shortName = model.contains("/") ? String(model.split(separator: "/", maxSplits: 1).last!) : model
+    private func printOpenClawConfig(model: String, hostname: String, port: Int, modelStore: AFMMLXModelStore) {
+        let descriptor = modelStore.descriptor(for: model)
+        let capabilities = descriptor.capabilities
+        let supportsVision = capabilities.contains(.vision)
+        let supportsReasoning = capabilities.contains(.reasoning)
+        let contextWindow = descriptor.contextWindow ?? 131_072
+        let defaultMaxTokens = min(8_192, contextWindow)
+        let shortName = descriptor.displayName.isEmpty
+            ? (model.split(separator: "/", maxSplits: 1).last.map(String.init) ?? model)
+            : descriptor.displayName
 
         var input: [String] = ["text"]
         if supportsVision { input.append("image") }
