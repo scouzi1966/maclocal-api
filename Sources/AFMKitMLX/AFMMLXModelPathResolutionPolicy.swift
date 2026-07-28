@@ -6,7 +6,60 @@ public enum AFMMLXCurrentModelPathResolution: Equatable, Sendable {
     case missing(modelName: String)
 }
 
+public struct AFMMLXDownloadedModelLookupCandidate: Hashable, Sendable {
+    public let id: String
+    public let name: String
+
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+
+public enum AFMMLXLocalModelDirectoryLookup: Hashable, Sendable {
+    case importedPath(String)
+    case customRepositoryID(String)
+    case repositoryID(String)
+    case downloadedModel(repoID: String)
+    case modelName(String)
+}
+
 public enum AFMMLXModelPathResolutionPolicy {
+    public static func localModelDirectoryLookups(
+        forSelection selection: String,
+        customModelPath: String? = nil,
+        downloadedCandidates: [AFMMLXDownloadedModelLookupCandidate] = []
+    ) -> [AFMMLXLocalModelDirectoryLookup] {
+        guard let trimmedSelection = normalized(selection) else {
+            return []
+        }
+
+        if let importedPath = AFMMLXQuickReloadPolicy.importedPath(from: trimmedSelection) {
+            return [.importedPath(importedPath)]
+        }
+
+        var lookups: [AFMMLXLocalModelDirectoryLookup] = []
+
+        if let trimmedCustomPath = normalized(customModelPath) {
+            if let importedPath = AFMMLXQuickReloadPolicy.importedPath(from: trimmedCustomPath) {
+                lookups.append(.importedPath(importedPath))
+            } else {
+                lookups.append(.customRepositoryID(trimmedCustomPath))
+            }
+        }
+
+        if let downloaded = downloadedCandidates.first(where: {
+            $0.id == trimmedSelection || $0.name == trimmedSelection
+        }) {
+            lookups.append(.downloadedModel(repoID: downloaded.id))
+        }
+
+        lookups.append(.modelName(trimmedSelection))
+        lookups.append(.repositoryID(trimmedSelection))
+
+        return deduplicated(lookups)
+    }
+
     public static func benchmarkLoadPath(
         forSelection selection: String,
         resolvedDirectory: URL?
@@ -45,5 +98,17 @@ public enum AFMMLXModelPathResolutionPolicy {
             return nil
         }
         return trimmed
+    }
+
+    private static func deduplicated(
+        _ lookups: [AFMMLXLocalModelDirectoryLookup]
+    ) -> [AFMMLXLocalModelDirectoryLookup] {
+        var seen: Set<AFMMLXLocalModelDirectoryLookup> = []
+        var result: [AFMMLXLocalModelDirectoryLookup] = []
+        for lookup in lookups where !seen.contains(lookup) {
+            seen.insert(lookup)
+            result.append(lookup)
+        }
+        return result
     }
 }
