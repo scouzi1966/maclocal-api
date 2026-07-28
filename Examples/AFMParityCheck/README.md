@@ -22,6 +22,9 @@ asserts the two agree:
 | 7 | strict JSON schema | same canonical JSON under `response_format=json_schema` |
 
 Exit code `0` = full parity; non-zero = at least one mismatch (details printed per case).
+When `AFM_PARITY_REPORT` is set, the run also writes a JSON report with the
+models, enabled cases, required cases, per-case records, and any missing
+required model/case pairs.
 
 ## Running
 
@@ -32,6 +35,7 @@ cd Examples/AFMParityCheck
 MACAFM_MLX_MODEL_CACHE=/path/to/cache \
 AFM_BINARY=../../.build/release/afm \
 AFM_PARITY_MODEL=mlx-community/Llama-3.2-3B-Instruct-4bit \
+AFM_PARITY_REPORT=../../.build/reports/afm-parity.json \
 swift run AFMParityCheck
 ```
 
@@ -55,6 +59,8 @@ swift run AFMParityCheck
 | `AFM_BINARY` | repo `.build/release/afm` (then `…/arm64-apple-macosx/release`, then `debug`) | server binary to spawn |
 | `AFM_PARITY_PORT` | `9998` | base server port; multi-model runs use this port plus the model index |
 | `AFM_PARITY_CASES` | all cases | comma-separated case IDs, for example `greedy-text,strict-json-schema` |
+| `AFM_PARITY_REQUIRED_CASES` | all cases | comma-separated case IDs that must pass for every model; useful when intentionally running a narrowed smoke report |
+| `AFM_PARITY_REPORT` | — | JSON report path for durable PR/release evidence |
 | `MACAFM_MLX_MODEL_CACHE` | — | weight cache, shared by both paths (set it to avoid re-downloads) |
 
 ## Notes
