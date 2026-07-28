@@ -52,6 +52,7 @@ final class AFMMLXRuntimeCoordinationPolicyTests: XCTestCase {
 
         XCTAssertTrue(state.isLoadingModel)
         XCTAssertEqual(state.loadingModelName, "mlx-community/Qwen3.5")
+        XCTAssertFalse(state.isDownloadingPhase)
         XCTAssertEqual(state.downloadProgress, 0)
         XCTAssertEqual(state.lastReportedProgress, 0)
         XCTAssertNil(state.errorMessage)
@@ -81,6 +82,7 @@ final class AFMMLXRuntimeCoordinationPolicyTests: XCTestCase {
 
         XCTAssertFalse(state.isLoadingModel)
         XCTAssertNil(state.loadingModelName)
+        XCTAssertFalse(state.isDownloadingPhase)
         XCTAssertEqual(state.downloadProgress, 0)
         XCTAssertEqual(state.lastReportedProgress, 0)
         XCTAssertEqual(state.errorMessage, "Failed to load model")
@@ -94,6 +96,7 @@ final class AFMMLXRuntimeCoordinationPolicyTests: XCTestCase {
 
         XCTAssertFalse(state.isLoadingModel)
         XCTAssertNil(state.loadingModelName)
+        XCTAssertFalse(state.isDownloadingPhase)
         XCTAssertEqual(state.downloadProgress, 0)
         XCTAssertEqual(state.lastReportedProgress, 0)
         XCTAssertEqual(state.errorMessage, "Failed to load model: network unavailable")
@@ -129,6 +132,7 @@ final class AFMMLXRuntimeCoordinationPolicyTests: XCTestCase {
         XCTAssertTrue(state.shouldCancelLoading)
         XCTAssertFalse(state.loadingState.isLoadingModel)
         XCTAssertNil(state.loadingState.loadingModelName)
+        XCTAssertFalse(state.loadingState.isDownloadingPhase)
         XCTAssertEqual(state.loadingState.downloadProgress, 0)
         XCTAssertEqual(state.loadingState.lastReportedProgress, 0)
         XCTAssertEqual(state.loadingState.errorMessage, "Model download cancelled by user")

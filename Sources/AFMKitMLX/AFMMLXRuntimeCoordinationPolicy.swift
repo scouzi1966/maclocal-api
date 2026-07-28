@@ -100,6 +100,7 @@ public struct AFMMLXRuntimeUnloadState: Equatable, Sendable {
 public struct AFMMLXRuntimeLoadingState: Equatable, Sendable {
     public let isLoadingModel: Bool
     public let loadingModelName: String?
+    public let isDownloadingPhase: Bool
     public let downloadProgress: Double
     public let lastReportedProgress: Double
     public let errorMessage: String?
@@ -107,12 +108,14 @@ public struct AFMMLXRuntimeLoadingState: Equatable, Sendable {
     public init(
         isLoadingModel: Bool,
         loadingModelName: String?,
+        isDownloadingPhase: Bool = false,
         downloadProgress: Double,
         lastReportedProgress: Double,
         errorMessage: String?
     ) {
         self.isLoadingModel = isLoadingModel
         self.loadingModelName = loadingModelName
+        self.isDownloadingPhase = isDownloadingPhase
         self.downloadProgress = downloadProgress
         self.lastReportedProgress = lastReportedProgress
         self.errorMessage = errorMessage
@@ -213,6 +216,7 @@ public enum AFMMLXRuntimeCoordinationPolicy {
         AFMMLXRuntimeLoadingState(
             isLoadingModel: true,
             loadingModelName: modelName.trimmingCharacters(in: .whitespacesAndNewlines),
+            isDownloadingPhase: false,
             downloadProgress: 0,
             lastReportedProgress: 0,
             errorMessage: nil
@@ -223,6 +227,7 @@ public enum AFMMLXRuntimeCoordinationPolicy {
         AFMMLXRuntimeLoadingState(
             isLoadingModel: false,
             loadingModelName: nil,
+            isDownloadingPhase: false,
             downloadProgress: 0,
             lastReportedProgress: 0,
             errorMessage: errorMessage
@@ -258,6 +263,7 @@ public enum AFMMLXRuntimeCoordinationPolicy {
             loadingState: AFMMLXRuntimeLoadingState(
                 isLoadingModel: false,
                 loadingModelName: nil,
+                isDownloadingPhase: false,
                 downloadProgress: 0,
                 lastReportedProgress: 0,
                 errorMessage: errorMessage
