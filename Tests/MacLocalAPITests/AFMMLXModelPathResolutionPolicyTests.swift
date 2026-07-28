@@ -63,4 +63,31 @@ final class AFMMLXModelPathResolutionPolicyTests: XCTestCase {
             )
         )
     }
+
+    func testHasLocalModelRequiresResolvedLocalDirectory() {
+        XCTAssertFalse(
+            AFMMLXModelPathResolutionPolicy.hasLocalModel(
+                forSelection: "example-org/Missing-Model",
+                resolvedDirectory: nil
+            )
+        )
+    }
+
+    func testHasLocalModelReturnsTrueForResolvedDirectory() {
+        XCTAssertTrue(
+            AFMMLXModelPathResolutionPolicy.hasLocalModel(
+                forSelection: " example-org/Downloaded-Model-4bit ",
+                resolvedDirectory: URL(fileURLWithPath: "/models/example-org/Downloaded-Model-4bit")
+            )
+        )
+    }
+
+    func testHasLocalModelRejectsBlankSelection() {
+        XCTAssertFalse(
+            AFMMLXModelPathResolutionPolicy.hasLocalModel(
+                forSelection: " \n ",
+                resolvedDirectory: URL(fileURLWithPath: "/models/unused")
+            )
+        )
+    }
 }

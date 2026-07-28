@@ -16,6 +16,14 @@ public enum AFMMLXModelPathResolutionPolicy {
         return resolvedDirectory?.path
     }
 
+    public static func hasLocalModel(
+        forSelection selection: String,
+        resolvedDirectory: URL?
+    ) -> Bool {
+        guard normalized(selection) != nil else { return false }
+        return resolvedDirectory != nil
+    }
+
     public static func currentModelPathResolution(
         loadedModelName: String?,
         resolvedDirectory: URL?
