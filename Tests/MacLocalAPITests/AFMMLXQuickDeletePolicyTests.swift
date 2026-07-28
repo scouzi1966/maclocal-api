@@ -49,4 +49,50 @@ final class AFMMLXQuickDeletePolicyTests: XCTestCase {
             .unavailable
         )
     }
+
+    func testDownloadedModelDeletionUnloadsMatchingLoadedModel() {
+        XCTAssertEqual(
+            AFMMLXQuickDeletePolicy.downloadedModelDeletionPlan(
+                repoID: "mlx-community/Qwen3-4B-Instruct-4bit",
+                isModelLoaded: true,
+                loadedModelName: "Qwen3-4B-Instruct-4bit"
+            ),
+            AFMMLXDownloadedModelDeletionPlan(
+                repoID: "mlx-community/Qwen3-4B-Instruct-4bit",
+                shouldUnloadCurrentModel: true
+            )
+        )
+    }
+
+    func testDownloadedModelDeletionDoesNotUnloadDifferentOrUnloadedModel() {
+        XCTAssertFalse(
+            AFMMLXQuickDeletePolicy.downloadedModelDeletionPlan(
+                repoID: "mlx-community/Qwen3-4B-Instruct-4bit",
+                isModelLoaded: true,
+                loadedModelName: "Gemma-4B"
+            ).shouldUnloadCurrentModel
+        )
+
+        XCTAssertFalse(
+            AFMMLXQuickDeletePolicy.downloadedModelDeletionPlan(
+                repoID: "mlx-community/Qwen3-4B-Instruct-4bit",
+                isModelLoaded: false,
+                loadedModelName: "Qwen3-4B-Instruct-4bit"
+            ).shouldUnloadCurrentModel
+        )
+    }
+
+    func testDownloadedModelDeletionNormalizesWhitespace() {
+        XCTAssertEqual(
+            AFMMLXQuickDeletePolicy.downloadedModelDeletionPlan(
+                repoID: " mlx-community/Qwen3-4B-Instruct-4bit ",
+                isModelLoaded: true,
+                loadedModelName: " Qwen3-4B-Instruct-4bit "
+            ),
+            AFMMLXDownloadedModelDeletionPlan(
+                repoID: "mlx-community/Qwen3-4B-Instruct-4bit",
+                shouldUnloadCurrentModel: true
+            )
+        )
+    }
 }
