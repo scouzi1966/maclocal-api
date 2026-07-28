@@ -70,6 +70,41 @@ public struct AFMMLXQuickSelection: Equatable, Sendable {
     }
 }
 
+public enum AFMMLXQuickPickerSection: Int, Equatable, Sendable {
+    case loaded
+    case curated
+    case downloaded
+    case imported
+}
+
+public struct AFMMLXQuickPickerCandidate: Equatable, Sendable {
+    public let id: String
+    public let name: String
+    public let isVision: Bool
+    public let isAvailable: Bool
+
+    public init(id: String, name: String, isVision: Bool, isAvailable: Bool) {
+        self.id = id
+        self.name = name
+        self.isVision = isVision
+        self.isAvailable = isAvailable
+    }
+}
+
+public struct AFMMLXQuickPickerOption: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let displayName: String
+    public let isVision: Bool
+    public let section: AFMMLXQuickPickerSection
+
+    public init(id: String, displayName: String, isVision: Bool, section: AFMMLXQuickPickerSection) {
+        self.id = id
+        self.displayName = displayName
+        self.isVision = isVision
+        self.section = section
+    }
+}
+
 public enum AFMMLXLoadSelectionPolicy {
     public static func quickLoadPlan(
         for selectionID: String,
@@ -241,6 +276,67 @@ public enum AFMMLXLoadSelectionPolicy {
             result.append(id)
         }
         return result
+    }
+
+    public static func quickPickerOptions(
+        loadedModelID: String?,
+        loadedModelName: String?,
+        curatedCandidates: [AFMMLXQuickPickerCandidate],
+        downloadedCandidates: [AFMMLXQuickPickerCandidate],
+        importedCandidates: [AFMMLXQuickPickerCandidate],
+        importedDisplayNamePrefix: String = ""
+    ) -> [AFMMLXQuickPickerOption] {
+        let curated = curatedCandidates
+            .filter(\.isAvailable)
+            .map {
+                AFMMLXQuickPickerOption(
+                    id: $0.id,
+                    displayName: $0.name,
+                    isVision: $0.isVision,
+                    section: .curated
+                )
+            }
+        let downloaded = downloadedCandidates
+            .filter(\.isAvailable)
+            .map {
+                AFMMLXQuickPickerOption(
+                    id: $0.id,
+                    displayName: $0.name,
+                    isVision: $0.isVision,
+                    section: .downloaded
+                )
+            }
+        let imported = importedCandidates
+            .filter(\.isAvailable)
+            .map {
+                AFMMLXQuickPickerOption(
+                    id: $0.id,
+                    displayName: "\(importedDisplayNamePrefix)\($0.name)",
+                    isVision: $0.isVision,
+                    section: .imported
+                )
+            }
+
+        var options: [AFMMLXQuickPickerOption] = []
+        let trimmedLoadedID = loadedModelID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedLoadedName = loadedModelName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let knownIDs = Set((curated + downloaded + imported).map(\.id))
+        if !trimmedLoadedID.isEmpty,
+           !trimmedLoadedName.isEmpty,
+           !knownIDs.contains(trimmedLoadedID) {
+            options.append(
+                AFMMLXQuickPickerOption(
+                    id: trimmedLoadedID,
+                    displayName: "\(trimmedLoadedName) (loaded)",
+                    isVision: false,
+                    section: .loaded
+                )
+            )
+        }
+        options.append(contentsOf: curated)
+        options.append(contentsOf: downloaded)
+        options.append(contentsOf: imported)
+        return options
     }
 
     public static func initialQuickSelection(

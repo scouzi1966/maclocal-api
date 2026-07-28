@@ -400,6 +400,99 @@ final class AFMMLXLoadSelectionPolicyTests: XCTestCase {
         )
     }
 
+    func testQuickPickerOptionsPreserveSectionsAndFilterUnavailableModels() {
+        XCTAssertEqual(
+            AFMMLXLoadSelectionPolicy.quickPickerOptions(
+                loadedModelID: " loaded/not-listed ",
+                loadedModelName: " Loaded Model ",
+                curatedCandidates: [
+                    AFMMLXQuickPickerCandidate(
+                        id: "mlx-community/curated",
+                        name: "Curated",
+                        isVision: true,
+                        isAvailable: true
+                    ),
+                    AFMMLXQuickPickerCandidate(
+                        id: "mlx-community/missing",
+                        name: "Missing",
+                        isVision: false,
+                        isAvailable: false
+                    ),
+                ],
+                downloadedCandidates: [
+                    AFMMLXQuickPickerCandidate(
+                        id: "custom/downloaded",
+                        name: "Downloaded",
+                        isVision: false,
+                        isAvailable: true
+                    ),
+                ],
+                importedCandidates: [
+                    AFMMLXQuickPickerCandidate(
+                        id: "imported:/Volumes/models/imported",
+                        name: "Imported",
+                        isVision: true,
+                        isAvailable: true
+                    ),
+                ],
+                importedDisplayNamePrefix: "Imported: "
+            ),
+            [
+                AFMMLXQuickPickerOption(
+                    id: "loaded/not-listed",
+                    displayName: "Loaded Model (loaded)",
+                    isVision: false,
+                    section: .loaded
+                ),
+                AFMMLXQuickPickerOption(
+                    id: "mlx-community/curated",
+                    displayName: "Curated",
+                    isVision: true,
+                    section: .curated
+                ),
+                AFMMLXQuickPickerOption(
+                    id: "custom/downloaded",
+                    displayName: "Downloaded",
+                    isVision: false,
+                    section: .downloaded
+                ),
+                AFMMLXQuickPickerOption(
+                    id: "imported:/Volumes/models/imported",
+                    displayName: "Imported: Imported",
+                    isVision: true,
+                    section: .imported
+                ),
+            ]
+        )
+    }
+
+    func testQuickPickerOptionsSuppressLoadedRowWhenAlreadyListed() {
+        XCTAssertEqual(
+            AFMMLXLoadSelectionPolicy.quickPickerOptions(
+                loadedModelID: "mlx-community/curated",
+                loadedModelName: "Curated",
+                curatedCandidates: [
+                    AFMMLXQuickPickerCandidate(
+                        id: "mlx-community/curated",
+                        name: "Curated",
+                        isVision: false,
+                        isAvailable: true
+                    ),
+                ],
+                downloadedCandidates: [],
+                importedCandidates: []
+            ),
+            [
+                AFMMLXQuickPickerOption(
+                    id: "mlx-community/curated",
+                    displayName: "Curated",
+                    isVision: false,
+                    section: .curated
+                ),
+            ]
+        )
+    }
+
     func testInitialQuickSelectionPrefersLoadedModel() {
         XCTAssertEqual(
             AFMMLXLoadSelectionPolicy.initialQuickSelection(
