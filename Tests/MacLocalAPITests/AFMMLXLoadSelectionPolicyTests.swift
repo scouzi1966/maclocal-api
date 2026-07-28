@@ -317,4 +317,55 @@ final class AFMMLXLoadSelectionPolicyTests: XCTestCase {
             "model"
         )
     }
+
+    func testQuickSelectionIsLoadedMatchesImportedPath() {
+        XCTAssertTrue(
+            AFMMLXLoadSelectionPolicy.quickSelectionIsLoaded(
+                selectionID: "imported:/Volumes/models/local-model",
+                loadedModelID: "/Volumes/models/local-model",
+                loadedModelName: "local-model"
+            )
+        )
+        XCTAssertFalse(
+            AFMMLXLoadSelectionPolicy.quickSelectionIsLoaded(
+                selectionID: "imported:/Volumes/models/other-model",
+                loadedModelID: "/Volumes/models/local-model",
+                loadedModelName: "local-model"
+            )
+        )
+    }
+
+    func testQuickSelectionIsLoadedMatchesRepositoryIDOrDisplayName() {
+        XCTAssertTrue(
+            AFMMLXLoadSelectionPolicy.quickSelectionIsLoaded(
+                selectionID: "mlx-community/Qwen3-4B",
+                loadedModelID: "mlx-community/Qwen3-4B",
+                loadedModelName: nil
+            )
+        )
+        XCTAssertTrue(
+            AFMMLXLoadSelectionPolicy.quickSelectionIsLoaded(
+                selectionID: "mlx-community/Qwen3-4B",
+                loadedModelID: nil,
+                loadedModelName: "Qwen3-4B"
+            )
+        )
+        XCTAssertFalse(
+            AFMMLXLoadSelectionPolicy.quickSelectionIsLoaded(
+                selectionID: "mlx-community/Qwen3-4B",
+                loadedModelID: "mlx-community/Other",
+                loadedModelName: "Other"
+            )
+        )
+    }
+
+    func testQuickSelectionIsLoadedReturnsFalseForEmptySelection() {
+        XCTAssertFalse(
+            AFMMLXLoadSelectionPolicy.quickSelectionIsLoaded(
+                selectionID: " ",
+                loadedModelID: "mlx-community/Qwen3-4B",
+                loadedModelName: "Qwen3-4B"
+            )
+        )
+    }
 }

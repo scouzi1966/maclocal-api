@@ -186,4 +186,25 @@ public enum AFMMLXLoadSelectionPolicy {
         let trimmedSelection = selectionID.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedSelection.split(separator: "/").last.map(String.init) ?? trimmedSelection
     }
+
+    public static func quickSelectionIsLoaded(
+        selectionID: String,
+        loadedModelID: String?,
+        loadedModelName: String?
+    ) -> Bool {
+        let trimmedSelection = selectionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSelection.isEmpty else { return false }
+
+        let trimmedLoadedID = loadedModelID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedLoadedName = loadedModelName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmedLoadedID.isEmpty || !trimmedLoadedName.isEmpty else { return false }
+
+        if let importedPath = AFMMLXQuickReloadPolicy.importedPath(from: trimmedSelection),
+           trimmedSelection.hasPrefix("imported:") {
+            return trimmedLoadedID == importedPath
+        }
+
+        let selectedName = fallbackDisplayName(for: trimmedSelection)
+        return trimmedLoadedName == selectedName || trimmedLoadedID == trimmedSelection
+    }
 }
