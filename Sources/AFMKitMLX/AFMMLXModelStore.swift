@@ -609,6 +609,7 @@ public struct AFMMLXModelStore: Sendable {
             "var",
             "etc",
             "library",
+            "models",
             "applications",
             "system",
         ]
@@ -618,6 +619,34 @@ public struct AFMMLXModelStore: Sendable {
         }
 
         return true
+    }
+
+    /// Projects a user-facing value into a Hugging Face repository ID when the
+    /// value is either already an org/model identifier or an imported local path
+    /// that preserves the org/model directory suffix.
+    public static func projectedRepositoryID(from value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if !trimmed.hasPrefix("/"), trimmed.contains("/") {
+            let parts = trimmed.split(separator: "/")
+            if parts.count == 2, isLikelyRepositoryIdentifier(trimmed) {
+                return trimmed
+            }
+        }
+
+        guard let importedPath = AFMMLXQuickReloadPolicy.importedPath(from: trimmed) else {
+            return nil
+        }
+        let components = URL(fileURLWithPath: importedPath).pathComponents
+        guard components.count >= 2 else {
+            return nil
+        }
+
+        let author = components[components.count - 2]
+        let model = components[components.count - 1]
+        let candidate = "\(author)/\(model)"
+        return isLikelyRepositoryIdentifier(candidate) ? candidate : nil
     }
 
     /// Returns whether a model identifier belongs to a non-chat MLX specialty

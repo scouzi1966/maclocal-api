@@ -110,6 +110,41 @@ final class AFMMLXModelStoreTests: XCTestCase {
         XCTAssertFalse(AFMMLXModelStore.isLikelyRepositoryIdentifier(" users/example "))
     }
 
+    func testProjectedRepositoryIDKeepsExplicitRepositoryID() {
+        XCTAssertEqual(
+            AFMMLXModelStore.projectedRepositoryID(from: " mlx-community/Qwen3 "),
+            "mlx-community/Qwen3"
+        )
+    }
+
+    func testProjectedRepositoryIDDerivesImportedPathSuffix() {
+        XCTAssertEqual(
+            AFMMLXModelStore.projectedRepositoryID(
+                from: "imported:/Volumes/models/mlx-community/Qwen3-4B"
+            ),
+            "mlx-community/Qwen3-4B"
+        )
+    }
+
+    func testProjectedRepositoryIDDerivesPlainPathSuffix() {
+        XCTAssertEqual(
+            AFMMLXModelStore.projectedRepositoryID(
+                from: "/Volumes/models/lmstudio-community/Gemma-4bit"
+            ),
+            "lmstudio-community/Gemma-4bit"
+        )
+    }
+
+    func testProjectedRepositoryIDRejectsInvalidSystemPathAuthors() {
+        XCTAssertNil(AFMMLXModelStore.projectedRepositoryID(from: "/Volumes/models/local-model"))
+        XCTAssertNil(AFMMLXModelStore.projectedRepositoryID(from: "Volumes/models/local-model"))
+        XCTAssertNil(AFMMLXModelStore.projectedRepositoryID(from: " "))
+    }
+
+    func testProjectedRepositoryIDDoesNotProjectPlainDisplayNames() {
+        XCTAssertNil(AFMMLXModelStore.projectedRepositoryID(from: "Qwen3-VL-4B-Instruct-5bit"))
+    }
+
     func testSpecialtyModelIdentifierDetectsSpeechAndAudioModels() {
         XCTAssertTrue(AFMMLXModelStore.isSpecialtyModelIdentifier("prince-canuma/Kokoro-82M"))
         XCTAssertTrue(AFMMLXModelStore.isSpecialtyModelIdentifier("mlx-community/Orpheus-3B-0.1-ft-4bit"))
