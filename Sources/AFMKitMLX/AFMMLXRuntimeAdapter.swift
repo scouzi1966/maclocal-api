@@ -5,6 +5,23 @@ import MLXLLM
 import MLXVLM
 import Tokenizers
 
+public enum AFMMLXSpeculativeRuntime {
+    case none
+    case mtpLLM(Qwen3_5MoEMTPGenerator)
+    case mtpVLM(MTPGenerator)
+    case eagle3(Gemma4Eagle3Drafter)
+
+    public var kind: AFMMLXSpeculativeRuntimeKind {
+        switch self {
+        case .none: return .none
+        case .mtpLLM, .mtpVLM: return .mtp
+        case .eagle3: return .eagle3
+        }
+    }
+}
+
+extension AFMMLXSpeculativeRuntime: @unchecked Sendable {}
+
 public struct AFMMLXRuntimeAdapter {
     public typealias RuntimeEvent = AFMMLXRuntimeEvent
     public nonisolated static let imageProcessingSize = AFMMLXRuntimePolicy.defaultImageProcessingSize
@@ -106,6 +123,52 @@ public struct AFMMLXRuntimeAdapter {
         return LoadedContainer(container: container, isVision: isVision, loadTime: loadTime)
     }
 
+    @MainActor public func loadAppContainer(
+        configuration: ModelConfiguration,
+        forceVisionFactory: Bool,
+        configIsVision: Bool,
+        cachedContainer: (Bool) -> ModelContainer?,
+        cacheContainer: (ModelContainer, Bool) -> Void,
+        onProgress: @escaping @Sendable (Double) -> Void
+    ) async throws -> LoadedContainer {
+        func load(with factory: ModelFactory, isVision: Bool) async throws -> LoadedContainer {
+            let loadStart = CFAbsoluteTimeGetCurrent()
+            let container = try await factory.loadContainer(configuration: configuration) { progress in
+                onProgress(progress.fractionCompleted)
+            }
+            cacheContainer(container, isVision)
+            return LoadedContainer(
+                container: container,
+                isVision: isVision,
+                loadTime: CFAbsoluteTimeGetCurrent() - loadStart
+            )
+        }
+
+        if forceVisionFactory, let cached = cachedContainer(true) {
+            return LoadedContainer(container: cached, isVision: true, loadTime: 0)
+        }
+
+        if !forceVisionFactory, let cached = cachedContainer(false) {
+            return LoadedContainer(container: cached, isVision: false, loadTime: 0)
+        }
+
+        if forceVisionFactory {
+            return try await load(with: VLMModelFactory.shared, isVision: true)
+        }
+
+        do {
+            return try await load(with: LLMModelFactory.shared, isVision: false)
+        } catch {
+            if configIsVision {
+                if let cached = cachedContainer(true) {
+                    return LoadedContainer(container: cached, isVision: true, loadTime: 0)
+                }
+                return try await load(with: VLMModelFactory.shared, isVision: true)
+            }
+            throw error
+        }
+    }
+
     @MainActor public func runPromptStreamBenchmark(
         container: ModelContainer,
         prompt: String,
@@ -184,10 +247,105 @@ public struct AFMMLXRuntimeAdapter {
         }
     }
 
+    @MainActor public func isDenseGemma4Verifier(container: ModelContainer) async -> Bool {
+        await container.perform { context in
+            context.model is Gemma4Model
+        }
+    }
+
+    @MainActor public func makeMTPRuntime(
+        container: ModelContainer,
+        sidecarPath: String
+    ) async throws -> AFMMLXSpeculativeRuntime? {
+        try await container.perform { context -> AFMMLXSpeculativeRuntime? in
+            if let qwen = context.model as? Qwen3_5MoEModel {
+                let head = try qwen.loadMTPHead(sidecarPath: sidecarPath)
+                return .mtpLLM(Qwen3_5MoEMTPGenerator(model: qwen, head: head, depth: 1))
+            }
+            if let qwen = context.model as? Qwen3_5MoEVL {
+                let head = try qwen.loadMTPHead(sidecarPath: sidecarPath)
+                return .mtpVLM(MTPGenerator(model: qwen, head: head, depth: 3))
+            }
+            return nil
+        }
+    }
+
+    public nonisolated func makeEagle3Runtime(drafterDirectory: URL) throws -> AFMMLXSpeculativeRuntime {
+        let drafter = try Gemma4Eagle3Drafter.load(directory: drafterDirectory.path)
+        return .eagle3(drafter)
+    }
+
+    @MainActor public func runSpeculativeGeneration(
+        container: ModelContainer,
+        userInput: UserInput,
+        runtime: AFMMLXSpeculativeRuntime,
+        maxTokens: Int,
+        shouldStop: @escaping @Sendable () -> Bool,
+        onChunk: @escaping @Sendable (String) -> Void
+    ) async throws -> Int {
+        try await container.perform { context -> Int in
+            let input = try await context.processor.prepare(input: userInput)
+            guard !Self.isMultimodalInput(input) else { return 0 }
+            let promptIds = Self.extractTokenArray(input)
+            guard !promptIds.isEmpty else { return 0 }
+
+            let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+            var allTokens: [Int] = []
+            var previousText = ""
+
+            let emit: (Int) -> Bool = { token in
+                if Task.isCancelled || shouldStop() {
+                    return false
+                }
+                if eos.contains(token) {
+                    return false
+                }
+
+                allTokens.append(token)
+                let fullText = context.tokenizer.decode(tokens: allTokens)
+                if fullText.count > previousText.count {
+                    onChunk(String(fullText.dropFirst(previousText.count)))
+                    previousText = fullText
+                }
+                return true
+            }
+
+            switch runtime {
+            case .mtpLLM(let generator):
+                _ = generator.generate(promptIds: promptIds, maxTokens: maxTokens, eosIds: eos, onToken: emit)
+            case .mtpVLM(let generator):
+                _ = generator.generate(promptIds: promptIds, maxTokens: maxTokens, eosIds: eos, onToken: emit)
+            case .eagle3(let drafter):
+                guard let model = context.model as? Gemma4Model else { return 0 }
+                let generator = Gemma4Eagle3Generator(drafter: drafter)
+                _ = generator.generateSpeculative(
+                    model: model,
+                    promptIds: promptIds,
+                    maxTokens: maxTokens,
+                    eosIds: eos,
+                    blockSize: 2,
+                    onToken: emit
+                )
+            case .none:
+                return 0
+            }
+
+            return allTokens.count
+        }
+    }
+
     public nonisolated static func pathSuggestsVisionModel(_ modelPath: String) -> Bool {
         let lowercased = modelPath.lowercased()
         return lowercased.contains("-vl-")
             || lowercased.contains("-vl_")
             || lowercased.contains("vision")
+    }
+
+    private nonisolated static func extractTokenArray(_ input: LMInput) -> [Int] {
+        input.text.tokens.reshaped(-1).asArray(Int.self)
+    }
+
+    private nonisolated static func isMultimodalInput(_ input: LMInput) -> Bool {
+        input.image != nil || input.video != nil
     }
 }
