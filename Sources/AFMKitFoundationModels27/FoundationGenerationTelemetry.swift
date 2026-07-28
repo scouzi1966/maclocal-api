@@ -140,6 +140,24 @@ public enum AFMFoundationGenerationTelemetryCalculator {
         return finalized
     }
 
+    public static func singleResponseTelemetry(
+        usage: AFMFoundationGenerationUsage,
+        toolNames: [String],
+        contextAction: String?,
+        startedAt: ContinuousClock.Instant,
+        completedAt: ContinuousClock.Instant
+    ) -> AFMFoundationGenerationTelemetry {
+        telemetry(
+            usage: usage,
+            toolNames: toolNames,
+            contextAction: contextAction,
+            startedAt: startedAt,
+            firstChunkAt: completedAt,
+            sampledAt: completedAt,
+            streamChunkCount: 1
+        )
+    }
+
     public static func elapsedMilliseconds(
         from start: ContinuousClock.Instant,
         to end: ContinuousClock.Instant
