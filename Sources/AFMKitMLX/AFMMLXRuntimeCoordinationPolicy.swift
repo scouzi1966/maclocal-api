@@ -215,6 +215,27 @@ public enum AFMMLXRuntimeCoordinationPolicy {
         )
     }
 
+    public nonisolated static func failedLoadingState(
+        localizedDescription: String,
+        diagnosticDescription: String
+    ) -> AFMMLXRuntimeLoadingState {
+        let resolvedErrorMessage: String
+        if diagnosticDescription.contains("unsupportedModelType") {
+            if let match = diagnosticDescription.range(
+                of: #"unsupportedModelType\(\"?([^")\]]+)\"?\)"#,
+                options: .regularExpression
+            ) {
+                let typeDescription = String(diagnosticDescription[match])
+                resolvedErrorMessage = "Architecture not supported in MLX-Swift: \(typeDescription). This model works in Python mlx-lm but the Swift implementation doesn't support it yet."
+            } else {
+                resolvedErrorMessage = "Model architecture not supported in MLX-Swift. This model may work in Python mlx-lm."
+            }
+        } else {
+            resolvedErrorMessage = "Failed to load model: \(localizedDescription)"
+        }
+        return failedLoadingState(errorMessage: resolvedErrorMessage)
+    }
+
     public nonisolated static func loadedState(
         modelName: String,
         repoID: String,

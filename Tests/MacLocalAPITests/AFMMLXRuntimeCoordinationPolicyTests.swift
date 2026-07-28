@@ -86,6 +86,43 @@ final class AFMMLXRuntimeCoordinationPolicyTests: XCTestCase {
         XCTAssertEqual(state.errorMessage, "Failed to load model")
     }
 
+    func testFailedLoadingStateBuildsDefaultLoadErrorMessage() {
+        let state = AFMMLXRuntimeCoordinationPolicy.failedLoadingState(
+            localizedDescription: "network unavailable",
+            diagnosticDescription: "URLError.notConnectedToInternet"
+        )
+
+        XCTAssertFalse(state.isLoadingModel)
+        XCTAssertNil(state.loadingModelName)
+        XCTAssertEqual(state.downloadProgress, 0)
+        XCTAssertEqual(state.lastReportedProgress, 0)
+        XCTAssertEqual(state.errorMessage, "Failed to load model: network unavailable")
+    }
+
+    func testFailedLoadingStateExplainsUnsupportedModelType() {
+        let state = AFMMLXRuntimeCoordinationPolicy.failedLoadingState(
+            localizedDescription: "unsupported",
+            diagnosticDescription: #"unsupportedModelType("qwen3_moe")"#
+        )
+
+        XCTAssertEqual(
+            state.errorMessage,
+            #"Architecture not supported in MLX-Swift: unsupportedModelType("qwen3_moe"). This model works in Python mlx-lm but the Swift implementation doesn't support it yet."#
+        )
+    }
+
+    func testFailedLoadingStateExplainsUnknownUnsupportedModelType() {
+        let state = AFMMLXRuntimeCoordinationPolicy.failedLoadingState(
+            localizedDescription: "unsupported",
+            diagnosticDescription: "unsupportedModelType"
+        )
+
+        XCTAssertEqual(
+            state.errorMessage,
+            "Model architecture not supported in MLX-Swift. This model may work in Python mlx-lm."
+        )
+    }
+
     func testProgressStateSuppressesSmallIntermediateUpdates() {
         let state = AFMMLXRuntimeCoordinationPolicy.progressState(
             newProgress: 0.105,
