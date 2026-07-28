@@ -34,4 +34,18 @@ final class AFMMLXRuntimeEventsTests: XCTestCase {
     func testDefaultImageProcessingSizeMatchesLegacyVLMInputSize() {
         XCTAssertEqual(AFMMLXRuntimePolicy.defaultImageProcessingSize, 1024)
     }
+
+    func testRuntimeAdapterUsesSharedImageProcessingSize() {
+        XCTAssertEqual(
+            AFMMLXRuntimeAdapter.imageProcessingSize,
+            1024
+        )
+    }
+
+    func testRuntimeAdapterDetectsLikelyVisionModelPaths() {
+        XCTAssertTrue(AFMMLXRuntimeAdapter.pathSuggestsVisionModel("/models/Qwen3-VL-4bit"))
+        XCTAssertTrue(AFMMLXRuntimeAdapter.pathSuggestsVisionModel("/models/qwen3-vl_4bit"))
+        XCTAssertTrue(AFMMLXRuntimeAdapter.pathSuggestsVisionModel("/models/local-vision-model"))
+        XCTAssertFalse(AFMMLXRuntimeAdapter.pathSuggestsVisionModel("/models/Qwen3-4bit"))
+    }
 }
