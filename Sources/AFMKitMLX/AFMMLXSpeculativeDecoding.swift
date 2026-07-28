@@ -247,4 +247,18 @@ public struct AFMMLXSpeculativeGenerationDecision: Equatable, Sendable {
             return AFMMLXSpeculativeGenerationDecision(path: .normal, reason: .modeOff)
         }
     }
+
+    public static func completedRuntimeDecision(
+        initialDecision: AFMMLXSpeculativeGenerationDecision,
+        emittedChunkCount: Int
+    ) -> AFMMLXSpeculativeGenerationDecision {
+        guard (initialDecision.path == .mtp || initialDecision.path == .eagle3),
+              emittedChunkCount <= 0 else {
+            return initialDecision
+        }
+        return AFMMLXSpeculativeGenerationDecision(
+            path: .fallback,
+            reason: .runtimeUnavailable
+        )
+    }
 }

@@ -39,6 +39,40 @@ final class AFMMLXSpeculativeDecodingTests: XCTestCase {
         XCTAssertNil(decision.reason)
     }
 
+    func testCompletedSpeculativeRuntimeFallsBackWhenNoChunksWereEmitted() {
+        let decision = AFMMLXSpeculativeGenerationDecision(path: .mtp, reason: nil)
+        let completed = AFMMLXSpeculativeGenerationDecision.completedRuntimeDecision(
+            initialDecision: decision,
+            emittedChunkCount: 0
+        )
+
+        XCTAssertEqual(completed.path, .fallback)
+        XCTAssertEqual(completed.reason, .runtimeUnavailable)
+    }
+
+    func testCompletedSpeculativeRuntimeKeepsSuccessfulPathWhenChunksWereEmitted() {
+        let decision = AFMMLXSpeculativeGenerationDecision(path: .eagle3, reason: nil)
+        let completed = AFMMLXSpeculativeGenerationDecision.completedRuntimeDecision(
+            initialDecision: decision,
+            emittedChunkCount: 1
+        )
+
+        XCTAssertEqual(completed, decision)
+    }
+
+    func testCompletedNonSpeculativeDecisionIsUnchanged() {
+        let decision = AFMMLXSpeculativeGenerationDecision(
+            path: .fallback,
+            reason: .samplingEnabled
+        )
+        let completed = AFMMLXSpeculativeGenerationDecision.completedRuntimeDecision(
+            initialDecision: decision,
+            emittedChunkCount: 0
+        )
+
+        XCTAssertEqual(completed, decision)
+    }
+
     func testExplicitEagle3FallsBackWhenVisionInputIsPresent() {
         let decision = AFMMLXSpeculativeGenerationDecision.evaluate(
             mode: .eagle3,
