@@ -50,6 +50,26 @@ public struct AFMMLXSelectedNameChangePlan: Equatable, Sendable {
     }
 }
 
+public struct AFMMLXQuickSelectionCandidate: Equatable, Sendable {
+    public let id: String
+    public let isVision: Bool
+
+    public init(id: String, isVision: Bool) {
+        self.id = id
+        self.isVision = isVision
+    }
+}
+
+public struct AFMMLXQuickSelection: Equatable, Sendable {
+    public let id: String
+    public let loadAsVLM: Bool
+
+    public init(id: String, loadAsVLM: Bool) {
+        self.id = id
+        self.loadAsVLM = loadAsVLM
+    }
+}
+
 public enum AFMMLXLoadSelectionPolicy {
     public static func quickLoadPlan(
         for selectionID: String,
@@ -206,5 +226,44 @@ public enum AFMMLXLoadSelectionPolicy {
 
         let selectedName = fallbackDisplayName(for: trimmedSelection)
         return trimmedLoadedName == selectedName || trimmedLoadedID == trimmedSelection
+    }
+
+    public static func initialQuickSelection(
+        loadedModelID: String?,
+        loadedModelIsVLM: Bool,
+        curatedCandidates: [AFMMLXQuickSelectionCandidate],
+        downloadedCandidates: [AFMMLXQuickSelectionCandidate],
+        importedCandidates: [AFMMLXQuickSelectionCandidate]
+    ) -> AFMMLXQuickSelection? {
+        if let loadedModelID = loadedModelID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !loadedModelID.isEmpty {
+            return AFMMLXQuickSelection(id: loadedModelID, loadAsVLM: loadedModelIsVLM)
+        }
+
+        guard let candidate = (curatedCandidates + downloadedCandidates + importedCandidates).first else {
+            return nil
+        }
+        return AFMMLXQuickSelection(id: candidate.id, loadAsVLM: candidate.isVision)
+    }
+
+    public static func quickSelectionLoadAsVLM(
+        for selectionID: String,
+        curatedCandidates: [AFMMLXQuickSelectionCandidate],
+        downloadedCandidates: [AFMMLXQuickSelectionCandidate],
+        importedCandidates: [AFMMLXQuickSelectionCandidate]
+    ) -> Bool? {
+        let trimmedSelection = selectionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSelection.isEmpty else { return nil }
+
+        if let imported = importedCandidates.first(where: { $0.id == trimmedSelection }) {
+            return imported.isVision
+        }
+        if let curated = curatedCandidates.first(where: { $0.id == trimmedSelection }) {
+            return curated.isVision
+        }
+        if let downloaded = downloadedCandidates.first(where: { $0.id == trimmedSelection }) {
+            return downloaded.isVision
+        }
+        return nil
     }
 }

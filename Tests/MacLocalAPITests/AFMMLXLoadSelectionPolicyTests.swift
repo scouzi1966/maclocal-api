@@ -368,4 +368,112 @@ final class AFMMLXLoadSelectionPolicyTests: XCTestCase {
             )
         )
     }
+
+    func testInitialQuickSelectionPrefersLoadedModel() {
+        XCTAssertEqual(
+            AFMMLXLoadSelectionPolicy.initialQuickSelection(
+                loadedModelID: " mlx-community/loaded-model ",
+                loadedModelIsVLM: true,
+                curatedCandidates: [
+                    AFMMLXQuickSelectionCandidate(id: "mlx-community/curated-model", isVision: false)
+                ],
+                downloadedCandidates: [
+                    AFMMLXQuickSelectionCandidate(id: "custom/downloaded-model", isVision: false)
+                ],
+                importedCandidates: [
+                    AFMMLXQuickSelectionCandidate(id: "imported:/Volumes/models/imported", isVision: true)
+                ]
+            ),
+            AFMMLXQuickSelection(id: "mlx-community/loaded-model", loadAsVLM: true)
+        )
+    }
+
+    func testInitialQuickSelectionFallsThroughCategoryOrder() {
+        XCTAssertEqual(
+            AFMMLXLoadSelectionPolicy.initialQuickSelection(
+                loadedModelID: nil,
+                loadedModelIsVLM: false,
+                curatedCandidates: [],
+                downloadedCandidates: [
+                    AFMMLXQuickSelectionCandidate(id: "custom/downloaded-model", isVision: true)
+                ],
+                importedCandidates: [
+                    AFMMLXQuickSelectionCandidate(id: "imported:/Volumes/models/imported", isVision: false)
+                ]
+            ),
+            AFMMLXQuickSelection(id: "custom/downloaded-model", loadAsVLM: true)
+        )
+    }
+
+    func testInitialQuickSelectionReturnsNilWhenNoCandidates() {
+        XCTAssertNil(
+            AFMMLXLoadSelectionPolicy.initialQuickSelection(
+                loadedModelID: " ",
+                loadedModelIsVLM: false,
+                curatedCandidates: [],
+                downloadedCandidates: [],
+                importedCandidates: []
+            )
+        )
+    }
+
+    func testQuickSelectionLoadAsVLMPrefersImportedSelection() {
+        XCTAssertEqual(
+            AFMMLXLoadSelectionPolicy.quickSelectionLoadAsVLM(
+                for: " imported:/Volumes/models/local-vlm ",
+                curatedCandidates: [
+                    AFMMLXQuickSelectionCandidate(id: "imported:/Volumes/models/local-vlm", isVision: false)
+                ],
+                downloadedCandidates: [],
+                importedCandidates: [
+                    AFMMLXQuickSelectionCandidate(id: "imported:/Volumes/models/local-vlm", isVision: true)
+                ]
+            ),
+            true
+        )
+    }
+
+    func testQuickSelectionLoadAsVLMFallsBackToCuratedThenDownloaded() {
+        XCTAssertEqual(
+            AFMMLXLoadSelectionPolicy.quickSelectionLoadAsVLM(
+                for: "mlx-community/curated-model",
+                curatedCandidates: [
+                    AFMMLXQuickSelectionCandidate(id: "mlx-community/curated-model", isVision: true)
+                ],
+                downloadedCandidates: [
+                    AFMMLXQuickSelectionCandidate(id: "mlx-community/curated-model", isVision: false),
+                    AFMMLXQuickSelectionCandidate(id: "custom/downloaded-model", isVision: false)
+                ],
+                importedCandidates: []
+            ),
+            true
+        )
+
+        XCTAssertEqual(
+            AFMMLXLoadSelectionPolicy.quickSelectionLoadAsVLM(
+                for: "custom/downloaded-model",
+                curatedCandidates: [],
+                downloadedCandidates: [
+                    AFMMLXQuickSelectionCandidate(id: "custom/downloaded-model", isVision: false)
+                ],
+                importedCandidates: []
+            ),
+            false
+        )
+    }
+
+    func testQuickSelectionLoadAsVLMReturnsNilForUnknownSelection() {
+        XCTAssertNil(
+            AFMMLXLoadSelectionPolicy.quickSelectionLoadAsVLM(
+                for: "unknown/model",
+                curatedCandidates: [
+                    AFMMLXQuickSelectionCandidate(id: "mlx-community/curated-model", isVision: true)
+                ],
+                downloadedCandidates: [
+                    AFMMLXQuickSelectionCandidate(id: "custom/downloaded-model", isVision: false)
+                ],
+                importedCandidates: []
+            )
+        )
+    }
 }
