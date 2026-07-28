@@ -78,4 +78,56 @@ final class AFMMLXSpeculativeRuntimeSetupPlannerTests: XCTestCase {
         XCTAssertEqual(eagle3.statusKind, .eagle3)
         XCTAssertEqual(eagle3.statusText, "EAGLE3 ready")
     }
+
+    func testEagle3DownloadRejectsMissingLoadedModel() {
+        let state = AFMMLXEagle3DrafterDownloadPolicy.missingLoadedModelState()
+
+        XCTAssertFalse(state.isDownloading)
+        XCTAssertEqual(state.progress, 0)
+        XCTAssertEqual(state.statusText, "Load a Gemma4 model before downloading EAGLE3")
+        XCTAssertFalse(state.shouldAskToDownloadEagle3Drafter)
+    }
+
+    func testEagle3DownloadRejectsNonDenseVerifier() {
+        let state = AFMMLXEagle3DrafterDownloadPolicy.nonDenseVerifierState()
+
+        XCTAssertFalse(state.isDownloading)
+        XCTAssertEqual(state.progress, 0)
+        XCTAssertEqual(state.statusText, "Load a dense Gemma4 model before downloading EAGLE3")
+        XCTAssertFalse(state.shouldAskToDownloadEagle3Drafter)
+    }
+
+    func testEagle3DownloadStartedAndFinishedStates() {
+        let started = AFMMLXEagle3DrafterDownloadPolicy.startedState()
+        XCTAssertTrue(started.isDownloading)
+        XCTAssertEqual(started.progress, 0)
+        XCTAssertEqual(started.statusText, "Downloading EAGLE3 drafter")
+        XCTAssertFalse(started.shouldAskToDownloadEagle3Drafter)
+
+        let finished = AFMMLXEagle3DrafterDownloadPolicy.finishedDownloadState()
+        XCTAssertFalse(finished.isDownloading)
+        XCTAssertEqual(finished.progress, 1)
+        XCTAssertEqual(finished.statusText, "EAGLE3 downloaded")
+        XCTAssertFalse(finished.shouldAskToDownloadEagle3Drafter)
+    }
+
+    func testEagle3DownloadCurrentModelChangedState() {
+        let state = AFMMLXEagle3DrafterDownloadPolicy.currentModelChangedState()
+
+        XCTAssertFalse(state.isDownloading)
+        XCTAssertEqual(state.progress, 1)
+        XCTAssertEqual(state.statusText, "EAGLE3 downloaded; current model changed")
+        XCTAssertFalse(state.shouldAskToDownloadEagle3Drafter)
+    }
+
+    func testEagle3DownloadFailureKeepsRetryAvailable() {
+        let state = AFMMLXEagle3DrafterDownloadPolicy.failedState(
+            errorDescription: "network unavailable"
+        )
+
+        XCTAssertFalse(state.isDownloading)
+        XCTAssertEqual(state.progress, 0)
+        XCTAssertEqual(state.statusText, "EAGLE3 download failed: network unavailable")
+        XCTAssertTrue(state.shouldAskToDownloadEagle3Drafter)
+    }
 }

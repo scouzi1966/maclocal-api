@@ -44,6 +44,81 @@ public struct AFMMLXSpeculativeRuntimeSetupPlan: Equatable, Sendable {
     }
 }
 
+public struct AFMMLXEagle3DrafterDownloadState: Equatable, Sendable {
+    public let isDownloading: Bool
+    public let progress: Double
+    public let statusText: String
+    public let shouldAskToDownloadEagle3Drafter: Bool
+
+    public init(
+        isDownloading: Bool,
+        progress: Double,
+        statusText: String,
+        shouldAskToDownloadEagle3Drafter: Bool
+    ) {
+        self.isDownloading = isDownloading
+        self.progress = progress
+        self.statusText = statusText
+        self.shouldAskToDownloadEagle3Drafter = shouldAskToDownloadEagle3Drafter
+    }
+}
+
+public enum AFMMLXEagle3DrafterDownloadPolicy {
+    public static func missingLoadedModelState() -> AFMMLXEagle3DrafterDownloadState {
+        AFMMLXEagle3DrafterDownloadState(
+            isDownloading: false,
+            progress: 0,
+            statusText: "Load a Gemma4 model before downloading EAGLE3",
+            shouldAskToDownloadEagle3Drafter: false
+        )
+    }
+
+    public static func nonDenseVerifierState() -> AFMMLXEagle3DrafterDownloadState {
+        AFMMLXEagle3DrafterDownloadState(
+            isDownloading: false,
+            progress: 0,
+            statusText: "Load a dense Gemma4 model before downloading EAGLE3",
+            shouldAskToDownloadEagle3Drafter: false
+        )
+    }
+
+    public static func startedState() -> AFMMLXEagle3DrafterDownloadState {
+        AFMMLXEagle3DrafterDownloadState(
+            isDownloading: true,
+            progress: 0,
+            statusText: "Downloading EAGLE3 drafter",
+            shouldAskToDownloadEagle3Drafter: false
+        )
+    }
+
+    public static func finishedDownloadState() -> AFMMLXEagle3DrafterDownloadState {
+        AFMMLXEagle3DrafterDownloadState(
+            isDownloading: false,
+            progress: 1,
+            statusText: "EAGLE3 downloaded",
+            shouldAskToDownloadEagle3Drafter: false
+        )
+    }
+
+    public static func currentModelChangedState() -> AFMMLXEagle3DrafterDownloadState {
+        AFMMLXEagle3DrafterDownloadState(
+            isDownloading: false,
+            progress: 1,
+            statusText: "EAGLE3 downloaded; current model changed",
+            shouldAskToDownloadEagle3Drafter: false
+        )
+    }
+
+    public static func failedState(errorDescription: String) -> AFMMLXEagle3DrafterDownloadState {
+        AFMMLXEagle3DrafterDownloadState(
+            isDownloading: false,
+            progress: 0,
+            statusText: "EAGLE3 download failed: \(errorDescription)",
+            shouldAskToDownloadEagle3Drafter: true
+        )
+    }
+}
+
 public enum AFMMLXSpeculativeRuntimeSetupPlanner {
     public static func make(
         selectedMode: AFMMLXSpeculativeDecodingMode,
