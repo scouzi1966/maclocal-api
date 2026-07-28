@@ -10,13 +10,13 @@ let package = Package(
     name: "AFMKitConsumer",
     platforms: [.macOS("26.0")],
     dependencies: [
-        .package(path: "../..")
+        .package(name: "MacLocalAPI", path: "../..")
     ],
     targets: [
         .executableTarget(
             name: "AFMKitConsumer",
             dependencies: [
-                .product(name: "AFMKit", package: "maclocal-api")
+                .product(name: "AFMKit", package: "MacLocalAPI")
             ]
         )
     ]
