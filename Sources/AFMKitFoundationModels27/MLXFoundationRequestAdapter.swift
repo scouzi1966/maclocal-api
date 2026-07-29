@@ -108,6 +108,7 @@ enum MLXFoundationRequestAdapter {
         if let toolCallingMode {
             metadata["toolCallingMode"] = .string(toolCallingMode)
         }
+        let explicitReasoningRequested = request.contextOptions.reasoningLevel != nil
         if let reasoningLevel = request.contextOptions.reasoningLevel {
             switch reasoningLevel {
             case .light: metadata["reasoningLevel"] = .string("light")
@@ -118,6 +119,11 @@ enum MLXFoundationRequestAdapter {
             @unknown default:
                 break
             }
+        }
+        if model.engineConfig.supportsReasoning {
+            metadata["chatTemplateKwargs"] = .object([
+                "enable_thinking": .bool(explicitReasoningRequested)
+            ])
         }
         metadata.merge(afmMetadata(request.metadata)) { _, new in new }
 

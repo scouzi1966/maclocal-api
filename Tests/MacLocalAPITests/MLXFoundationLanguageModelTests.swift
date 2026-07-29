@@ -282,7 +282,61 @@ final class MLXFoundationLanguageModelTests: XCTestCase {
         XCTAssertEqual(config.metadata["includeSchemaInPrompt"], .bool(false))
         XCTAssertEqual(config.metadata["toolCallingMode"], .string("disallowed"))
         XCTAssertEqual(config.metadata["reasoningLevel"], .string("deep"))
+        XCTAssertNil(config.metadata["chatTemplateKwargs"])
         XCTAssertEqual(config.metadata["requestID"], .string("request-1"))
+    }
+
+    func testGenerationConfigDisablesThinkingByDefaultForReasoningModels() throws {
+        let model = MLXLanguageModel(
+            modelID: "mlx-community/qwen-reasoning",
+            defaultMaximumResponseTokens: 2_048,
+            supportsReasoning: true
+        )
+        let request = LanguageModelExecutorGenerationRequest(
+            id: UUID(),
+            transcript: Transcript(),
+            enabledTools: [],
+            generationOptions: GenerationOptions(maximumResponseTokens: 128),
+            contextOptions: ContextOptions(),
+            metadata: [:]
+        )
+
+        let config = try MLXFoundationRequestAdapter.generationConfig(
+            from: request,
+            model: model
+        )
+
+        guard case .object(let kwargs)? = config.metadata["chatTemplateKwargs"] else {
+            return XCTFail("Expected chatTemplateKwargs metadata.")
+        }
+        XCTAssertEqual(kwargs["enable_thinking"], .bool(false))
+    }
+
+    func testGenerationConfigEnablesThinkingForExplicitReasoningLevel() throws {
+        let model = MLXLanguageModel(
+            modelID: "mlx-community/qwen-reasoning",
+            defaultMaximumResponseTokens: 2_048,
+            supportsReasoning: true
+        )
+        let request = LanguageModelExecutorGenerationRequest(
+            id: UUID(),
+            transcript: Transcript(),
+            enabledTools: [],
+            generationOptions: GenerationOptions(maximumResponseTokens: 128),
+            contextOptions: ContextOptions(reasoningLevel: .moderate),
+            metadata: [:]
+        )
+
+        let config = try MLXFoundationRequestAdapter.generationConfig(
+            from: request,
+            model: model
+        )
+
+        XCTAssertEqual(config.metadata["reasoningLevel"], .string("moderate"))
+        guard case .object(let kwargs)? = config.metadata["chatTemplateKwargs"] else {
+            return XCTFail("Expected chatTemplateKwargs metadata.")
+        }
+        XCTAssertEqual(kwargs["enable_thinking"], .bool(true))
     }
 
     func testGenerationConfigMapsGenerationSchemaToStrictJSONResponseFormat() throws {
