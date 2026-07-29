@@ -13,6 +13,10 @@ public struct MetalLibraryError: Error, CustomStringConvertible {
 public enum MLXMetalLibrary {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var initialized = false
+    private static let resourceBundleNames = [
+        "MacLocalAPI_AFMKitMLX.bundle",
+        "MacLocalAPI_AFMKit.bundle",
+    ]
 
     /// Resolve the absolute path to this binary.
     ///
@@ -40,9 +44,12 @@ public enum MLXMetalLibrary {
     }
 
     private static func metallib(inBundleAt bundleURL: URL, fileManager: FileManager) -> URL? {
-        let direct = bundleURL.appendingPathComponent("default.metallib")
-        if fileManager.fileExists(atPath: direct.path) {
-            return direct
+        let candidates = [
+            bundleURL.appendingPathComponent("default.metallib"),
+            bundleURL.appendingPathComponent("Contents/Resources/default.metallib"),
+        ]
+        for candidate in candidates where fileManager.fileExists(atPath: candidate.path) {
+            return candidate
         }
 
         if let bundle = Bundle(url: bundleURL),
@@ -54,12 +61,25 @@ public enum MLXMetalLibrary {
         return nil
     }
 
+    static func metallib(
+        inResourceDirectory directory: URL,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        for bundleName in resourceBundleNames {
+            let bundleURL = directory.appendingPathComponent(bundleName)
+            if let resource = metallib(inBundleAt: bundleURL, fileManager: fileManager) {
+                return resource
+            }
+        }
+        return nil
+    }
+
     /// Find the metallib without using Bundle.module (which fatalError's when relocated).
     ///
     /// Search order:
     /// 1. `MACAFM_MLX_METALLIB` env var — explicit override
     /// 2. `default.metallib` next to the executable (pip wheel layout: bin/default.metallib)
-    /// 3. `MacLocalAPI_AFMKit.bundle/default.metallib` next to the executable (SPM build layout)
+    /// 3. AFMKitMLX SwiftPM resource bundle next to the executable
     /// 4. SPM Bundle.module (only if the bundle actually exists — never fatalError)
     private static func resolveMetallib() -> URL? {
         let fileManager = FileManager.default
@@ -80,17 +100,32 @@ public enum MLXMetalLibrary {
         let loose = executableDir.appendingPathComponent("default.metallib")
         if fileManager.fileExists(atPath: loose.path) { return loose }
 
-        // 3. SPM bundle next to the binary (direct build: .build/release/MacLocalAPI_AFMKit.bundle/)
-        let bundled = executableDir.appendingPathComponent("MacLocalAPI_AFMKit.bundle")
-        if let resource = metallib(inBundleAt: bundled, fileManager: fileManager) {
+        // 3. SPM bundle next to the binary.
+        if let resource = metallib(
+            inResourceDirectory: executableDir,
+            fileManager: fileManager
+        ) {
+            return resource
+        }
+
+        // macOS app and XCTest bundles place resources beside Contents/MacOS.
+        let executableResources = executableDir
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources")
+        if let resource = metallib(
+            inResourceDirectory: executableResources,
+            fileManager: fileManager
+        ) {
             return resource
         }
 
         // An app host keeps SwiftPM resource bundles in Contents/Resources, not
         // beside the executable in Contents/MacOS.
         if let appResources = Bundle.main.resourceURL {
-            let appBundle = appResources.appendingPathComponent("MacLocalAPI_AFMKit.bundle")
-            if let resource = metallib(inBundleAt: appBundle, fileManager: fileManager) {
+            if let resource = metallib(
+                inResourceDirectory: appResources,
+                fileManager: fileManager
+            ) {
                 return resource
             }
         }
@@ -99,8 +134,10 @@ public enum MLXMetalLibrary {
         //     SwiftPM test layouts often place the test binary deeper than the app bundle.
         var searchDir = executableDir
         for _ in 0..<5 {
-            let candidate = searchDir.appendingPathComponent("MacLocalAPI_AFMKit.bundle")
-            if let resource = metallib(inBundleAt: candidate, fileManager: fileManager) {
+            if let resource = metallib(
+                inResourceDirectory: searchDir,
+                fileManager: fileManager
+            ) {
                 return resource
             }
             searchDir.deleteLastPathComponent()
@@ -108,30 +145,35 @@ public enum MLXMetalLibrary {
 
         // 3aa. Current working directory and common SwiftPM build layouts.
         let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        let cwdCandidates = [
-            cwd.appendingPathComponent("MacLocalAPI_AFMKit.bundle/default.metallib"),
-            cwd.appendingPathComponent(".build/debug/MacLocalAPI_AFMKit.bundle/default.metallib"),
-            cwd.appendingPathComponent(".build/arm64-apple-macosx/debug/MacLocalAPI_AFMKit.bundle/default.metallib"),
-        ]
+        let cwdCandidates = resourceBundleNames.flatMap { bundleName in
+            [
+                cwd.appendingPathComponent("\(bundleName)/default.metallib"),
+                cwd.appendingPathComponent(".build/debug/\(bundleName)/default.metallib"),
+                cwd.appendingPathComponent(".build/arm64-apple-macosx/debug/\(bundleName)/default.metallib"),
+            ]
+        }
         for candidate in cwdCandidates where fileManager.fileExists(atPath: candidate.path) {
             return candidate
         }
 
         // 3b. Homebrew layout: binary in bin/, bundle in ../libexec/
-        let homebrew = executableDir
-            .deletingLastPathComponent()
-            .appendingPathComponent("libexec")
-            .appendingPathComponent("MacLocalAPI_AFMKit.bundle")
-            .appendingPathComponent("default.metallib")
-        if fileManager.fileExists(atPath: homebrew.path) { return homebrew }
+        for bundleName in resourceBundleNames {
+            let homebrew = executableDir
+                .deletingLastPathComponent()
+                .appendingPathComponent("libexec")
+                .appendingPathComponent(bundleName)
+                .appendingPathComponent("default.metallib")
+            if fileManager.fileExists(atPath: homebrew.path) { return homebrew }
+        }
 
         // 4. SPM Bundle.module — only if the bundle file physically exists.
         //    We probe the path before calling Bundle(path:) to avoid the auto-generated
         //    fatalError when the bundle can't be found (happens on any relocated binary).
-        let mainBundleURL = Bundle.main.bundleURL
-            .appendingPathComponent("MacLocalAPI_AFMKit.bundle")
-        if let resource = metallib(inBundleAt: mainBundleURL, fileManager: fileManager) {
-            return resource
+        for bundleName in resourceBundleNames {
+            let mainBundleURL = Bundle.main.bundleURL.appendingPathComponent(bundleName)
+            if let resource = metallib(inBundleAt: mainBundleURL, fileManager: fileManager) {
+                return resource
+            }
         }
 
         return nil
@@ -145,7 +187,7 @@ public enum MLXMetalLibrary {
 
             guard let source = resolveMetallib() else {
                 throw MetalLibraryError(
-                    "MLX metallib not found. Searched next to binary and in MacLocalAPI_AFMKit.bundle. "
+                    "MLX metallib not found. Searched next to binary and in AFMKitMLX resource bundles. "
                     + "Set MACAFM_MLX_METALLIB=/path/to/default.metallib to override."
                 )
             }
