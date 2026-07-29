@@ -73,6 +73,28 @@ final class AFMMLXSpeculativeDecodingTests: XCTestCase {
         XCTAssertEqual(completed, decision)
     }
 
+    func testSpeculativeCompletionCommitsNonEmptyOutputAsNormalStop() {
+        let summary = AFMMLXSpeculativeGenerationCompletionPolicy.summary(
+            accumulatedText: "hello from speculative decoding"
+        )
+
+        XCTAssertTrue(summary.shouldCommit)
+        XCTAssertEqual(summary.historyText, "hello from speculative decoding")
+        XCTAssertEqual(summary.finishReason, .stop)
+        XCTAssertEqual(summary.tokensPerSecond, 0)
+    }
+
+    func testSpeculativeCompletionDoesNotCommitEmptyOutput() {
+        let summary = AFMMLXSpeculativeGenerationCompletionPolicy.summary(
+            accumulatedText: ""
+        )
+
+        XCTAssertFalse(summary.shouldCommit)
+        XCTAssertEqual(summary.historyText, "")
+        XCTAssertEqual(summary.finishReason, .stop)
+        XCTAssertEqual(summary.tokensPerSecond, 0)
+    }
+
     func testExplicitEagle3FallsBackWhenVisionInputIsPresent() {
         let decision = AFMMLXSpeculativeGenerationDecision.evaluate(
             mode: .eagle3,

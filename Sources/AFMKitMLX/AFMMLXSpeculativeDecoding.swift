@@ -1,4 +1,5 @@
 import Foundation
+import AFMKitCore
 
 public enum AFMMLXSpeculativeDecodingMode: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
     case off
@@ -259,6 +260,46 @@ public struct AFMMLXSpeculativeGenerationDecision: Equatable, Sendable {
         return AFMMLXSpeculativeGenerationDecision(
             path: .fallback,
             reason: .runtimeUnavailable
+        )
+    }
+}
+
+public struct AFMMLXSpeculativeGenerationCompletionSummary: Equatable, Sendable {
+    public let shouldCommit: Bool
+    public let historyText: String
+    public let finishReason: AFMFinishReason
+    public let tokensPerSecond: Double
+
+    public init(
+        shouldCommit: Bool,
+        historyText: String,
+        finishReason: AFMFinishReason,
+        tokensPerSecond: Double
+    ) {
+        self.shouldCommit = shouldCommit
+        self.historyText = historyText
+        self.finishReason = finishReason
+        self.tokensPerSecond = tokensPerSecond
+    }
+}
+
+public enum AFMMLXSpeculativeGenerationCompletionPolicy {
+    public static func summary(
+        accumulatedText: String
+    ) -> AFMMLXSpeculativeGenerationCompletionSummary {
+        guard !accumulatedText.isEmpty else {
+            return AFMMLXSpeculativeGenerationCompletionSummary(
+                shouldCommit: false,
+                historyText: "",
+                finishReason: .stop,
+                tokensPerSecond: 0
+            )
+        }
+        return AFMMLXSpeculativeGenerationCompletionSummary(
+            shouldCommit: true,
+            historyText: accumulatedText,
+            finishReason: .stop,
+            tokensPerSecond: 0
         )
     }
 }
