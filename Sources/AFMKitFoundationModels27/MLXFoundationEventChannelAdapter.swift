@@ -5,7 +5,10 @@ import FoundationModels
 
 @available(macOS 27.0, *)
 struct MLXFoundationEventChannelAdapter {
-    enum ChannelPlan: Equatable {
+    static let textBatchTokenLimit = 16
+    static let textBatchCharacterLimit = 256
+
+    enum ChannelPlan: Equatable, Sendable {
         case responseText(String, tokenCount: Int)
         case reasoningText(String, tokenCount: Int)
         case usage(AFMUsage)
@@ -17,13 +20,20 @@ struct MLXFoundationEventChannelAdapter {
 
     private var sentUsage = false
     private var streamedTokens = 0
+    private var pendingText: ChannelPlan?
 
     mutating func send(
         _ event: AFMStreamEvent,
         into channel: LanguageModelExecutorGenerationChannel
     ) async {
-        guard let plan = consume(event) else { return }
-        await send(plan, into: channel)
+        for readyPlan in plans(for: event) {
+            await Self.send(readyPlan, into: channel)
+        }
+    }
+
+    mutating func plans(for event: AFMStreamEvent) -> [ChannelPlan] {
+        guard let plan = consume(event) else { return [] }
+        return enqueue(plan)
     }
 
     mutating func consume(_ event: AFMStreamEvent) -> ChannelPlan? {
@@ -65,9 +75,18 @@ struct MLXFoundationEventChannelAdapter {
         }
     }
 
-    func finish(into channel: LanguageModelExecutorGenerationChannel) async {
-        guard let plan = finishPlan() else { return }
-        await send(plan, into: channel)
+    mutating func finish(into channel: LanguageModelExecutorGenerationChannel) async {
+        for plan in completionPlans() {
+            await Self.send(plan, into: channel)
+        }
+    }
+
+    mutating func completionPlans() -> [ChannelPlan] {
+        var plans = flushPlans()
+        if let finishPlan = finishPlan() {
+            plans.append(finishPlan)
+        }
+        return plans
     }
 
     func finishPlan() -> ChannelPlan? {
@@ -75,7 +94,78 @@ struct MLXFoundationEventChannelAdapter {
         return .usage(AFMUsage(outputTokens: streamedTokens))
     }
 
-    private func send(
+    mutating func enqueue(_ plan: ChannelPlan) -> [ChannelPlan] {
+        guard Self.isText(plan) else {
+            return flushPlans() + [plan]
+        }
+
+        guard let pendingText else {
+            self.pendingText = plan
+            return Self.shouldFlush(plan) ? flushPlans() : []
+        }
+
+        guard let combined = Self.combine(pendingText, with: plan) else {
+            self.pendingText = plan
+            return [pendingText] + (Self.shouldFlush(plan) ? flushPlans() : [])
+        }
+
+        self.pendingText = combined
+        return Self.shouldFlush(combined) ? flushPlans() : []
+    }
+
+    mutating func flushPlans() -> [ChannelPlan] {
+        guard let pendingText else { return [] }
+        self.pendingText = nil
+        return [pendingText]
+    }
+
+    private static func isText(_ plan: ChannelPlan) -> Bool {
+        switch plan {
+        case .responseText, .reasoningText:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func combine(
+        _ lhs: ChannelPlan,
+        with rhs: ChannelPlan
+    ) -> ChannelPlan? {
+        switch (lhs, rhs) {
+        case let (
+            .responseText(lhsText, lhsTokenCount),
+            .responseText(rhsText, rhsTokenCount)
+        ):
+            return .responseText(
+                lhsText + rhsText,
+                tokenCount: lhsTokenCount + rhsTokenCount
+            )
+        case let (
+            .reasoningText(lhsText, lhsTokenCount),
+            .reasoningText(rhsText, rhsTokenCount)
+        ):
+            return .reasoningText(
+                lhsText + rhsText,
+                tokenCount: lhsTokenCount + rhsTokenCount
+            )
+        default:
+            return nil
+        }
+    }
+
+    private static func shouldFlush(_ plan: ChannelPlan) -> Bool {
+        switch plan {
+        case .responseText(let text, let tokenCount),
+             .reasoningText(let text, let tokenCount):
+            return tokenCount >= textBatchTokenLimit
+                || text.count >= textBatchCharacterLimit
+        default:
+            return true
+        }
+    }
+
+    static func send(
         _ plan: ChannelPlan,
         into channel: LanguageModelExecutorGenerationChannel
     ) async {

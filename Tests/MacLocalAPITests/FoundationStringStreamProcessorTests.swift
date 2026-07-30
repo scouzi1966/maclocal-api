@@ -124,5 +124,36 @@ final class FoundationStringStreamProcessorTests: XCTestCase {
         XCTAssertEqual(result.telemetry?.streamChunkCount, 2)
         XCTAssertNotNil(result.telemetry?.totalMilliseconds)
     }
+
+    func testNativeDecodeRateSurvivesSingleSnapshotFinalization() {
+        var processor = AFMFoundationStringStreamProcessor<[String]>(initialProgressState: [])
+        let startedAt = ContinuousClock.now
+        let completedAt = startedAt.advanced(by: .seconds(2))
+
+        let update = processor.consume(
+            content: "Answer",
+            usage: AFMFoundationGenerationUsage(
+                inputTokens: 8,
+                cachedInputTokens: 0,
+                outputTokens: 64,
+                reasoningTokens: 0
+            ),
+            progressState: [],
+            progressNames: [],
+            contextAction: nil,
+            nativeTokensPerSecond: 128,
+            startedAt: startedAt,
+            sampledAt: completedAt
+        )
+        let finalized = processor.finalize(
+            update.telemetry,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+
+        XCTAssertEqual(update.telemetry.tokensPerSecond, 128)
+        XCTAssertEqual(finalized.tokensPerSecond, 128)
+        XCTAssertEqual(finalized.streamChunkCount, 1)
+    }
 }
 #endif

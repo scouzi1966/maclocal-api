@@ -498,5 +498,60 @@ final class MLXFoundationLanguageModelTests: XCTestCase {
         )
         XCTAssertNil(adapter.consume(.tokenLogprobs([])))
     }
+
+    func testEventChannelAdapterCoalescesAdjacentResponseTokens() {
+        var adapter = MLXFoundationEventChannelAdapter()
+        var plans: [MLXFoundationEventChannelAdapter.ChannelPlan] = []
+
+        for index in 1...MLXFoundationEventChannelAdapter.textBatchTokenLimit {
+            plans += adapter.enqueue(.responseText("\(index)", tokenCount: 1))
+        }
+
+        XCTAssertEqual(
+            plans,
+            [
+                .responseText(
+                    (1...MLXFoundationEventChannelAdapter.textBatchTokenLimit)
+                        .map(String.init)
+                        .joined(),
+                    tokenCount: MLXFoundationEventChannelAdapter.textBatchTokenLimit
+                )
+            ]
+        )
+        XCTAssertTrue(adapter.flushPlans().isEmpty)
+    }
+
+    func testEventChannelAdapterFlushesBeforeReasoningTransition() {
+        var adapter = MLXFoundationEventChannelAdapter()
+
+        XCTAssertTrue(
+            adapter.enqueue(.responseText("Answer", tokenCount: 1)).isEmpty
+        )
+        XCTAssertEqual(
+            adapter.enqueue(.reasoningText("Think", tokenCount: 1)),
+            [.responseText("Answer", tokenCount: 1)]
+        )
+        XCTAssertEqual(
+            adapter.flushPlans(),
+            [.reasoningText("Think", tokenCount: 1)]
+        )
+    }
+
+    func testEventChannelAdapterFlushesTextBeforeNonTextEvent() {
+        var adapter = MLXFoundationEventChannelAdapter()
+        let usage = AFMUsage(inputTokens: 3, outputTokens: 2)
+
+        XCTAssertTrue(
+            adapter.enqueue(.responseText("Hello", tokenCount: 2)).isEmpty
+        )
+        XCTAssertEqual(
+            adapter.enqueue(.usage(usage)),
+            [
+                .responseText("Hello", tokenCount: 2),
+                .usage(usage)
+            ]
+        )
+        XCTAssertTrue(adapter.flushPlans().isEmpty)
+    }
 }
 #endif

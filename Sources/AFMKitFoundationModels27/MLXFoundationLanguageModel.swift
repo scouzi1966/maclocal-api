@@ -181,10 +181,33 @@ public final class MLXLanguageModelExecutor: LanguageModelExecutor, @unchecked S
         let options = try MLXFoundationRequestAdapter.generationConfig(from: request, model: model)
 
         var channelAdapter = MLXFoundationEventChannelAdapter()
-        for try await event in engine.streamEvents(to: messages, options) {
-            await channelAdapter.send(event, into: channel)
+        let (planStream, planContinuation) = AsyncStream.makeStream(
+            of: MLXFoundationEventChannelAdapter.ChannelPlan.self
+        )
+        let sender = Task.detached(priority: .utility) {
+            for await plan in planStream {
+                await MLXFoundationEventChannelAdapter.send(plan, into: channel)
+            }
         }
-        await channelAdapter.finish(into: channel)
+
+        do {
+            for try await event in engine.streamEvents(to: messages, options) {
+                try Task.checkCancellation()
+                for plan in channelAdapter.plans(for: event) {
+                    planContinuation.yield(plan)
+                }
+            }
+            for plan in channelAdapter.completionPlans() {
+                planContinuation.yield(plan)
+            }
+            planContinuation.finish()
+            await sender.value
+        } catch {
+            planContinuation.finish()
+            sender.cancel()
+            await sender.value
+            throw error
+        }
     }
 
 }

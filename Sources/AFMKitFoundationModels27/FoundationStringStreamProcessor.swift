@@ -19,6 +19,7 @@ public struct AFMFoundationStringStreamUpdate<ProgressState: Equatable & Sendabl
 @available(macOS 27.0, *)
 public struct AFMFoundationStringStreamProcessor<ProgressState: Equatable & Sendable>: Sendable {
     private var accumulator: AFMFoundationSnapshotAccumulator<ProgressState>
+    private var nativeTokensPerSecond: Double?
     public private(set) var firstChunkAt: ContinuousClock.Instant?
 
     public var streamChunkCount: Int {
@@ -36,9 +37,13 @@ public struct AFMFoundationStringStreamProcessor<ProgressState: Equatable & Send
         progressNames: [String],
         reasoningContent: String = "",
         contextAction: String?,
+        nativeTokensPerSecond: Double? = nil,
         startedAt: ContinuousClock.Instant,
         sampledAt: ContinuousClock.Instant = ContinuousClock.now
     ) -> AFMFoundationStringStreamUpdate<ProgressState> {
+        if let nativeTokensPerSecond, nativeTokensPerSecond.isFinite, nativeTokensPerSecond > 0 {
+            self.nativeTokensPerSecond = nativeTokensPerSecond
+        }
         let update = accumulator.consume(
             content: content,
             progressState: progressState,
@@ -47,7 +52,7 @@ public struct AFMFoundationStringStreamProcessor<ProgressState: Equatable & Send
         if update.firstChunkStarted, firstChunkAt == nil {
             firstChunkAt = sampledAt
         }
-        let telemetry = AFMFoundationGenerationTelemetryCalculator.telemetry(
+        var telemetry = AFMFoundationGenerationTelemetryCalculator.telemetry(
             usage: usage,
             toolNames: progressNames,
             contextAction: contextAction,
@@ -56,6 +61,7 @@ public struct AFMFoundationStringStreamProcessor<ProgressState: Equatable & Send
             sampledAt: sampledAt,
             streamChunkCount: update.streamChunkCount
         )
+        telemetry.tokensPerSecond = self.nativeTokensPerSecond ?? telemetry.tokensPerSecond
         return AFMFoundationStringStreamUpdate(snapshotUpdate: update, telemetry: telemetry)
     }
 
@@ -65,6 +71,7 @@ public struct AFMFoundationStringStreamProcessor<ProgressState: Equatable & Send
         progressNames: [String],
         reasoningContent: String = "",
         contextAction: String?,
+        nativeTokensPerSecond: Double? = nil,
         startedAt: ContinuousClock.Instant,
         sampledAt: ContinuousClock.Instant = ContinuousClock.now
     ) -> AFMFoundationStringStreamUpdate<ProgressState> {
@@ -75,6 +82,7 @@ public struct AFMFoundationStringStreamProcessor<ProgressState: Equatable & Send
             progressNames: progressNames,
             reasoningContent: reasoningContent,
             contextAction: contextAction,
+            nativeTokensPerSecond: nativeTokensPerSecond,
             startedAt: startedAt,
             sampledAt: sampledAt
         )
@@ -85,13 +93,15 @@ public struct AFMFoundationStringStreamProcessor<ProgressState: Equatable & Send
         startedAt: ContinuousClock.Instant,
         completedAt: ContinuousClock.Instant
     ) -> AFMFoundationGenerationTelemetry {
-        AFMFoundationGenerationTelemetryCalculator.finalize(
+        var finalized = AFMFoundationGenerationTelemetryCalculator.finalize(
             telemetry,
             startedAt: startedAt,
             firstChunkAt: firstChunkAt,
             completedAt: completedAt,
             streamChunkCount: streamChunkCount
         )
+        finalized.tokensPerSecond = nativeTokensPerSecond ?? finalized.tokensPerSecond
+        return finalized
     }
 }
 #endif
