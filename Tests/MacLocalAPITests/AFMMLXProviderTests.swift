@@ -1,10 +1,118 @@
 import AFMKitCore
+import AFMKit
 import AFMOpenAICompat
 @testable import AFMKitMLX
 import MLXLMCommon
 import XCTest
 
 final class AFMMLXProviderTests: XCTestCase {
+    func testToolNameSanitizerRemovesClosingXMLTagRemnant() {
+        XCTAssertEqual(
+            AFMMLXModel.sanitizedToolName("todoread</function"),
+            "todoread"
+        )
+        XCTAssertEqual(AFMMLXModel.sanitizedToolName("diagnostics"), "diagnostics")
+    }
+
+    func testRawToolStreamFallbackConvertsXMLToCompletedToolCall() throws {
+        let tools = [
+            RequestTool(
+                type: "function",
+                function: RequestToolFunction(
+                    name: "get_weather",
+                    description: nil,
+                    parameters: AnyCodable([
+                        "type": "object",
+                        "properties": ["location": ["type": "string"]],
+                        "required": ["location"]
+                    ]),
+                    strict: true
+                )
+            )
+        ]
+        var fallback = AFMMLXRawToolStreamFallback(
+            toolCallStartTag: "<tool_call>",
+            toolCallEndTag: "</tool_call>",
+            toolCallParser: "afm_adaptive_xml",
+            tools: tools,
+            applyFixToolArgs: { $0 },
+            remapSingleKey: { key, _ in key }
+        )
+        var translator = MLXStreamEventTranslator(
+            thinkStartTag: nil,
+            thinkEndTag: nil,
+            maximumResponseTokens: 64
+        )
+        let rawChunks = [
+            StreamChunk(text: "<tool_call>\n"),
+            StreamChunk(text: "<function=get_weather>\n"),
+            StreamChunk(text: "<parameter=location>\nTokyo\n</parameter>\n"),
+            StreamChunk(text: "</function>\n</tool_call>")
+        ]
+
+        var events: [AFMGenerationEvent] = []
+        for chunk in rawChunks {
+            for normalized in fallback.consume(chunk) {
+                events.append(contentsOf: translator.consume(normalized))
+            }
+        }
+        for normalized in fallback.finish() {
+            events.append(contentsOf: translator.consume(normalized))
+        }
+        events.append(contentsOf: translator.finish())
+
+        let completedCalls = events.compactMap { event -> AFMToolCall? in
+            guard case .toolCall(let call, .completed) = event else { return nil }
+            return call
+        }
+        XCTAssertEqual(completedCalls.count, 1)
+        XCTAssertEqual(completedCalls[0].name, "get_weather")
+        XCTAssertEqual(completedCalls[0].arguments, #"{"location":"Tokyo"}"#)
+        XCTAssertFalse(events.contains { event in
+            guard case .responseText(_, let text, _) = event else { return false }
+            return text.contains("<tool_call>") || text.contains("<function=")
+        })
+    }
+
+    func testOpenAIDeveloperRoleMapsToSystemRole() throws {
+        let request = try AFMRequest(
+            openAIMessages: [Message(role: "developer", content: "Follow project policy.")],
+            generationConfig: GenerationConfig()
+        )
+
+        XCTAssertEqual(request.messages.count, 1)
+        XCTAssertEqual(request.messages[0].role, .system)
+        XCTAssertEqual(request.messages[0].content, [.text("Follow project policy.")])
+    }
+
+    func testAttachedModelPreservesHostServiceConfiguration() {
+        let service = MLXModelService(resolver: MLXCacheResolver())
+        service.enablePrefixCaching = false
+        service.enableGrammarConstraints = true
+        service.toolCallParser = "afm_adaptive_xml"
+
+        _ = AFMMLXModel(
+            modelID: "test/model",
+            attachedService: service
+        )
+
+        XCTAssertFalse(service.enablePrefixCaching)
+        XCTAssertTrue(service.enableGrammarConstraints)
+        XCTAssertEqual(service.toolCallParser, "afm_adaptive_xml")
+    }
+
+    func testAttachedRuntimeDoesNotReplaceHostSchedulerOnLoad() {
+        let service = MLXModelService(resolver: MLXCacheResolver())
+        service.maxConcurrent = 8
+
+        let runtime = AFMMLXRuntime(
+            modelID: "test/model",
+            attaching: service
+        )
+
+        XCTAssertFalse(runtime.initializesSchedulerOnLoad)
+    }
+
     func testFactoryExposesStableProviderIdentityAndConfiguration() {
         let descriptor = AFMMLXProviderFactory().descriptor
 
@@ -384,6 +492,29 @@ final class AFMMLXProviderTests: XCTestCase {
                 )
             ],
             for: requiredToolRequest()
+        )
+    }
+
+    func testRequiredToolRequestAddsToolOnlySystemInstruction() throws {
+        let messages = try requiredToolRequest().openAIMessages()
+
+        XCTAssertEqual(messages.first?.role, "system")
+        XCTAssertEqual(
+            messages.first?.textContent,
+            "You must call one of the available tools. Do not answer with text."
+        )
+    }
+
+    func testNamedRequiredToolRequestAddsNamedSystemInstruction() throws {
+        var request = requiredToolRequest()
+        request.metadata["requiredToolName"] = .string("weather")
+
+        let messages = try request.openAIMessages()
+
+        XCTAssertEqual(messages.first?.role, "system")
+        XCTAssertEqual(
+            messages.first?.textContent,
+            "You must call the weather tool. Do not answer with text."
         )
     }
 

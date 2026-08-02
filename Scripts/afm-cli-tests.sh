@@ -69,7 +69,7 @@ run_test 1 "git log | afm -s (summarize commits)" "pipe+flag" \
   "cd $CD && git log --oneline -10 | $AFM mlx -m $M -s 'Summarize these git commits in one sentence'"
 
 run_test 2 "ls | afm -s (analyze project files)" "pipe+flag" \
-  "ls $CD/Sources/MacLocalAPI/Controllers/ | $AFM mlx -m $M -s 'What kind of project has these files? One sentence.'"
+  "ls $CD/Sources/AFMServer/Controllers/ | $AFM mlx -m $M -s 'What kind of project has these files? One sentence.'"
 
 run_test 3 "ps aux | afm -s (process analysis)" "pipe+flag" \
   "ps aux | head -15 | $AFM mlx -m $M -s 'What type of system is this? One sentence.'"
@@ -98,7 +98,7 @@ run_test 10 "echo JSON | afm -s (config validation)" "pipe+flag" \
 # --- Pure stdin (no -s, model receives piped content directly) ---
 
 run_test 11 "cat source | afm (stdin code review)" "stdin" \
-  "head -30 $CD/Sources/MacLocalAPI/Models/OpenAIRequest.swift | $AFM mlx -m $M"
+  "head -30 $CD/Sources/AFMOpenAICompat/OpenAIRequest.swift | $AFM mlx -m $M"
 
 run_test 12 "cat Package.swift | afm (stdin dependency analysis)" "stdin" \
   "head -50 $CD/Package.swift | $AFM mlx -m $M"

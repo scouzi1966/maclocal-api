@@ -112,6 +112,48 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
     ) async throws -> AFMMLXChatGenerationResult {
+        try await generate(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            toolChoice: nil,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs
+        )
+    }
+
+    func generate(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?
+    ) async throws -> AFMMLXChatGenerationResult {
         let request = try AFMRequest(
             openAIMessages: messages,
             generationConfig: generationConfig(
@@ -126,6 +168,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                 logprobs: logprobs,
                 topLogprobs: topLogprobs,
                 tools: tools,
+                toolChoice: toolChoice,
                 parallelToolCalls: parallelToolCalls,
                 stop: stop,
                 responseFormat: responseFormat,
@@ -180,6 +223,52 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         preserveStructuralTags: Bool,
         requestId: String?
     ) async throws -> AFMMLXChatStreamingResult {
+        try await generateStreaming(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            toolChoice: nil,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            preserveStructuralTags: preserveStructuralTags,
+            requestId: requestId
+        )
+    }
+
+    func generateStreaming(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        preserveStructuralTags: Bool,
+        requestId: String?
+    ) async throws -> AFMMLXChatStreamingResult {
         let request = try AFMRequest(
             openAIMessages: messages,
             generationConfig: generationConfig(
@@ -194,6 +283,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                 logprobs: logprobs,
                 topLogprobs: topLogprobs,
                 tools: tools,
+                toolChoice: toolChoice,
                 parallelToolCalls: parallelToolCalls,
                 stop: stop,
                 responseFormat: responseFormat,
@@ -307,7 +397,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         AFMMLXModel(
             modelID: AFMModelID(rawValue: model),
             resolver: resolver,
-            service: service
+            attachedService: service
         )
     }
 
@@ -323,12 +413,22 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         logprobs: Bool?,
         topLogprobs: Int?,
         tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
         parallelToolCalls: Bool?,
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
     ) -> GenerationConfig {
         var metadata = [String: AFMJSONValue]()
+        switch toolChoice {
+        case .mode(let mode) where mode == "required":
+            metadata["toolCallingMode"] = .string("required")
+        case .function(let choice):
+            metadata["toolCallingMode"] = .string("required")
+            metadata["requiredToolName"] = .string(choice.function.name)
+        default:
+            break
+        }
         if let parallelToolCalls {
             metadata["parallelToolCalls"] = .bool(parallelToolCalls)
         }

@@ -131,7 +131,7 @@ mkdir -p "$STAGING"
 cp "$BIN" "$STAGING/"
 
 # Metallib resource bundle
-BUNDLE_DIR="$(dirname "$BIN")/MacLocalAPI_AFMKit.bundle"
+BUNDLE_DIR="$(dirname "$BIN")/MacLocalAPI_AFMKitMLX.bundle"
 if [ -d "$BUNDLE_DIR" ]; then
   cp -r "$BUNDLE_DIR" "$STAGING/"
   log_info "Included metallib bundle"

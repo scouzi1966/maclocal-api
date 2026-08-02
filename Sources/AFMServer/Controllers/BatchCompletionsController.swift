@@ -179,7 +179,12 @@ struct BatchCompletionsController: RouteCollection {
                 decrementAndFinishIfDone(activeCount: activeCount, continuation: continuation)
                 return
             }
-            defer { service.releaseSlot() }
+            var reservationTransferred = false
+            defer {
+                if !reservationTransferred {
+                    service.releaseSlot()
+                }
+            }
 
             let effectiveModel = service.normalizeModel(chatReq.model ?? modelID)
             let effectiveMaxTokens = chatReq.effectiveMaxTokens ?? maxTokens ?? Int.max
@@ -205,6 +210,7 @@ struct BatchCompletionsController: RouteCollection {
                 responseFormat: effectiveResponseFormat,
                 chatTemplateKwargs: chatReq.chatTemplateKwargs
             )
+            reservationTransferred = true
 
             let extractThinking = streamResult.thinkStartTag != nil
             let thinkStart = streamResult.thinkStartTag ?? "<think>"

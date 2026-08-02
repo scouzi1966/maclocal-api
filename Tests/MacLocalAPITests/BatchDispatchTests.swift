@@ -990,6 +990,7 @@ final class BatchAPIControllerTests: XCTestCase {
         XCTAssertEqual(batch?.status, "completed")
         XCTAssertEqual(batch?.requestCounts.completed, 1)
         XCTAssertNotNil(batch?.outputFileId)
+        XCTAssertEqual(service.releaseSlotCallCount, 0, "The scheduler owns the reservation after stream submission")
 
         // Verify output file content
         if let outputFileId = batch?.outputFileId {
@@ -1208,6 +1209,8 @@ final class BatchCompletionsControllerTests: XCTestCase {
             XCTAssertContains(body, "\"c\"")
             XCTAssertContains(body, "data: [DONE]")
         }
+
+        XCTAssertEqual(service.releaseSlotCallCount, 0, "The scheduler owns submitted streaming reservations")
     }
 
     func testCallsEnsureBatchMode() async throws {

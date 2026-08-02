@@ -194,15 +194,17 @@ echo ""
 # format. Tests XML parsing, type coercion, EBNF grammar generation, nullable
 # schemas, etc. These are pure logic tests — no model or server needed.
 
-if should_run_section U && min_tier unit; then
+if should_run_section U && min_tier unit && [[ "${MACAFM_SWIFT_TEST_SKIP:-0}" != "1" ]]; then
   CURRENT_TIER="unit"
   echo "🧪 Section U: Swift Unit Tests"
 
   # Ensure MLX metallib is findable by swift test (debug build may not have it after clean release build)
   if [ -z "${MACAFM_MLX_METALLIB:-}" ]; then
     for candidate in \
-      "$PROJECT_ROOT/.build/arm64-apple-macosx/release/MacLocalAPI_AFMKit.bundle/default.metallib" \
-      "$PROJECT_ROOT/.build/arm64-apple-macosx/debug/MacLocalAPI_AFMKit.bundle/default.metallib"; do
+      "$PROJECT_ROOT/.build/arm64-apple-macosx/release/MacLocalAPI_AFMKitMLX.bundle/default.metallib" \
+      "$PROJECT_ROOT/.build/arm64-apple-macosx/debug/MacLocalAPI_AFMKitMLX.bundle/default.metallib" \
+      "$PROJECT_ROOT/.build/out/Products/Release/MacLocalAPI_AFMKitMLX.bundle/Contents/Resources/default.metallib" \
+      "$PROJECT_ROOT/.build/out/Products/Debug/MacLocalAPI_AFMKitMLX.bundle/Contents/Resources/default.metallib"; do
       if [ -f "$candidate" ]; then
         export MACAFM_MLX_METALLIB="$candidate"
         break
@@ -211,7 +213,17 @@ if should_run_section U && min_tier unit; then
   fi
 
   t0=$(now_ms)
-  swift_test_output=$(cd "$PROJECT_ROOT" && swift test 2>&1) || true
+  swift_test_args=(test)
+  if [[ -n "${MACAFM_SWIFT_TEST_SCRATCH_PATH:-}" ]]; then
+    swift_test_args+=(--scratch-path "$MACAFM_SWIFT_TEST_SCRATCH_PATH")
+  fi
+  if [[ "${MACAFM_SWIFT_TEST_DISABLE_SANDBOX:-0}" == "1" ]]; then
+    swift_test_args+=(--disable-sandbox)
+  fi
+  if [[ "${MACAFM_SWIFT_TEST_SKIP_BUILD:-0}" == "1" ]]; then
+    swift_test_args+=(--skip-build)
+  fi
+  swift_test_output=$(cd "$PROJECT_ROOT" && swift "${swift_test_args[@]}" 2>&1) || true
   swift_test_dur=$(( $(now_ms) - t0 ))
 
   # Parse swift test console output into a temp file.
@@ -1041,7 +1053,7 @@ except Exception as e:
   NULLABLE_TOOL_FULL='[{"type":"function","function":{"name":"search_places","description":"Search for places nearby","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Search query"},"category":{"anyOf":[{"type":"string"},{"type":"null"}],"description":"Optional category filter"},"radius_km":{"anyOf":[{"type":"number"},{"type":"null"}],"description":"Optional radius in km"}},"required":["query"]}}}]'
   t0=$(now_ms)
   # Step 1: initial tool call with nullable params
-  mn_resp1=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Find restaurants near me\"}],\"tools\":$NULLABLE_TOOL_FULL,\"max_tokens\":300,\"stream\":false,\"temperature\":0}")
+  mn_resp1=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Find restaurants near me\"}],\"tools\":$NULLABLE_TOOL_FULL,\"tool_choice\":{\"type\":\"function\",\"function\":{\"name\":\"search_places\"}},\"max_tokens\":300,\"stream\":false,\"temperature\":0}")
   mn_step1=$(echo "$mn_resp1" | python3 -c "
 import sys, json
 try:
@@ -1249,7 +1261,7 @@ except Exception as e:
   t0=$(now_ms)
   api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$stream_cache_prompt1\"}],\"max_tokens\":10,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}" >/dev/null
   sleep 0.5
-  stream_resp=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"$stream_cache_prompt2\"}],\"max_tokens\":10,\"stream\":true,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}")
+  stream_resp=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"$stream_cache_prompt2\"}],\"max_tokens\":10,\"stream\":true,\"stream_options\":{\"include_usage\":true},\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}")
   dur=$(( $(now_ms) - t0 ))
   stream_cached=$(echo "$stream_resp" | python3 -c "
 import sys, json
@@ -1313,7 +1325,7 @@ print(''.join(parts))
   # When the server is started with --enable-prefix-caching --concurrent 8, this exercises the batched path.
   concurrent_nonce="CONCURRENT-CACHE-$(date +%s%N)"
   concurrent_prefix="Shared cache branch probe $concurrent_nonce."
-  concurrent_warmup="$concurrent_prefix Return JSON with marker 0."
+  concurrent_warmup="$concurrent_prefix Return a JSON object whose only field is marker and whose integer value is 0."
   api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$concurrent_warmup\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}" >/dev/null
 
   t0=$(now_ms)
@@ -1322,10 +1334,10 @@ print(''.join(parts))
   for i in 1 2 3 4 5 6 7 8; do
     token="$i"
     concurrent_tokens+=("$token")
-    prompt="$concurrent_prefix Return JSON with marker $token."
+    prompt="$concurrent_prefix Return a JSON object whose only field is marker and whose integer value is $token."
     curl -s --max-time 60 "$BASE_URL/v1/chat/completions" \
       -H 'Content-Type: application/json' \
-      -d "{\"messages\":[{\"role\":\"user\",\"content\":\"$prompt\"}],\"response_format\":{\"type\":\"json_object\"},\"max_tokens\":32,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}" \
+      -d "{\"messages\":[{\"role\":\"user\",\"content\":\"$prompt\"}],\"response_format\":{\"type\":\"json_object\"},\"max_tokens\":64,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}" \
       -o "$concurrent_tmpdir/resp_$i.json" \
       -w "%{http_code}" > "$concurrent_tmpdir/code_$i.txt" 2>/dev/null &
   done
@@ -1819,7 +1831,7 @@ except Exception as e:
   seq_pass=0
   seq_fail_msg=""
   for i in 1 2 3; do
-    seq_resp=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"Update record $i, set name to Planet$i\"}],\"tools\":$NULLABLE_SCHEMA_TOOL,\"max_tokens\":300,\"temperature\":0}")
+    seq_resp=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"Update record $i, set name to Planet$i\"}],\"tools\":$NULLABLE_SCHEMA_TOOL,\"tool_choice\":{\"type\":\"function\",\"function\":{\"name\":\"update_record\"}},\"max_tokens\":300,\"temperature\":0}")
     seq_check=$(echo "$seq_resp" | python3 -c "
 import sys, json
 try:
@@ -3215,7 +3227,7 @@ except Exception as e:
     #   call_bash ::= ... bash_rp_command bash_rp_description extra_params ...
     REQ_PARAMS_TOOL='[{"type":"function","function":{"name":"run_cmd","description":"Run a shell command","parameters":{"type":"object","properties":{"command":{"type":"string","description":"The command to run"},"description":{"type":"string","description":"What the command does"},"timeout":{"type":"integer","description":"Timeout in seconds"}},"required":["command","description"]}}}]'
     t0=$(now_ms)
-    req_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"List the files in /tmp\"}],\"tools\":$REQ_PARAMS_TOOL,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
+    req_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"List the files in /tmp\"}],\"tools\":$REQ_PARAMS_TOOL,\"tool_choice\":{\"type\":\"function\",\"function\":{\"name\":\"run_cmd\"}},\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
     dur=$(( $(now_ms) - t0 ))
     req_ok=$(echo "$req_resp" | python3 -c "
 import sys, json
@@ -3400,7 +3412,7 @@ else:
   # ── Test 13.3: Two tools — correct selection under grammar constraint ────
   # Grammar must allow model to choose between tools correctly
   t0=$(now_ms)
-  dual_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Tokyo?\"}],\"tools\":$DUAL_TOOLS_13,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
+  dual_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Tokyo?\"}],\"tools\":$DUAL_TOOLS_13,\"tool_choice\":{\"type\":\"function\",\"function\":{\"name\":\"get_weather\"}},\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
   dur=$(( $(now_ms) - t0 ))
   dual_ok=$(echo "$dual_resp" | python3 -c "
 import sys, json
@@ -3423,14 +3435,14 @@ except Exception as e:
     print(f'FAIL: {e}')
 " 2>/dev/null || echo "FAIL: parse error")
   if [ "$dual_ok" = "PASS" ]; then
-    run_test "Grammar" "Two tools: grammar allows correct selection" "get_weather selected" "PASS" "$dur"
+    run_test "Grammar" "Two tools: named choice selects get_weather" "get_weather selected" "PASS" "$dur"
   else
-    run_test "Grammar" "Two tools: grammar allows correct selection" "get_weather selected" "$dual_ok" "$dur"
+    run_test "Grammar" "Two tools: named choice selects get_weather" "get_weather selected" "$dual_ok" "$dur"
   fi
 
   # ── Test 13.4: Two tools — calc selected when prompted ───────────────────
   t0=$(now_ms)
-  dual2_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Calculate 42 * 7 using the tool\"}],\"tools\":$DUAL_TOOLS_13,\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
+  dual2_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Calculate 42 * 7 using the tool\"}],\"tools\":$DUAL_TOOLS_13,\"tool_choice\":{\"type\":\"function\",\"function\":{\"name\":\"calculate\"}},\"max_tokens\":500,\"stream\":false,\"temperature\":0}")
   dur=$(( $(now_ms) - t0 ))
   dual2_ok=$(echo "$dual2_resp" | python3 -c "
 import sys, json
@@ -3453,9 +3465,9 @@ except Exception as e:
     print(f'FAIL: {e}')
 " 2>/dev/null || echo "FAIL: parse error")
   if [ "$dual2_ok" = "PASS" ]; then
-    run_test "Grammar" "Two tools: grammar selects calculate" "calculate selected" "PASS" "$dur"
+    run_test "Grammar" "Two tools: named choice selects calculate" "calculate selected" "PASS" "$dur"
   else
-    run_test "Grammar" "Two tools: grammar selects calculate" "calculate selected" "$dual2_ok" "$dur"
+    run_test "Grammar" "Two tools: named choice selects calculate" "calculate selected" "$dual2_ok" "$dur"
   fi
 
   # ── Test 13.5: Grammar prevents missing required params ──────────────────
@@ -3734,7 +3746,10 @@ except Exception as e:
 
   # ── Test 14.5: Streaming tool strict:true returns valid tool call ──────
   t0=$(now_ms)
-  stream_tool_raw=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Tokyo?\"}],\"tools\":$STRICT_TOOL_14,\"max_tokens\":300,\"stream\":true,\"temperature\":0}")
+  # strict:true constrains arguments but does not itself require a tool call.
+  # Select the function explicitly so this assertion tests strict streaming
+  # grammar wiring instead of the model's tool-selection behavior.
+  stream_tool_raw=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"Call get_weather with location Tokyo.\"}],\"tools\":$STRICT_TOOL_14,\"tool_choice\":{\"type\":\"function\",\"function\":{\"name\":\"get_weather\"}},\"max_tokens\":300,\"stream\":true,\"temperature\":0,\"chat_template_kwargs\":{\"enable_thinking\":false}}")
   dur=$(( $(now_ms) - t0 ))
   stream_tool_ok=$(echo "$stream_tool_raw" | python3 -c "
 import sys, json
@@ -4115,9 +4130,9 @@ if should_run_section 16 && min_tier standard; then
   # Test 16.5: streaming parity — same seed must produce same content
   t0=$(now_ms)
   NS=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d '{"model":"m","messages":[{"role":"user","content":"Say yes"}],"max_tokens":3,"temperature":0,"seed":42,"stream":false,"chat_template_kwargs":{"enable_thinking":false}}' 2>&1)
+    -d '{"model":"m","messages":[{"role":"user","content":"Reply with exactly yes in lowercase and nothing else."}],"max_tokens":3,"temperature":0,"seed":42,"stream":false,"chat_template_kwargs":{"enable_thinking":false}}' 2>&1)
   S=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d '{"model":"m","messages":[{"role":"user","content":"Say yes"}],"max_tokens":3,"temperature":0,"seed":42,"stream":true,"chat_template_kwargs":{"enable_thinking":false}}' 2>&1)
+    -d '{"model":"m","messages":[{"role":"user","content":"Reply with exactly yes in lowercase and nothing else."}],"max_tokens":3,"temperature":0,"seed":42,"stream":true,"chat_template_kwargs":{"enable_thinking":false}}' 2>&1)
   dur=$(($(now_ms) - t0))
   NS_C=$(echo "$NS" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null)
   S_C=$(echo "$S" | python3 -c "
@@ -4142,13 +4157,14 @@ print(content.strip())
 
   # Test 16.6: cache idempotency — same request twice must match
   t0=$(now_ms)
+  pairwise_cache_token="PAIRWISE-CACHE-CERULEAN"
   R1=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d '{"model":"m","messages":[{"role":"user","content":"Color"}],"max_tokens":3,"temperature":0,"seed":99,"chat_template_kwargs":{"enable_thinking":false}}' 2>&1)
+    -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly $pairwise_cache_token and nothing else.\"}],\"max_tokens\":20,\"temperature\":0,\"seed\":99,\"chat_template_kwargs\":{\"enable_thinking\":false}}" 2>&1)
   R2=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d '{"model":"m","messages":[{"role":"user","content":"Color"}],"max_tokens":3,"temperature":0,"seed":99,"chat_template_kwargs":{"enable_thinking":false}}' 2>&1)
+    -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly $pairwise_cache_token and nothing else.\"}],\"max_tokens\":20,\"temperature\":0,\"seed\":99,\"chat_template_kwargs\":{\"enable_thinking\":false}}" 2>&1)
   dur=$(($(now_ms) - t0))
-  C1=$(echo "$R1" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'])" 2>/dev/null)
-  C2=$(echo "$R2" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'])" 2>/dev/null)
+  C1=$(echo "$R1" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null)
+  C2=$(echo "$R2" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null)
   if [ -n "$C1" ] && [ "$C1" = "$C2" ]; then
     run_test "PairwiseSmoke" "cache idempotency (same seed → same output)" "match" "PASS" "$dur"
   else

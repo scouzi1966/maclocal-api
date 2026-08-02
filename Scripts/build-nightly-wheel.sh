@@ -40,7 +40,7 @@ if [ ! -x "$BIN" ]; then
 fi
 echo "[INFO] Binary: $(cd "$(dirname "$BIN")" && pwd)/$(basename "$BIN")"
 
-METALLIB="$(dirname "$BIN")/MacLocalAPI_AFMKit.bundle/default.metallib"
+METALLIB="$(dirname "$BIN")/MacLocalAPI_AFMKitMLX.bundle/default.metallib"
 
 # ---------- set version in package files ----------
 sed -i '' "s/^__version__ = .*/__version__ = \"${DEV_VERSION}\"/" macafm_next/__init__.py

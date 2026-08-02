@@ -269,7 +269,12 @@ struct BatchAPIController: RouteCollection {
                 await store.recordResult(batchId, result: result)
                 return
             }
-            defer { service.releaseSlot() }
+            var reservationTransferred = false
+            defer {
+                if !reservationTransferred {
+                    service.releaseSlot()
+                }
+            }
 
             let effectiveModel = service.normalizeModel(chatReq.model ?? modelID)
             let effectiveMaxTokens = chatReq.effectiveMaxTokens ?? maxTokens ?? Int.max
@@ -294,6 +299,7 @@ struct BatchAPIController: RouteCollection {
                 responseFormat: chatReq.responseFormat,
                 chatTemplateKwargs: chatReq.chatTemplateKwargs
             )
+            reservationTransferred = true
 
             // Determine if model supports thinking
             let extractThinking = streamResult.thinkStartTag != nil

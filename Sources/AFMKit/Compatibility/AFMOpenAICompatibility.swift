@@ -36,7 +36,8 @@ extension AFMRequest {
 
 private extension AFMMessage {
     init(openAIMessage message: Message) throws {
-        guard let role = AFMMessageRole(rawValue: message.role) else {
+        let normalizedRole = message.role == "developer" ? "system" : message.role
+        guard let role = AFMMessageRole(rawValue: normalizedRole) else {
             throw AFMError.invalidRequest("Unsupported message role '\(message.role)'.")
         }
 

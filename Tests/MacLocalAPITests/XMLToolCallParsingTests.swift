@@ -646,6 +646,22 @@ struct XMLToolCallParsingTests {
         #expect(!remaining.isEmpty)
     }
 
+    @Test("bare structured JSON is not parsed as an unavailable tool")
+    func bareStructuredJSONWithNameFieldIsNotToolCall() {
+        let text = #"{"name":"Ada Lovelace","age":36}"#
+        let tools = [makeRequestTool(name: "get_weather", properties: [
+            "location": ["type": "string"]
+        ])]
+
+        let (calls, remaining) = MLXModelService.extractToolCallsFallback(
+            from: text,
+            tools: tools
+        )
+
+        #expect(calls.isEmpty)
+        #expect(remaining == text)
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // MARK: - extractToolCallsFallback: Edge cases and remaining text
     // ═══════════════════════════════════════════════════════════════════

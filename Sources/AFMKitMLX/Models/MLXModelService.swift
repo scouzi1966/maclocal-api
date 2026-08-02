@@ -1667,7 +1667,6 @@ public final class MLXModelService: @unchecked Sendable {
         // Promote: create scheduler
         let limit = max(concurrency, 8)
         self.maxConcurrent = limit
-        self.enablePrefixCaching = true
 
         guard let container = withStateLock({ currentContainer }) else {
             withStateLock { promotionInProgress = false }
@@ -1729,7 +1728,6 @@ public final class MLXModelService: @unchecked Sendable {
         withStateLock {
             self.scheduler = nil
             self.maxConcurrent = 0
-            self.enablePrefixCaching = false
         }
         print("[\(ts())] Auto-teardown: returned to serial mode")
     }
@@ -4311,7 +4309,10 @@ public final class MLXModelService: @unchecked Sendable {
         if toolCalls.isEmpty {
             let trimmed = remaining.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.hasPrefix("{") && trimmed.hasSuffix("}") {
-                if let tc = parseJSONToolCall(trimmed) {
+                if let tc = parseJSONToolCall(trimmed),
+                   tools == nil || tools?.contains(where: {
+                       $0.function.name == tc.function.name
+                   }) == true {
                     if debugLogging {
                         print("[\(ts())] [ToolCallParser] Bare JSON: \(tc.function.name)(\(tc.function.arguments.keys.joined(separator: ", ")))")
                     }

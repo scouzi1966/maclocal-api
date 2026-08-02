@@ -20,6 +20,7 @@ public struct MLXStreamEventTranslator {
     private var bufferedTokenCount = 0
     private var insideReasoning = false
     private var tools: [Int: ToolState] = [:]
+    private var cachedInputTokens = 0
     private var completionTokens = 0
     private var stoppedBySequence = false
 
@@ -58,6 +59,9 @@ public struct MLXStreamEventTranslator {
         events.append(contentsOf: toolEvents(from: chunk.toolCallDeltas ?? []))
         events.append(contentsOf: completedToolEvents(from: chunk.toolCalls ?? []))
 
+        if let cachedTokens = chunk.cachedTokens {
+            cachedInputTokens = cachedTokens
+        }
         if let promptTokens = chunk.promptTokens,
            let completionTokens = chunk.completionTokens {
             self.completionTokens = completionTokens
@@ -65,7 +69,7 @@ public struct MLXStreamEventTranslator {
                 .usage(
                     AFMUsage(
                         inputTokens: promptTokens,
-                        cachedInputTokens: chunk.cachedTokens ?? 0,
+                        cachedInputTokens: cachedInputTokens,
                         outputTokens: completionTokens
                     )
                 )
@@ -218,7 +222,13 @@ public struct MLXStreamEventTranslator {
                 id: completedCall.id,
                 name: completedCall.function.name
             )
-            state.id = completedCall.id
+            // Keep the identity established by the incremental stream. Some
+            // runtimes synthesize a fresh ID for their final aggregate call;
+            // replacing the streamed ID makes downstream adapters treat the
+            // completion as a second call and resend the full arguments.
+            if existing == nil {
+                state.id = completedCall.id
+            }
             state.name = completedCall.function.name
             if existing == nil {
                 events.append(.toolCall(call: state.call, stage: .started))

@@ -180,6 +180,7 @@ public final class AFMMLXRuntime: @unchecked Sendable {
     public let service: MLXModelService
 
     private let configuration: AFMMLXRuntimeConfiguration
+    let initializesSchedulerOnLoad: Bool
 
     public init(
         modelID: String,
@@ -191,6 +192,28 @@ public final class AFMMLXRuntime: @unchecked Sendable {
         configuration.apply(to: service)
 
         self.configuration = configuration
+        self.initializesSchedulerOnLoad = true
+        self.service = service
+        self.modelID = service.normalizeModel(modelID)
+        self.descriptor = AFMMLXModelDescriptor.describe(
+            modelID: self.modelID,
+            resolver: resolver
+        )
+    }
+
+    /// Attach AFMKit lifecycle and model metadata to a service that the host has
+    /// already configured. Request adapters must not reapply provider defaults.
+    public init(
+        modelID: String,
+        attaching service: MLXModelService,
+        resolver: MLXCacheResolver = .init()
+    ) {
+        self.configuration = AFMMLXRuntimeConfiguration(
+            enablePrefixCaching: service.enablePrefixCaching,
+            maxConcurrent: service.maxConcurrent,
+            enableGrammarConstraints: service.enableGrammarConstraints
+        )
+        self.initializesSchedulerOnLoad = false
         self.service = service
         self.modelID = service.normalizeModel(modelID)
         self.descriptor = AFMMLXModelDescriptor.describe(
@@ -225,7 +248,7 @@ public final class AFMMLXRuntime: @unchecked Sendable {
             progress: progress,
             stage: stage
         )
-        if configuration.maxConcurrent >= 2 {
+        if initializesSchedulerOnLoad && configuration.maxConcurrent >= 2 {
             try await service.initScheduler()
         }
         return descriptor

@@ -57,7 +57,7 @@ final class MLXStreamEventTranslatorTests: XCTestCase {
                     toolCalls: [
                         .init(
                             index: 0,
-                            id: "call_1",
+                            id: "vendor_final_call_id",
                             type: "function",
                             function: .init(
                                 name: "weather",
@@ -77,6 +77,7 @@ final class MLXStreamEventTranslatorTests: XCTestCase {
             return delta
         }
         XCTAssertEqual(argumentDeltas.joined(), "{\"city\":\"Toronto\"}")
+        XCTAssertEqual(completedToolCall(from: events)?.id, "call_1")
         XCTAssertEqual(completedToolCall(from: events)?.arguments, "{\"city\":\"Toronto\"}")
         XCTAssertEqual(completionReason(from: events), .toolCalls)
     }
@@ -93,6 +94,27 @@ final class MLXStreamEventTranslatorTests: XCTestCase {
         events += translator.finish()
 
         XCTAssertEqual(completionReason(from: events), .length)
+    }
+
+    func testPreliminaryCachedTokensCarryIntoFinalUsage() {
+        var translator = MLXStreamEventTranslator(
+            thinkStartTag: nil,
+            thinkEndTag: nil,
+            maximumResponseTokens: 10
+        )
+
+        var events = translator.consume(.init(text: "", cachedTokens: 12))
+        events += translator.consume(
+            .init(text: "answer", promptTokens: 20, completionTokens: 1)
+        )
+
+        let usage = events.compactMap { event -> AFMUsage? in
+            guard case .usage(let usage) = event else { return nil }
+            return usage
+        }.last
+        XCTAssertEqual(usage?.inputTokens, 20)
+        XCTAssertEqual(usage?.cachedInputTokens, 12)
+        XCTAssertEqual(usage?.outputTokens, 1)
     }
 
     private func text(from events: [AFMGenerationEvent]) -> String {

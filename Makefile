@@ -25,9 +25,8 @@ build: $(PATCH_STAMP)
 	@echo "🔨 Building AFM..."
 	@swift build -c release \
 		--product afm \
-		-Xswiftc -O \
-		-Xswiftc -whole-module-optimization \
-		-Xswiftc -cross-module-optimization
+		-Xswiftc -disable-upcoming-feature \
+		-Xswiftc MemberImportVisibility
 	@strip .build/release/afm
 	@echo "✅ Build complete: .build/release/afm"
 	@echo "📊 Size: $$(ls -lh .build/release/afm | awk '{print $$5}')"

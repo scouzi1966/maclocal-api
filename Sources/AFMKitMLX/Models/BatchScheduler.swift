@@ -777,10 +777,10 @@ actor BatchScheduler {
 
                     slot.lastTokenId = token
 
+                    slot.tokenCount += 1
+                    StatsAggregator.shared.addGenTokens(1)
                     slot.detokenizer.append(token: token)
                     if let chunk = slot.detokenizer.next() {
-                        slot.tokenCount += 1
-                        StatsAggregator.shared.addGenTokens(1)
                         if yieldTextChunk(chunk, for: slot, logprobs: logprobsForThisToken) {
                             completedIndices.append(i)
                         }
@@ -855,9 +855,10 @@ actor BatchScheduler {
                 }
 
                 slot.lastTokenId = token
+                slot.tokenCount += 1
+                StatsAggregator.shared.addGenTokens(1)
                 slot.detokenizer.append(token: token)
                 if let chunk = slot.detokenizer.next() {
-                    slot.tokenCount += 1
                     if yieldTextChunk(chunk, for: slot, logprobs: logprobsForToken) {
                         finishSlot(at: i)
                         continue
@@ -867,6 +868,14 @@ actor BatchScheduler {
         }
 
         loopTask = nil
+
+        // A request can be submitted after the final queue drain but before
+        // this loop clears `loopTask`. Its submit-side wakeup then observes the
+        // old task and returns, leaving the new request queued indefinitely.
+        // Recheck after clearing the task to close that lost-wakeup window.
+        if !_pendingQueue.withLock({ $0.isEmpty }) && !_isShutdown.withLock({ $0 }) {
+            ensureLoopRunning()
+        }
     }
 
     // MARK: - Prefill
@@ -1104,9 +1113,10 @@ actor BatchScheduler {
         // the first generated token would be lost (e.g., `{` in JSON output).
         // Guard: don't dispatch EOS or unknown tokens as text.
         if !eosTokenIds.contains(firstToken) && firstToken != tokenizer.unknownTokenId {
+            slot.tokenCount += 1
+            StatsAggregator.shared.addGenTokens(1)
             slot.detokenizer.append(token: firstToken)
             if let firstChunk = slot.detokenizer.next() {
-                slot.tokenCount += 1
                 _ = yieldTextChunk(firstChunk, for: slot)
             }
         }
@@ -1434,9 +1444,10 @@ actor BatchScheduler {
 
             // Dispatch prefill first token to detokenizer (same fix as prefillOne)
             if !eosTokenIds.contains(firstToken) && firstToken != tokenizer.unknownTokenId {
+                slot.tokenCount += 1
+                StatsAggregator.shared.addGenTokens(1)
                 slot.detokenizer.append(token: firstToken)
                 if let firstChunk = slot.detokenizer.next() {
-                    slot.tokenCount += 1
                     _ = yieldTextChunk(firstChunk, for: slot)
                 }
             }

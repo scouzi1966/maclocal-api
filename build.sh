@@ -262,8 +262,8 @@ fi
 # Step 4: Resource validation + Swift build
 # ---------------------------------------------------------------------------
 log_step "Validating required resources"
-if [ ! -f "$ROOT_DIR/Sources/AFMKit/Resources/default.metallib" ]; then
-  log_error "Missing metallib: Sources/AFMKit/Resources/default.metallib"
+if [ ! -f "$ROOT_DIR/Sources/AFMKitMLX/Resources/default.metallib" ]; then
+  log_error "Missing metallib: Sources/AFMKitMLX/Resources/default.metallib"
   exit 1
 fi
 
@@ -307,7 +307,7 @@ fi
 # Step 4b: Rebuild the MLX Metal shader library (default.metallib) from source
 # ---------------------------------------------------------------------------
 # IMPORTANT: `swift build` does NOT compile any Metal — it only copies the committed
-# Sources/AFMKit/Resources/default.metallib into the app bundle. The kernel *sources*
+# Sources/AFMKitMLX/Resources/default.metallib into the app bundle. The kernel *sources*
 # live in the resolved mlx-swift dependency (.build/checkouts/mlx-swift), so this step
 # regenerates that binary from source — ensuring the shipped kernels actually match the
 # (possibly patched) kernel tree rather than a stale prebuilt blob.
@@ -326,7 +326,7 @@ if $DO_METALLIB; then
       xcodebuild -downloadComponent MetalToolchain
       "$SCRIPTS_DIR/rebuild-metallib.sh"
     else
-      log_warn "Falling back to the committed prebuilt metallib (Sources/AFMKit/Resources/default.metallib)."
+      log_warn "Falling back to the committed prebuilt metallib (Sources/AFMKitMLX/Resources/default.metallib)."
       log_warn "To build it from source later: xcodebuild -downloadComponent MetalToolchain && ./Scripts/rebuild-metallib.sh"
     fi
   fi
@@ -352,9 +352,6 @@ log_step "Building afm ($BUILD_CONFIG)"
 if [ "$BUILD_CONFIG" = "release" ]; then
   swift build -c release \
     --product afm \
-    -Xswiftc -O \
-    -Xswiftc -whole-module-optimization \
-    -Xswiftc -cross-module-optimization \
     -Xswiftc -disable-upcoming-feature \
     -Xswiftc MemberImportVisibility
 else
@@ -387,12 +384,20 @@ fi
 
 FINAL_DIR="$(dirname "$FINAL_BIN")"
 
-# Verify the MLX metallib resource bundle is present
-METALLIB_BUNDLE="$FINAL_DIR/MacLocalAPI_AFMKit.bundle/default.metallib"
-if [ -f "$METALLIB_BUNDLE" ]; then
+# Verify the MLX metallib resource bundle is present. SwiftPM uses a flat bundle
+# with some toolchains and a macOS Contents/Resources bundle with Xcode 27.
+METALLIB_BUNDLE_DIR="$FINAL_DIR/MacLocalAPI_AFMKitMLX.bundle"
+if [ -f "$METALLIB_BUNDLE_DIR/default.metallib" ]; then
+  METALLIB_BUNDLE="$METALLIB_BUNDLE_DIR/default.metallib"
+elif [ -f "$METALLIB_BUNDLE_DIR/Contents/Resources/default.metallib" ]; then
+  METALLIB_BUNDLE="$METALLIB_BUNDLE_DIR/Contents/Resources/default.metallib"
+else
+  METALLIB_BUNDLE=""
+fi
+if [ -n "$METALLIB_BUNDLE" ]; then
   log_info "MLX metallib bundle OK ($(du -h "$METALLIB_BUNDLE" | cut -f1 | xargs))"
 else
-  log_error "Missing MLX metallib bundle: $METALLIB_BUNDLE"
+  log_error "Missing MLX metallib bundle under: $METALLIB_BUNDLE_DIR"
   exit 1
 fi
 
@@ -426,16 +431,7 @@ fi
 # Point at the bundle that was ACTUALLY built ($METALLIB_BUNDLE is config-aware via $FINAL_DIR),
 # not a hardcoded release path — a `--debug` build has no release bundle in a clean checkout.
 ln -sf "$METALLIB_BUNDLE" "$ROOT_DIR/default.metallib"
-# Also mirror into the OTHER config's bundle so `swift test` works regardless of which config
-# the tester uses (debug ↔ release), for our own MLXMetalLibrary resolver.
-if [ "$BUILD_CONFIG" = "release" ]; then
-  OTHER_BUNDLE="$ROOT_DIR/.build/arm64-apple-macosx/debug/MacLocalAPI_AFMKit.bundle"
-else
-  OTHER_BUNDLE="$ROOT_DIR/.build/arm64-apple-macosx/release/MacLocalAPI_AFMKit.bundle"
-fi
-mkdir -p "$OTHER_BUNDLE"
-cp "$METALLIB_BUNDLE" "$OTHER_BUNDLE/default.metallib"
-log_info "Metallib available for swift test (symlink -> $BUILD_CONFIG bundle + mirror)"
+log_info "Metallib available for swift test (symlink -> $BUILD_CONFIG bundle)"
 
 # ---------------------------------------------------------------------------
 # Step 6 (optional): Install to /usr/local
@@ -446,7 +442,7 @@ log_info "Metallib available for swift test (symlink -> $BUILD_CONFIG bundle + m
 # root-owned, so writes escalate with sudo only when it isn't already writable.
 if $DO_INSTALL; then
   log_step "Installing afm to $INSTALL_PREFIX/bin"
-  BUNDLE_SRC="$FINAL_DIR/MacLocalAPI_AFMKit.bundle"
+  BUNDLE_SRC="$METALLIB_BUNDLE_DIR"
   WEBUI_SRC="$ROOT_DIR/Resources/webui/index.html.gz"
 
   SUDO=""
@@ -462,10 +458,10 @@ if $DO_INSTALL; then
   # Keep the bundle in libexec and symlink it next to the binary — this mirrors
   # the Homebrew formula and avoids macOS code-signing stripping a bundle placed
   # directly in bin.
-  $SUDO rm -rf "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKit.bundle"
-  $SUDO cp -R "$BUNDLE_SRC" "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKit.bundle"
-  $SUDO ln -sfn "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKit.bundle" \
-    "$INSTALL_PREFIX/bin/MacLocalAPI_AFMKit.bundle"
+  $SUDO rm -rf "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKitMLX.bundle"
+  $SUDO cp -R "$BUNDLE_SRC" "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKitMLX.bundle"
+  $SUDO ln -sfn "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKitMLX.bundle" \
+    "$INSTALL_PREFIX/bin/MacLocalAPI_AFMKitMLX.bundle"
 
   if [ -f "$WEBUI_SRC" ]; then
     $SUDO install -m 644 "$WEBUI_SRC" "$INSTALL_PREFIX/share/afm/webui/index.html.gz"

@@ -30,7 +30,7 @@ Sources/
 │   │   ├── OpenAIResponse.swift        # Response types
 │   │   └── ...
 │   ├── BuildInfo.swift                 # version string (SHA injected by build.sh)
-│   └── Resources/default.metallib      # MLX Metal kernels → bundle MacLocalAPI_AFMKit.bundle
+│   └── Resources/default.metallib      # MLX Metal kernels → bundle MacLocalAPI_AFMKitMLX.bundle
 ├── AFMCLI/                             # EXECUTABLE target (product name: afm)
 │   ├── main.swift                      # CLI entry point (ArgumentParser)
 │   ├── {Mlx,Serve,Vision,Speech,Embeddings}Command.swift
@@ -96,7 +96,7 @@ swift build -c release                   # Release build
 ### MLX Metal shader library (`default.metallib`)
 
 `swift build` does **NOT** compile any Metal. The MLX kernels ship as a prebuilt
-`Sources/AFMKit/Resources/default.metallib` (committed to git) that `swift build` only
+`Sources/AFMKitMLX/Resources/default.metallib` (committed to git) that `swift build` only
 copies into the app bundle. The kernel *sources* live in the resolved `mlx-swift` dependency
 (`.build/checkouts/mlx-swift/.../kernels/*.metal`), so editing a kernel (e.g. `sdpa_vector.h`)
 has **zero effect** until the metallib is regenerated. (Editing the dispatch C++ in

@@ -243,9 +243,9 @@ fi
 if [[ -z "${MACAFM_MLX_METALLIB:-}" ]]; then
   for candidate in \
     "$ROOT_DIR/.build/out/Products/Release/MacLocalAPI_AFMKitMLX.bundle/Contents/Resources/default.metallib" \
-    "$ROOT_DIR/.build/out/Products/Release/MacLocalAPI_AFMKit.bundle/Contents/Resources/default.metallib" \
+    "$ROOT_DIR/.build/out/Products/Release/MacLocalAPI_AFMKitMLX.bundle/Contents/Resources/default.metallib" \
     "$ROOT_DIR/.build/release/MacLocalAPI_AFMKitMLX.bundle/default.metallib" \
-    "$ROOT_DIR/.build/release/MacLocalAPI_AFMKit.bundle/default.metallib" \
+    "$ROOT_DIR/.build/release/MacLocalAPI_AFMKitMLX.bundle/default.metallib" \
     "$ROOT_DIR/Sources/AFMKitMLX/Resources/default.metallib"
   do
     if [[ -f "$candidate" ]]; then

@@ -87,6 +87,24 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
         self.descriptor = runtime.descriptor
     }
 
+    /// Wrap a host-owned service without mutating its established runtime settings.
+    public init(
+        modelID: AFMModelID,
+        resolver: MLXCacheResolver = .init(),
+        attachedService service: MLXModelService
+    ) {
+        let runtime = AFMMLXRuntime(
+            modelID: modelID.rawValue,
+            attaching: service,
+            resolver: resolver
+        )
+
+        self.runtime = runtime
+        self.service = service
+        self.modelID = runtime.modelID
+        self.descriptor = runtime.descriptor
+    }
+
     public func availability() async -> AFMModelAvailability {
         .available
     }
@@ -134,7 +152,7 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
             let toolCalls = (result.toolCalls ?? []).map {
                 AFMToolCall(
                     id: $0.id,
-                    name: $0.function.name,
+                    name: Self.sanitizedToolName($0.function.name),
                     arguments: $0.function.arguments
                 )
             }
@@ -219,18 +237,51 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                         thinkEndTag: result.thinkEndTag,
                         maximumResponseTokens: request.options.maximumResponseTokens
                     )
+                    let streamService = service
+                    var rawToolFallback = AFMMLXRawToolStreamFallback(
+                        toolCallStartTag: result.toolCallStartTag,
+                        toolCallEndTag: result.toolCallEndTag,
+                        toolCallParser: streamService.resolvedToolCallParser(logBypass: false),
+                        tools: tools,
+                        applyFixToolArgs: { toolCall in
+                            streamService.coerceToolCallArguments(
+                                streamService.remapToolCallArguments(toolCall, tools: tools),
+                                tools: tools
+                            )
+                        },
+                        remapSingleKey: { key, toolName in
+                            let remapped = streamService.remapArgumentKeys(
+                                [key: ""],
+                                toolName: toolName,
+                                tools: tools
+                            )
+                            return remapped.keys.first ?? key
+                        }
+                    )
                     var completedToolCalls: [AFMToolCall] = []
                     for try await chunk in result.stream {
                         try Task.checkCancellation()
-                        for event in translator.consume(chunk) {
+                        for normalizedChunk in rawToolFallback.consume(chunk) {
+                            for event in translator.consume(normalizedChunk) {
+                                let event = Self.sanitizedToolCallEvent(event)
+                                if case .toolCall(let call, .completed) = event {
+                                    completedToolCalls.append(call)
+                                }
+                                continuation.yield(event)
+                            }
+                        }
+                    }
+                    try Task.checkCancellation()
+                    for normalizedChunk in rawToolFallback.finish() {
+                        for event in translator.consume(normalizedChunk) {
+                            let event = Self.sanitizedToolCallEvent(event)
                             if case .toolCall(let call, .completed) = event {
                                 completedToolCalls.append(call)
                             }
                             continuation.yield(event)
                         }
                     }
-                    try Task.checkCancellation()
-                    let finalEvents = translator.finish()
+                    let finalEvents = translator.finish().map(Self.sanitizedToolCallEvent)
                     for event in finalEvents {
                         if case .toolCall(let call, .completed) = event {
                             completedToolCalls.append(call)
@@ -290,6 +341,25 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
         return (trimmedText, trimmedReasoning.isEmpty ? nil : trimmedReasoning)
     }
 
+    static func sanitizedToolName(_ value: String) -> String {
+        let withoutTag = value.range(of: "</").map {
+            String(value[..<$0.lowerBound])
+        } ?? value
+        return withoutTag.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func sanitizedToolCallEvent(
+        _ event: AFMGenerationEvent
+    ) -> AFMGenerationEvent {
+        guard case .toolCall(let call, let stage) = event else { return event }
+        let name = sanitizedToolName(call.name)
+        guard name != call.name else { return event }
+        return .toolCall(
+            call: AFMToolCall(id: call.id, name: name, arguments: call.arguments),
+            stage: stage
+        )
+    }
+
     private static func finishReason(
         toolCalls: [ResponseToolCall]?,
         stoppedBySequence: Bool,
@@ -308,6 +378,85 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
             return .length
         }
         return .stop
+    }
+}
+
+/// Converts raw model tool syntax into the same structured chunks produced by
+/// the scheduler. This is a fallback for attached hosts that preserve tool tags
+/// but do not install the scheduler's parser.
+struct AFMMLXRawToolStreamFallback {
+    private let toolCallStartTag: String?
+    private let runtime: ToolCallStreamingRuntime?
+
+    init(
+        toolCallStartTag: String?,
+        toolCallEndTag: String?,
+        toolCallParser: String?,
+        tools: [RequestTool]?,
+        applyFixToolArgs: @escaping @Sendable (ResponseToolCall) -> ResponseToolCall,
+        remapSingleKey: @escaping @Sendable (String, String) -> String
+    ) {
+        self.toolCallStartTag = toolCallStartTag
+        if let toolCallStartTag, let toolCallEndTag {
+            self.runtime = ToolCallStreamingRuntime(
+                toolCallStartTag: toolCallStartTag,
+                toolCallEndTag: toolCallEndTag,
+                toolCallParser: toolCallParser,
+                tools: tools,
+                applyFixToolArgs: applyFixToolArgs,
+                remapSingleKey: remapSingleKey
+            )
+        } else {
+            self.runtime = nil
+        }
+    }
+
+    mutating func consume(_ chunk: StreamChunk) -> [StreamChunk] {
+        guard let runtime,
+              chunk.toolCallDeltas?.isEmpty != false,
+              chunk.toolCalls?.isEmpty != false else {
+            return [chunk]
+        }
+
+        var chunks: [StreamChunk] = []
+        var toolPiece = chunk.text
+        if !runtime.inToolCall,
+           let toolCallStartTag,
+           let range = toolPiece.range(of: toolCallStartTag),
+           range.lowerBound != toolPiece.startIndex {
+            chunks.append(StreamChunk(text: String(toolPiece[..<range.lowerBound])))
+            toolPiece = String(toolPiece[range.lowerBound...])
+        }
+
+        let output = runtime.process(piece: toolPiece)
+        guard output.handled else { return [chunk] }
+
+        chunks.append(contentsOf: BatchScheduler.streamChunksToEmit(from: output.events))
+        if chunk.logprobs != nil || chunk.promptTokens != nil ||
+            chunk.completionTokens != nil || chunk.cachedTokens != nil ||
+            chunk.promptTime != nil || chunk.generateTime != nil ||
+            chunk.stoppedBySequence != nil {
+            chunks.append(
+                StreamChunk(
+                    text: "",
+                    logprobs: chunk.logprobs,
+                    promptTokens: chunk.promptTokens,
+                    completionTokens: chunk.completionTokens,
+                    cachedTokens: chunk.cachedTokens,
+                    promptTime: chunk.promptTime,
+                    generateTime: chunk.generateTime,
+                    stoppedBySequence: chunk.stoppedBySequence
+                )
+            )
+        }
+        return chunks
+    }
+
+    mutating func finish() -> [StreamChunk] {
+        guard let runtime else { return [] }
+        return BatchScheduler.streamChunksToEmit(
+            from: runtime.finishIncompleteToolCall()
+        )
     }
 }
 
@@ -472,9 +621,16 @@ public enum AFMMLXModelDescriptor {
     }
 }
 
-private extension AFMRequest {
+extension AFMRequest {
     var requiresToolCall: Bool {
         metadata["toolCallingMode"] == .string("required")
+    }
+
+    var requiredToolName: String? {
+        guard case .string(let value)? = metadata["requiredToolName"] else {
+            return nil
+        }
+        return value
     }
 
     var includeSchemaInPrompt: Bool {
@@ -511,7 +667,7 @@ private extension AFMRequest {
     }
 
     func openAIMessages() throws -> [Message] {
-        try messages.map { message in
+        var result = try messages.map { message in
             let content: MessageContent?
             if message.content.isEmpty {
                 content = nil
@@ -537,6 +693,16 @@ private extension AFMRequest {
                 name: message.name
             )
         }
+        if requiresToolCall, !tools.isEmpty {
+            let instruction: String
+            if let requiredToolName {
+                instruction = "You must call the \(requiredToolName) tool. Do not answer with text."
+            } else {
+                instruction = "You must call one of the available tools. Do not answer with text."
+            }
+            result.insert(Message(role: "system", content: .text(instruction)), at: 0)
+        }
+        return result
     }
 
     func openAITools() -> [RequestTool]? {
