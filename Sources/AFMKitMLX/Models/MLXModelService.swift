@@ -219,6 +219,7 @@ public final class MLXModelService: @unchecked Sendable {
     private let registry = MLXModelRegistry()
     private let stateLock = NSLock()
     private var currentModelID: String?
+    private var currentModelArchitecture: AFMMLXModelArchitecturePreflight?
     private var currentContainer: ModelContainer?
     private var activeOperations: Int = 0
     private var isShuttingDown = false
@@ -1303,6 +1304,11 @@ public final class MLXModelService: @unchecked Sendable {
         }
         print("Model path: \(directory.path)")
 
+        let modelArchitecture = try AFMMLXModelArchitecture.preflightConfiguration(
+            in: directory,
+            modelID: modelID
+        )
+
         var config = ModelConfiguration(directory: directory)
         // Auto-detect tool call format from model type (vendor LLMModelFactory lost this code)
         var detectedFormat = inferToolCallFormat(directory: directory)
@@ -1343,6 +1349,13 @@ public final class MLXModelService: @unchecked Sendable {
         // (num_attention_heads, head_dim), the LLM model will use wrong defaults
         // and crash (e.g. gemma-3 VLM). Skip LLM and go straight to VLM.
         let vlmOnly = isVLMOnlyConfig(directory: directory)
+        let selectedFactory = (forceVLM || vlmOnly) ? "VLM" : "LLM"
+        print(
+            "[\(ts())] [ModelArchitecture] declared=\(modelArchitecture.modelType) "
+                + "canonical=\(modelArchitecture.canonicalModelType) "
+                + "vision=\(modelArchitecture.isVisionConfiguration) "
+                + "factory=\(selectedFactory)"
+        )
         do {
             let loaded: ModelContainer
             if forceVLM || vlmOnly {
@@ -1361,6 +1374,7 @@ public final class MLXModelService: @unchecked Sendable {
             withStateLock {
                 currentContainer = loaded
                 currentModelID = modelID
+                currentModelArchitecture = modelArchitecture
                 currentToolCallFormat = detectedFormat
             }
             // MTP: if requested and the model ships an mtp.safetensors sidecar, load the head
@@ -3501,6 +3515,7 @@ public final class MLXModelService: @unchecked Sendable {
             withStateLock {
                 currentContainer = nil
                 currentModelID = nil
+                currentModelArchitecture = nil
             }
         }
 
@@ -3759,6 +3774,10 @@ public final class MLXModelService: @unchecked Sendable {
     static func asSendableJSON(_ value: Any) -> any Sendable {
         switch value {
         case let s as String: return s
+        case let b as Bool: return b
+        case let i as Int: return i
+        case let d as Double: return d
+        case let f as Float: return Double(f)
         case let arr as [Any]: return arr.map { asSendableJSON($0) }
         case let dict as [String: Any]: return dict.mapValues { asSendableJSON($0) }
         case let n as NSNumber: return n
@@ -5664,6 +5683,38 @@ public final class MLXModelService: @unchecked Sendable {
             resolvedKwargs["enable_thinking"] = false
             print("[\(ts())] [StructuredOutput] Disabling thinking for guided JSON on reasoning-capable model")
         }
+
+        let promptArchitecture = withStateLock {
+            currentModelArchitecture?.canonicalModelType
+        }
+        let usesDeepseekV4Encoder = promptArchitecture == "deepseek_v4"
+        print(
+            "[\(ts())] [ChatTemplate] architecture=\(promptArchitecture ?? "unavailable") "
+                + "encoder=\(usesDeepseekV4Encoder ? "native-deepseek-v4-0731" : "model-template")"
+        )
+
+        if usesDeepseekV4Encoder {
+            var additionalContext = input.additionalContext ?? [:]
+            for (key, value) in resolvedKwargs {
+                additionalContext[key] = value
+            }
+            let prompt = try DeepseekV4ChatEncoder.renderOpenAIChat(
+                messages: try Self.deepseekV4OpenAIMessages(from: chatMessages),
+                tools: tools,
+                additionalContext: additionalContext,
+                addGenerationPrompt: true
+            )
+            return (
+                UserInput(
+                    prompt: .text(prompt),
+                    processing: .init(resize: .init(width: 1024, height: 1024)),
+                    tools: tools,
+                    additionalContext: additionalContext.isEmpty ? nil : additionalContext
+                ),
+                tempFiles: allTempFiles
+            )
+        }
+
         if !resolvedKwargs.isEmpty {
             if input.additionalContext == nil { input.additionalContext = [:] }
             for (key, value) in resolvedKwargs {
@@ -5675,6 +5726,36 @@ public final class MLXModelService: @unchecked Sendable {
         }
 
         return (input, tempFiles: allTempFiles)
+    }
+
+    private static func deepseekV4OpenAIMessages(from chatMessages: [Chat.Message]) throws -> [[String: any Sendable]] {
+        try chatMessages.map { message in
+            if !message.images.isEmpty || !message.videos.isEmpty {
+                throw MLXServiceError.invalidModel("deepseek_v4 does not support media inputs in the MLX text runtime")
+            }
+            var raw: [String: any Sendable] = [
+                "role": message.role.rawValue,
+                "content": message.content
+            ]
+            if let name = message.name {
+                raw["name"] = name
+            }
+            if let toolCalls = message.toolCalls {
+                raw["tool_calls"] = toolCalls.map { Self.sendableJSONDictionary($0) }
+                raw["_vmlx_raw_tool_arguments_json"] = toolCalls.compactMap { call -> String? in
+                    guard let function = call["function"] as? [String: Any] else { return nil }
+                    return function["arguments"] as? String
+                }
+            }
+            if let toolResponses = message.toolResponses {
+                raw["tool_responses"] = toolResponses.map { Self.sendableJSONDictionary($0) }
+            }
+            return raw
+        }
+    }
+
+    private static func sendableJSONDictionary(_ value: [String: Any]) -> [String: any Sendable] {
+        value.mapValues { asSendableJSON($0) }
     }
 
     /// Remove temp files created during media extraction.

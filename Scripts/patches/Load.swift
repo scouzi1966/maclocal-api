@@ -106,12 +106,12 @@ public func loadWeights(
         }, apply: { module, groupSize, bits, mode in
             // Workaround for mlx-swift bug: QuantizedLinear.init calls
             // MLX.quantized() without passing mode, producing non-nil biases
-            // even for MXFP4 (which requires biases=nil). Use the direct init
-            // with explicit biases:nil for MXFP4 quantization.
-            if mode == .mxfp4, let linear = module as? Linear {
+            // for MXFP modes (which require biases=nil). Use the direct init
+            // for both MXFP4 and MXFP8 checkpoint layers.
+            if (mode == .mxfp4 || mode == .mxfp8), let linear = module as? Linear {
                 let (qw, scales, _) = MLX.quantized(
                     linear.weight, groupSize: groupSize, bits: bits, mode: mode)
-                return QuantizedLinear(
+                return DeepseekV4QuantizedLinear(
                     weight: qw, bias: linear.bias, scales: scales, biases: nil,
                     groupSize: groupSize, bits: bits, mode: mode)
             }

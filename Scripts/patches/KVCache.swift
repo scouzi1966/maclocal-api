@@ -79,6 +79,76 @@ public protocol KVCache: Evaluatable, Updatable {
     ) -> MLXFast.ScaledDotProductAttentionMaskMode
 }
 
+public protocol RotatingKVCacheWrapper: KVCache {
+    var rotating: RotatingKVCache { get }
+}
+
+public enum HybridPoolBranch: Sendable {
+    case compressor
+    case indexer
+}
+
+public protocol HybridPoolCache: RotatingKVCacheWrapper {
+    var compressRatio: Int { get }
+    var slidingWindow: Int { get }
+    func hybridPool(branch: HybridPoolBranch) -> MLXArray?
+    func setHybridPool(branch: HybridPoolBranch, value: MLXArray?)
+    func hybridBuffers(branch: HybridPoolBranch) -> (kv: MLXArray?, gate: MLXArray?)
+    func setHybridBuffers(branch: HybridPoolBranch, kv: MLXArray?, gate: MLXArray?)
+}
+
+public struct HybridPoolQuantizedSegment {
+    public let codes: MLXArray
+    public let scales: MLXArray
+    public let biases: MLXArray
+    public let originalShape: [Int]
+    public let groupSize: Int
+    public let bits: Int
+    public let originalDType: DType
+
+    public init(
+        codes: MLXArray,
+        scales: MLXArray,
+        biases: MLXArray,
+        originalShape: [Int],
+        groupSize: Int,
+        bits: Int,
+        originalDType: DType
+    ) {
+        self.codes = codes
+        self.scales = scales
+        self.biases = biases
+        self.originalShape = originalShape
+        self.groupSize = groupSize
+        self.bits = bits
+        self.originalDType = originalDType
+    }
+
+    public var rowCount: Int {
+        originalShape.count > 1 ? originalShape[1] : 0
+    }
+
+    public var retainedByteCount: Int {
+        codes.nbytes + scales.nbytes + biases.nbytes
+    }
+}
+
+public protocol QuantizedHybridPoolCache: HybridPoolCache {
+    var hybridPoolQuantizationEnabled: Bool { get }
+    func hybridPoolQuantizedSegments(
+        branch: HybridPoolBranch
+    ) -> [HybridPoolQuantizedSegment]?
+    func setHybridPoolQuantizedSegments(
+        branch: HybridPoolBranch,
+        segments: [HybridPoolQuantizedSegment]
+    )
+    func hybridPoolRetainedByteCount(branch: HybridPoolBranch) -> Int
+}
+
+public protocol CacheRetainedByteCountProviding {
+    var retainedCacheByteCount: Int { get }
+}
+
 /// Protocol for caches that support efficient quantized operations
 ///
 /// **Usage Example:**

@@ -13,6 +13,7 @@ final class AFMMLXModelArchitectureTests: XCTestCase {
     func testSupportedAndBlockedModelTypes() {
         XCTAssertTrue(AFMMLXModelArchitecture.isSupported("qwen3.5"))
         XCTAssertTrue(AFMMLXModelArchitecture.isSupported("qwen3_vl"))
+        XCTAssertTrue(AFMMLXModelArchitecture.isSupported("deepseek_v4"))
         XCTAssertTrue(AFMMLXModelArchitecture.isSupported("afmoe"))
         XCTAssertFalse(AFMMLXModelArchitecture.isSupported("unknown_arch"))
 
@@ -22,6 +23,8 @@ final class AFMMLXModelArchitectureTests: XCTestCase {
 
     func testLanguageVisionAndDualModeClassification() {
         XCTAssertTrue(AFMMLXModelArchitecture.isLanguageModelType("llama"))
+        XCTAssertTrue(AFMMLXModelArchitecture.isLanguageModelType("deepseek_v4"))
+        XCTAssertFalse(AFMMLXModelArchitecture.isVisionModelType("deepseek_v4"))
         XCTAssertFalse(AFMMLXModelArchitecture.isLanguageModelType("qwen3.5"))
 
         XCTAssertTrue(AFMMLXModelArchitecture.isVisionModelType("qwen3.5"))
@@ -77,6 +80,44 @@ final class AFMMLXModelArchitectureTests: XCTestCase {
         XCTAssertEqual(preflight.canonicalModelType, "qwen3_5")
         XCTAssertTrue(preflight.isVisionConfiguration)
         XCTAssertTrue(preflight.requiresVisionModelFactory)
+    }
+
+    func testDeepseekV40731PreflightUsesLanguageModelFactory() throws {
+        let preflight = try AFMMLXModelArchitecture.preflightConfiguration(
+            [
+                "model_type": "deepseek_v4",
+                "architectures": ["DeepseekV4ForCausalLM"],
+                "num_hidden_layers": 43,
+                "n_routed_experts": 256,
+                "num_nextn_predict_layers": 1,
+            ],
+            modelID: "Vontra/DeepSeek-V4-Flash-0731-MXFP4-MLX"
+        )
+
+        XCTAssertEqual(preflight.canonicalModelType, "deepseek_v4")
+        XCTAssertFalse(preflight.isVisionConfiguration)
+        XCTAssertFalse(preflight.requiresVisionModelFactory)
+    }
+
+    func testDirectoryPreflightDetectsArchitectureIndependentOfModelID() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let data = try JSONSerialization.data(withJSONObject: [
+            "model_type": "deepseek_v4",
+            "architectures": ["DeepseekV4ForCausalLM"],
+        ])
+        try data.write(to: directory.appendingPathComponent("config.json"))
+
+        let preflight = try AFMMLXModelArchitecture.preflightConfiguration(
+            in: directory,
+            modelID: "local/arbitrary-folder-name"
+        )
+
+        XCTAssertEqual(preflight.canonicalModelType, "deepseek_v4")
+        XCTAssertEqual(preflight.modelID, "local/arbitrary-folder-name")
     }
 
     func testRemoteModelLoadPlanUsesRequestedVisionWithoutPreflight() {
