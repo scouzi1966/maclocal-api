@@ -1,4 +1,5 @@
 import Foundation
+import AFMKitCore
 import MLX
 import MLXLLM
 @preconcurrency import MLXLMCommon
@@ -22,7 +23,7 @@ public enum AFMMLXSpeculativeRuntime {
 
 extension AFMMLXSpeculativeRuntime: @unchecked Sendable {}
 
-public struct AFMMLXRuntimeAdapter {
+public struct AFMMLXRuntimeAdapter: Sendable {
     public typealias RuntimeEvent = AFMMLXRuntimeEvent
     public nonisolated static let imageProcessingSize = AFMMLXRuntimePolicy.defaultImageProcessingSize
 
@@ -99,6 +100,118 @@ public struct AFMMLXRuntimeAdapter {
                 break
             }
         }
+    }
+
+    public func runReducedGeneration(
+        container: ModelContainer,
+        userInput: consuming sending UserInput,
+        parameters parameterRequest: AFMMLXGenerationParameterRequest,
+        hasReasoningOutput: Bool,
+        updateInterval: TimeInterval = AFMGenerationLoopPolicy.defaultDirectUIUpdateInterval,
+        stopRequested: @escaping @Sendable () -> Bool,
+        onProgress: @escaping @MainActor @Sendable (AFMMLXReducedGenerationProgress) -> Void
+    ) async throws -> AFMMLXReducedGenerationResult {
+        let (progressStream, progressContinuation) = AsyncStream.makeStream(
+            of: AFMMLXReducedGenerationProgress.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let progressConsumer = Task { @MainActor in
+            for await progress in progressStream {
+                onProgress(progress)
+            }
+        }
+
+        let input = try await container.prepare(input: userInput)
+        let parameters = AFMMLXGenerationParameterFactory.make(parameterRequest)
+        let stream = try await container.generate(input: input, parameters: parameters)
+
+        var reducer = AFMReasoningStreamReducer(hasReasoningOutput: hasReasoningOutput)
+        var stopPollState = AFMStopPollState()
+        var runtimeInfo: AFMMLXRuntimeInfo?
+        var lastUpdateTime = CFAbsoluteTimeGetCurrent()
+        var pendingReasoningContent: String?
+        var accumulatedReasoningContent: String?
+        var pendingReasoningState = false
+        var pendingReasoningDuration: TimeInterval?
+
+        func mergeReasoningUpdate(_ update: AFMReasoningPendingUpdate?) {
+            guard let update else { return }
+            if let content = update.content {
+                pendingReasoningContent = (pendingReasoningContent ?? "") + content
+                accumulatedReasoningContent = (accumulatedReasoningContent ?? "") + content
+            }
+            pendingReasoningState = update.isReasoning
+            pendingReasoningDuration = update.duration
+        }
+
+        func drainMergedReasoningUpdate() -> AFMReasoningPendingUpdate? {
+            guard pendingReasoningContent != nil || pendingReasoningDuration != nil else {
+                return nil
+            }
+            let update = AFMReasoningPendingUpdate(
+                content: accumulatedReasoningContent,
+                isReasoning: pendingReasoningState,
+                duration: pendingReasoningDuration
+            )
+            pendingReasoningContent = nil
+            pendingReasoningDuration = nil
+            return update
+        }
+
+        for await item in stream {
+            switch item {
+            case .chunk(let string):
+                if stopPollState.observeToken(stopRequested: stopRequested()) {
+                    break
+                }
+
+                let chunkUpdate = reducer.processChunk(string)
+                mergeReasoningUpdate(chunkUpdate.reasoningUpdate)
+
+                let now = CFAbsoluteTimeGetCurrent()
+                if now - lastUpdateTime >= updateInterval {
+                    mergeReasoningUpdate(reducer.drainReasoningUpdate())
+                    let progress = AFMMLXReducedGenerationProgress(
+                        accumulatedText: reducer.accumulatedText,
+                        reasoningUpdate: drainMergedReasoningUpdate()
+                    )
+                    progressContinuation.yield(progress)
+                    lastUpdateTime = now
+                }
+
+            case .info(let info):
+                runtimeInfo = AFMMLXRuntimeInfo(
+                    promptTime: info.promptTime,
+                    tokensPerSecond: info.tokensPerSecond
+                )
+
+            case .toolCall, .tokenLogprobs:
+                break
+            }
+
+            if stopPollState.shouldStop {
+                break
+            }
+        }
+
+        mergeReasoningUpdate(reducer.drainReasoningUpdate())
+        let finalReasoningUpdate = drainMergedReasoningUpdate()
+        progressContinuation.yield(
+            AFMMLXReducedGenerationProgress(
+                accumulatedText: reducer.accumulatedText,
+                reasoningUpdate: finalReasoningUpdate
+            )
+        )
+        progressContinuation.finish()
+        await progressConsumer.value
+
+        return AFMMLXReducedGenerationResult(
+            finalState: reducer.finalState(),
+            finalReasoningUpdate: finalReasoningUpdate,
+            tokenCount: reducer.tokenCount,
+            stopped: stopPollState.shouldStop,
+            runtimeInfo: runtimeInfo
+        )
     }
 
     @MainActor public func loadBenchmarkContainer(
