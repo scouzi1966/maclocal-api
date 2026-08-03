@@ -223,6 +223,7 @@ struct MlxCommand: ParsableCommand {
           --media: Image/video paths for VLM single-prompt mode (implies --vlm)
           --kv-bits: Quantize KV cache (4 or 8 bits) to reduce memory
           --prefill-step-size: Prompt tokens per GPU pass (default: 1024)
+          --mlx-kernels: MLX kernel engine: native or ds4 (default: native)
           --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
           --tool-call-parser: Override tool call format (none, afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml). Omit for default native mode and MLX Python-style parity; use "none" for raw output; use "afm_adaptive_xml" for opt-in repair mode.
           --fix-tool-args: Opt-in repair-mode helper that post-processes tool call arg names to match original tool schema
@@ -383,6 +384,8 @@ struct MlxCommand: ParsableCommand {
     var kvBits: Int?
     @Option(name: .long, help: "Prefill step size — number of prompt tokens processed per GPU pass (default: 2048)")
     var prefillStepSize: Int?
+    @Option(name: .long, help: "MLX kernel engine: native or ds4. ds4 enables experimental DeepSeek V4 selected-expert kernels when available.")
+    var mlxKernels: String = "native"
     @Option(name: .long, help: "Pre-warm MLX kernels on startup for faster first response/TTFT (y/n, default: y)")
     var prewarm: String = "y"
     @Flag(name: .long, help: "Trust remote code (compatibility)")
@@ -509,6 +512,20 @@ struct MlxCommand: ParsableCommand {
 
         emitCompatibilityWarnings()
 
+        let kernelEngine = AFMMLXKernelEngine(configuredValue: mlxKernels)
+        if kernelEngine.rawValue != mlxKernels.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            let valid = AFMMLXKernelEngine.allCases.map(\.rawValue).joined(separator: ", ")
+            fputs("Error: --mlx-kernels must be one of: \(valid)\n", stderr)
+            throw ExitCode.failure
+        }
+        // Publish the engine before any MLX object can initialize. The runtime
+        // also applies this typed value to MLXModelService; the environment is
+        // the stable boundary consumed by the patched mlx-swift-lm package.
+        setenv("AFM_MLX_KERNELS", kernelEngine.rawValue, 1)
+        if verbose {
+            print("Selected MLX kernel engine: \(kernelEngine.rawValue)")
+        }
+
         let resolver = MLXCacheResolver()
         let modelStore = AFMMLXModelStore(resolver: resolver)
 
@@ -573,6 +590,7 @@ struct MlxCommand: ParsableCommand {
         let runtimeConfiguration = AFMMLXRuntimeConfiguration(
             kvBits: kvBits,
             enablePrefixCaching: enablePrefixCaching,
+            kernelEngine: kernelEngine,
             mtpEnabled: mtp,
             mtpDepth: mtpDepth,
             eagle3DrafterPath: eagle3,
@@ -601,6 +619,7 @@ struct MlxCommand: ParsableCommand {
         )
         let selectedModel = runtime.modelID
         let service = runtime.service
+        service.kernelEngine = kernelEngine
 
         if openclawConfig {
             let chosenPort = port ?? 9999
@@ -795,6 +814,7 @@ struct MlxCommand: ParsableCommand {
                     instructions: self.instructions,
                     kvBits: self.kvBits,
                     enablePrefixCaching: self.enablePrefixCaching,
+                    mlxKernels: self.mlxKernels,
                     mtpEnabled: self.mtp,
                     mtpDepth: self.mtpDepth,
                     eagle3DrafterPath: self.eagle3,

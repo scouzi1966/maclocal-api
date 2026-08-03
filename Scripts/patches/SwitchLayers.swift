@@ -1,5 +1,6 @@
 import Foundation
 import MLX
+import MLXFast
 import MLXNN
 
 // Port of https://github.com/ml-explore/mlx-examples/blob/main/llms/mlx_lm/models/switch_layers.py
@@ -91,6 +92,183 @@ public func scatterUnsort(x: MLXArray, invOrder: MLXArray, shape: [Int]? = nil) 
     return x
 }
 
+private enum SwitchGLUKernelEngine {
+    static var ds4Enabled: Bool {
+        let env = ProcessInfo.processInfo.environment
+        let raw = (env["AFM_MLX_KERNELS"] ?? env["VMLX_DSV4_KERNELS"] ?? "native")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return raw == "ds4"
+    }
+}
+
+private enum DeepseekV4DS4Kernels {
+    private static let routeLimit = 6
+    private static let supportedInputDims = 4096
+    private static let supportedHiddenDims = 2048
+    private static let supportedExperts = 256
+    private static let supportedGroupSize = 32
+
+    private static let fusedGateUpScoredKernel = MLXFast.metalKernel(
+        name: "deepseek_v4_ds4_mxfp4_gate_up_scored_swiglu",
+        inputNames: [
+            "x", "gateW", "gateS", "upW", "upS", "indices", "scores",
+        ],
+        outputNames: ["activated"],
+        source: """
+            const uint linear = thread_position_in_grid.x;
+            const uint lane = thread_index_in_simdgroup;
+            const uint simd = linear / 32;
+            const uint hidden = simd % HIDDEN;
+            const uint route = simd / HIDDEN;
+            if (route >= ROUTES || hidden >= HIDDEN) {
+                return;
+            }
+
+            const uint expert = static_cast<uint>(indices[route]);
+            if (expert >= EXPERTS) {
+                return;
+            }
+
+            float gateSum = 0.0f;
+            float upSum = 0.0f;
+            const uint rowBase = (expert * HIDDEN + hidden) * PACKED_IN;
+            const uint scaleBase = (expert * HIDDEN + hidden) * GROUPS;
+
+            for (uint group = lane; group < GROUPS; group += 32u) {
+                const float gateScale = dsv4_e8m0(gateS[scaleBase + group]);
+                const float upScale = dsv4_e8m0(upS[scaleBase + group]);
+                const uint wordBase = rowBase + group * WORDS_PER_GROUP;
+                const uint activationBase = group * GROUP_SIZE;
+
+                for (uint word = 0; word < WORDS_PER_GROUP; ++word) {
+                    uint gatePacked = gateW[wordBase + word];
+                    uint upPacked = upW[wordBase + word];
+                    for (uint nib = 0; nib < 8u; ++nib) {
+                        const uint inputOffset = activationBase + word * 8u + nib;
+                        const float xv = static_cast<float>(x[inputOffset]);
+                        gateSum += xv * gateScale * dsv4_fp4_value(gatePacked & 0xfu);
+                        upSum += xv * upScale * dsv4_fp4_value(upPacked & 0xfu);
+                        gatePacked >>= 4;
+                        upPacked >>= 4;
+                    }
+                }
+            }
+
+            gateSum = simd_sum(gateSum);
+            upSum = simd_sum(upSum);
+
+            if (lane == 0) {
+                const float activationLimit = static_cast<float>(LIMIT);
+                const float limitedGate = metal::min(gateSum, activationLimit);
+                const float siluGate = limitedGate / (1.0f + metal::fast::exp(-limitedGate));
+                const float clippedUp = metal::clamp(upSum, -activationLimit, activationLimit);
+                const float routed = siluGate * clippedUp * static_cast<float>(scores[route]);
+                activated[route * HIDDEN + hidden] = static_cast<outT>(routed);
+            }
+        """,
+        header: """
+            static inline float dsv4_fp4_value(uint nibble) {
+                switch (nibble & 0xfu) {
+                case 0u: return 0.0f;
+                case 1u: return 0.5f;
+                case 2u: return 1.0f;
+                case 3u: return 1.5f;
+                case 4u: return 2.0f;
+                case 5u: return 3.0f;
+                case 6u: return 4.0f;
+                case 7u: return 6.0f;
+                case 8u: return -0.0f;
+                case 9u: return -0.5f;
+                case 10u: return -1.0f;
+                case 11u: return -1.5f;
+                case 12u: return -2.0f;
+                case 13u: return -3.0f;
+                case 14u: return -4.0f;
+                default: return -6.0f;
+                }
+            }
+
+            static inline float dsv4_e8m0(uchar exponent) {
+                const uint bits = exponent == 0
+                    ? 0x00400000u
+                    : (uint(exponent) << 23);
+                return as_type<float>(bits);
+            }
+        """)
+
+    static func fusedGateUpScoredSwiGLU(
+        input: MLXArray,
+        indices: MLXArray,
+        scores: MLXArray,
+        gate: QuantizedSwitchLinear,
+        up: QuantizedSwitchLinear,
+        limit: Float
+    ) -> MLXArray? {
+        guard SwitchGLUKernelEngine.ds4Enabled,
+              input.dim(-1) == supportedInputDims,
+              gate.inputDims == supportedInputDims,
+              gate.outputDims == supportedHiddenDims,
+              gate.numExperts == supportedExperts,
+              up.inputDims == supportedInputDims,
+              up.outputDims == supportedHiddenDims,
+              up.numExperts == supportedExperts,
+              indices.size == routeLimit,
+              gate.groupSize == supportedGroupSize,
+              up.groupSize == supportedGroupSize,
+              gate.bits == 4,
+              up.bits == 4,
+              gate.mode == .mxfp4,
+              up.mode == .mxfp4,
+              gate.weight.dtype == .uint32,
+              up.weight.dtype == .uint32,
+              gate.scales.dtype == .uint8,
+              up.scales.dtype == .uint8,
+              gate.bias == nil,
+              up.bias == nil,
+              gate.biases == nil,
+              up.biases == nil
+        else {
+            return nil
+        }
+
+        let activation = DeepseekV4ActivationQuant.e4m3RoundTripIfNeeded(
+            contiguous(input), mode: gate.mode
+        )
+        let flatActivation = contiguous(activation.flattened())
+        let flatIndices = contiguous(indices.flattened())
+        let flatScores = contiguous(scores.flattened())
+        let outputShape = indices.shape + [1, supportedHiddenDims]
+        let output = fusedGateUpScoredKernel(
+            [
+                flatActivation,
+                contiguous(gate.weight),
+                contiguous(gate.scales),
+                contiguous(up.weight),
+                contiguous(up.scales),
+                flatIndices,
+                flatScores,
+            ],
+            template: [
+                ("outT", input.dtype),
+                ("ROUTES", routeLimit),
+                ("EXPERTS", supportedExperts),
+                ("HIDDEN", supportedHiddenDims),
+                ("GROUP_SIZE", supportedGroupSize),
+                ("GROUPS", supportedInputDims / supportedGroupSize),
+                ("WORDS_PER_GROUP", supportedGroupSize / 8),
+                ("PACKED_IN", supportedInputDims / 8),
+                ("LIMIT", Int(limit)),
+            ],
+            grid: (32 * routeLimit * supportedHiddenDims, 1, 1),
+            threadGroup: (256, 1, 1),
+            outputShapes: [outputShape],
+            outputDTypes: [input.dtype]
+        )[0]
+        return output
+    }
+}
+
 // MARK: - SwitchGLU
 
 public protocol SwitchGLULayer: Module {
@@ -123,6 +301,7 @@ public class SwitchGLU: Module, SwitchGLULayer {
     /// its down projection is quantized; scaling the projection output later
     /// is not the checkpoint graph.
     let scoredGlue: ((MLXArray, MLXArray, MLXArray) -> MLXArray)?
+    let scoredSwiGLULimit: Float?
 
     // Lazy fused gate+up gatherQuantizedMM cache.
     //
@@ -164,7 +343,8 @@ public class SwitchGLU: Module, SwitchGLULayer {
         activation: @escaping (MLXArray) -> MLXArray = MLXNN.silu,
         bias: Bool = false,
         glue: ((MLXArray, MLXArray) -> MLXArray)? = nil,
-        scoredGlue: ((MLXArray, MLXArray, MLXArray) -> MLXArray)? = nil
+        scoredGlue: ((MLXArray, MLXArray, MLXArray) -> MLXArray)? = nil,
+        scoredSwiGLULimit: Float? = nil
     ) {
         self.inputDims = inputDims
         self.hiddenDims = hiddenDims
@@ -172,6 +352,7 @@ public class SwitchGLU: Module, SwitchGLULayer {
         self.activation = activation
         self.glue = glue
         self.scoredGlue = scoredGlue
+        self.scoredSwiGLULimit = scoredSwiGLULimit
         // Detect common activation types for compiled fast path.
         // Use safeGeluApproximate for comparison to avoid MLXNN's compiledGeluApproximate
         // which uses the Power primitive (x ** 3) and crashes on some Metal GPUs during
@@ -345,7 +526,23 @@ public class SwitchGLU: Module, SwitchGLULayer {
         }
 
         var activated: MLXArray
-        if useFused, let fusedW = fusedGateUpWeight, let fusedS = fusedGateUpScales {
+        if !doSort,
+           let scores = alignedScores,
+           let limit = scoredSwiGLULimit,
+           let gate = gateProj as? QuantizedSwitchLinear,
+           let up = upProj as? QuantizedSwitchLinear,
+           let ds4Activated = DeepseekV4DS4Kernels.fusedGateUpScoredSwiGLU(
+               input: input,
+               indices: idx,
+               scores: scores,
+               gate: gate,
+               up: up,
+               limit: limit
+           )
+        {
+            activated = ds4Activated
+            finishStage("ds4_gate_up_scored_swiglu", [activated])
+        } else if useFused, let fusedW = fusedGateUpWeight, let fusedS = fusedGateUpScales {
             // FUSED PATH — single gatherQuantizedMM for gate+up, then
             // split along output axis and apply compiled SwiGLU.
             // Decode-only per the threshold check above.

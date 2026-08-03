@@ -2,9 +2,22 @@ import Foundation
 import AFMKitCore
 import AFMOpenAICompat
 
+public enum AFMMLXKernelEngine: String, CaseIterable, Sendable {
+    case native
+    case ds4
+
+    public init(configuredValue: String?) {
+        let normalized = configuredValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        self = Self(rawValue: normalized ?? "") ?? .native
+    }
+}
+
 public struct AFMMLXRuntimeConfiguration: Sendable {
     public var kvBits: Int?
     public var enablePrefixCaching: Bool
+    public var kernelEngine: AFMMLXKernelEngine
     public var mtpEnabled: Bool
     public var mtpDepth: Int
     public var eagle3DrafterPath: String?
@@ -27,6 +40,7 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
     public init(
         kvBits: Int? = nil,
         enablePrefixCaching: Bool = true,
+        kernelEngine: AFMMLXKernelEngine = .native,
         mtpEnabled: Bool = false,
         mtpDepth: Int = 3,
         eagle3DrafterPath: String? = nil,
@@ -48,6 +62,7 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
     ) {
         self.kvBits = kvBits
         self.enablePrefixCaching = enablePrefixCaching
+        self.kernelEngine = kernelEngine
         self.mtpEnabled = mtpEnabled
         self.mtpDepth = mtpDepth
         self.eagle3DrafterPath = eagle3DrafterPath
@@ -79,6 +94,9 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         }
         if let value = configuration.bool("enablePrefixCaching") {
             enablePrefixCaching = value
+        }
+        if let value = configuration.string("mlxKernels") ?? configuration.string("kernelEngine") {
+            kernelEngine = AFMMLXKernelEngine(configuredValue: value)
         }
         if let value = configuration.bool("mtpEnabled") {
             mtpEnabled = value
@@ -133,6 +151,7 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
     public func apply(to service: MLXModelService) {
         service.kvBits = kvBits
         service.enablePrefixCaching = enablePrefixCaching
+        service.kernelEngine = kernelEngine
         service.mtpEnabled = mtpEnabled
         service.mtpDepth = mtpDepth
         service.eagle3DrafterPath = eagle3DrafterPath
@@ -210,6 +229,7 @@ public final class AFMMLXRuntime: @unchecked Sendable {
     ) {
         self.configuration = AFMMLXRuntimeConfiguration(
             enablePrefixCaching: service.enablePrefixCaching,
+            kernelEngine: service.kernelEngine,
             maxConcurrent: service.maxConcurrent,
             enableGrammarConstraints: service.enableGrammarConstraints
         )

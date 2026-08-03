@@ -146,6 +146,13 @@ public enum MLXServiceError: Error, LocalizedError {
 private let debugLogging = ProcessInfo.processInfo.environment["AFM_DEBUG"].map { $0 == "1" } ?? false
 private let clearGPUCachePerRequest = ProcessInfo.processInfo.environment["AFM_CLEAR_GPU_CACHE"].map { $0 == "1" } ?? false
 
+func afmDSparkEnabled(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+    guard let rawValue = environment["AFM_DSPARK"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+        return false
+    }
+    return ["1", "true", "on", "yes"].contains(rawValue)
+}
+
 private let _tsFormatter: DateFormatter = {
     let f = DateFormatter()
     f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
@@ -231,6 +238,7 @@ public final class MLXModelService: @unchecked Sendable {
     public var fixToolArgs: Bool = false
     public var forceVLM: Bool = false
     public var kvBits: Int?
+    public var kernelEngine: AFMMLXKernelEngine = .native
     public var kvEvictionPolicy: String = "none"  // "none" or "streaming"
     public var enablePrefixCaching: Bool = false
     /// MTP self-speculative decoding (--mtp). Activates only when the loaded model has an
@@ -468,11 +476,14 @@ public final class MLXModelService: @unchecked Sendable {
         }
         gpuInitialized = true
 
+        setenv("AFM_MLX_KERNELS", kernelEngine.rawValue, 1)
+
         let defaults = AFMMLXRuntimeMemoryController.applyDefaults(compileEnabled: nil)
         let cacheMB = defaults.cacheLimitBytes / AFMMLXRuntimeMemoryController.bytesPerMB
         let wiredMB = defaults.wiredLimitBytes / AFMMLXRuntimeMemoryController.bytesPerMB
 
         print("[\(ts())] MLX GPU: cache=\(cacheMB)MB wired=\(wiredMB)MB (system \(defaults.totalMemoryGB)GB)")
+        print("[\(ts())] MLX kernels: \(kernelEngine.rawValue)")
     }
 
     // MARK: - GPU Capture & Profiling
@@ -1821,6 +1832,48 @@ public final class MLXModelService: @unchecked Sendable {
         let capturing = beginGPUCaptureIfNeeded()
         let tracing = beginGPUTraceIfNeeded()
         if gpuProfile { printGPUProfileHeader() }
+        // ---- Embedded DSpARK fast path (greedy, text-only, no tools/grammar/logprobs) ----
+        // DeepSeek V4 checkpoints advertise this capability through metadata and carry the
+        // drafter weights themselves; no model-id allowlist or separately loaded package.
+        let dsparkEligible = afmDSparkEnabled()
+            && (temperature ?? 0) <= 0.0
+            && (tools?.isEmpty ?? true)
+            && responseFormat == nil
+            && !wantLogprobs
+        if dsparkEligible {
+            if let result = try await container.perform({ context -> (String, Int, Int)? in
+                guard let model = context.model as? DeepseekV4Model,
+                      model.supportsEmbeddedDSpark else { return nil }
+                let lmInput = try await context.processor.prepare(input: scratch.userInput)
+                if self.isMultimodalInput(lmInput) { return nil }
+                let promptIds = self.extractTokenArray(lmInput)
+                guard !promptIds.isEmpty else { return nil }
+                let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+                let limit = ProcessInfo.processInfo.environment["AFM_DSPARK_DRAFT"]
+                    .flatMap(Int.init)
+                let t0 = Date.timeIntervalSinceReferenceDate
+                let ids = DeepseekV4DSparkGenerator(
+                    model: model, draftLimit: limit
+                ).generate(
+                    promptIds: promptIds,
+                    maxTokens: effectiveMaxTokens,
+                    eosIds: eos)
+                let elapsed = Date.timeIntervalSinceReferenceDate - t0
+                let textIds = (ids.last.map { eos.contains($0) } ?? false)
+                    ? Array(ids.dropLast()) : ids
+                if debugLogging {
+                    let tps = elapsed > 0 ? Double(ids.count) / elapsed : 0
+                    print("[\(ts())] [DSpARK] generated \(ids.count) tok in \(String(format: "%.2f", elapsed))s (\(String(format: "%.1f", tps)) tok/s)")
+                }
+                return (context.tokenizer.decode(tokens: textIds), promptIds.count, ids.count)
+            }) {
+                serialRequestRecorded = true
+                StatsAggregator.shared.requestSucceeded(reason: "stop")
+                StatsAggregator.shared.requestCompleted()
+                return (modelID, result.0, result.1, result.2, nil, nil, 0, 0, 0, false)
+            }
+        }
+
         // ---- MTP self-speculative fast path (greedy, text-only, no tools/grammar/logprobs) ----
         // Eligible when an MTP head is installed and the request is plain greedy generation.
         // Produces output identical to greedy AR (validated P2) but with fewer trunk forwards.
@@ -2860,9 +2913,18 @@ public final class MLXModelService: @unchecked Sendable {
         // those deltas (we return the think tags). Output matches the non-streaming fast path.
         let specGreedyStream = (temperature ?? 0) <= 0.0 && (tools?.isEmpty ?? true)
             && responseFormat == nil && !wantLogprobs && (stop?.isEmpty ?? true)
+        let loadedSupportsDSpark: Bool
+        if specGreedyStream && afmDSparkEnabled() {
+            loadedSupportsDSpark = await container.perform { context in
+                (context.model as? DeepseekV4Model)?.supportsEmbeddedDSpark == true
+            }
+        } else {
+            loadedSupportsDSpark = false
+        }
+        let dsparkStreamEligible = specGreedyStream && loadedSupportsDSpark
         let eagle3StreamEligible = specGreedyStream && Eagle3Runtime.shared.active != nil
         let mtpStreamEligible = specGreedyStream && MTPRuntime.shared.active != nil
-        if eagle3StreamEligible || mtpStreamEligible {
+        if dsparkStreamEligible || eagle3StreamEligible || mtpStreamEligible {
             // Prep prompt ids under the lock; nil => multimodal/empty/wrong-model => fall back to AR.
             // Also detect a template-opened think block (last prompt tokens contain thinkStart): for
             // thinking models whose chat template begins reasoning in the prompt, the generated
@@ -2871,6 +2933,9 @@ public final class MLXModelService: @unchecked Sendable {
             let prep: (ids: [Int], openedThink: Bool)? = try await container.perform { context -> (ids: [Int], openedThink: Bool)? in
                 let lmInput = try await context.processor.prepare(input: userInput)
                 if self.isMultimodalInput(lmInput) { return nil }
+                if dsparkStreamEligible
+                    && !((context.model as? DeepseekV4Model)?.supportsEmbeddedDSpark == true)
+                { return nil }
                 if eagle3StreamEligible && !(context.model is Gemma4Model) { return nil }
                 let ids = self.extractTokenArray(lmInput)
                 if ids.isEmpty { return nil }
@@ -2883,7 +2948,8 @@ public final class MLXModelService: @unchecked Sendable {
             if let prep {
                 let promptIds = prep.ids
                 let openedThink = prep.openedThink
-                let useEagle3 = eagle3StreamEligible
+                let useDSpark = dsparkStreamEligible
+                let useEagle3 = !useDSpark && eagle3StreamEligible
                 let maxTok = effectiveMaxTokens
                 let dbg = debugLogging
                 let thinkStartTag = self.thinkStartTag
@@ -2910,7 +2976,15 @@ public final class MLXModelService: @unchecked Sendable {
                                     }
                                     return true
                                 }
-                                if useEagle3, let drafter = Eagle3Runtime.shared.active,
+                                if useDSpark, let model = context.model as? DeepseekV4Model {
+                                    let limit = ProcessInfo.processInfo.environment["AFM_DSPARK_DRAFT"]
+                                        .flatMap(Int.init)
+                                    let generator = DeepseekV4DSparkGenerator(
+                                        model: model, draftLimit: limit)
+                                    _ = generator.generate(
+                                        promptIds: promptIds, maxTokens: maxTok,
+                                        eosIds: eos, onToken: emit)
+                                } else if useEagle3, let drafter = Eagle3Runtime.shared.active,
                                    let model = context.model as? Gemma4Model {
                                     let block = ProcessInfo.processInfo.environment["AFM_EAGLE3_BLOCK"].flatMap { Int($0) } ?? 2
                                     let g = Gemma4Eagle3Generator(drafter: drafter)
@@ -2926,7 +3000,8 @@ public final class MLXModelService: @unchecked Sendable {
                             let gt = Date.timeIntervalSinceReferenceDate - t0
                             if dbg {
                                 let tps = gt > 0 ? Double(outCount) / gt : 0
-                                print("[\(ts())] [\(useEagle3 ? "EAGLE3" : "MTP")] streamed \(outCount) tok in \(String(format: "%.2f", gt))s (\(String(format: "%.1f", tps)) tok/s)")
+                                let engine = useDSpark ? "DSpARK" : (useEagle3 ? "EAGLE3" : "MTP")
+                                print("[\(ts())] [\(engine)] streamed \(outCount) tok in \(String(format: "%.2f", gt))s (\(String(format: "%.1f", tps)) tok/s)")
                             }
                             continuation.yield(StreamChunk(text: "", promptTokens: promptIds.count,
                                                            completionTokens: outCount, promptTime: 0, generateTime: gt))

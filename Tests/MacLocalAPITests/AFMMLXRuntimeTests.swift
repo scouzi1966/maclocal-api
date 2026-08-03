@@ -1,9 +1,14 @@
 import AFMKitCore
+import AFMKit
 import AFMOpenAICompat
 @testable import AFMKitMLX
 import XCTest
 
 final class AFMMLXRuntimeTests: XCTestCase {
+    func testEngineConfigurationCarriesKernelSelection() {
+        XCTAssertEqual(EngineConfig(mlxKernels: "ds4").mlxKernels, "ds4")
+    }
+
     func testRuntimeConfigurationAppliesTypedSettingsToService() {
         let service = MLXModelService(resolver: MLXCacheResolver())
         let guidedSchema = ResponseFormat(
@@ -19,6 +24,7 @@ final class AFMMLXRuntimeTests: XCTestCase {
         AFMMLXRuntimeConfiguration(
             kvBits: 4,
             enablePrefixCaching: true,
+            kernelEngine: .ds4,
             mtpEnabled: true,
             mtpDepth: 5,
             eagle3DrafterPath: "/tmp/eagle",
@@ -44,6 +50,7 @@ final class AFMMLXRuntimeTests: XCTestCase {
 
         XCTAssertEqual(service.kvBits, 4)
         XCTAssertTrue(service.enablePrefixCaching)
+        XCTAssertEqual(service.kernelEngine, .ds4)
         XCTAssertTrue(service.mtpEnabled)
         XCTAssertEqual(service.mtpDepth, 5)
         XCTAssertEqual(service.eagle3DrafterPath, "/tmp/eagle")
@@ -82,6 +89,7 @@ final class AFMMLXRuntimeTests: XCTestCase {
             modelID: "Qwen3.6-35B-A3B-4bit",
             providerConfiguration: AFMProviderConfiguration(values: [
                 "enablePrefixCaching": .bool(false),
+                "mlxKernels": .string("ds4"),
                 "maxConcurrent": .integer(8),
                 "toolCallParser": .string("none")
             ]),
@@ -90,7 +98,15 @@ final class AFMMLXRuntimeTests: XCTestCase {
 
         XCTAssertEqual(runtime.modelID, "mlx-community/Qwen3.6-35B-A3B-4bit")
         XCTAssertFalse(service.enablePrefixCaching)
+        XCTAssertEqual(service.kernelEngine, .ds4)
         XCTAssertEqual(service.maxConcurrent, 8)
         XCTAssertEqual(service.toolCallParser, "none")
+    }
+
+    func testKernelEngineFallsBackToNativeForUnknownConfigurationValue() {
+        XCTAssertEqual(AFMMLXKernelEngine(configuredValue: nil), .native)
+        XCTAssertEqual(AFMMLXKernelEngine(configuredValue: "native"), .native)
+        XCTAssertEqual(AFMMLXKernelEngine(configuredValue: "ds4"), .ds4)
+        XCTAssertEqual(AFMMLXKernelEngine(configuredValue: "not-a-kernel"), .native)
     }
 }

@@ -169,7 +169,11 @@ class DeepseekV4Attention: Module {
     @ModuleInfo(key: "compressor") var compressor: DeepseekV4Compressor?
     @ModuleInfo(key: "indexer") var indexer: DeepseekV4Indexer?
 
-    init(config: DeepseekV4Configuration, layerIdx: Int) {
+    init(
+        config: DeepseekV4Configuration,
+        layerIdx: Int,
+        compressRatioOverride: Int? = nil
+    ) {
         self.config = config
         self.layerIdx = layerIdx
         self.numHeads = config.numAttentionHeads
@@ -184,7 +188,9 @@ class DeepseekV4Attention: Module {
         // populated use it directly; otherwise fall back to the default
         // DSV4-Flash pattern (layer 0 and last → 0; middle: odd → 4,
         // even → 128 per layer index after accounting for layer 0).
-        if !config.compressRatios.isEmpty && layerIdx < config.compressRatios.count {
+        if let compressRatioOverride {
+            self.compressRatio = compressRatioOverride
+        } else if !config.compressRatios.isEmpty && layerIdx < config.compressRatios.count {
             self.compressRatio = config.compressRatios[layerIdx]
         } else {
             let n = config.numHiddenLayers
@@ -540,6 +546,280 @@ class DeepseekV4Attention: Module {
         }
         return projected
     }
+
+    /// DSpARK attention persists target hidden-state KV only; draft KV is
+    /// temporary to the current proposal block.
+    func dsparkForward(
+        _ x: MLXArray,
+        mainX: MLXArray,
+        cache: KVCache
+    ) -> MLXArray {
+        precondition(compressRatio == 0, "DSpARK attention must use local KV")
+        let offset = cache.offset
+        let B = mainX.dim(0)
+        let mainLength = mainX.dim(1)
+        var mainKV = kvNorm(wkv(mainX))
+            .reshaped(B, mainLength, 1, headDim).transposed(0, 2, 1, 3)
+        let mainRope = rope.cosSin(offset: offset, length: mainLength)
+        mainKV = DeepseekV4Math.applyPartialRoPE(
+            mainKV, cos: mainRope.cos.expandedDimensions(axes: [0, 1]),
+            sin: mainRope.sin.expandedDimensions(axes: [0, 1]), ropeDim: ropeDim)
+        if config.activationQATEnabled && headDim - ropeDim >= 64 {
+            mainKV = DeepseekV4Math.e4m3KVActivationRoundTrip(mainKV, ropeDim: ropeDim)
+        }
+        let (persistentKV, _) = cache.update(keys: mainKV, values: mainKV)
+        if offset == 0 { return x }
+
+        let blockLength = x.dim(1)
+        let draftOffset = offset + mainLength
+        var q = wqB(qNorm(wqA(x))).reshaped(B, blockLength, numHeads, headDim)
+        let qDType = q.dtype
+        let qF32 = q.asType(.float32)
+        q = (qF32 * rsqrt(
+            (qF32 * qF32).mean(axis: -1, keepDims: true) + config.rmsNormEps
+        )).asType(qDType).transposed(0, 2, 1, 3)
+        var draftKV = kvNorm(wkv(x))
+            .reshaped(B, blockLength, 1, headDim).transposed(0, 2, 1, 3)
+        let draftRope = rope.cosSin(offset: draftOffset, length: blockLength)
+        let draftCos = draftRope.cos.expandedDimensions(axes: [0, 1])
+        let draftSin = draftRope.sin.expandedDimensions(axes: [0, 1])
+        q = DeepseekV4Math.applyPartialRoPE(q, cos: draftCos, sin: draftSin, ropeDim: ropeDim)
+        draftKV = DeepseekV4Math.applyPartialRoPE(
+            draftKV, cos: draftCos, sin: draftSin, ropeDim: ropeDim)
+        if config.activationQATEnabled && headDim - ropeDim >= 64 {
+            draftKV = DeepseekV4Math.e4m3KVActivationRoundTrip(draftKV, ropeDim: ropeDim)
+        }
+        let allKV = concatenated([persistentKV, draftKV], axis: 2)
+        var output = MLXFast.scaledDotProductAttention(
+            queries: q, keys: allKV, values: allKV, scale: scale, mask: .none,
+            sinks: config.useAttnSink ? attnSink.asType(q.dtype) : nil)
+        output = DeepseekV4Math.applyPartialRoPE(
+            output, cos: draftCos, sin: draftSin, ropeDim: ropeDim, inverse: true)
+        output = output.transposed(0, 2, 1, 3)
+            .reshaped(B, blockLength, numHeads * headDim)
+        let groupFeatures = (numHeads * headDim) / oGroups
+        let grouped = output.reshaped(B, blockLength, oGroups, groupFeatures)
+        let projectedA: MLXArray
+        if let quantized = woA as? QuantizedLinear {
+            let weight: MLXArray
+            if Self.cacheDequantizedWoA {
+                dequantizedWoALock.lock()
+                if let cachedDequantizedWoA { weight = cachedDequantizedWoA } else {
+                    let value = MLX.dequantized(
+                        quantized.weight, scales: quantized.scales,
+                        biases: quantized.biases, groupSize: quantized.groupSize,
+                        bits: quantized.bits, mode: quantized.mode, dtype: output.dtype
+                    ).reshaped(oGroups, oLoraRank, groupFeatures)
+                    MLX.eval(value); cachedDequantizedWoA = value; weight = value
+                }
+                dequantizedWoALock.unlock()
+            } else {
+                weight = MLX.dequantized(
+                    quantized.weight, scales: quantized.scales,
+                    biases: quantized.biases, groupSize: quantized.groupSize,
+                    bits: quantized.bits, mode: quantized.mode, dtype: output.dtype
+                ).reshaped(oGroups, oLoraRank, groupFeatures)
+            }
+            projectedA = einsum("bsgd,grd->bsgr", grouped, weight)
+                .reshaped(B, blockLength, oGroups * oLoraRank)
+        } else {
+            projectedA = einsum(
+                "bsgd,grd->bsgr", grouped,
+                woA.weight.reshaped(oGroups, oLoraRank, groupFeatures)
+            ).reshaped(B, blockLength, oGroups * oLoraRank)
+        }
+        return woB(projectedA)
+    }
+}
+
+// MARK: - Embedded DSpARK drafter
+
+/// Low-rank token-transition prior used by the final DSpARK stage.
+class DeepseekV4DSparkMarkovHead: Module {
+    @ModuleInfo(key: "markov_w1") var markovW1: Embedding
+    @ModuleInfo(key: "markov_w2") var markovW2: Linear
+
+    init(config: DeepseekV4Configuration) {
+        self._markovW1.wrappedValue = Embedding(
+            embeddingCount: config.vocabSize,
+            dimensions: config.dsparkMarkovRank)
+        self._markovW2.wrappedValue = Linear(
+            config.dsparkMarkovRank,
+            config.vocabSize,
+            bias: false)
+    }
+
+    func callAsFunction(_ tokenIds: MLXArray) -> (logits: MLXArray, embedding: MLXArray) {
+        let embedding = markovW1(tokenIds)
+        return (markovW2(embedding), embedding)
+    }
+}
+
+class DeepseekV4DSparkConfidenceHead: Module {
+    @ModuleInfo(key: "proj") var projection: Linear
+
+    init(config: DeepseekV4Configuration) {
+        self._projection.wrappedValue = Linear(
+            config.hiddenSize + config.dsparkMarkovRank,
+            1,
+            bias: false)
+    }
+
+    func callAsFunction(_ hidden: MLXArray, markovEmbedding: MLXArray) -> MLXArray {
+        projection(concatenated([hidden, markovEmbedding], axis: -1)).squeezed(axis: -1)
+    }
+}
+
+public struct DeepseekV4DSparkProposal {
+    public let tokenIds: MLXArray
+    public let logits: MLXArray
+    public let confidence: MLXArray
+}
+
+/// Optional checkpoint-backed DSpARK stage. Loading it does not alter the
+/// ordinary autoregressive execution path.
+class DeepseekV4DSparkStage: Module {
+    @ModuleInfo(key: "attn") var attention: DeepseekV4Attention
+    @ModuleInfo(key: "ffn") var ffn: DeepseekV4MoE
+    @ModuleInfo(key: "attn_norm") var attentionNorm: RMSNorm
+    @ModuleInfo(key: "ffn_norm") var ffnNorm: RMSNorm
+    @ModuleInfo(key: "attn_hc") var attentionHC: DeepseekV4HyperConnection
+    @ModuleInfo(key: "ffn_hc") var ffnHC: DeepseekV4HyperConnection
+    @ModuleInfo(key: "main_proj") var mainProjection: Linear?
+    @ModuleInfo(key: "main_norm") var mainNorm: RMSNorm?
+    @ModuleInfo(key: "norm") var outputNorm: RMSNorm?
+    @ModuleInfo(key: "markov_head") var markovHead: DeepseekV4DSparkMarkovHead?
+    @ModuleInfo(key: "confidence_head") var confidenceHead: DeepseekV4DSparkConfidenceHead?
+    @ParameterInfo(key: "hc_head_fn") var headFn: MLXArray?
+    @ParameterInfo(key: "hc_head_base") var headBase: MLXArray?
+    @ParameterInfo(key: "hc_head_scale") var headScale: MLXArray?
+    let stageIndex: Int
+    let config: DeepseekV4Configuration
+
+    init(config: DeepseekV4Configuration, stageIndex: Int) {
+        self.config = config
+        self.stageIndex = stageIndex
+        self._attention.wrappedValue = DeepseekV4Attention(
+            config: config, layerIdx: config.numHiddenLayers + stageIndex,
+            compressRatioOverride: 0)
+        self._ffn.wrappedValue = DeepseekV4MoE(
+            config: config, layerIdx: config.numHiddenLayers + stageIndex)
+        self._attentionNorm.wrappedValue = RMSNorm(
+            dimensions: config.hiddenSize, eps: config.rmsNormEps)
+        self._ffnNorm.wrappedValue = RMSNorm(
+            dimensions: config.hiddenSize, eps: config.rmsNormEps)
+        self._attentionHC.wrappedValue = DeepseekV4HyperConnection(config: config)
+        self._ffnHC.wrappedValue = DeepseekV4HyperConnection(config: config)
+        if stageIndex == 0 {
+            self._mainProjection.wrappedValue = Linear(
+                config.hiddenSize * config.dsparkTargetLayerIds.count,
+                config.hiddenSize, bias: false)
+            self._mainNorm.wrappedValue = RMSNorm(
+                dimensions: config.hiddenSize, eps: config.rmsNormEps)
+        }
+        if stageIndex == config.dsparkStageCount - 1 {
+            self._outputNorm.wrappedValue = RMSNorm(
+                dimensions: config.hiddenSize, eps: config.rmsNormEps)
+            self._markovHead.wrappedValue = DeepseekV4DSparkMarkovHead(config: config)
+            self._confidenceHead.wrappedValue = DeepseekV4DSparkConfidenceHead(config: config)
+            self._headFn.wrappedValue = zeros([
+                config.hcMult, config.hcMult * config.hiddenSize,
+            ])
+            self._headBase.wrappedValue = zeros([config.hcMult])
+            self._headScale.wrappedValue = zeros([1])
+        }
+    }
+
+    func prepareDraft(
+        mainHidden: MLXArray,
+        anchorTokenIds: MLXArray,
+        embedding: Embedding
+    ) -> (hidden: MLXArray, main: MLXArray) {
+        guard let mainProjection, let mainNorm else {
+            preconditionFailure("Only DSpARK stage zero can prepare a draft")
+        }
+        let batch = anchorTokenIds.dim(0)
+        let anchors = anchorTokenIds.reshaped(batch, 1)
+        let noise = MLXArray.ones(
+            [batch, max(0, config.dsparkBlockSize - 1)], dtype: .int32)
+            * MLXArray(Int32(config.dsparkNoiseTokenId))
+        let draftIds = concatenated([anchors.asType(.int32), noise], axis: 1)
+        var hidden = embedding(draftIds).expandedDimensions(axis: -2)
+        hidden = repeated(hidden, count: config.hcMult, axis: -2)
+        return (hidden, mainNorm(mainProjection(mainHidden)))
+    }
+
+    func forward(
+        _ hidden: MLXArray,
+        main: MLXArray,
+        anchorTokenIds: MLXArray,
+        cache: KVCache
+    ) -> MLXArray {
+        if cache.offset == 0 {
+            _ = attention.dsparkForward(hidden, mainX: main, cache: cache)
+            return hidden
+        }
+        let attentionResidual = hidden
+        let (attentionInput, attentionPost, attentionComb) = attentionHC.collapse(hidden)
+        let attentionOutput = attention.dsparkForward(
+            attentionNorm(attentionInput), mainX: main, cache: cache)
+        let afterAttention = attentionHC.expand(
+            blockOut: attentionOutput, residual: attentionResidual,
+            post: attentionPost, comb: attentionComb)
+        let ffnResidual = afterAttention
+        let (ffnInput, ffnPost, ffnComb) = ffnHC.collapse(afterAttention)
+        ffn.currentInputIds = anchorTokenIds
+        let ffnOutput = ffn(ffnNorm(ffnInput))
+        ffn.currentInputIds = nil
+        return ffnHC.expand(
+            blockOut: ffnOutput, residual: ffnResidual,
+            post: ffnPost, comb: ffnComb)
+    }
+
+    func makeProposal(
+        _ hidden: MLXArray,
+        anchorTokenIds: MLXArray,
+        lmHead: Linear
+    ) -> DeepseekV4DSparkProposal {
+        guard let outputNorm, let markovHead, let confidenceHead,
+            let headFn, let headBase, let headScale
+        else {
+            preconditionFailure("Only the final DSpARK stage can produce tokens")
+        }
+        let batch = hidden.dim(0)
+        let length = hidden.dim(1)
+        let flattened = hidden.reshaped(
+            batch, length, config.hcMult * config.hiddenSize)
+        let normalized = MLXFast.rmsNorm(
+            flattened.asType(.float32),
+            weight: MLXArray.ones([config.hcMult * config.hiddenSize]),
+            eps: config.rmsNormEps)
+        let mixes = normalized.matmul(headFn.asType(.float32).transposed())
+        let coefficients = sigmoid(
+            mixes * headScale.asType(.float32) + headBase.asType(.float32))
+            + MLXArray(config.hcEps)
+        let reduced = (
+            coefficients.asType(hidden.dtype).expandedDimensions(axis: -1) * hidden
+        ).sum(axis: -2)
+        let baseLogits = DeepseekV4Math.lmHeadFp32(outputNorm(reduced), lmHead: lmHead)
+        var outputIds = anchorTokenIds.reshaped(batch, 1).asType(.int32)
+        var biasedLogits: [MLXArray] = []
+        var markovEmbeddings: [MLXArray] = []
+        for index in 0..<config.dsparkBlockSize {
+            let current = outputIds[0..., index]
+            let markov = markovHead(current)
+            let logits = baseLogits[0..., index, 0...] + markov.logits
+            biasedLogits.append(logits)
+            markovEmbeddings.append(markov.embedding)
+            let next = argMax(logits, axis: -1).asType(.int32).expandedDimensions(axis: 1)
+            outputIds = concatenated([outputIds, next], axis: 1)
+        }
+        let markovStack = stacked(markovEmbeddings, axis: 1)
+        return DeepseekV4DSparkProposal(
+            tokenIds: outputIds,
+            logits: stacked(biasedLogits, axis: 1),
+            confidence: confidenceHead(reduced, markovEmbedding: markovStack))
+    }
 }
 
 // MARK: - MoE gate (sqrtsoftplus + hash routing)
@@ -718,7 +998,8 @@ class DeepseekV4MoE: Module, UnaryLayer {
             scoredGlue: { gate, up, scores in
                 DeepseekV4Math.dsv4ScoredSwiGLU(
                     gate: gate, up: up, scores: scores, limit: limit)
-            })
+            },
+            scoredSwiGLULimit: limit)
         self.gate = DeepseekV4MoEGate(config: config, layerIdx: layerIdx)
         self._sharedExperts.wrappedValue = DeepseekV4MLP(
             hiddenSize: config.hiddenSize,
@@ -1069,6 +1350,52 @@ public class DeepseekV4ModelInner: Module {
         DeepseekV4NumericTrace.tensor("norm", out)
         return out
     }
+
+    /// Runs the ordinary verifier forward pass while retaining the mean-mHC
+    /// states required by an embedded DSpARK drafter. This is deliberately a
+    /// separate entry point so normal autoregressive generation keeps its
+    /// existing graph and incurs no capture bookkeeping.
+    public func forwardCapturingHiddenStates(
+        _ inputs: MLXArray,
+        cache: [KVCache]?,
+        layerIds: [Int]
+    ) -> (hidden: MLXArray, captured: MLXArray) {
+        precondition(!layerIds.isEmpty, "DSpARK capture requires at least one layer")
+        precondition(
+            layerIds.allSatisfy { $0 >= 0 && $0 < layers.count },
+            "DSpARK capture layer is outside the base transformer")
+
+        let requested = Set(layerIds)
+        var h = embedTokens(inputs)
+        h = h.expandedDimensions(axis: -2)
+        h = repeated(h, count: config.hcMult, axis: -2)
+
+        let firstCache = cache?.first
+        let hFlat2 = h.reshaped(h.dim(0), h.dim(1), -1)
+        let mask = createAttentionMask(h: hFlat2, cache: firstCache)
+        var capturedByLayer: [Int: MLXArray] = [:]
+
+        for (i, layer) in layers.enumerated() {
+            h = layer(
+                h,
+                mask: mask,
+                cache: cache?[i],
+                inputIds: inputs)
+            if requested.contains(i) {
+                capturedByLayer[i] = h.mean(axis: -2)
+            }
+        }
+
+        let ordered = layerIds.map { layerId -> MLXArray in
+            guard let value = capturedByLayer[layerId] else {
+                preconditionFailure("DSpARK capture missed layer \(layerId)")
+            }
+            return value
+        }
+        var out = hcHead.reduce(h)
+        out = norm(out)
+        return (hidden: out, captured: concatenated(ordered, axis: -1))
+    }
 }
 
 // MARK: - Outer model
@@ -1077,6 +1404,7 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
     public var kvHeads: [Int]
     var config: DeepseekV4Configuration
     public var model: DeepseekV4ModelInner
+    var mtp: [DeepseekV4DSparkStage]
     @ModuleInfo(key: "lm_head") var lmHead: Linear
     private var cachedLMHeadF32: MLXArray?
     private let cachedLMHeadF32Lock = NSLock()
@@ -1095,6 +1423,11 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
         // the cache allocator sizes per-layer caches correctly.
         self.kvHeads = Array(repeating: 1, count: config.numHiddenLayers)
         self.model = DeepseekV4ModelInner(config: config)
+        self.mtp = config.hasEmbeddedDSpark
+            ? (0..<config.dsparkStageCount).map {
+                DeepseekV4DSparkStage(config: config, stageIndex: $0)
+            }
+            : []
         self._lmHead.wrappedValue = Linear(
             config.hiddenSize, config.vocabSize, bias: false)
     }
@@ -1165,8 +1498,7 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
         return (i % 2 == 1) ? 4 : 128
     }
 
-    public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]? = nil) -> MLXArray {
-        let h = model(inputs, cache: cache)
+    private func projectLogits(_ h: MLXArray) -> MLXArray {
         let logits: MLXArray
         if Self.cacheLMHeadF32, !(lmHead is QuantizedLinear) {
             cachedLMHeadF32Lock.lock()
@@ -1189,8 +1521,70 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
         return logits
     }
 
+    public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]? = nil) -> MLXArray {
+        projectLogits(model(inputs, cache: cache))
+    }
+
+    /// Authoritative target forward used by DSpARK verification. The logits
+    /// follow the ordinary generation path exactly; capture only retains the
+    /// configured hidden-state taps needed to advance the drafter context.
+    public func forwardDSparkVerifier(
+        _ inputs: MLXArray,
+        cache: [KVCache]
+    ) -> (logits: MLXArray, captured: MLXArray)? {
+        guard !mtp.isEmpty else { return nil }
+        let result = model.forwardCapturingHiddenStates(
+            inputs, cache: cache, layerIds: config.dsparkTargetLayerIds)
+        return (projectLogits(result.hidden), result.captured)
+    }
+
+    public func newDSparkCache() -> [KVCache] {
+        mtp.map { _ in RotatingKVCache(maxSize: config.slidingWindow, keep: 0) }
+    }
+
+    public var supportsEmbeddedDSpark: Bool { !mtp.isEmpty }
+
+    @discardableResult
+    public func prefillDSpark(
+        anchorTokenIds: MLXArray,
+        capturedHidden: MLXArray,
+        cache: [KVCache]
+    ) -> Bool {
+        guard !mtp.isEmpty, cache.count == mtp.count else { return false }
+        let prepared = mtp[0].prepareDraft(
+            mainHidden: capturedHidden, anchorTokenIds: anchorTokenIds,
+            embedding: model.embedTokens)
+        var hidden = prepared.hidden
+        for (index, stage) in mtp.enumerated() {
+            hidden = stage.forward(
+                hidden, main: prepared.main,
+                anchorTokenIds: anchorTokenIds, cache: cache[index])
+        }
+        return true
+    }
+
+    public func proposeDSpark(
+        anchorTokenIds: MLXArray,
+        capturedHidden: MLXArray,
+        cache: [KVCache]
+    ) -> DeepseekV4DSparkProposal? {
+        guard !mtp.isEmpty, cache.count == mtp.count else { return nil }
+        let prepared = mtp[0].prepareDraft(
+            mainHidden: capturedHidden, anchorTokenIds: anchorTokenIds,
+            embedding: model.embedTokens)
+        var hidden = prepared.hidden
+        for (index, stage) in mtp.enumerated() {
+            hidden = stage.forward(
+                hidden, main: prepared.main,
+                anchorTokenIds: anchorTokenIds, cache: cache[index])
+        }
+        return mtp[mtp.count - 1].makeProposal(
+            hidden, anchorTokenIds: anchorTokenIds, lmHead: lmHead)
+    }
+
     /// Weight sanitize — remap DSV4 bundle key names to match module
-    /// attribute paths, stack per-expert weights, drop MTP + unused
+    /// attribute paths, stack per-expert weights, and retain an embedded
+    /// DSpARK drafter when the checkpoint advertises the complete contract.
     /// compressor/indexer keys.
     ///
     /// Remap rules (from §G of RUNTIME-ARCHITECTURE):
@@ -1207,7 +1601,8 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
     ///   ffn.experts.{E}.{w1|w2|w3}.*  → mlp.switch_mlp.{gate|down|up}_proj.* (stacked)
     public func sanitize(weights: [String: MLXArray]) -> [String: MLXArray] {
         var out: [String: MLXArray] = [:]
-        // First pass: direct rename + drop MTP (training head only).
+        // First pass: direct rename. `mtp.*` is a complete inference drafter
+        // in 0731 checkpoints, not a disposable training head.
         // Compressor + Indexer weights are KEPT — they're wired into
         // DeepseekV4Attention for long-context (L > sliding_window)
         // attention. Layers with compress_ratio == 0 carry no such
@@ -1219,7 +1614,66 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
         // (e.g. ".w1." colliding outside MLP contexts).
         let projForW = ["w1": "gate_proj", "w2": "down_proj", "w3": "up_proj"]
         for (rawKey, value) in weights {
-            if rawKey.hasPrefix("mtp.") { continue }
+            if rawKey.hasPrefix("mtp.") {
+                let afterMTP = rawKey.dropFirst("mtp.".count)
+                guard let stageDot = afterMTP.firstIndex(of: "."),
+                    Int(afterMTP[..<stageDot]) != nil
+                else { continue }
+                let stage = String(afterMTP[..<stageDot])
+                let rest = String(afterMTP[afterMTP.index(after: stageDot)...])
+                let pfx = "mtp.\(stage)"
+                if rest.hasPrefix("main_proj.") || rest.hasPrefix("main_norm.")
+                    || rest.hasPrefix("norm.") || rest.hasPrefix("markov_head.")
+                    || rest.hasPrefix("confidence_head.") || rest.hasPrefix("hc_head_")
+                    || rest == "attn_norm.weight" || rest == "ffn_norm.weight"
+                    || rest.hasPrefix("attn.")
+                {
+                    out["\(pfx).\(rest)"] = value
+                    continue
+                }
+                if rest.hasPrefix("hc_attn_") {
+                    out["\(pfx).attn_hc.\(rest.dropFirst("hc_attn_".count))"] = value
+                    continue
+                }
+                if rest.hasPrefix("hc_ffn_") {
+                    out["\(pfx).ffn_hc.\(rest.dropFirst("hc_ffn_".count))"] = value
+                    continue
+                }
+                if rest.hasPrefix("ffn.") {
+                    let inner = String(rest.dropFirst("ffn.".count))
+                    if inner.hasPrefix("gate.") {
+                        out["\(pfx).ffn.\(inner)"] = value
+                        continue
+                    }
+                    if inner.hasPrefix("shared_experts.") {
+                        let field = String(inner.dropFirst("shared_experts.".count))
+                        if let dot = field.firstIndex(of: "."),
+                            let projection = projForW[String(field[..<dot])]
+                        {
+                            let suffix = field[field.index(after: dot)...]
+                            out["\(pfx).ffn.shared_experts.\(projection).\(suffix)"] = value
+                            continue
+                        }
+                    }
+                    if inner.hasPrefix("experts.") {
+                        let afterExperts = String(inner.dropFirst("experts.".count))
+                        guard let expertDot = afterExperts.firstIndex(of: ".") else { continue }
+                        let expert = String(afterExperts[..<expertDot])
+                        let tail = String(afterExperts[afterExperts.index(after: expertDot)...])
+                        if let projectionDot = tail.firstIndex(of: "."),
+                            let projection = projForW[String(tail[..<projectionDot])]
+                        {
+                            let suffix = tail[tail.index(after: projectionDot)...]
+                            out["\(pfx).ffn.experts.\(expert).\(projection).\(suffix)"] = value
+                            continue
+                        }
+                    }
+                    out["\(pfx).ffn.\(inner)"] = value
+                    continue
+                }
+                out["\(pfx).\(rest)"] = value
+                continue
+            }
 
             // Top-level (no `layers.N.` prefix).
             if rawKey == "embed.weight" || rawKey == "embed.scales"
@@ -1421,10 +1875,193 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
                     forKey: "model.layers.\(layerIdx).mlp.switch_mlp.\(projName).tq_bits")
             }
         }
+        for stageIdx in 0..<config.dsparkStageCount {
+            let prefix = "mtp.\(stageIdx).ffn.experts"
+            for projection in ["gate_proj", "down_proj", "up_proj"] {
+                for suffix in ["weight", "scales", "biases"] {
+                    guard out["\(prefix).0.\(projection).\(suffix)"] != nil else {
+                        continue
+                    }
+                    let tensors = (0..<config.nRoutedExperts).compactMap {
+                        out["\(prefix).\($0).\(projection).\(suffix)"]
+                    }
+                    guard tensors.count == config.nRoutedExperts else { continue }
+                    out["mtp.\(stageIdx).ffn.switch_mlp.\(projection).\(suffix)"] =
+                        stacked(tensors)
+                    for expert in 0..<config.nRoutedExperts {
+                        out.removeValue(
+                            forKey: "\(prefix).\(expert).\(projection).\(suffix)")
+                    }
+                }
+            }
+        }
         return out
     }
 
     public var loraLayers: [Module] {
         model.layers
+    }
+}
+
+
+// MARK: - Embedded DSpARK speculative generator
+
+/// Exact greedy speculative decoding for DeepSeek V4 checkpoints carrying an
+/// embedded DSpARK drafter. The target model remains authoritative: only the
+/// longest draft prefix matching target argmax is committed, followed by the
+/// target's replacement/bonus token.
+public final class DeepseekV4DSparkGenerator {
+    private let model: DeepseekV4Model
+    public let draftLimit: Int
+
+    public init(model: DeepseekV4Model, draftLimit: Int? = nil) {
+        self.model = model
+        self.draftLimit = max(
+            1, min(draftLimit ?? model.config.dsparkBlockSize,
+                   model.config.dsparkBlockSize))
+    }
+
+    private func tokens(_ ids: [Int]) -> MLXArray {
+        MLXArray(ids.map(Int32.init)).reshaped([1, ids.count])
+    }
+
+    private func token(_ id: Int) -> MLXArray {
+        MLXArray([Int32(id)]).reshaped([1, 1])
+    }
+
+    private func argmaxLast(_ logits: MLXArray) -> Int {
+        argMax(logits[0, -1, 0...], axis: -1).item(Int.self)
+    }
+
+    public func generate(
+        promptIds: [Int],
+        maxTokens: Int,
+        eosIds: Set<Int> = [],
+        onToken: ((Int) -> Bool)? = nil
+    ) -> [Int] {
+        guard !promptIds.isEmpty, maxTokens > 0, !model.mtp.isEmpty else { return [] }
+
+        let verifierCache = model.newCache(parameters: nil)
+        let drafterCache = model.newDSparkCache()
+        guard let prefill = model.forwardDSparkVerifier(
+            tokens(promptIds), cache: verifierCache)
+        else { return [] }
+
+        var pending = argmaxLast(prefill.logits)
+        guard model.prefillDSpark(
+            anchorTokenIds: token(pending),
+            capturedHidden: prefill.captured,
+            cache: drafterCache)
+        else { return [] }
+
+        var output: [Int] = []
+        var rounds = 0
+        var draftedTotal = 0
+        var acceptedTotal = 0
+
+        func emit(_ value: Int) -> Bool {
+            output.append(value)
+            if eosIds.contains(value) { return false }
+            if let onToken, !onToken(value) { return false }
+            return output.count < maxTokens
+        }
+
+        if !emit(pending) { return output }
+
+        // The embedded checkpoint primes only its target-hidden KV during
+        // prefill. Consume the first target token autoregressively to obtain
+        // the real hidden row that starts stage execution (the reference
+        // implementation likewise does not execute DSpARK blocks at offset 0).
+        guard let warmup = model.forwardDSparkVerifier(
+            token(pending), cache: verifierCache)
+        else { return output }
+        pending = argmaxLast(warmup.logits)
+        var contextForDrafter = warmup.captured
+        if !emit(pending) { return output }
+
+        while output.count < maxTokens {
+            guard let proposal = model.proposeDSpark(
+                anchorTokenIds: token(pending),
+                capturedHidden: contextForDrafter,
+                cache: drafterCache)
+            else { break }
+
+            let available = proposal.tokenIds.dim(1) - 1
+            let count = min(draftLimit, available, maxTokens - output.count)
+            if count <= 0 { break }
+            let draftArray = proposal.tokenIds[0..., 1..<(count + 1)].asType(.int32)
+            let verifyIds = concatenated([token(pending), draftArray], axis: 1)
+            let snapshots: [DeepseekV4Cache.SpeculativeSnapshot?] = verifierCache.map {
+                ($0 as? DeepseekV4Cache)?.captureSpeculativeSnapshot()
+            }
+            guard let verified = model.forwardDSparkVerifier(
+                verifyIds, cache: verifierCache)
+            else { break }
+
+            let targetArray = argMax(
+                verified.logits[0, 0..., 0...], axis: -1).asType(.int32)
+            MLX.eval(draftArray, targetArray)
+            let drafts = draftArray.reshaped([count]).asArray(Int32.self).map(Int.init)
+            let targets = targetArray.reshaped([count + 1]).asArray(Int32.self).map(Int.init)
+
+            var accepted = 0
+            while accepted < count && drafts[accepted] == targets[accepted] {
+                accepted += 1
+            }
+            let rejected = count - accepted
+            var committedCapture = verified.captured[
+                0..., 0..<(accepted + 1), 0...]
+            if rejected > 0 {
+                // The compressed pool and local KV must be restored to the
+                // same logical point. Restoring only the pre-verify pool while
+                // retaining accepted local rows creates a hybrid history and
+                // makes the next target token diverge from greedy decoding.
+                // Rewind the complete verifier block, then replay only the
+                // committed prefix. Rejects pay one short target forward;
+                // fully accepted blocks remain single-forward.
+                for (index, cache) in verifierCache.enumerated() {
+                    if let deepseekCache = cache as? DeepseekV4Cache,
+                       let snapshot = snapshots[index]
+                    {
+                        deepseekCache.rollbackSpeculative(
+                            rejected: count + 1, to: snapshot)
+                    } else {
+                        _ = cache.trim(count + 1)
+                    }
+                }
+                let replayIds = [pending] + Array(drafts.prefix(accepted))
+                guard let replay = model.forwardDSparkVerifier(
+                    tokens(replayIds), cache: verifierCache)
+                else { break }
+                committedCapture = replay.captured
+            }
+
+            rounds += 1
+            draftedTotal += count
+            acceptedTotal += accepted
+            contextForDrafter = committedCapture
+
+            var committed = accepted > 0 ? Array(drafts.prefix(accepted)) : []
+            committed.append(targets[accepted])
+            pending = committed.last!
+            var keepGoing = true
+            for value in committed.prefix(maxTokens - output.count) {
+                if !emit(value) {
+                    keepGoing = false
+                    break
+                }
+            }
+            if !keepGoing { break }
+        }
+
+        if ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" {
+            let acceptance = draftedTotal > 0
+                ? Double(acceptedTotal) / Double(draftedTotal) : 0
+            let perRound = rounds > 0 ? Double(output.count) / Double(rounds) : 0
+            print(String(format:
+                "[DSpARK] rounds=%d accept=%d/%d (%.1f%%) tok/round=%.2f",
+                rounds, acceptedTotal, draftedTotal, acceptance * 100, perRound))
+        }
+        return output
     }
 }

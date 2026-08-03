@@ -285,6 +285,18 @@ private final class DeepseekV4PoolStorage {
 // entirely (Python mirror: `if v4_cache is None and L < compress_ratio
 // → skip`).
 public final class DeepseekV4Cache: QuantizedHybridPoolCache, CacheRetainedByteCountProviding {
+    /// Lightweight checkpoint for speculative verification. Pool appends replace
+    /// storage arrays instead of mutating them in place, so retaining these views
+    /// is enough to restore the compressed context without copying the bounded
+    /// rotating K/V window on every speculative round.
+    public struct SpeculativeSnapshot {
+        fileprivate let compPool: DeepseekV4PoolStorage
+        fileprivate let idxPool: DeepseekV4PoolStorage
+        fileprivate let compBufferKV: MLXArray?
+        fileprivate let compBufferGate: MLXArray?
+        fileprivate let idxBufferKV: MLXArray?
+        fileprivate let idxBufferGate: MLXArray?
+    }
     /// Expose the inner rotating cache so `TQDiskSerializer` and
     /// `restoreRotatingLayer` can round-trip the sliding-window state.
     /// Compressor/Indexer pool tensors and their incomplete-window
@@ -461,6 +473,33 @@ public final class DeepseekV4Cache: QuantizedHybridPoolCache, CacheRetainedByteC
     }
 
     public var isTrimmable: Bool { local.isTrimmable }
+
+    public func captureSpeculativeSnapshot() -> SpeculativeSnapshot {
+        SpeculativeSnapshot(
+            compPool: compPool.copy(),
+            idxPool: idxPool.copy(),
+            compBufferKV: compBufferKV?[.ellipsis],
+            compBufferGate: compBufferGate?[.ellipsis],
+            idxBufferKV: idxBufferKV?[.ellipsis],
+            idxBufferGate: idxBufferGate?[.ellipsis])
+    }
+
+    /// Roll back only rejected verifier rows. The local rotating cache can
+    /// rewind its logical offset even after reaching the window size; restoring
+    /// the checkpoint separately preserves every previously committed pool row.
+    public func rollbackSpeculative(
+        rejected: Int,
+        to snapshot: SpeculativeSnapshot
+    ) {
+        guard rejected > 0 else { return }
+        _ = local.trim(rejected)
+        compPool = snapshot.compPool
+        idxPool = snapshot.idxPool
+        compBufferKV = snapshot.compBufferKV
+        compBufferGate = snapshot.compBufferGate
+        idxBufferKV = snapshot.idxBufferKV
+        idxBufferGate = snapshot.idxBufferGate
+    }
 
     /// 2026-05-04 (DSV4 SWA/CSA/HSA correctness pass):
     /// Proportional pool-row truncation matching `llama.cpp dsv4_clear_rows`.

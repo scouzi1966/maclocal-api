@@ -7,3 +7,7 @@
 [submodule "vendor/xgrammar"]
 	path = vendor/xgrammar
 	url = https://github.com/mlc-ai/xgrammar.git
+[submodule "vendor/ds4"]
+	path = vendor/ds4
+	url = https://github.com/kernelpool/ds4.git
+	branch = tp-fast-release

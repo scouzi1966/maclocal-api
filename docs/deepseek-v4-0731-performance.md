@@ -68,6 +68,36 @@ encoding, routed-prefill geometry, and the scored limited-SwiGLU operation.
 Deterministic cache-enabled and cache-disabled model runs produced identical
 assistant text.
 
+## Experimental ds4 Kernel Engine
+
+AFM exposes an opt-in MLX kernel selector while keeping the existing MLX path
+as the default:
+
+```bash
+afm mlx --mlx-kernels native ...
+afm mlx --mlx-kernels ds4 ...
+```
+
+The equivalent AFMKit MLX provider configuration is `mlxKernels: "native"` or
+`mlxKernels: "ds4"`. Selection is propagated through server and single-prompt
+execution. Dispatch is based on checkpoint tensor geometry and quantization
+metadata, never the repository or model ID. Unsupported shapes and quantizers
+remain on the native implementation.
+
+The ds4 option currently fuses selected-expert MXFP4 gate/up projection,
+limited SwiGLU, and route scoring for the 0731 decode geometry. The reference
+implementation is pinned as the `vendor/ds4` submodule on its
+`tp-fast-release` line; AFM's Metal kernel remains checked into the reproducible
+MLX patch set and is compiled by MLX at runtime.
+
+Release validation on the exact Vontra 0731 checkpoint confirmed the
+`ds4_gate_up_scored_swiglu` stage executed and produced correct text. It is not
+the faster engine yet: an identical 64-token run took about 4.69 seconds after
+model readiness with ds4 versus 3.65 seconds native, a roughly 29% regression.
+The option therefore remains explicitly experimental and native remains the
+default. This A/B control is retained for further kernel iteration rather than
+presented as a production optimization.
+
 ## Remaining Cost
 
 Opt-in synchronized stage profiling after the cache fix attributes decode time
@@ -91,10 +121,55 @@ correctness and performance:
 - caching an FP32 gate weight;
 - changing scheduler limits.
 
-The next optimization should target routed-expert dispatch without duplicating
-the expert bank. It requires a correct MLX/Metal primitive that accepts two
-packed weights in one dispatch; the tested custom implementation is not safe to
-ship.
+Reusing the E4M3-prepared activation across the routed gate and up projections
+was also exact, but measured only 17.74 tok/s versus 17.65 tok/s for the control
+(about 0.5%, within run-to-run noise). It is not retained as a claimed
+optimization. Forcing the existing fused gate/up cache for the complete MXFP4
+expert bank regressed decode to 9.46 tok/s and prefill to 3.79 seconds because
+the wider gather destroyed weight locality.
+
+The next material optimization is the checkpoint's embedded DSpARK speculative
+decoder. The 0731 package contains three `mtp.N` stages, a rank-256 Markov head,
+a confidence head, and a five-token draft block. The published minimal
+`generate.py` does not execute that path, but DeepSeek's DeepSpec runtime and
+the independent ds4 implementation establish the required contract:
+
+1. Capture mean-HC verifier states at layers 40, 41, and 42.
+2. Produce a confidence-pruned draft with the embedded DSpARK stages.
+3. Verify the anchor plus draft in one ordinary target forward pass.
+4. Commit only the matching prefix plus the target's bonus/replacement token.
+5. Roll every target cache back to the committed prefix.
+
+This does not change the base model or its quantized weights. DSpARK is an
+optional proposer; the ordinary target model remains authoritative. Dispatch
+must therefore be based on checkpoint metadata and measured verifier cost, not
+on repository/model names. MXFP4, affine, other supported quant modes, and
+unquantized models continue through their existing target forward path.
+
+On Apple Silicon, multi-row quantized verification has a hardware- and
+quant-dependent cost curve. AFM must calibrate candidate widths in Release and
+select the width that maximizes expected committed tokens per round. It must
+fall back to ordinary autoregressive decoding when no width beats the measured
+one-token path. A fixed five-token policy is not acceptable.
+
+The implementation gates are:
+
+- metadata and tensor-layout validation before allocating DSpARK state;
+- one-stage numerical fixtures against the released reference implementation;
+- exact greedy output equality against autoregressive generation;
+- cache rollback tests for full, partial, and zero draft acceptance;
+- Release A/B evidence for each supported quant descriptor;
+- automatic fallback when acceptance or measured round cost makes speculation
+  slower than ordinary decoding.
+
+Current status: the checkpoint-backed DSpARK path is implemented behind
+`AFM_DSPARK=1` and validates cache rollback/replay in synthetic compressed
+attention tests. It remains opt-in because the real 0731 MXFP4 Release
+benchmark regressed with a fixed four-token draft: 128 generated tokens took
+31.09 seconds versus 17.51 seconds for the ordinary autoregressive path on the
+same prompt and binary. The batched verifier also produced a semantically
+equivalent but token-different continuation on the real quantized model, so it
+is not yet safe to enable without per-quant calibration and acceptance checks.
 
 ## Profiling Limitation
 
