@@ -357,24 +357,17 @@ log_step "Building afm ($BUILD_CONFIG)"
 # Disable MemberImportVisibility — async-kit (transitive from Vapor) is missing
 # explicit imports for DequeModule/OrderedCollections, which Swift 6 enforces.
 if [ "$BUILD_CONFIG" = "release" ]; then
-  swift build -c release \
+  "$SCRIPTS_DIR/swiftpm-reliable.sh" build -c release \
     --product afm \
     -Xswiftc -disable-upcoming-feature \
     -Xswiftc MemberImportVisibility
 else
-  swift build -c "$BUILD_CONFIG" \
+  "$SCRIPTS_DIR/swiftpm-reliable.sh" build -c "$BUILD_CONFIG" \
     -Xswiftc -disable-upcoming-feature \
     -Xswiftc MemberImportVisibility
 fi
 
-BIN_PATH_1="$ROOT_DIR/.build/arm64-apple-macosx/$BUILD_CONFIG/afm"
-BIN_PATH_2="$ROOT_DIR/.build/$BUILD_CONFIG/afm"
-
-if [ -x "$BIN_PATH_1" ]; then
-  FINAL_BIN="$BIN_PATH_1"
-elif [ -x "$BIN_PATH_2" ]; then
-  FINAL_BIN="$BIN_PATH_2"
-else
+if ! FINAL_BIN="$($SCRIPTS_DIR/find-afm-binary.sh "$BUILD_CONFIG")"; then
   log_error "Build finished but afm binary was not found"
   exit 1
 fi

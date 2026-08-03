@@ -76,6 +76,22 @@ Run the full build script with NO skip flags:
 ./Scripts/build-from-scratch.sh --debug # debug
 ```
 
+All direct SwiftPM builds must go through `Scripts/swiftpm-reliable.sh` rather
+than invoking `swift build` or `swift test` directly. Xcode 27 can corrupt its
+explicit-module scanner cache and report missing `CAsyncHTTPClient`, `CSystem`,
+`CNIO*`, or `_NumericsShims` modules. On Xcode 27 Beta 3 the wrapper selects the
+native driver immediately; on other versions it switches only after recognizing
+that failure. It preserves checkouts, patches, and normal `.build` artifact
+paths. If native incremental module state is also stale, it cleans products and
+retries native once. Logs live in `.build-reliable-logs/`; persistent driver
+identity lives in `.build-reliable-state/` outside SwiftPM's cleanable tree. Set
+`AFM_SWIFTPM_DRIVER=swiftbuild` only for default-driver diagnosis.
+
+```bash
+Scripts/swiftpm-reliable.sh build -c release --product afm
+Scripts/swiftpm-reliable.sh test -c release
+```
+
 **IMPORTANT:** Never add `--skip-submodules`, `--skip-patches`, or `--skip-webui`. The point of this skill is a complete from-scratch build.
 
 ### Step 2: Monitor
@@ -106,3 +122,5 @@ If the build fails, show the error output and suggest checking:
    - Node.js/npm available for webui build
    - Submodules initialized properly
    - Re-run Step 0 prerequisite checks to catch environment issues
+   - For Xcode module-scanner failures, confirm the build used
+     `Scripts/swiftpm-reliable.sh`; logs are in `.build-reliable-logs/`

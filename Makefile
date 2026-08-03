@@ -23,13 +23,14 @@ patch-check:
 # Build the release binary (portable by default)
 build: $(PATCH_STAMP)
 	@echo "🔨 Building AFM..."
-	@swift build -c release \
+	@Scripts/swiftpm-reliable.sh build -c release \
 		--product afm \
 		-Xswiftc -disable-upcoming-feature \
 		-Xswiftc MemberImportVisibility
-	@strip .build/release/afm
-	@echo "✅ Build complete: .build/release/afm"
-	@echo "📊 Size: $$(ls -lh .build/release/afm | awk '{print $$5}')"
+	@AFM_BIN="$$(Scripts/find-afm-binary.sh release)"; \
+		strip "$$AFM_BIN"; \
+		echo "✅ Build complete: $$AFM_BIN"; \
+		echo "📊 Size: $$(ls -lh "$$AFM_BIN" | awk '{print $$5}')"
 
 # Build with enhanced portability optimizations
 portable:
@@ -75,7 +76,7 @@ clean:
 # Install to system (requires sudo)
 install: build
 	@echo "📦 Installing AFM to /usr/local/bin..."
-	@sudo cp .build/release/afm /usr/local/bin/afm
+	@sudo cp "$$(Scripts/find-afm-binary.sh release)" /usr/local/bin/afm
 	@sudo chmod +x /usr/local/bin/afm
 	@echo "✅ AFM installed to /usr/local/bin/afm"
 
@@ -92,22 +93,24 @@ dist: portable
 # Test the binary
 test: build
 	@echo "🧪 Testing AFM binary..."
-	@./.build/release/afm --help > /dev/null && echo "✅ Binary test passed" || echo "❌ Binary test failed"
-	@cp .build/release/afm /tmp/afm-test-$$$$ && \
-		/tmp/afm-test-$$$$ --version > /dev/null 2>&1 && \
+	@AFM_BIN="$$(Scripts/find-afm-binary.sh release)"; \
+		"$$AFM_BIN" --help > /dev/null && echo "✅ Binary test passed" || echo "❌ Binary test failed"
+	@AFM_BIN="$$(Scripts/find-afm-binary.sh release)"; TEST_BIN=".build/afm-portability-test-$$$$"; \
+		cp "$$AFM_BIN" "$$TEST_BIN" && \
+		"$$TEST_BIN" --version > /dev/null 2>&1 && \
 		echo "✅ Portability test passed" || echo "⚠️  Portability test failed"; \
-		rm -f /tmp/afm-test-$$$$
+		rm -f "$$TEST_BIN"
 
 # Development build (debug)
 debug: $(PATCH_STAMP)
 	@echo "🐛 Building debug version..."
-	@swift build
-	@echo "✅ Debug build complete: .build/debug/afm"
+	@Scripts/swiftpm-reliable.sh build
+	@echo "✅ Debug build complete: $$(Scripts/find-afm-binary.sh debug)"
 
 # Run the server (development)
 run: debug
 	@echo "🚀 Starting AFM server..."
-	@./.build/debug/afm --port 9999
+	@"$$(Scripts/find-afm-binary.sh debug)" --port 9999
 
 # Show help
 help:
@@ -138,4 +141,4 @@ help:
 	@echo "  make dist               # Create distribution package"
 	@echo "  make test               # Test binary works"
 	@echo ""
-	@echo "Output: .build/release/afm (portable executable)"
+	@echo "Output: $$(Scripts/find-afm-binary.sh release 2>/dev/null || echo '.build/<toolchain release path>/afm')"

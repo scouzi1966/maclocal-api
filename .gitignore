@@ -101,6 +101,8 @@ vendor/llama.cpp/tools/server/public/
 
 # Generated local artifacts
 /.build-*/
+/.build-reliable-logs/
+/.build-reliable-state/
 /.venv-*/
 __pycache__/
 *.pyc
