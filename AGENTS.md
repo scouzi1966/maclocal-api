@@ -8,14 +8,19 @@ See `CLAUDE.md` for additional project-specific build, architecture, and workflo
 `vendor/` contains pinned submodules (`mlx-swift-lm`, `llama.cpp`). Do not edit vendor files directly; patch them through `Scripts/patches/` and `Scripts/apply-mlx-patches.sh`.
 
 ## Build, Test, and Development Commands
-Use the project `Makefile` for normal workflows:
+Use the project `Makefile` for normal workflows. All direct SwiftPM build and
+test invocations must go through `Scripts/swiftpm-reliable.sh`; do not invoke
+raw `swift build` or `swift test`. The wrapper selects the reliable Xcode 27
+driver, repairs stale explicit-module state once, and supplies the canonical
+MLX metallib to XCTest.
 
 - `make build` builds the release `afm` binary and applies vendor patches first.
 - `make debug` builds a debug binary at `.build/debug/afm`.
 - `make run` starts the debug server on port `9999`.
 - `make test` performs the basic binary and portability checks.
 - `./Scripts/build-from-scratch.sh` runs the full clean build flow, including submodules, patches, and web UI assets.
-- `swift test` runs the Swift unit test suite directly.
+- `Scripts/swiftpm-reliable.sh build -c release --product afm` builds AFM directly.
+- `Scripts/swiftpm-reliable.sh test -c release` runs the Swift unit test suite directly.
 - `./Scripts/test-assertions.sh --tier smoke --model <model>` runs the broader assertion and integration harness.
 
 ## Coding Style & Naming Conventions

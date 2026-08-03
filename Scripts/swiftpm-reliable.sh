@@ -24,6 +24,21 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 PRIMARY_LOG="$LOG_DIR/${SUBCOMMAND}-${STAMP}.log"
 RETRY_LOG="$LOG_DIR/${SUBCOMMAND}-${STAMP}-native-retry.log"
 
+# XCTest's executable can be hosted outside the package build directory, so
+# AFMKitMLX cannot reliably infer the SwiftPM resource-bundle location from
+# `_NSGetExecutablePath`. Tests always use the canonical committed metallib;
+# an explicit caller override still wins. Export this before SwiftPM launches
+# the test process so it also survives clean/retry builds.
+if [[ "$SUBCOMMAND" == "test" && -z "${MACAFM_MLX_METALLIB:-}" ]]; then
+    CANONICAL_METALLIB="$ROOT_DIR/Sources/AFMKitMLX/Resources/default.metallib"
+    if [[ ! -f "$CANONICAL_METALLIB" ]]; then
+        echo "[swiftpm-reliable] Missing canonical MLX metallib: $CANONICAL_METALLIB" >&2
+        exit 1
+    fi
+    export MACAFM_MLX_METALLIB="$CANONICAL_METALLIB"
+    echo "[swiftpm-reliable] XCTest MLX metallib: $MACAFM_MLX_METALLIB" >&2
+fi
+
 has_scanner_failure() {
     local log_file="$1"
     grep -Eq \

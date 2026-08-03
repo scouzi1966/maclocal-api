@@ -103,6 +103,11 @@ has **zero effect** until the metallib is regenerated. (Editing the dispatch C++
 `scaled_dot_product_attention.cpp` *does* recompile — so a kernel/dispatch mismatch silently
 produces garbage at every context length.)
 
+All SwiftPM test invocations must use `Scripts/swiftpm-reliable.sh test`. The
+wrapper exports this canonical committed metallib before launching XCTest, so
+tests do not depend on XCTest's host executable location. Explicit
+`MACAFM_MLX_METALLIB` overrides remain supported for metallib qualification.
+
 `./build.sh` regenerates the metallib from source as step 4b via `Scripts/rebuild-metallib.sh`
 (compiles the pinned kernel set, links with `metal -o`, verifies kernel-symbol parity, installs).
 This needs the **Metal Toolchain**, which Xcode 26 ships as a separate downloadable component:

@@ -145,13 +145,16 @@ public enum MLXMetalLibrary {
 
         // 3aa. Current working directory and common SwiftPM build layouts.
         let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let configurations = ["debug", "release"]
         let cwdCandidates = resourceBundleNames.flatMap { bundleName in
-            [
-                cwd.appendingPathComponent("\(bundleName)/default.metallib"),
-                cwd.appendingPathComponent(".build/debug/\(bundleName)/default.metallib"),
-                cwd.appendingPathComponent(".build/arm64-apple-macosx/debug/\(bundleName)/default.metallib"),
-            ]
-        }
+            configurations.flatMap { configuration in
+                [
+                    cwd.appendingPathComponent(".build/\(configuration)/\(bundleName)/default.metallib"),
+                    cwd.appendingPathComponent(".build/arm64-apple-macosx/\(configuration)/\(bundleName)/default.metallib"),
+                    cwd.appendingPathComponent(".build/out/Products/\(configuration.capitalized)/\(bundleName)/Contents/Resources/default.metallib"),
+                ]
+            } + [cwd.appendingPathComponent("\(bundleName)/default.metallib")]
+        } + [cwd.appendingPathComponent("Sources/AFMKitMLX/Resources/default.metallib")]
         for candidate in cwdCandidates where fileManager.fileExists(atPath: candidate.path) {
             return candidate
         }
