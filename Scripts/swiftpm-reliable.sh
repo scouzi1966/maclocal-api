@@ -39,6 +39,79 @@ if [[ "$SUBCOMMAND" == "test" && -z "${MACAFM_MLX_METALLIB:-}" ]]; then
     echo "[swiftpm-reliable] XCTest MLX metallib: $MACAFM_MLX_METALLIB" >&2
 fi
 
+test_configuration() {
+    local previous=""
+    local argument
+    for argument in "$@"; do
+        if [[ "$previous" == "-c" || "$previous" == "--configuration" ]]; then
+            printf '%s\n' "$argument"
+            return
+        fi
+        case "$argument" in
+            --configuration=*)
+                printf '%s\n' "${argument#*=}"
+                return
+                ;;
+        esac
+        previous="$argument"
+    done
+    printf '%s\n' "debug"
+}
+
+test_scratch_path() {
+    local previous=""
+    local argument
+    for argument in "$@"; do
+        if [[ "$previous" == "--scratch-path" ]]; then
+            printf '%s\n' "$argument"
+            return
+        fi
+        case "$argument" in
+            --scratch-path=*)
+                printf '%s\n' "${argument#*=}"
+                return
+                ;;
+        esac
+        previous="$argument"
+    done
+    printf '%s\n' "$ROOT_DIR/.build"
+}
+
+stage_xctest_metallib() {
+    [[ "$SUBCOMMAND" == "test" ]] || return 0
+
+    local source="${MACAFM_MLX_METALLIB:-}"
+    [[ -f "$source" ]] || {
+        echo "[swiftpm-reliable] XCTest MLX metallib is missing: $source" >&2
+        return 1
+    }
+
+    local configuration
+    configuration="$(test_configuration "$@")"
+    local scratch_path
+    scratch_path="$(test_scratch_path "$@")"
+    if [[ "$scratch_path" != /* ]]; then
+        scratch_path="$ROOT_DIR/$scratch_path"
+    fi
+
+    # MLX's C++ runtime searches for mlx.metallib beside the loaded test
+    # executable. SwiftPM 6.3 does not always emit mlx-swift_Cmlx.bundle for
+    # XCTest, so create the colocated resource before linking/running tests.
+    # The linker preserves sibling resources in the .xctest bundle.
+    local architecture
+    architecture="$(uname -m)"
+    local predicted_dir="$scratch_path/${architecture}-apple-macosx/$configuration/MacLocalAPIPackageTests.xctest/Contents/MacOS"
+    mkdir -p "$predicted_dir"
+    cp "$source" "$predicted_dir/mlx.metallib"
+
+    local executable_dir
+    while IFS= read -r executable_dir; do
+        cp "$source" "$executable_dir/mlx.metallib"
+    done < <(find "$scratch_path" -type d -path '*.xctest/Contents/MacOS' -print 2>/dev/null)
+
+    echo "[swiftpm-reliable] Staged MLX metallib for XCTest: $predicted_dir/mlx.metallib" >&2
+}
+
 has_scanner_failure() {
     local log_file="$1"
     grep -Eq \
@@ -49,6 +122,7 @@ has_scanner_failure() {
 run_native() {
     local log_file="$1"
     shift
+    stage_xctest_metallib "$@" || return $?
     set +e
     swift "$SUBCOMMAND" --build-system native "$@" 2>&1 | tee "$log_file"
     local status=${PIPESTATUS[0]}
@@ -112,6 +186,11 @@ if [[ "$DRIVER" == "swiftbuild" ]]; then
 fi
 
 set +e
+stage_xctest_metallib "$@"
+STAGE_STATUS=$?
+if [[ $STAGE_STATUS -ne 0 ]]; then
+    exit "$STAGE_STATUS"
+fi
 swift "$SUBCOMMAND" "$@" 2>&1 | tee "$PRIMARY_LOG"
 STATUS=${PIPESTATUS[0]}
 set -e

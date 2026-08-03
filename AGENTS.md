@@ -11,8 +11,8 @@ See `CLAUDE.md` for additional project-specific build, architecture, and workflo
 Use the project `Makefile` for normal workflows. All direct SwiftPM build and
 test invocations must go through `Scripts/swiftpm-reliable.sh`; do not invoke
 raw `swift build` or `swift test`. The wrapper selects the reliable Xcode 27
-driver, repairs stale explicit-module state once, and supplies the canonical
-MLX metallib to XCTest.
+driver, repairs stale explicit-module state once, and stages the canonical MLX
+metallib beside every XCTest executable for MLX's C++ runtime.
 
 - `make build` builds the release `afm` binary and applies vendor patches first.
 - `make debug` builds a debug binary at `.build/debug/afm`.

@@ -1,8 +1,17 @@
 import Foundation
+import MLX
 import XCTest
 @testable import AFMKitMLX
 
 final class AFMMLXMetalLibraryTests: XCTestCase {
+    func testMLXRuntimeLoadsStagedMetallib() {
+        let result = MLXArray([Float(1), Float(2)]) + 1
+
+        MLX.eval(result)
+
+        XCTAssertEqual(result.asArray(Float.self), [2, 3])
+    }
+
     func testFindsRenamedNestedSwiftPMResourceBundle() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

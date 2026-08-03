@@ -104,9 +104,10 @@ has **zero effect** until the metallib is regenerated. (Editing the dispatch C++
 produces garbage at every context length.)
 
 All SwiftPM test invocations must use `Scripts/swiftpm-reliable.sh test`. The
-wrapper exports this canonical committed metallib before launching XCTest, so
-tests do not depend on XCTest's host executable location. Explicit
-`MACAFM_MLX_METALLIB` overrides remain supported for metallib qualification.
+wrapper stages this canonical committed metallib as `mlx.metallib` beside every
+XCTest executable before each build/run attempt, which is where MLX's C++
+runtime searches. It also exports `MACAFM_MLX_METALLIB` for AFMKit's locator.
+Explicit overrides remain supported for metallib qualification.
 
 `./build.sh` regenerates the metallib from source as step 4b via `Scripts/rebuild-metallib.sh`
 (compiles the pinned kernel set, links with `metal -o`, verifies kernel-symbol parity, installs).

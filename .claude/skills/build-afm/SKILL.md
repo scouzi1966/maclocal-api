@@ -87,10 +87,12 @@ retries native once. Logs live in `.build-reliable-logs/`; persistent driver
 identity lives in `.build-reliable-state/` outside SwiftPM's cleanable tree. Set
 `AFM_SWIFTPM_DRIVER=swiftbuild` only for default-driver diagnosis.
 
-For `test`, the wrapper permanently exports the canonical committed
-`Sources/AFMKitMLX/Resources/default.metallib` unless the caller explicitly set
-`MACAFM_MLX_METALLIB`. Do not add one-off metallib paths to test commands; fix
-the wrapper if a new test layout ever needs support.
+For `test`, the wrapper permanently stages the canonical committed
+`Sources/AFMKitMLX/Resources/default.metallib` as `mlx.metallib` beside every
+XCTest executable before each build/run attempt. It also exports
+`MACAFM_MLX_METALLIB` for AFMKit's own locator. Do not add one-off metallib
+copies or paths to test commands; fix the wrapper if a new test layout ever
+needs support.
 
 ```bash
 Scripts/swiftpm-reliable.sh build -c release --product afm
