@@ -29,7 +29,7 @@ NEW_FILES=("Cohere2Moe.swift" "Qwen3Next.swift" "GatedDelta.swift" "Qwen3_5MoE.s
 MLX_PACKAGE_SWIFT="$MLX_LM_DIR/Package.swift"
 MLX_INTEGRATION_TOOL_TEST="$MLX_LM_DIR/Tests/MLXLMIntegrationTests/ToolCallIntegrationTests.swift"
 PACKAGE_PINS=(
-  '.upToNextMinor(from: "0.30.3")|exact: "0.30.3"'
+  '.upToNextMinor(from: "0.30.3")|exact: "0.31.6"'
   '.upToNextMinor(from: "1.1.6")|from: "1.3.0"'
 )
 

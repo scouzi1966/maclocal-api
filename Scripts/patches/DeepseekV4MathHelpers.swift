@@ -639,9 +639,6 @@ public enum DeepseekV4Math {
         up: MLXArray,
         limit: Float
     ) -> MLXArray {
-        let body = limit > 0
-            ? _deepseekV4SwiGLUClampedBody
-            : _deepseekV4SwiGLUUnclampedBody
         let compiled = limit > 0
             ? _compiledDeepseekV4SwiGLUClamped
             : _compiledDeepseekV4SwiGLUUnclamped
@@ -663,14 +660,10 @@ public enum DeepseekV4Math {
             : _deepseekV4ScoredSwiGLUUnclampedArrayBody
         let limitArray = scalarArray(limit)
         let args = [gate, up, scores, limitArray]
-        // Do not put a separate shapeless compile boundary around routed
-        // activations. Sorted expert dispatch gives gate/up a symbolic row
-        // count derived from the gather, while scores retains the original
-        // token * top-k count. MLX cannot prove those symbols are identical
-        // and can specialize the score broadcast to the number of distinct
-        // dispatched experts (for example 78 instead of 96), causing a fatal
-        // reshape during prefill. Ordinary lazy ops preserve the relationship
-        // and are fused by an enclosing compiled decode graph when present.
+        // Keep this in the surrounding lazy graph. A separate shapeless compile
+        // boundary adds decode specialization overhead and can mis-specialize
+        // sorted prefill route counts (for example 78 distinct experts versus
+        // 96 token routes).
         return body(args)[0]
     }
 

@@ -1,6 +1,7 @@
 import MLX
 import MLXLLM
 import MLXLMCommon
+import MLXNN
 import XCTest
 
 final class DeepseekV40731EncodingTests: XCTestCase {
@@ -67,5 +68,42 @@ final class DeepseekV40731EncodingTests: XCTestCase {
 
         XCTAssertEqual(output.dim(0), routeCount)
         XCTAssertEqual(output.shape.last, hiddenSize)
+    }
+
+    func testScoredSwiGLUDecodeMatchesReference() {
+        let gate = MLXArray([Float](arrayLiteral:
+            -12, -2, 0, 2, 12,
+            8, -8, 4, -4, 1,
+            0.5, 10, -10, 3, -3,
+            7, -7, 0.25, -0.25, 11,
+            6, -6, 5, -5, 9,
+            2.5, -2.5, 1.5, -1.5, 0,
+        )).reshaped(6, 1, 5)
+        let up = MLXArray([Float](arrayLiteral:
+            12, -12, 2, -2, 0.5,
+            -11, 11, -4, 4, 1,
+            9, -9, 3, -3, 0.25,
+            -8, 8, -5, 5, 2,
+            7, -7, 6, -6, 10,
+            -1, 1, -0.5, 0.5, 12,
+        )).reshaped(6, 1, 5)
+        let scores = MLXArray([Float](arrayLiteral: 0.05, 0.1, 0.15, 0.2, 0.23, 0.27))
+        let limit = MLXArray(Float(10))
+
+        let actual = DeepseekV4Math.dsv4ScoredSwiGLU(
+            gate: gate, up: up, scores: scores, limit: 10)
+        let gate32 = gate.asType(.float32)
+        let up32 = up.asType(.float32)
+        let reference = (
+            MLXNN.silu(MLX.minimum(gate32, limit))
+                * MLX.clip(up32, min: -10, max: 10)
+                * scores.asType(.float32)[.ellipsis, .newAxis, .newAxis]
+        ).asType(gate.dtype)
+        MLX.eval(actual, reference)
+
+        XCTAssertEqual(actual.shape, [6, 1, 5])
+        XCTAssertTrue(
+            MLX.allClose(actual, reference, rtol: 1e-5, atol: 1e-6).item(Bool.self)
+        )
     }
 }

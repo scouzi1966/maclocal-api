@@ -6,6 +6,11 @@ import MLXNN
 /// Activation fake-quantization used by the official DeepSeek-V4 0731 MXFP
 /// inference path before every MXFP quantized matmul.
 public enum DeepseekV4ActivationQuant {
+    private static let enabled: Bool = {
+        let raw = ProcessInfo.processInfo.environment["VMLX_DSV4_ACTIVATION_QAT"] ?? "1"
+        return raw != "0" && raw.lowercased() != "false"
+    }()
+
     private static let e4m3ActivationRoundTripKernel = MLXFast.metalKernel(
         name: "deepseek_v4_e4m3_activation_roundtrip",
         inputNames: ["x"],
@@ -83,7 +88,9 @@ public enum DeepseekV4ActivationQuant {
     public static func e4m3RoundTripIfNeeded(
         _ x: MLXArray, mode: QuantizationMode, blockSize: Int = 128
     ) -> MLXArray {
-        guard isMXFP(mode), blockSize == 128, x.size > 0, x.dim(-1).isMultiple(of: 128) else {
+        guard enabled, isMXFP(mode), blockSize == 128, x.size > 0,
+            x.dim(-1).isMultiple(of: 128)
+        else {
             return x
         }
         let input = contiguous(x)
@@ -102,13 +109,17 @@ open class DeepseekV4QuantizedLinear: QuantizedLinear {
     private let dequantizedWeightLock = NSLock()
     private var cachedDequantizedWeight: MLXArray?
 
+    private static let nativeMXFP8Enabled: Bool = {
+        let raw = ProcessInfo.processInfo.environment["VMLX_DSV4_NATIVE_MXFP8"] ?? "1"
+        return raw != "0" && raw.lowercased() != "false"
+    }()
+
     open override func callAsFunction(_ x: MLXArray) -> MLXArray {
         let activation = DeepseekV4ActivationQuant.e4m3RoundTripIfNeeded(x, mode: mode)
         let y: MLXArray
-        if mode == .mxfp8 {
-            // mlx-swift 0.30.3's MXFP8 quantizedMM scales 0731 checkpoint
-            // outputs incorrectly. Dequantization itself is correct, so cache
-            // the bf16 weight and use the reference-equivalent dense matmul.
+        if mode == .mxfp8 && !Self.nativeMXFP8Enabled {
+            // Diagnostic fallback for comparing the former BF16-expanded path
+            // against mlx-swift 0.31.x's native MXFP8 implementation.
             dequantizedWeightLock.lock()
             if cachedDequantizedWeight == nil {
                 let dequantized = MLX.dequantized(

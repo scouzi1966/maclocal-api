@@ -36,6 +36,13 @@ import MLX
 import MLXLMCommon
 import MLXNN
 
+private enum DeepseekV4PerformanceProfile {
+    static var enabled: Bool {
+        guard let value = getenv("VMLX_DSV4_STAGE_PROFILE") else { return false }
+        return String(cString: value) == "1"
+    }
+}
+
 private enum DeepseekV4NumericTrace {
     static let enabled =
         ProcessInfo.processInfo.environment["VMLX_DSV4_NUMERIC_TRACE"] == "1"
@@ -140,6 +147,18 @@ class DeepseekV4Attention: Module {
     @ModuleInfo(key: "kv_norm") var kvNorm: RMSNorm
     /// Shape (num_heads,) — one learned sink logit per head.
     @ParameterInfo(key: "attn_sink") var attnSink: MLXArray
+
+    // The official grouped output projection uses a dequantized wo_a tensor.
+    // Keep the evaluated immutable tensor across tokens instead of rebuilding
+    // all 43 layer weights on every decode step. The opt-out is retained for
+    // constrained-memory deployments and performance regression testing.
+    private var cachedDequantizedWoA: MLXArray?
+    private let dequantizedWoALock = NSLock()
+
+    private static let cacheDequantizedWoA: Bool = {
+        let raw = ProcessInfo.processInfo.environment["VMLX_DSV4_CACHE_WOA"] ?? "1"
+        return raw != "0" && raw.lowercased() != "false"
+    }()
 
     let rope: DeepseekV4RoPE
 
@@ -479,11 +498,29 @@ class DeepseekV4Attention: Module {
             // Keep that path here because the official 0731 implementation
             // intentionally bypasses QuantLinear.__call__ for this grouped
             // projection.
-            let woaW = MLX.dequantized(
-                qwo.weight, scales: qwo.scales, biases: qwo.biases,
-                groupSize: qwo.groupSize, bits: qwo.bits, mode: qwo.mode,
-                dtype: output.dtype
-            ).reshaped(oGroups, oLoraRank, groupFeat)
+            let woaW: MLXArray
+            if Self.cacheDequantizedWoA {
+                dequantizedWoALock.lock()
+                if let cachedDequantizedWoA {
+                    woaW = cachedDequantizedWoA
+                } else {
+                    let dequantized = MLX.dequantized(
+                        qwo.weight, scales: qwo.scales, biases: qwo.biases,
+                        groupSize: qwo.groupSize, bits: qwo.bits, mode: qwo.mode,
+                        dtype: output.dtype
+                    ).reshaped(oGroups, oLoraRank, groupFeat)
+                    MLX.eval(dequantized)
+                    cachedDequantizedWoA = dequantized
+                    woaW = dequantized
+                }
+                dequantizedWoALock.unlock()
+            } else {
+                woaW = MLX.dequantized(
+                    qwo.weight, scales: qwo.scales, biases: qwo.biases,
+                    groupSize: qwo.groupSize, bits: qwo.bits, mode: qwo.mode,
+                    dtype: output.dtype
+                ).reshaped(oGroups, oLoraRank, groupFeat)
+            }
             oA = einsum("bsgd,grd->bsgr", oReshape, woaW)
                 .reshaped(B, L, oGroups * oLoraRank)
         } else {
@@ -691,8 +728,7 @@ class DeepseekV4MoE: Module, UnaryLayer {
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
         let profileStages =
-            ProcessInfo.processInfo.environment["VMLX_DSV4_STAGE_PROFILE"] == "1"
-            && x.dim(1) == 1
+            DeepseekV4PerformanceProfile.enabled
         var stageStart = profileStages ? CFAbsoluteTimeGetCurrent() : 0
         func finishStage(_ name: String, _ arrays: [MLXArray]) {
             guard profileStages else { return }
@@ -910,19 +946,19 @@ class DeepseekV4DecoderLayer: Module {
         // Explicit Release diagnostic only. Splitting the lazy graph at each
         // block boundary perturbs total throughput, but attributes the
         // remaining affine DSV4 gap without changing the production graph
-        // when the variable is absent. Restrict to single-token decode so a
-        // prompt prefill does not emit thousands of misleading stage rows.
+        // when the variable is absent. The diagnostic intentionally accepts
+        // every shape so AFM generation wrappers cannot silently bypass it.
         let profileStages =
-            ProcessInfo.processInfo.environment["VMLX_DSV4_STAGE_PROFILE"] == "1"
-            && h.dim(1) == 1
+            DeepseekV4PerformanceProfile.enabled
         var stageStart = profileStages ? CFAbsoluteTimeGetCurrent() : 0
         func finishStage(_ name: String, _ arrays: [MLXArray]) {
             guard profileStages else { return }
             MLX.eval(arrays)
             let now = CFAbsoluteTimeGetCurrent()
             FileHandle.standardError.write(Data(String(format:
-                "[DSV4StageProfile] layer=%d stage=%@ ms=%.3f\n",
-                layerIdx, name, (now - stageStart) * 1_000).utf8))
+                "[DSV4StageProfile] layer=%d shape=%@ stage=%@ ms=%.3f\n",
+                layerIdx, String(describing: h.shape), name,
+                (now - stageStart) * 1_000).utf8))
             stageStart = now
         }
         // ---- Attention HC ----
@@ -1042,9 +1078,19 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
     var config: DeepseekV4Configuration
     public var model: DeepseekV4ModelInner
     @ModuleInfo(key: "lm_head") var lmHead: Linear
+    private var cachedLMHeadF32: MLXArray?
+    private let cachedLMHeadF32Lock = NSLock()
+
+    private static let cacheLMHeadF32: Bool = {
+        let raw = ProcessInfo.processInfo.environment["VMLX_DSV4_CACHE_LM_HEAD"] ?? "1"
+        return raw != "0" && raw.lowercased() != "false"
+    }()
 
     public init(_ config: DeepseekV4Configuration) {
         self.config = config
+        if DeepseekV4PerformanceProfile.enabled {
+            fputs("[DSV4StageProfile] enabled\n", stderr)
+        }
         // Single latent KV head per layer — report kvHeads as [1]*L so
         // the cache allocator sizes per-layer caches correctly.
         self.kvHeads = Array(repeating: 1, count: config.numHiddenLayers)
@@ -1121,7 +1167,24 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]? = nil) -> MLXArray {
         let h = model(inputs, cache: cache)
-        let logits = DeepseekV4Math.lmHeadFp32(h, lmHead: lmHead)
+        let logits: MLXArray
+        if Self.cacheLMHeadF32, !(lmHead is QuantizedLinear) {
+            cachedLMHeadF32Lock.lock()
+            if cachedLMHeadF32 == nil {
+                let weight = lmHead.weight.asType(.float32)
+                MLX.eval(weight)
+                cachedLMHeadF32 = weight
+            }
+            let weight = cachedLMHeadF32!
+            cachedLMHeadF32Lock.unlock()
+            var output = h.asType(.float32).matmul(weight.transposed())
+            if let bias = lmHead.bias {
+                output = output + bias.asType(.float32)
+            }
+            logits = output
+        } else {
+            logits = DeepseekV4Math.lmHeadFp32(h, lmHead: lmHead)
+        }
         DeepseekV4NumericTrace.tensor("logits", logits)
         return logits
     }

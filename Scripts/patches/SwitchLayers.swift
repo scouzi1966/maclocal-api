@@ -153,6 +153,10 @@ public class SwitchGLU: Module, SwitchGLULayer {
     private var fusedMode: QuantizationMode = .affine
     private var fusionAttempted: Bool = false
 
+    private static var profileStages: Bool {
+        ProcessInfo.processInfo.environment["VMLX_DSV4_STAGE_PROFILE"] == "1"
+    }
+
     public init(
         inputDims: Int,
         hiddenDims: Int,
@@ -278,6 +282,18 @@ public class SwitchGLU: Module, SwitchGLULayer {
     ) -> MLXArray {
         ensureFusedGateUp()
 
+        let profileStages = Self.profileStages && indices.size <= 32
+        var stageStart = profileStages ? CFAbsoluteTimeGetCurrent() : 0
+        func finishStage(_ name: String, _ arrays: [MLXArray]) {
+            guard profileStages else { return }
+            MLX.eval(arrays)
+            let now = CFAbsoluteTimeGetCurrent()
+            FileHandle.standardError.write(Data(String(format:
+                "[SwitchGLUProfile] routes=%d stage=%@ ms=%.3f\n",
+                indices.size, name, (now - stageStart) * 1_000).utf8))
+            stageStart = now
+        }
+
         // Fused gate+up is a net win for DECODE (single-token forward pass,
         // compute-bound per-expert matmul) but a net LOSS for PREFILL
         // (multi-token batches are memory-bandwidth bound, and the single
@@ -343,15 +359,20 @@ public class SwitchGLU: Module, SwitchGLULayer {
             let splits = MLX.split(combined, parts: 2, axis: -1)
             let xGate = splits[0]
             let xUp = splits[1]
+            finishStage("gate_up", [xGate, xUp])
             activated = activate(xGate, xUp)
         } else {
             // FALLBACK — original two-call path for non-quantized models,
             // prefill batches (indices.size > threshold), or when the
             // feature flag is off.
             let xUp = upProj(x, idx, sortedIndices: doSort)
+            finishStage("up", [xUp])
             let xGate = gateProj(x, idx, sortedIndices: doSort)
+            finishStage("gate", [xGate])
             activated = activate(xGate, xUp)
         }
+
+        finishStage("activation", [activated])
 
         // Generic fallback for a caller that supplies pre-down scores without
         // a fused scored activation. DSV4 supplies `scoredGlue`, so its clamp,
@@ -364,6 +385,7 @@ public class SwitchGLU: Module, SwitchGLULayer {
         }
 
         x = downProj(activated, idx, sortedIndices: doSort)
+        finishStage("down", [x])
 
         if doSort {
             x = scatterUnsort(x: x, invOrder: inverseOrder, shape: indices.shape)

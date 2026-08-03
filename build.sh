@@ -220,6 +220,11 @@ fi
 # ---------------------------------------------------------------------------
 # Step 2: Patches
 # ---------------------------------------------------------------------------
+MLX_SWIFT_USES_LEGACY_BACKPORTS=false
+if grep -qF 'exact: "0.30.3"' "$ROOT_DIR/Package.swift"; then
+  MLX_SWIFT_USES_LEGACY_BACKPORTS=true
+fi
+
 if $DO_PATCHES; then
   log_step "Applying MLX patch set"
   if [ ! -x "$SCRIPTS_DIR/apply-mlx-patches.sh" ]; then
@@ -286,7 +291,7 @@ swift package resolve
 #                                      apply-mlx-cpp-patches.sh, which edits the same files.
 #   - apply-mlx-cpp-patches.sh    : qmv_fast_wide quantized matvec kernels
 #   - apply-mlx-sdpa-backport.sh  : 0.31.3 adaptive-block SDPA (decode@16k ~+10%, correct)
-if $DO_PATCHES; then
+if $DO_PATCHES && $MLX_SWIFT_USES_LEGACY_BACKPORTS; then
   if [ -x "$SCRIPTS_DIR/apply-mlx-qmv-wide-backport.sh" ]; then
     log_step "Applying MLX qmv_wide backport (mlx#3764)"
     "$SCRIPTS_DIR/apply-mlx-qmv-wide-backport.sh"
@@ -299,6 +304,8 @@ if $DO_PATCHES; then
     log_step "Applying MLX SDPA 0.31.3 adaptive-block backport"
     "$SCRIPTS_DIR/apply-mlx-sdpa-backport.sh"
   fi
+elif $DO_PATCHES; then
+  log_info "Skipping legacy MLX 0.30.3 kernel backports for the active MLX runtime"
 else
   log_warn "Skipping MLX C++ / SDPA patches (--skip-patches)"
 fi

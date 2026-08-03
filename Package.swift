@@ -62,7 +62,10 @@ let package = Package(
         // works for downstream consumers. The fork is regenerated from the vendor/mlx-swift-lm
         // submodule + Scripts/patches/ by Scripts/build-mlx-swift-lm-fork.sh. URL identity
         // ("mlx-swift-lm") matches every `.product(package: "mlx-swift-lm")` reference below.
-        .package(url: "https://github.com/scouzi1966/mlx-swift-lm.git", revision: "239dce1652786482698877c8efe697a6c9f52096"),
+        .package(
+            url: "https://github.com/scouzi1966/mlx-swift-lm.git",
+            revision: "93de1cd2ead7cb18e41f433a8796954722be4ab3"
+        ),
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
         .package(url: "https://github.com/huggingface/swift-huggingface.git", from: "0.8.1"),
         // Share the official XGrammar product with host applications such as Vesta.
@@ -72,11 +75,10 @@ let package = Package(
             url: "https://github.com/mlc-ai/xgrammar",
             revision: "c1570cdb4f8c867a4dbd07b7ff90581f4a2a432b"
         ),
-        // Pin mlx-swift to 0.30.3 — 0.30.4+ has SDPA regression (PR #3023 "Faster two pass sdpa")
-        // causing NaN/garbage at ~1500 tokens. Post-0.30.6 fixes (PRs #3119, #3121) don't fully
-        // resolve it. RECONFIRMED 2026-05-31: 0.31.3 still produces garbage/empty at >1500 tok
-        // (afm decode@16k deficit vs newer-MLX engines is the price of correct long-context output).
-        .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.30.3"),
+        // DeepSeek V4 uses both MXFP4 and MXFP8 weights. Native MXFP8 kernels
+        // require mlx-swift 0.31.x; older releases treated the floating-point
+        // quantized path as four-bit-only and forced a BF16 expansion fallback.
+        .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.31.6"),
         // Jinja (transitive via swift-transformers) — exposed for test target.
         // 2.4.0 broke swift-transformers ≤1.3.3 (ObjectKey change in Hub/Config.swift);
         // 2.4.1 restored source compatibility upstream, so no cap is needed.
