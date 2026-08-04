@@ -2027,6 +2027,11 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
     ///   ffn.experts.{E}.{w1|w2|w3}.*  → mlp.switch_mlp.{gate|down|up}_proj.* (stacked)
     public func sanitize(weights: [String: MLXArray]) -> [String: MLXArray] {
         var out: [String: MLXArray] = [:]
+        let officialQuantizedBases = Set(weights.keys.compactMap { key -> String? in
+            guard key.hasSuffix(".scale") else { return nil }
+            let base = String(key.dropLast(".scale".count))
+            return weights["\(base).weight"] == nil ? nil : base
+        })
         // First pass: direct rename. `mtp.*` is a complete inference drafter
         // in 0731 checkpoints, not a disposable training head.
         // Compressor + Indexer weights are KEPT — they're wired into
@@ -2039,7 +2044,30 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
         // structural matching — avoids over-broad string replace bugs
         // (e.g. ".w1." colliding outside MLP contexts).
         let projForW = ["w1": "gate_proj", "w2": "down_proj", "w3": "up_proj"]
-        for (rawKey, value) in weights {
+        for (sourceKey, sourceValue) in weights {
+            var rawKey = sourceKey
+            var value = sourceValue
+
+            // The official 0731 checkpoint is already packed in the same
+            // MXFP4/MXFP8 bit layout used by MLX. Reinterpret the bytes rather
+            // than dequantizing and requantizing them, and normalize DeepSeek's
+            // singular scale key to MLX's plural convention. `view` adjusts
+            // the final dimension as bytes are grouped into UInt32 words.
+            if sourceKey.hasSuffix(".scale") {
+                let base = String(sourceKey.dropLast(".scale".count))
+                if officialQuantizedBases.contains(base) {
+                    rawKey = "\(base).scales"
+                    value = normalizeOfficialBlockScale(
+                        sourceValue,
+                        weight: weights["\(base).weight"]!)
+                }
+            } else if sourceKey.hasSuffix(".weight") {
+                let base = String(sourceKey.dropLast(".weight".count))
+                if officialQuantizedBases.contains(base) {
+                    value = sourceValue.view(dtype: .uint32)
+                }
+            }
+
             if rawKey.hasPrefix("mtp.") {
                 let afterMTP = rawKey.dropFirst("mtp.".count)
                 guard let stageDot = afterMTP.firstIndex(of: "."),
@@ -2322,6 +2350,34 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
             }
         }
         return out
+    }
+
+    /// Convert the official FP8 block-scale grid to MLX's per-row, per-32-value
+    /// scale layout. Official FP4 expert tensors already use MLX's scale shape.
+    public func normalizeOfficialBlockScale(
+        _ scale: MLXArray,
+        weight: MLXArray
+    ) -> MLXArray {
+        var result = scale.view(dtype: .uint8)
+        guard weight.dtype == .uint8, weight.ndim >= 2, result.ndim == 2 else {
+            return result
+        }
+
+        let expectedRows = weight.dim(-2)
+        let expectedColumns = weight.dim(-1) / 32
+        guard expectedRows % result.dim(0) == 0,
+            expectedColumns % result.dim(1) == 0
+        else { return result }
+
+        let rowRepeat = expectedRows / result.dim(0)
+        let columnRepeat = expectedColumns / result.dim(1)
+        if rowRepeat > 1 {
+            result = repeated(result, count: rowRepeat, axis: 0)
+        }
+        if columnRepeat > 1 {
+            result = repeated(result, count: columnRepeat, axis: 1)
+        }
+        return result
     }
 
     public var loraLayers: [Module] {

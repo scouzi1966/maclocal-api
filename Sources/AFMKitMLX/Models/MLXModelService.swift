@@ -1423,12 +1423,15 @@ public final class MLXModelService: @unchecked Sendable {
             } else {
                 do {
                     loaded = try await LLMModelFactory.shared.loadContainer(configuration: config)
-                } catch {
-                    if debugLogging {
-                        print("[\(ts())] [MLX] LLM factory load failed for \(modelID): \(error)")
-                    }
+                } catch let llmError {
+                    print("[\(ts())] [MLX] LLM factory load failed for \(modelID): \(llmError)")
                     // LLM factory failed — try VLM factory as fallback
-                    loaded = try await VLMModelFactory.shared.loadContainer(configuration: config)
+                    do {
+                        loaded = try await VLMModelFactory.shared.loadContainer(configuration: config)
+                    } catch let vlmError {
+                        print("[\(ts())] [MLX] VLM fallback also failed for \(modelID): \(vlmError)")
+                        throw llmError
+                    }
                 }
             }
             withStateLock {

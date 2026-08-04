@@ -4,6 +4,63 @@ import XCTest
 @testable import MLXLLM
 
 final class DeepseekV4DSparkWeightLoadingTests: XCTestCase {
+    func testOfficialPackedWeightsNormalizeWithoutRequantization() {
+        let model = DeepseekV4Model(makeConfig())
+        let officialMXFP8 = MLXArray(
+            [UInt8](repeating: 0x11, count: 128 * 128)
+        ).reshaped([128, 128])
+        let officialMXFP4 = MLXArray(
+            [Int8](repeating: 0x22, count: 64)
+        ).reshaped([4, 16])
+        let expertScales = MLXArray(
+            [UInt8](repeating: 0x7f, count: 4)
+        ).reshaped([4, 1])
+        let attentionScales = MLXArray([UInt8(0x7f)]).reshaped([1, 1])
+
+        let sanitized = model.sanitize(weights: [
+            "layers.0.attn.wq_a.weight": officialMXFP8,
+            "layers.0.attn.wq_a.scale": attentionScales,
+            "layers.0.ffn.experts.0.w1.weight": officialMXFP4,
+            "layers.0.ffn.experts.0.w1.scale": expertScales,
+            "layers.0.ffn.experts.1.w1.weight": officialMXFP4,
+            "layers.0.ffn.experts.1.w1.scale": expertScales,
+        ])
+
+        let attentionWeight = sanitized["model.layers.0.self_attn.wq_a.weight"]
+        XCTAssertEqual(attentionWeight?.dtype, .uint32)
+        XCTAssertEqual(attentionWeight?.shape, [128, 32])
+        XCTAssertEqual(
+            sanitized["model.layers.0.self_attn.wq_a.scales"]?.dtype,
+            .uint8)
+        XCTAssertEqual(
+            sanitized["model.layers.0.self_attn.wq_a.scales"]?.shape,
+            [128, 4])
+
+        let expertWeight = sanitized["model.layers.0.mlp.switch_mlp.gate_proj.weight"]
+        XCTAssertEqual(expertWeight?.dtype, .uint32)
+        XCTAssertEqual(expertWeight?.shape, [2, 4, 4])
+        XCTAssertEqual(
+            sanitized["model.layers.0.mlp.switch_mlp.gate_proj.scales"]?.shape,
+            [2, 4, 1])
+    }
+
+    func testOfficialPackedQuantizationModeUsesShapeRatio() {
+        let mxfp4 = inferOfficialBlockQuantization(
+            weightShape: [256, 4], scaleShape: [256, 1])
+        XCTAssertEqual(mxfp4?.groupSize, 32)
+        XCTAssertEqual(mxfp4?.bits, 4)
+        XCTAssertEqual(mxfp4?.mode, .mxfp4)
+
+        let mxfp8 = inferOfficialBlockQuantization(
+            weightShape: [256, 8], scaleShape: [256, 1])
+        XCTAssertEqual(mxfp8?.groupSize, 32)
+        XCTAssertEqual(mxfp8?.bits, 8)
+        XCTAssertEqual(mxfp8?.mode, .mxfp8)
+
+        XCTAssertNil(inferOfficialBlockQuantization(
+            weightShape: [256, 3], scaleShape: [256, 1]))
+    }
+
     func testEmbeddedDrafterTopologyMatchesSanitizedCheckpointPaths() {
         let config = makeConfig()
         let model = DeepseekV4Model(config)

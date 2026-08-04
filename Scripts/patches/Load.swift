@@ -88,17 +88,39 @@ public func loadWeights(
         }
     }
 
+    // Official DeepSeek V4 checkpoints use singular `.scale` sidecars and
+    // store the packed bytes as F8_E4M3/I8 plus F8_E8M0 scales. The model's
+    // sanitize pass converts those keys and byte views to MLX's ordinary
+    // `.weight`/`.scales` representation. Remember the source layout so the
+    // loader can instantiate the matching quantized modules without requiring
+    // a generated, thousands-entry `quantization` config dictionary.
+    let hasOfficialBlockScaledWeights = weights.keys.contains { key in
+        guard key.hasSuffix(".scale") else { return false }
+        let base = String(key.dropLast(".scale".count))
+        return weights["\(base).weight"] != nil
+    }
+
     // per-model cleanup
     weights = model.sanitize(weights: weights)
 
     // quantize if needed
-    if quantization != nil || perLayerQuantization != nil {
+    if quantization != nil || perLayerQuantization != nil || hasOfficialBlockScaledWeights {
         quantize(model: model, filter: { path, module in
             if weights["\(path).scales"] != nil {
                 if let perLayerQuantization {
                     return perLayerQuantization.quantization(layer: path)?.asTuple
+                } else if let quantization {
+                    return quantization.asTuple
+                } else if hasOfficialBlockScaledWeights,
+                    let weight = weights["\(path).weight"],
+                    let scales = weights["\(path).scales"],
+                    let inferred = inferOfficialBlockQuantization(
+                        weightShape: weight.shape,
+                        scaleShape: scales.shape)
+                {
+                    return inferred.asTuple
                 } else {
-                    return quantization?.asTuple
+                    return nil
                 }
             } else {
                 return nil
@@ -127,4 +149,28 @@ public func loadWeights(
     try model.update(parameters: parameters, verify: [.noUnusedKeys])
 
     eval(model)
+}
+
+/// Infer MLX's floating-point quantization mode from an official packed weight
+/// and E8M0 scale shape. MXFP4 stores eight logical values per UInt32 and one
+/// scale per 32 values; MXFP8 stores four values per UInt32 with the same scale
+/// granularity.
+public func inferOfficialBlockQuantization(
+    weightShape: [Int],
+    scaleShape: [Int]
+) -> BaseConfiguration.Quantization? {
+    guard let packedColumns = weightShape.last,
+        let scaleColumns = scaleShape.last,
+        scaleColumns > 0,
+        packedColumns % scaleColumns == 0
+    else { return nil }
+
+    switch packedColumns / scaleColumns {
+    case 4:
+        return .init(groupSize: 32, bits: 4, mode: .mxfp4)
+    case 8:
+        return .init(groupSize: 32, bits: 8, mode: .mxfp8)
+    default:
+        return nil
+    }
 }

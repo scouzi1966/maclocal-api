@@ -132,6 +132,17 @@ run_native() {
 
 cd "$ROOT_DIR"
 
+# The official DeepSeek V4 checkpoint uses F8_E8M0 safetensor metadata for
+# byte-packed block scales. The pinned mlx-swift release predates that tag.
+# Resolve once on a fresh clone, then apply the idempotent source patch before
+# SwiftPM decides whether dependency products are current.
+MLX_SAFETENSORS_SOURCE="$ROOT_DIR/.build/checkouts/mlx-swift/Source/Cmlx/mlx/mlx/io/safetensors.cpp"
+if [[ ! -f "$MLX_SAFETENSORS_SOURCE" ]]; then
+    echo "[swiftpm-reliable] Resolving mlx-swift before applying official FP8 loader support." >&2
+    swift package resolve
+fi
+"$ROOT_DIR/Scripts/apply-mlx-official-fp8-loader.sh"
+
 # Xcode 27 Beta 3's native SwiftPM driver can miss source changes inside the
 # local mlx-swift-lm package and report a successful no-op build. Fingerprint
 # that package independently of SwiftPM and discard only compiled products when
@@ -140,6 +151,7 @@ MLX_SOURCE_STAMP="$STATE_DIR/mlx-swift-lm-source.sha256"
 MLX_SOURCE_FINGERPRINT="$({
     find "$ROOT_DIR/vendor/mlx-swift-lm/Libraries" -type f -print0
     printf '%s\0' "$ROOT_DIR/vendor/mlx-swift-lm/Package.swift"
+    printf '%s\0' "$MLX_SAFETENSORS_SOURCE"
 } | sort -z | xargs -0 shasum -a 256 | shasum -a 256 | awk '{print $1}')"
 PREVIOUS_MLX_SOURCE_FINGERPRINT="$(cat "$MLX_SOURCE_STAMP" 2>/dev/null || true)"
 if [[ "$MLX_SOURCE_FINGERPRINT" != "$PREVIOUS_MLX_SOURCE_FINGERPRINT" ]]; then
