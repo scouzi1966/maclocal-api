@@ -537,6 +537,7 @@ public final class MLXModelService: @unchecked Sendable {
     /// Active xctrace Process (launched by beginGPUTrace, stopped by endGPUTrace).
     private var xctraceProcess: Process?
     private var xctraceOutputPath: String?
+    private var xctraceNaturalExitDeadline: Date?
 
     /// Launch xctrace Metal System Trace in background, attaching to our PID.
     /// Returns true if xctrace was launched.
@@ -582,6 +583,14 @@ public final class MLXModelService: @unchecked Sendable {
             try process.run()
             xctraceProcess = process
             xctraceOutputPath = outputPath
+            // Let xctrace reach --time-limit and finalize its trace package.
+            // Interrupting an attached Metal System Trace early is unreliable
+            // on Xcode 27 and can leave a large trace without template metadata.
+            // Xcode 27 can spend well over five seconds attaching before the
+            // requested recording interval starts. A generous fixed grace
+            // period is still bounded, and prevents us from killing a valid
+            // trace while Instruments is writing its template metadata.
+            xctraceNaturalExitDeadline = Date().addingTimeInterval(TimeInterval(duration + 30))
             print("[\(ts())] [GPU-TRACE] Recording for \(duration)s (PID \(pid))")
             print("[\(ts())] [GPU-TRACE] Output: \(outputPath)")
             // Give xctrace time to attach before we start inference
@@ -601,13 +610,12 @@ public final class MLXModelService: @unchecked Sendable {
             ?? ProcessInfo.processInfo.environment["AFM_GPU_TRACE_OUTPUT"]
             ?? "/tmp/afm-metal.trace"
         if process.isRunning {
-            process.interrupt()  // SIGINT = graceful stop
-            let gracefulDeadline = Date().addingTimeInterval(5)
-            while process.isRunning, Date() < gracefulDeadline {
+            let naturalDeadline = xctraceNaturalExitDeadline ?? Date().addingTimeInterval(5)
+            while process.isRunning, Date() < naturalDeadline {
                 Thread.sleep(forTimeInterval: 0.1)
             }
             if process.isRunning {
-                print("[\(ts())] [GPU-TRACE] xctrace ignored SIGINT; terminating")
+                print("[\(ts())] [GPU-TRACE] xctrace exceeded its time limit; terminating")
                 process.terminate()
                 let terminateDeadline = Date().addingTimeInterval(2)
                 while process.isRunning, Date() < terminateDeadline {
@@ -622,6 +630,7 @@ public final class MLXModelService: @unchecked Sendable {
         }
         xctraceProcess = nil
         xctraceOutputPath = nil
+        xctraceNaturalExitDeadline = nil
         let fm = FileManager.default
         if fm.fileExists(atPath: outputPath) {
             print("[\(ts())] [GPU-TRACE] Trace saved: \(outputPath)")
