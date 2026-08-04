@@ -224,6 +224,36 @@ final class DeepseekV40731EncodingTests: XCTestCase {
         XCTAssertNil(result)
     }
 
+    func testDSparkHeadKernelMatchesFP32ProjectionForProposalBlock() throws {
+        let rows = 5
+        let inputDimensions = 128
+        let outputDimensions = 4096
+        let input = MLXArray((0..<(rows * inputDimensions)).map {
+            Float(($0 % 37) - 18) * 0.013
+        }).reshaped(1, rows, inputDimensions).asType(.bfloat16)
+        let weight = MLXArray((0..<(outputDimensions * inputDimensions)).map {
+            Float(($0 % 43) - 21) * 0.003
+        }).reshaped(outputDimensions, inputDimensions).asType(.bfloat16)
+        let linear = Linear(weight: weight)
+
+        let actual = try XCTUnwrap(DeepseekV4Math.dsparkHeadFp32(input, linear: linear))
+        let reference = input.asType(.float32)
+            .matmul(weight.asType(.float32).transposed())
+        MLX.eval(actual, reference)
+
+        XCTAssertEqual(actual.shape, [1, rows, outputDimensions])
+        XCTAssertEqual(actual.dtype, .float32)
+        XCTAssertTrue(
+            MLX.allClose(actual, reference, rtol: 2e-4, atol: 2e-4).item(Bool.self),
+            "max DSpark head error: \(MLX.max(MLX.abs(actual - reference)).item(Float.self))")
+    }
+
+    func testDSparkHeadKernelRejectsUnsupportedShape() {
+        let input = MLXArray.zeros([1, 5, 64], dtype: .bfloat16)
+        let linear = Linear(weight: MLXArray.zeros([4096, 64], dtype: .bfloat16))
+        XCTAssertNil(DeepseekV4Math.dsparkHeadFp32(input, linear: linear))
+    }
+
     func testFusedHC4DecodeMatchesGenericReference() {
         assertFusedHC4MatchesReference(rows: 1, hiddenSize: 16)
     }

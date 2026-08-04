@@ -42,6 +42,15 @@ DSpark verifier batch. Output remained deterministic, but throughput fell to
 batched quantized matmul remains the verifier path; the custom native kernels
 remain specialized for single-token decode.
 
+DSpark's BF16 Markov projection was then moved from generic small-batch MLX
+matmul to a dedicated Metal GEMV with FP32 accumulation. The kernel reuses each
+weight load across the complete proposal block and is selected by architecture,
+dtype, and tensor geometry rather than model ID. Unsupported and quantized
+linears retain the generic path; set `VMLX_DSV4_DSPARK_HEAD_GEMV=0` to disable
+it. Three deterministic 256-token Release runs reached 47.00, 47.11, and 47.12
+tok/s (response SHA-256 prefix `16a6f3491b76`), compared with 34.03-34.11 tok/s
+before this projection kernel.
+
 ## Operation map
 
 | DeepSeek contract | Call site and shapes | Existing MLX path | Optimized path | Fallback | Correctness | Performance | Decision |
@@ -58,7 +67,7 @@ remain specialized for single-token decode.
 | Command scheduling | Roughly 160 command buffers per generated token in the pre-policy MLX Metal trace. Custom kernels expose a complete expert-bank allocation even when they read six experts, so MLX's byte accounting greatly overstates working bytes. | MLX Ultra defaults of 50 operations/50 MB per command buffer. | DeepSeek V4 on Ultra uses a measured 200-operation limit and a 100-GB byte ceiling so operation count, not backing-allocation accounting, remains the safety boundary. | Defaults remain unchanged for other architectures/hardware; explicit MLX environment limits win. | Three exact deterministic Release hashes; policy tests pass. | Raising only the byte ceiling moved the current Q8/grouped-`wo_a` path from 28.3 to about 29.0 tok/s; 100- and 300-operation sweeps were no better than 200. | Keep architecture/hardware-gated policy; fix MLX custom-kernel byte accounting upstream when practical. |
 | Output head | BF16 `[129280,4096]` checkpoint matrix. | FP32-accumulating dense projection. | Optional one-time affine-Q8 cache (`VMLX_DSV4_Q8_LM_HEAD=1`). | Original BF16/FP32 projection remains the default. | Q8 runs are deterministic; the option is not a bitwise output-head replacement and remains explicit. A custom BF16-weight/FP32 Metal matvec matched the observed response but reached only 28.48-28.53 tok/s. | Q8 raises the optimized path to about 29.0 tok/s; the custom BF16 kernel lost to it. | Keep Q8 opt-in; reject the custom BF16 head. |
 | Whole decode compile | Token model call plus mutable KV state. | Uncompiled canonical hybrid caches. | Experimental compiled closure. | Uncompiled path. | Canonical mutable cache is unsupported by the attempted whole-model closure; simple-cache experiments were invalid. | Rejected. | Do not enable without explicit cache inputs/outputs. |
-| DSpARK M>1 | Proposal/verification shares attention, HC and MoE primitives. | Experimental model support and tests. | Reuse the same metadata-gated primitives with M>1 support. | Normal autoregressive path. | Capability tests exist; parity matrix incomplete. | Not qualified. | Must not fork kernel implementations. |
+| DSpARK M>1 | Proposal/verification shares attention, HC and MoE primitives; the BF16 Markov head projects up to six proposal rows. | Generic batched quantized MoE plus generic small-batch Markov projection. | Reuse the metadata-gated MoE primitives and a BF16-input, FP32-accumulating Metal GEMV that reuses each Markov weight load across the proposal block. | Unsupported/quantized head shapes use the ordinary linear path; disable with `VMLX_DSV4_DSPARK_HEAD_GEMV=0`. | Focused FP32 projection parity and deterministic generation hash pass. | 47.00-47.12 tok/s over three Release runs versus 34.03-34.11 tok/s before the head kernel. | Enable for native kernels under exact shape/dtype guards. |
 
 ## Quantized ABI constraints
 

@@ -51,6 +51,15 @@ private enum DeepseekV4RuntimeOptions {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return value != "0" && value != "false" && value != "off"
     }
+
+    static var dsparkNativeHeadEnabled: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        let kernels = (environment["AFM_MLX_KERNELS"]
+            ?? environment["VMLX_DSV4_KERNELS"] ?? "native")
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return kernels == "native"
+            && enabled("VMLX_DSV4_DSPARK_HEAD_GEMV", default: true)
+    }
 }
 
 private enum DeepseekV4NumericTrace {
@@ -850,6 +859,11 @@ class DeepseekV4DSparkMarkovHead: Module {
 
     func callAsFunction(_ tokenIds: MLXArray) -> (logits: MLXArray, embedding: MLXArray) {
         let embedding = markovW1(tokenIds)
+        if DeepseekV4RuntimeOptions.dsparkNativeHeadEnabled,
+           let logits = DeepseekV4Math.dsparkHeadFp32(embedding, linear: markovW2)
+        {
+            return (logits, embedding)
+        }
         return (markovW2(embedding), embedding)
     }
 }
@@ -1000,7 +1014,15 @@ class DeepseekV4DSparkStage: Module {
         let reduced = (
             coefficients.asType(hidden.dtype).expandedDimensions(axis: -1) * hidden
         ).sum(axis: -2)
-        let baseLogits = DeepseekV4Math.lmHeadFp32(outputNorm(reduced), lmHead: lmHead)
+        let normalizedHead = outputNorm(reduced)
+        let baseLogits: MLXArray
+        if DeepseekV4RuntimeOptions.dsparkNativeHeadEnabled,
+           let native = DeepseekV4Math.dsparkHeadFp32(normalizedHead, linear: lmHead)
+        {
+            baseLogits = native
+        } else {
+            baseLogits = DeepseekV4Math.lmHeadFp32(normalizedHead, lmHead: lmHead)
+        }
         var outputIds = anchorTokenIds.reshaped(batch, 1).asType(.int32)
         var biasedLogits: [MLXArray] = []
         var markovEmbeddings: [MLXArray] = []

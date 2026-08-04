@@ -83,6 +83,112 @@ public enum DeepseekV4Math {
     public static let fusedHCNormEnabled =
         ProcessInfo.processInfo.environment["VMLX_DSV4_FUSED_HC_NORM"] == "1"
 
+    private static let dsparkHeadFP32Kernel = MLXFast.metalKernel(
+        name: "deepseek_v4_dspark_head_fp32",
+        inputNames: ["input", "weight"],
+        outputNames: ["output"],
+        source: """
+            constexpr int THREAD_ROWS = 4;
+            constexpr int THREAD_COLS = 4;
+            constexpr int OUTPUTS_PER_THREADGROUP = 32;
+            constexpr int K_BLOCK = 128;
+
+            const uint simd_group = simdgroup_index_in_threadgroup;
+            const uint lane = thread_index_in_simdgroup;
+            const int output_base =
+                int(threadgroup_position_in_grid.x) * OUTPUTS_PER_THREADGROUP
+                + int(simd_group) * THREAD_ROWS;
+            if (output_base >= N) {
+                return;
+            }
+
+            int k_base = int(lane) * THREAD_COLS;
+            float accum[M][THREAD_ROWS] = {{0}};
+            for (int block = 0; block < K; block += K_BLOCK) {
+                float input_values[M][THREAD_COLS];
+                for (int row = 0; row < M; ++row) {
+                    for (int col = 0; col < THREAD_COLS; ++col) {
+                        input_values[row][col] =
+                            static_cast<float>(input[row * K + k_base + col]);
+                    }
+                }
+
+                for (int result = 0; result < THREAD_ROWS; ++result) {
+                    const device T* row_weight =
+                        weight + (output_base + result) * K + k_base;
+                    float weight_values[THREAD_COLS];
+                    for (int col = 0; col < THREAD_COLS; ++col) {
+                        weight_values[col] = static_cast<float>(row_weight[col]);
+                    }
+                    for (int row = 0; row < M; ++row) {
+                        for (int col = 0; col < THREAD_COLS; ++col) {
+                            accum[row][result] +=
+                                weight_values[col] * input_values[row][col];
+                        }
+                    }
+                }
+                k_base += K_BLOCK;
+            }
+
+            for (int row = 0; row < M; ++row) {
+                for (int result = 0; result < THREAD_ROWS; ++result) {
+                    for (ushort step = 16; step >= 1; step >>= 1) {
+                        accum[row][result] +=
+                            simd_shuffle_down(accum[row][result], step);
+                    }
+                    if (lane == 0) {
+                        output[row * N + output_base + result] = accum[row][result];
+                    }
+                }
+            }
+        """,
+        ensureRowContiguous: true)
+
+    /// DSpark's checkpoint heads store BF16/FP16 weights but require FP32
+    /// accumulation and logits. Reuse each weight load across the complete
+    /// proposal block while preserving MLX GEMV's per-row reduction order.
+    /// Unsupported shapes and quantized linears retain their ordinary path.
+    public static func dsparkHeadFp32(
+        _ input: MLXArray,
+        linear: Linear
+    ) -> MLXArray? {
+        guard !(linear is QuantizedLinear), input.ndim >= 2,
+              linear.weight.ndim == 2,
+              input.dtype == linear.weight.dtype,
+              input.dtype == .bfloat16 || input.dtype == .float16
+        else { return nil }
+
+        let inputDimensions = input.dim(-1)
+        let rows = input.size / inputDimensions
+        let outputDimensions = linear.weight.dim(0)
+        guard (1...6).contains(rows),
+              inputDimensions == linear.weight.dim(1),
+              inputDimensions % 128 == 0,
+              outputDimensions >= 4096,
+              outputDimensions % 32 == 0
+        else { return nil }
+
+        let outputShape = Array(input.shape.dropLast()) + [outputDimensions]
+        let flatInput = input.reshaped(rows, inputDimensions)
+        var output = dsparkHeadFP32Kernel(
+            [flatInput, linear.weight],
+            template: [
+                ("T", input.dtype),
+                ("M", rows),
+                ("K", inputDimensions),
+                ("N", outputDimensions),
+            ],
+            grid: ((outputDimensions / 32) * 256, 1, 1),
+            threadGroup: (256, 1, 1),
+            outputShapes: [[rows, outputDimensions]],
+            outputDTypes: [.float32]
+        )[0].reshaped(outputShape)
+        if let bias = linear.bias {
+            output = output + bias.asType(.float32)
+        }
+        return output
+    }
+
     private static let fusedSqrtSoftplusTopKKernel = MLXFast.metalKernel(
         name: "deepseek_v4_sqrtsoftplus_topk",
         inputNames: ["logits", "bias", "scale"],
