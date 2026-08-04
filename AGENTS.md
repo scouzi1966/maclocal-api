@@ -13,6 +13,8 @@ test invocations must go through `Scripts/swiftpm-reliable.sh`; do not invoke
 raw `swift build` or `swift test`. The wrapper selects the reliable Xcode 27
 driver, repairs stale explicit-module state once, and stages the canonical MLX
 metallib beside every XCTest executable for MLX's C++ runtime.
+This applies to release/coverage harness scripts and copied XCTest reruns too;
+do not replace the wrapper with raw `swift test` or a one-off environment fix.
 
 - `make build` builds the release `afm` binary and applies vendor patches first.
 - `make debug` builds a debug binary at `.build/debug/afm`.

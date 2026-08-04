@@ -18,6 +18,51 @@ public enum MLXMetalLibrary {
         "MacLocalAPI_AFMKit.bundle",
     ]
 
+    private static func stablePathKey(_ path: String) -> String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in path.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return String(hash, radix: 16)
+    }
+
+    /// MLX's C++ runtime opens its metallib from the process working directory.
+    /// SwiftPM and AFM distributions ship it as `default.metallib`, while older
+    /// MLX layouts used `mlx.metallib`; expose both names from a stable cache
+    /// rather than trying to modify a resource bundle (which may be code signed).
+    private static func runtimeDirectory(
+        for source: URL,
+        fileManager: FileManager = .default
+    ) throws -> URL {
+        guard let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+            throw MetalLibraryError("Unable to resolve the user cache directory for MLX")
+        }
+        let directory = caches
+            .appendingPathComponent("com.soprano.maclocal-api/MLXMetalLibrary", isDirectory: true)
+            .appendingPathComponent(stablePathKey(source.resolvingSymlinksInPath().path), isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        // MLX revisions have used both names for the process-CWD lookup.
+        for name in ["default.metallib", "mlx.metallib"] {
+            let alias = directory.appendingPathComponent(name)
+            if fileManager.fileExists(atPath: alias.path) {
+                let destination = try? fileManager.destinationOfSymbolicLink(atPath: alias.path)
+                if destination == source.path {
+                    continue
+                }
+                try fileManager.removeItem(at: alias)
+            }
+            do {
+                try fileManager.createSymbolicLink(at: alias, withDestinationURL: source)
+            } catch {
+                // Another process may have created the same deterministic alias.
+                guard fileManager.fileExists(atPath: alias.path) else { throw error }
+            }
+        }
+        return directory
+    }
+
     /// Resolve the absolute path to this binary.
     ///
     /// `CommandLine.arguments[0]` is unreliable: when invoked via PATH it is just the
@@ -72,6 +117,22 @@ public enum MLXMetalLibrary {
             }
         }
         return nil
+    }
+
+    /// Resolve the committed metallib when a locally built XCTest binary has
+    /// been copied away from SwiftPM's build directory. `#filePath` is stable
+    /// for that build and this candidate simply does not exist in distributed
+    /// binaries, where packaged resources remain authoritative.
+    static func metallibInSourceCheckout(fileManager: FileManager = .default) -> URL? {
+        let sourceFile = URL(fileURLWithPath: #filePath)
+        let repositoryRoot = sourceFile
+            .deletingLastPathComponent() // MLXMetalLibrary.swift -> Utils
+            .deletingLastPathComponent() // Utils -> AFMKitMLX
+            .deletingLastPathComponent() // AFMKitMLX -> Sources
+            .deletingLastPathComponent() // Sources -> repository root
+        let candidate = repositoryRoot
+            .appendingPathComponent("Sources/AFMKitMLX/Resources/default.metallib")
+        return fileManager.fileExists(atPath: candidate.path) ? candidate : nil
     }
 
     /// Find the metallib without using Bundle.module (which fatalError's when relocated).
@@ -179,6 +240,12 @@ public enum MLXMetalLibrary {
             }
         }
 
+        // 5. Local source checkout. This keeps copied XCTest and coverage
+        // runners deterministic without requiring a shell-only override.
+        if let resource = metallibInSourceCheckout(fileManager: fileManager) {
+            return resource
+        }
+
         return nil
     }
 
@@ -195,7 +262,7 @@ public enum MLXMetalLibrary {
                 )
             }
 
-            let metalDir = source.deletingLastPathComponent().path
+            let metalDir = try runtimeDirectory(for: source).path
             // MLX resolves the default metallib relative to the process CWD, so this is
             // intentionally a one-time process-global change during startup/test bootstrap.
             guard FileManager.default.changeCurrentDirectoryPath(metalDir) else {

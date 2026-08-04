@@ -4,6 +4,10 @@ import XCTest
 @testable import AFMKitMLX
 
 final class AFMMLXMetalLibraryTests: XCTestCase {
+    override func setUpWithError() throws {
+        try MLXMetalLibrary.ensureAvailable(verbose: false)
+    }
+
     func testMLXRuntimeLoadsStagedMetallib() {
         let result = MLXArray([Float(1), Float(2)]) + 1
 
@@ -28,5 +32,12 @@ final class AFMMLXMetalLibraryTests: XCTestCase {
         let resolved = MLXMetalLibrary.metallib(inResourceDirectory: root)
 
         XCTAssertEqual(resolved?.standardizedFileURL, expected.standardizedFileURL)
+    }
+
+    func testFindsCanonicalMetallibInSourceCheckout() throws {
+        let resolved = try XCTUnwrap(MLXMetalLibrary.metallibInSourceCheckout())
+
+        XCTAssertEqual(resolved.lastPathComponent, "default.metallib")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: resolved.path))
     }
 }
