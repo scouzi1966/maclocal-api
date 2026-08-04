@@ -176,6 +176,12 @@ class DeepseekV4Attention: Module {
     private static let compileAttentionPreDecode = DeepseekV4RuntimeOptions.enabled(
         "VMLX_DSV4_COMPILE_ATTN_PRE", default: true)
 
+    private static let quantizedGroupedWoA = DeepseekV4RuntimeOptions.enabled(
+        "VMLX_DSV4_QUANTIZED_GROUPED_WOA", default: true)
+
+    private static let quantizedGroupedWoAActivationQAT = DeepseekV4RuntimeOptions.enabled(
+        "VMLX_DSV4_QUANTIZED_GROUPED_WOA_QAT", default: false)
+
     private lazy var compiledAttentionPreDecode: @Sendable ([MLXArray]) -> [MLXArray] = {
         let body: ([MLXArray]) -> [MLXArray] = { [unowned self] args in
             self.projectAttentionInputs(args[0], cos: args[1], sin: args[2])
@@ -187,6 +193,15 @@ class DeepseekV4Attention: Module {
         let body: ([MLXArray]) -> [MLXArray] = { [unowned self] args in
             [self.projectAttentionOutput(
                 args[0], cos: args[1], sin: args[2], groupedWeight: args[3])]
+        }
+        return compile(shapeless: false, body)
+    }()
+
+    private lazy var compiledQuantizedAttentionPostDecode: @Sendable ([MLXArray]) -> [MLXArray] = {
+        let body: ([MLXArray]) -> [MLXArray] = { [unowned self] args in
+            [self.projectAttentionOutputQuantized(
+                args[0], cos: args[1], sin: args[2],
+                weight: args[3], scales: args[4])]
         }
         return compile(shapeless: false, body)
     }()
@@ -324,6 +339,48 @@ class DeepseekV4Attention: Module {
             .reshaped(batch, length, oGroups, groupFeatures)
         let projectedA = einsum("bsgd,grd->bsgr", grouped, groupedWeight)
             .reshaped(batch, length, oGroups * oLoraRank)
+        return woB(projectedA)
+    }
+
+    /// Preserve wo_a in its checkpoint MXFP8 representation and use MLX's
+    /// batched quantized matmul across the eight output groups. This avoids
+    /// reading the approximately 67 MB BF16-expanded wo_a tensor in every
+    /// layer on every generated token.
+    private func projectAttentionOutputQuantized(
+        _ attention: MLXArray,
+        cos: MLXArray,
+        sin: MLXArray,
+        weight: MLXArray,
+        scales: MLXArray
+    ) -> MLXArray {
+        let batch = attention.dim(0)
+        let length = attention.dim(2)
+        let groupFeatures = (numHeads * headDim) / oGroups
+        let derotated = DeepseekV4Math.applyPartialRoPE(
+            attention,
+            cos: cos.expandedDimensions(axes: [0, 1]),
+            sin: sin.expandedDimensions(axes: [0, 1]),
+            ropeDim: ropeDim,
+            inverse: true)
+        var grouped = derotated.transposed(0, 2, 1, 3)
+            .reshaped(batch, length, oGroups, groupFeatures)
+        if Self.quantizedGroupedWoAActivationQAT {
+            grouped = DeepseekV4ActivationQuant.e4m3RoundTripIfNeeded(
+                grouped, mode: .mxfp8)
+        }
+
+        let packedWeight = weight.reshaped(oGroups, oLoraRank, weight.dim(-1))
+        let groupedScales = scales.reshaped(oGroups, oLoraRank, scales.dim(-1))
+        let projectedA = quantizedMM(
+            grouped.expandedDimensions(axis: -2),
+            packedWeight,
+            scales: groupedScales,
+            biases: nil,
+            transpose: true,
+            groupSize: 32,
+            bits: 8,
+            mode: .mxfp8
+        ).squeezed(axis: -2).reshaped(batch, length, oGroups * oLoraRank)
         return woB(projectedA)
     }
 
@@ -632,6 +689,30 @@ class DeepseekV4Attention: Module {
             DeepseekV4NumericTrace.tensor("layer.0.attention.raw", output)
         }
         // output shape: (B, numHeads, L, headDim)
+
+        if Self.quantizedGroupedWoA,
+            let quantized = woA as? QuantizedLinear,
+            quantized.mode == .mxfp8,
+            quantized.groupSize == 32,
+            quantized.bits == 8,
+            quantized.biases == nil
+        {
+            if Self.compileAttentionPostDecode,
+                L == 1,
+                Device.defaultDevice().deviceType == .gpu,
+                !DeepseekV4NumericTrace.enabled
+            {
+                return compiledQuantizedAttentionPostDecode([
+                    output, cosT, sinT, quantized.weight, quantized.scales,
+                ])[0]
+            }
+            return projectAttentionOutputQuantized(
+                output,
+                cos: cosT,
+                sin: sinT,
+                weight: quantized.weight,
+                scales: quantized.scales)
+        }
 
         // Keep dequantization and its evaluated cache outside the compiled
         // graph. Only the stateless inverse-RoPE and grouped projection tail

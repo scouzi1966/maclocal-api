@@ -10,7 +10,7 @@ final class AFMMLXModelArchitectureTests: XCTestCase {
                 environment: [:]),
             AFMMLXMetalSchedulingLimits(
                 maxOperationsPerBuffer: 200,
-                maxMegabytesPerBuffer: 400)
+                maxMegabytesPerBuffer: 100_000)
         )
     }
 

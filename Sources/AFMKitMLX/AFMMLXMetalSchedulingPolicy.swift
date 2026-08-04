@@ -16,8 +16,10 @@ public enum AFMMLXMetalSchedulingPolicy {
     public static let megabytesEnvironmentKey = "MLX_MAX_MB_PER_BUFFER"
 
     /// DeepSeek V4 repeatedly references its large expert banks while building
-    /// each decode graph. MLX's conservative Ultra defaults split that work
-    /// into more command buffers than this architecture needs.
+    /// each decode graph. MLX accounts the full backing allocation when a
+    /// custom kernel reads only the selected experts, so its byte limit splits
+    /// decode into substantially more command buffers than the workload needs.
+    /// The operation limit remains the measured safety boundary.
     public static func recommendedLimits(
         canonicalModelType: String,
         processorBrand: String,
@@ -33,7 +35,7 @@ public enum AFMMLXMetalSchedulingPolicy {
 
         return AFMMLXMetalSchedulingLimits(
             maxOperationsPerBuffer: 200,
-            maxMegabytesPerBuffer: 400)
+            maxMegabytesPerBuffer: 100_000)
     }
 
     @discardableResult

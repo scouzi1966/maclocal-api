@@ -16,14 +16,19 @@ gain, metadata-based dispatch, and an automatic generic fallback.
   256-token runs; response SHA-256
   `5640c41f44fa7566a2b62e757167c8f399635df1c31d88d31d5132021594b03a`
 - Compiled attention prefix checkpoint: 25.3-25.4 tok/s
-- Architecture-gated 200-operation/400-MB command-buffer policy: 26.42-26.47
-  tok/s, with byte-identical output across three Release runs
+- Architecture-gated 200-operation/100-GB command-buffer policy plus the
+  checkpoint-native grouped MXFP8 attention-output projection: 26.66-26.69
+  tok/s with the original BF16 output head
+- The same path with the explicitly enabled affine-Q8 output head: 28.99-29.01
+  tok/s over three deterministic Release runs; response SHA-256 starts with
+  `16a6f3491b76`
 - Target: 35-37 tok/s without model-ID dispatch or expert-weight duplication
 
-The 35-37 tok/s reference comes from canonical `antirez/ds4` on M3 Ultra.
-DS4 is a DeepSeek-specific GGUF runtime with its own command-buffer scheduler
-and quant layouts. It is a useful scheduling and Metal-kernel reference, but
-not an apples-to-apples throughput baseline for this MXFP4 MLX checkpoint.
+The published canonical `antirez/ds4` M3 Ultra short-prompt results are 35.50
+tok/s for its custom Q4_K GGUF and 36.86 tok/s for its asymmetric IQ2/Q2_K
+GGUF. They are not measurements of the official MXFP4 checkpoint. DS4 is a
+useful scheduling and Metal-kernel reference, but those figures are not an
+apples-to-apples throughput baseline for this MXFP4 MLX storage ABI.
 
 ## Operation map
 
@@ -36,8 +41,10 @@ not an apples-to-apples throughput baseline for this MXFP4 MLX checkpoint.
 | SwiGLU and route score | Routed gate/up output, score per selected expert. | FP32 clamp, SiLU, multiply, score multiply, cast back. | Fused into the MXFP4 pair projection kernel. | Generic MLX expression. | `testScoredSwiGLUDecodeMatchesReference` passes. | Removes intermediate dispatches and buffers. | Keep for validated metadata only. |
 | Routed down projection and reduction | Six `[2048]` routed activations back to hidden size 4096. | Native MLX `gatherQuantizedMM` plus FP32 reduction. | Metadata-gated MXFP4 sum-six Metal kernel. | Native MLX path for unsupported route count, layout, shape, or quant. | Deterministic Release generation parity passes. | Included in the current native gain. | Keep guarded native kernel. |
 | Shared expert MLP | One dense MXFP8 expert per layer. | Three native quantized projections plus generic SwiGLU. | Included with HC expansion and routed MoE in the compiled decode layer tail. | Uncompiled native MLX. Disable with `VMLX_DSV4_COMPILE_FFN=0`. | Exact generation parity and focused Release suite pass. | Extending the compiled tail over attention HC improved 23.1 to 23.5-23.7 tok/s. | Keep validated compiled tail. |
+| Grouped attention output A projection | Eight independent MXFP8 groups project 4096 attention features to eight rank-1024 blocks. | Dequantize the full `wo_a` bank to BF16, reshape, then use grouped `einsum`. | Reshape the checkpoint's packed weights/scales by group and issue one batched MLX `quantizedMM`; no weight expansion. | Existing dequantized grouped projection for every other mode, group size, bit width, bias layout, or shape. Disable with `VMLX_DSV4_QUANTIZED_GROUPED_WOA=0`. | Promoted and control paths produced the same deterministic output hash; focused Release tests pass. | 28.09-28.25 versus 26.89-27.00 tok/s on the same Q8-head binary under the former scheduler. | Enabled by default only behind exact quantization-metadata checks. |
 | Sparse attention | Gathered sliding/compressed/indexed KV positions. | MLX gather and attention implementation with hybrid mutable cache. | No custom kernel yet. | Existing MLX path. | Numerical trace exists for layer zero. | Aggregate profile below MoE cost. | Defer until Metal trace proves material. |
-| Command scheduling | Roughly 160 command buffers per generated token in the pre-policy MLX Metal trace. | MLX Ultra defaults of 50 operations/50 MB per command buffer. | DeepSeek V4 on Ultra uses measured 200-operation/400-MB limits; canonical `antirez/ds4` remains the reference for longer-lived batches. | Defaults remain unchanged for other architectures/hardware; explicit MLX environment limits win. | Three exact deterministic Release hashes; policy tests pass. | 25.13-25.31 to 26.42-26.47 tok/s. Unbounded limits regress to 18.43 tok/s. | Keep measured policy; continue reducing graph boundaries. |
+| Command scheduling | Roughly 160 command buffers per generated token in the pre-policy MLX Metal trace. Custom kernels expose a complete expert-bank allocation even when they read six experts, so MLX's byte accounting greatly overstates working bytes. | MLX Ultra defaults of 50 operations/50 MB per command buffer. | DeepSeek V4 on Ultra uses a measured 200-operation limit and a 100-GB byte ceiling so operation count, not backing-allocation accounting, remains the safety boundary. | Defaults remain unchanged for other architectures/hardware; explicit MLX environment limits win. | Three exact deterministic Release hashes; policy tests pass. | Raising only the byte ceiling moved the current Q8/grouped-`wo_a` path from 28.3 to about 29.0 tok/s; 100- and 300-operation sweeps were no better than 200. | Keep architecture/hardware-gated policy; fix MLX custom-kernel byte accounting upstream when practical. |
+| Output head | BF16 `[129280,4096]` checkpoint matrix. | FP32-accumulating dense projection. | Optional one-time affine-Q8 cache (`VMLX_DSV4_Q8_LM_HEAD=1`). | Original BF16/FP32 projection remains the default. | Q8 runs are deterministic; the option is not a bitwise output-head replacement and remains explicit. A custom BF16-weight/FP32 Metal matvec matched the observed response but reached only 28.48-28.53 tok/s. | Q8 raises the optimized path to about 29.0 tok/s; the custom BF16 kernel lost to it. | Keep Q8 opt-in; reject the custom BF16 head. |
 | Whole decode compile | Token model call plus mutable KV state. | Uncompiled canonical hybrid caches. | Experimental compiled closure. | Uncompiled path. | Canonical mutable cache is unsupported by the attempted whole-model closure; simple-cache experiments were invalid. | Rejected. | Do not enable without explicit cache inputs/outputs. |
 | DSpARK M>1 | Proposal/verification shares attention, HC and MoE primitives. | Experimental model support and tests. | Reuse the same metadata-gated primitives with M>1 support. | Normal autoregressive path. | Capability tests exist; parity matrix incomplete. | Not qualified. | Must not fork kernel implementations. |
 
