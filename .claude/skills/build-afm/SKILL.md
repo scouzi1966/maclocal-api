@@ -90,6 +90,9 @@ identity lives in `.build-reliable-state/` outside SwiftPM's cleanable tree. Set
 The wrapper fingerprints `vendor/mlx-swift-lm` before every invocation. When a
 Swift or custom-Metal kernel patch changes that local package, it invalidates
 compiled products so Xcode 27 Beta 3 cannot silently reuse a stale binary.
+The manifest compiles this vendor directly when initialized; a submodule-free
+consumer falls back to the pinned pre-patched URL fork.
+Run `Scripts/check-mlx-source-selection.sh` after dependency changes.
 
 For `test`, the wrapper permanently stages the canonical committed
 `Sources/AFMKitMLX/Resources/default.metallib` as `mlx.metallib` beside every

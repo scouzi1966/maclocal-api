@@ -24,6 +24,9 @@ XCTest. Do not work around metallib failures with one-off environment values.
 It also fingerprints `vendor/mlx-swift-lm` and invalidates compiled products
 when those sources change. This prevents Xcode 27 Beta 3 from reporting a
 successful no-op build after applying an MLX source or Metal-kernel patch.
+The manifest compiles this vendor directly when initialized; a submodule-free
+consumer falls back to the pinned pre-patched URL fork.
+Run `Scripts/check-mlx-source-selection.sh` after dependency changes.
 
 The comprehensive assertion harness must continue to delegate its Swift tests
 to this wrapper. Local copied XCTest binaries also have a source-checkout

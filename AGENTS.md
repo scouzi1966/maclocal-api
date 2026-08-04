@@ -15,6 +15,11 @@ driver, repairs stale explicit-module state once, and stages the canonical MLX
 metallib beside every XCTest executable for MLX's C++ runtime. It also
 fingerprints the local `mlx-swift-lm` sources and invalidates stale compiled
 products when Xcode's native driver misses a vendor-patch change.
+`Package.swift` selects `vendor/mlx-swift-lm` whenever that submodule is
+initialized, so this fingerprint is the source actually compiled. Clones
+without the submodule use the pinned pre-patched URL fork instead.
+Run `Scripts/check-mlx-source-selection.sh` after dependency changes to verify
+that an initialized development checkout still resolves the vendor package.
 This applies to release/coverage harness scripts and copied XCTest reruns too;
 do not replace the wrapper with raw `swift test` or a one-off environment fix.
 

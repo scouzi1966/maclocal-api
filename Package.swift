@@ -4,6 +4,13 @@ import Foundation
 
 // Strip absolute build paths from __FILE__ macros in C++ warnings (privacy: don't leak dev machine paths)
 let packageDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
+let vendoredMLXSwiftLMPath = "\(packageDir)/vendor/mlx-swift-lm"
+let mlxSwiftLMDependency: Package.Dependency = FileManager.default.fileExists(
+    atPath: "\(vendoredMLXSwiftLMPath)/Package.swift"
+) ? .package(path: vendoredMLXSwiftLMPath) : .package(
+    url: "https://github.com/scouzi1966/mlx-swift-lm.git",
+    revision: "d283c11e190fc463746f6f4fbee0523e6a2a5c1b"
+)
 
 let package = Package(
     name: "MacLocalAPI",
@@ -57,15 +64,10 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.99.3"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
-        // Pre-patched fork (afm's patch set already applied, mlx-swift pinned 0.30.3) so the
-        // dependency resolves by URL with NO git submodules — a plain `git clone` + `swift build`
-        // works for downstream consumers. The fork is regenerated from the vendor/mlx-swift-lm
-        // submodule + Scripts/patches/ by Scripts/build-mlx-swift-lm-fork.sh. URL identity
-        // ("mlx-swift-lm") matches every `.product(package: "mlx-swift-lm")` reference below.
-        .package(
-            url: "https://github.com/scouzi1966/mlx-swift-lm.git",
-            revision: "d283c11e190fc463746f6f4fbee0523e6a2a5c1b"
-        ),
+        // Development checkouts compile the patched vendor directly so local source edits
+        // cannot be mistaken for successful stale builds. A plain downstream clone without
+        // initialized submodules falls back to the pre-patched URL fork and remains portable.
+        mlxSwiftLMDependency,
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
         .package(url: "https://github.com/huggingface/swift-huggingface.git", from: "0.8.1"),
         // Share the official XGrammar product with host applications such as Vesta.
