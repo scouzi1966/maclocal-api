@@ -152,12 +152,6 @@ private enum DeepseekV4DS4Kernels {
             constexpr uint ROWS = ROWS_PER_SIMD;
             const uint linear = thread_position_in_grid.x;
             const uint lane = thread_index_in_simdgroup;
-            const uint local = thread_position_in_threadgroup.x;
-            threadgroup float lut[16];
-            if (local < 16u) {
-                lut[local] = dsv4_fp4_lut[local];
-            }
-            threadgroup_barrier(mem_flags::mem_threadgroup);
             const uint simd = linear / 32;
             const uint tile = simd % ((HIDDEN + ROWS - 1u) / ROWS);
             const uint route = simd / ((HIDDEN + ROWS - 1u) / ROWS);
@@ -210,15 +204,15 @@ private enum DeepseekV4DS4Kernels {
                     const uint up0 = upW[wordBase];
                     const uint up1 = upW[wordBase + 1u];
                     const float gateDot =
-                        dot(x0, dsv4_fp4x4(gate0, lut))
-                        + dot(x1, dsv4_fp4x4(gate0 >> 16, lut))
-                        + dot(x2, dsv4_fp4x4(gate1, lut))
-                        + dot(x3, dsv4_fp4x4(gate1 >> 16, lut));
+                        dot(x0, dsv4_fp4x4(gate0))
+                        + dot(x1, dsv4_fp4x4(gate0 >> 16))
+                        + dot(x2, dsv4_fp4x4(gate1))
+                        + dot(x3, dsv4_fp4x4(gate1 >> 16));
                     const float upDot =
-                        dot(x0, dsv4_fp4x4(up0, lut))
-                        + dot(x1, dsv4_fp4x4(up0 >> 16, lut))
-                        + dot(x2, dsv4_fp4x4(up1, lut))
-                        + dot(x3, dsv4_fp4x4(up1 >> 16, lut));
+                        dot(x0, dsv4_fp4x4(up0))
+                        + dot(x1, dsv4_fp4x4(up0 >> 16))
+                        + dot(x2, dsv4_fp4x4(up1))
+                        + dot(x3, dsv4_fp4x4(up1 >> 16));
                     gateSum[row] += gateScale * gateDot;
                     upSum[row] += upScale * upDot;
                 }
@@ -252,13 +246,12 @@ private enum DeepseekV4DS4Kernels {
                 return dsv4_fp4_lut[nibble & 0xfu];
             }
 
-            static inline float4 dsv4_fp4x4(
-                    uint packed, threadgroup const float *lut) {
+            static inline float4 dsv4_fp4x4(uint packed) {
                 return float4(
-                    lut[packed & 0xfu],
-                    lut[(packed >> 4) & 0xfu],
-                    lut[(packed >> 8) & 0xfu],
-                    lut[(packed >> 12) & 0xfu]);
+                    dsv4_fp4_lut[packed & 0xfu],
+                    dsv4_fp4_lut[(packed >> 4) & 0xfu],
+                    dsv4_fp4_lut[(packed >> 8) & 0xfu],
+                    dsv4_fp4_lut[(packed >> 12) & 0xfu]);
             }
 
             static inline float dsv4_e8m0(uchar exponent) {
@@ -277,12 +270,6 @@ private enum DeepseekV4DS4Kernels {
             constexpr uint ROWS = ROWS_PER_SIMD;
             const uint linear = thread_position_in_grid.x;
             const uint lane = thread_index_in_simdgroup;
-            const uint local = thread_position_in_threadgroup.x;
-            threadgroup float lut[16];
-            if (local < 16u) {
-                lut[local] = dsv4_down_fp4_lut[local];
-            }
-            threadgroup_barrier(mem_flags::mem_threadgroup);
             const uint simd = linear / 32u;
             const uint hidden = simd * ROWS;
             if (hidden >= OUTPUT) {
@@ -332,10 +319,10 @@ private enum DeepseekV4DS4Kernels {
                         const uint packed0 = downW[wordBase];
                         const uint packed1 = downW[wordBase + 1u];
                         const float value =
-                            dot(x0, dsv4_down_fp4x4(packed0, lut))
-                            + dot(x1, dsv4_down_fp4x4(packed0 >> 16, lut))
-                            + dot(x2, dsv4_down_fp4x4(packed1, lut))
-                            + dot(x3, dsv4_down_fp4x4(packed1 >> 16, lut));
+                            dot(x0, dsv4_down_fp4x4(packed0))
+                            + dot(x1, dsv4_down_fp4x4(packed0 >> 16))
+                            + dot(x2, dsv4_down_fp4x4(packed1))
+                            + dot(x3, dsv4_down_fp4x4(packed1 >> 16));
                         routeSum[row] += scale * value;
                     }
                 }
@@ -358,13 +345,12 @@ private enum DeepseekV4DS4Kernels {
                 -0.0f, -0.5f, -1.0f, -1.5f, -2.0f, -3.0f, -4.0f, -6.0f
             };
 
-            static inline float4 dsv4_down_fp4x4(
-                    uint packed, threadgroup const float *lut) {
+            static inline float4 dsv4_down_fp4x4(uint packed) {
                 return float4(
-                    lut[packed & 0xfu],
-                    lut[(packed >> 4) & 0xfu],
-                    lut[(packed >> 8) & 0xfu],
-                    lut[(packed >> 12) & 0xfu]);
+                    dsv4_down_fp4_lut[packed & 0xfu],
+                    dsv4_down_fp4_lut[(packed >> 4) & 0xfu],
+                    dsv4_down_fp4_lut[(packed >> 8) & 0xfu],
+                    dsv4_down_fp4_lut[(packed >> 12) & 0xfu]);
             }
 
             static inline float dsv4_down_e8m0(uchar exponent) {
