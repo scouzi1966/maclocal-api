@@ -15,6 +15,9 @@ gain, metadata-based dispatch, and an automatic generic fallback.
 - Fused layer-tail candidate: 23.5-23.7 tok/s over three deterministic
   256-token runs; response SHA-256
   `5640c41f44fa7566a2b62e757167c8f399635df1c31d88d31d5132021594b03a`
+- Compiled attention prefix checkpoint: 25.3-25.4 tok/s
+- Architecture-gated 200-operation/400-MB command-buffer policy: 26.42-26.47
+  tok/s, with byte-identical output across three Release runs
 - Target: 35-37 tok/s without model-ID dispatch or expert-weight duplication
 
 The 35-37 tok/s reference comes from canonical `antirez/ds4` on M3 Ultra.
@@ -34,7 +37,7 @@ not an apples-to-apples throughput baseline for this MXFP4 MLX checkpoint.
 | Routed down projection and reduction | Six `[2048]` routed activations back to hidden size 4096. | Native MLX `gatherQuantizedMM` plus FP32 reduction. | Metadata-gated MXFP4 sum-six Metal kernel. | Native MLX path for unsupported route count, layout, shape, or quant. | Deterministic Release generation parity passes. | Included in the current native gain. | Keep guarded native kernel. |
 | Shared expert MLP | One dense MXFP8 expert per layer. | Three native quantized projections plus generic SwiGLU. | Included with HC expansion and routed MoE in the compiled decode layer tail. | Uncompiled native MLX. Disable with `VMLX_DSV4_COMPILE_FFN=0`. | Exact generation parity and focused Release suite pass. | Extending the compiled tail over attention HC improved 23.1 to 23.5-23.7 tok/s. | Keep validated compiled tail. |
 | Sparse attention | Gathered sliding/compressed/indexed KV positions. | MLX gather and attention implementation with hybrid mutable cache. | No custom kernel yet. | Existing MLX path. | Numerical trace exists for layer zero. | Aggregate profile below MoE cost. | Defer until Metal trace proves material. |
-| Command scheduling | Roughly 160 command buffers per generated token in the current MLX Metal trace. | MLX lazy graph split across attention/cache, custom kernels, and per-layer compiled tails. | Canonical DS4 batches a token into long-lived Metal command buffers and synchronizes only at required routing/readback boundaries. | Current MLX scheduling. | Any coarsening must retain exact output and hybrid cache semantics. | Current principal gap versus the target. | Optimize graph boundaries before adding more arithmetic kernels. |
+| Command scheduling | Roughly 160 command buffers per generated token in the pre-policy MLX Metal trace. | MLX Ultra defaults of 50 operations/50 MB per command buffer. | DeepSeek V4 on Ultra uses measured 200-operation/400-MB limits; canonical `antirez/ds4` remains the reference for longer-lived batches. | Defaults remain unchanged for other architectures/hardware; explicit MLX environment limits win. | Three exact deterministic Release hashes; policy tests pass. | 25.13-25.31 to 26.42-26.47 tok/s. Unbounded limits regress to 18.43 tok/s. | Keep measured policy; continue reducing graph boundaries. |
 | Whole decode compile | Token model call plus mutable KV state. | Uncompiled canonical hybrid caches. | Experimental compiled closure. | Uncompiled path. | Canonical mutable cache is unsupported by the attempted whole-model closure; simple-cache experiments were invalid. | Rejected. | Do not enable without explicit cache inputs/outputs. |
 | DSpARK M>1 | Proposal/verification shares attention, HC and MoE primitives. | Experimental model support and tests. | Reuse the same metadata-gated primitives with M>1 support. | Normal autoregressive path. | Capability tests exist; parity matrix incomplete. | Not qualified. | Must not fork kernel implementations. |
 

@@ -31,6 +31,17 @@ The optimized process retained about 4 GB more resident memory than the
 cache-disabled control. This tradeoff is intentional for a model whose source
 weights already require well over 100 GB of unified memory.
 
+AFM also applies measured MLX command-buffer limits of 200 operations and
+400 MB for the `deepseek_v4` architecture on Ultra-class Apple Silicon. The
+policy runs before the first MLX/Metal device access, is based on architecture
+metadata and processor class rather than model ID, and leaves all other
+architectures and hardware unchanged. Either explicit MLX environment override
+disables the automatic policy:
+
+```bash
+MLX_MAX_OPS_PER_BUFFER=50 MLX_MAX_MB_PER_BUFFER=50 afm mlx ...
+```
+
 ## Release A/B
 
 The principal comparison used the same 256-token request and binary, changing
@@ -129,6 +140,14 @@ SDPA outside the compiled graph improved three subsequent Release runs to
 focused Release suite again passed 10/10. This is a 7-8% gain over the prior
 23.5-23.7 tok/s checkpoint.
 
+Coarsening MLX command-buffer limits to 200 operations and 400 MB then produced
+26.42, 26.47, and 26.46 tok/s in a clean Release process without manually set
+MLX environment variables. The corresponding 50/50 control measured
+25.13-25.31 tok/s. All three automatic-policy runs returned identical text with
+SHA-256
+`54b9989d8acc60cff5f9ea1025853f8b2a65ff6ae1cde21de361de86d808b7da`.
+The focused architecture and policy suite passed 16/16.
+
 ## Remaining Cost
 
 Opt-in synchronized stage profiling after the cache fix attributes decode time
@@ -150,7 +169,12 @@ correctness and performance:
 - disabling activation QAT;
 - parallel gate/up streams;
 - caching an FP32 gate weight;
-- changing scheduler limits.
+- effectively unbounded scheduler limits.
+
+Scheduler sweeps plateaued at approximately 200/400 through 1000/1,000,000;
+removing practical command-buffer limits regressed decode to 18.43 tok/s. A
+fused HC-collapse plus RMSNorm candidate remained neutral at 26.46-26.47 tok/s
+with the accepted scheduler policy and stays disabled.
 
 Extending the compiled layer tail backward through the attention output
 projection was also rejected. It preserved exact output but regressed three
@@ -165,12 +189,14 @@ optimization. Forcing the existing fused gate/up cache for the complete MXFP4
 expert bank regressed decode to 9.46 tok/s and prefill to 3.79 seconds because
 the wider gather destroyed weight locality.
 
-The current Metal trace shows roughly 160 command-buffer submissions per
+The pre-policy Metal trace shows roughly 160 command-buffer submissions per
 generated token, low compute occupancy, and CPU-to-GPU scheduling gaps. The
-canonical DS4 runtime batches a token's operations into long-lived command
-buffers and synchronizes only where routing/readback requires it. AFM's next
-material native optimization is therefore broader graph/command-buffer
-coarsening while retaining explicit mutable hybrid-cache boundaries.
+accepted 200/400 policy removes part of that overhead, but its 5% gain is far
+short of the target. The canonical `antirez/ds4` runtime batches a token's
+operations into long-lived command buffers and synchronizes only where
+routing/readback requires it. AFM's next material native optimization is
+therefore broader graph/command-buffer coarsening while retaining explicit
+mutable hybrid-cache boundaries.
 
 The checkpoint's embedded DSpARK speculative decoder is a separate possible
 optimization. The 0731 package contains three `mtp.N` stages, a rank-256 Markov

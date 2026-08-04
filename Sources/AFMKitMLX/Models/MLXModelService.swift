@@ -470,8 +470,12 @@ public final class MLXModelService: @unchecked Sendable {
 
     /// Configure MLX GPU settings once, before first model load.
     /// Must be called after Metal is available (not during early init).
-    private func ensureGPUConfigured() throws {
+    private func ensureGPUConfigured(
+        for architecture: AFMMLXModelArchitecturePreflight
+    ) throws {
         guard !gpuInitialized else { return }
+        let schedulingLimits = AFMMLXMetalSchedulingPolicy.applyIfRecommended(
+            canonicalModelType: architecture.canonicalModelType)
         guard AFMMLXRuntimeMemoryController.hasMetalDevice else {
             throw MLXServiceError.noMetalDevice
         }
@@ -485,6 +489,13 @@ public final class MLXModelService: @unchecked Sendable {
 
         print("[\(ts())] MLX GPU: cache=\(cacheMB)MB wired=\(wiredMB)MB (system \(defaults.totalMemoryGB)GB)")
         print("[\(ts())] MLX kernels: \(kernelEngine.rawValue)")
+        if let schedulingLimits {
+            print(
+                "[\(ts())] MLX scheduling: architecture=\(architecture.canonicalModelType) "
+                    + "ops=\(schedulingLimits.maxOperationsPerBuffer) "
+                    + "mb=\(schedulingLimits.maxMegabytesPerBuffer)"
+            )
+        }
     }
 
     // MARK: - GPU Capture & Profiling
@@ -1310,8 +1321,6 @@ public final class MLXModelService: @unchecked Sendable {
             return cached.0
         }
 
-        try ensureGPUConfigured()
-
         // Loading priority:
         // 1. Absolute/relative path — use directly (no cache or download)
         // 2. Any complete local cache snapshot (AFM or Hugging Face)
@@ -1346,6 +1355,7 @@ public final class MLXModelService: @unchecked Sendable {
             in: directory,
             modelID: modelID
         )
+        try ensureGPUConfigured(for: modelArchitecture)
 
         var config = ModelConfiguration(directory: directory)
         // Auto-detect tool call format from model type (vendor LLMModelFactory lost this code)

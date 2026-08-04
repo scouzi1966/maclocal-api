@@ -2,6 +2,40 @@ import XCTest
 @testable import AFMKitMLX
 
 final class AFMMLXModelArchitectureTests: XCTestCase {
+    func testDeepSeekV4UltraUsesMeasuredMetalSchedulingLimits() {
+        XCTAssertEqual(
+            AFMMLXMetalSchedulingPolicy.recommendedLimits(
+                canonicalModelType: "deepseek_v4",
+                processorBrand: "Apple M3 Ultra",
+                environment: [:]),
+            AFMMLXMetalSchedulingLimits(
+                maxOperationsPerBuffer: 200,
+                maxMegabytesPerBuffer: 400)
+        )
+    }
+
+    func testMetalSchedulingPolicyDoesNotAffectOtherArchitecturesOrHardware() {
+        XCTAssertNil(AFMMLXMetalSchedulingPolicy.recommendedLimits(
+            canonicalModelType: "qwen3_5_moe",
+            processorBrand: "Apple M3 Ultra",
+            environment: [:]))
+        XCTAssertNil(AFMMLXMetalSchedulingPolicy.recommendedLimits(
+            canonicalModelType: "deepseek_v4",
+            processorBrand: "Apple M3 Max",
+            environment: [:]))
+    }
+
+    func testMetalSchedulingPolicyPreservesExplicitMLXOverrides() {
+        XCTAssertNil(AFMMLXMetalSchedulingPolicy.recommendedLimits(
+            canonicalModelType: "deepseek_v4",
+            processorBrand: "Apple M3 Ultra",
+            environment: [AFMMLXMetalSchedulingPolicy.operationsEnvironmentKey: "75"]))
+        XCTAssertNil(AFMMLXMetalSchedulingPolicy.recommendedLimits(
+            canonicalModelType: "deepseek_v4",
+            processorBrand: "Apple M3 Ultra",
+            environment: [AFMMLXMetalSchedulingPolicy.megabytesEnvironmentKey: "125"]))
+    }
+
     func testCanonicalModelTypeNormalizesKnownAliases() {
         XCTAssertEqual(AFMMLXModelArchitecture.canonicalModelType("qwen3.5"), "qwen3_5")
         XCTAssertEqual(AFMMLXModelArchitecture.canonicalModelType("qwen3.6_next"), "qwen3_next")
