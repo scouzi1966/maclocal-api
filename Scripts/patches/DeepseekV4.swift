@@ -173,6 +173,16 @@ class DeepseekV4Attention: Module {
     private static let compileAttentionPostDecode = DeepseekV4RuntimeOptions.enabled(
         "VMLX_DSV4_COMPILE_ATTN_POST", default: true)
 
+    private static let compileAttentionPreDecode = DeepseekV4RuntimeOptions.enabled(
+        "VMLX_DSV4_COMPILE_ATTN_PRE", default: true)
+
+    private lazy var compiledAttentionPreDecode: @Sendable ([MLXArray]) -> [MLXArray] = {
+        let body: ([MLXArray]) -> [MLXArray] = { [unowned self] args in
+            self.projectAttentionInputs(args[0], cos: args[1], sin: args[2])
+        }
+        return compile(shapeless: false, body)
+    }()
+
     private lazy var compiledAttentionPostDecode: @Sendable ([MLXArray]) -> [MLXArray] = {
         let body: ([MLXArray]) -> [MLXArray] = { [unowned self] args in
             [self.projectAttentionOutput(
@@ -317,12 +327,63 @@ class DeepseekV4Attention: Module {
         return woB(projectedA)
     }
 
+    private func projectAttentionInputs(
+        _ x: MLXArray,
+        cos: MLXArray,
+        sin: MLXArray
+    ) -> [MLXArray] {
+        let batch = x.dim(0)
+        let length = x.dim(1)
+        let qResidual = qNorm(wqA(x))
+        var q = wqB(qResidual).reshaped(batch, length, numHeads, headDim)
+        let qDType = q.dtype
+        let qFloat = q.asType(.float32)
+        q = (qFloat * rsqrt(
+            (qFloat * qFloat).mean(axis: -1, keepDims: true)
+                + config.rmsNormEps)).asType(qDType)
+        q = q.transposed(0, 2, 1, 3)
+
+        var kv = kvNorm(wkv(x))
+            .reshaped(batch, length, 1, headDim)
+            .transposed(0, 2, 1, 3)
+        let cosExpanded = cos.expandedDimensions(axes: [0, 1])
+        let sinExpanded = sin.expandedDimensions(axes: [0, 1])
+        q = DeepseekV4Math.applyPartialRoPE(
+            q, cos: cosExpanded, sin: sinExpanded, ropeDim: ropeDim)
+        kv = DeepseekV4Math.applyPartialRoPE(
+            kv, cos: cosExpanded, sin: sinExpanded, ropeDim: ropeDim)
+        let nopeDim = headDim - ropeDim
+        if config.activationQATEnabled && nopeDim >= 64 {
+            kv = DeepseekV4Math.e4m3KVActivationRoundTrip(kv, ropeDim: ropeDim)
+        }
+        return [q, kv, qResidual]
+    }
+
     func callAsFunction(
         _ x: MLXArray, mask: MLXFast.ScaledDotProductAttentionMaskMode, cache: KVCache?
     ) -> MLXArray {
         let B = x.dim(0)
         let L = x.dim(1)
         let offset = cache?.offset ?? 0
+        let (cosT, sinT) = rope.cosSin(offset: offset, length: L)
+
+        if Self.compileAttentionPreDecode,
+            L == 1,
+            Device.defaultDevice().deviceType == .gpu,
+            !DeepseekV4NumericTrace.enabled
+        {
+            let projected = compiledAttentionPreDecode([x, cosT, sinT])
+            return attend(
+                x: x,
+                q: projected[0],
+                kv: projected[1],
+                qResidual: projected[2],
+                cosT: cosT,
+                sinT: sinT,
+                mask: mask,
+                cache: cache,
+                offset: offset)
+        }
 
         // --- Q projection ---
         // wq_a(x): (B, L, qLoraRank) → q_norm on qLoraRank → wq_b:
@@ -373,7 +434,6 @@ class DeepseekV4Attention: Module {
         kv = kv.reshaped(B, L, 1, headDim).transposed(0, 2, 1, 3)
 
         // --- Partial RoPE on last ropeDim dims of Q and K ---
-        let (cosT, sinT) = rope.cosSin(offset: offset, length: L)
         let cosQ = cosT.expandedDimensions(axes: [0, 1])
         let sinQ = sinT.expandedDimensions(axes: [0, 1])
         q = DeepseekV4Math.applyPartialRoPE(q, cos: cosQ, sin: sinQ, ropeDim: ropeDim)
@@ -391,6 +451,32 @@ class DeepseekV4Attention: Module {
             DeepseekV4NumericTrace.tensor("layer.0.attention.q", q)
             DeepseekV4NumericTrace.tensor("layer.0.attention.kv", kv)
         }
+
+        return attend(
+            x: x,
+            q: q,
+            kv: kv,
+            qResidual: qResidual,
+            cosT: cosT,
+            sinT: sinT,
+            mask: mask,
+            cache: cache,
+            offset: offset)
+    }
+
+    private func attend(
+        x: MLXArray,
+        q: MLXArray,
+        kv: MLXArray,
+        qResidual: MLXArray,
+        cosT: MLXArray,
+        sinT: MLXArray,
+        mask: MLXFast.ScaledDotProductAttentionMaskMode,
+        cache: KVCache?,
+        offset: Int
+    ) -> MLXArray {
+        let B = x.dim(0)
+        let L = x.dim(1)
 
         // --- Cache update (sliding-window local) ---
         var keys = kv

@@ -122,6 +122,13 @@ hyper-connection residual expansion in that tail measured 23.5, 23.7, and
 `5640c41f44fa7566a2b62e757167c8f399635df1c31d88d31d5132021594b03a`.
 Focused Release tests pass 10/10.
 
+Compiling the stateless decode attention prefix (Q/KV projections,
+normalization, RoPE, and KV activation QAT) while keeping cache mutation and
+SDPA outside the compiled graph improved three subsequent Release runs to
+25.4, 25.3, and 25.4 tok/s. The output SHA-256 remained identical and the
+focused Release suite again passed 10/10. This is a 7-8% gain over the prior
+23.5-23.7 tok/s checkpoint.
+
 ## Remaining Cost
 
 Opt-in synchronized stage profiling after the cache fix attributes decode time
@@ -144,6 +151,12 @@ correctness and performance:
 - parallel gate/up streams;
 - caching an FP32 gate weight;
 - changing scheduler limits.
+
+Extending the compiled layer tail backward through the attention output
+projection was also rejected. It preserved exact output but regressed three
+Release runs to 23.6, 22.4, and 22.5 tok/s, indicating that this larger graph
+increased repeated graph execution overhead rather than reducing scheduling
+cost.
 
 Reusing the E4M3-prepared activation across the routed gate and up projections
 was also exact, but measured only 17.74 tok/s versus 17.65 tok/s for the control
