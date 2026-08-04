@@ -30,6 +30,18 @@ GGUF. They are not measurements of the official MXFP4 checkpoint. DS4 is a
 useful scheduling and Metal-kernel reference, but those figures are not an
 apples-to-apples throughput baseline for this MXFP4 MLX storage ABI.
 
+An opt-in route-parallel MXFP4 down projection was also tested after the
+29.0 tok/s checkpoint. It preserved the deterministic response hash but reached
+only 28.76-28.78 tok/s over three Release runs. Emitting six route rows and
+reducing them separately lost to the canonical serial sum-six kernel, so the
+candidate was removed rather than added as another runtime switch.
+
+The native gate/up and down kernels were also generalized across the six-token
+DSpark verifier batch. Output remained deterministic, but throughput fell to
+33.04-33.42 tok/s from the 34.03-34.11 tok/s DSpark baseline. The generic MLX
+batched quantized matmul remains the verifier path; the custom native kernels
+remain specialized for single-token decode.
+
 ## Operation map
 
 | DeepSeek contract | Call site and shapes | Existing MLX path | Optimized path | Fallback | Correctness | Performance | Decision |
