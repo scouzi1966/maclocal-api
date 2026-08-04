@@ -586,11 +586,14 @@ public final class MLXModelService: @unchecked Sendable {
             // Let xctrace reach --time-limit and finalize its trace package.
             // Interrupting an attached Metal System Trace early is unreliable
             // on Xcode 27 and can leave a large trace without template metadata.
-            // Xcode 27 can spend well over five seconds attaching before the
-            // requested recording interval starts. A generous fixed grace
-            // period is still bounded, and prevents us from killing a valid
-            // trace while Instruments is writing its template metadata.
-            xctraceNaturalExitDeadline = Date().addingTimeInterval(TimeInterval(duration + 30))
+            // Xcode 27 can spend well over five seconds attaching and can take
+            // more than 30 seconds to finalize a short, dispatch-heavy trace.
+            // Keep the wait bounded while allowing diagnostic users to tune it.
+            let finalizeGrace = Int(
+                ProcessInfo.processInfo.environment["AFM_GPU_TRACE_FINALIZE_GRACE_SECONDS"]
+                    ?? "120") ?? 120
+            xctraceNaturalExitDeadline = Date().addingTimeInterval(
+                TimeInterval(duration + max(5, finalizeGrace)))
             print("[\(ts())] [GPU-TRACE] Recording for \(duration)s (PID \(pid))")
             print("[\(ts())] [GPU-TRACE] Output: \(outputPath)")
             // Give xctrace time to attach before we start inference
