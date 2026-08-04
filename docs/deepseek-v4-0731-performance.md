@@ -85,10 +85,11 @@ metadata, never the repository or model ID. Unsupported shapes and quantizers
 remain on the native implementation.
 
 The ds4 option currently fuses selected-expert MXFP4 gate/up projection,
-limited SwiGLU, and route scoring for the 0731 decode geometry. The reference
-implementation is pinned as the `vendor/ds4` submodule on its
-`tp-fast-release` line; AFM's Metal kernel remains checked into the reproducible
-MLX patch set and is compiled by MLX at runtime.
+limited SwiGLU, and route scoring for the 0731 decode geometry. The canonical
+reference implementation is pinned from `antirez/ds4` `main` as the
+`vendor/ds4` submodule. `kernelpool/ds4` `tp-fast-release` is retained only as
+a secondary comparison remote. AFM's Metal kernel remains checked into the
+reproducible MLX patch set and is compiled by MLX at runtime.
 
 Release validation on the exact Vontra 0731 checkpoint confirmed the
 `ds4_gate_up_scored_swiglu` stage executed and produced correct text. It is not
@@ -96,7 +97,30 @@ the faster engine yet: an identical 64-token run took about 4.69 seconds after
 model readiness with ds4 versus 3.65 seconds native, a roughly 29% regression.
 The option therefore remains explicitly experimental and native remains the
 default. This A/B control is retained for further kernel iteration rather than
-presented as a production optimization.
+presented as a production optimization. DS4's published 35-37 tok/s M3 Ultra
+measurements use its DeepSeek-specific GGUF runtime, quant layouts, and
+long-lived Metal command batches. They are a scheduling target, not a direct
+throughput comparison with the Vontra MXFP4 MLX checkpoint.
+
+## Validated Native Decode Defaults
+
+The native engine now enables the numerically validated DeepSeek decode paths
+without hidden environment variables:
+
+- fused metadata-gated MXFP4 routed gate/up/SwiGLU and sum-six down projection;
+- fused router selection;
+- compiled attention projection, mHC, and FFN layer tails.
+
+Each feature retains an explicit `=0`/`false` diagnostic opt-out. Unsupported
+quantization metadata, route geometry, or tensor shapes fall back to generic
+MLX operations. Dispatch never depends on a model or repository ID.
+
+Three warmed Release runs of an identical 256-token request measured 23.1
+tok/s before extending the compiled FFN tail. Including the attention
+hyper-connection residual expansion in that tail measured 23.5, 23.7, and
+23.7 tok/s. All six runs produced byte-identical assistant content with SHA-256
+`5640c41f44fa7566a2b62e757167c8f399635df1c31d88d31d5132021594b03a`.
+Focused Release tests pass 10/10.
 
 ## Remaining Cost
 
@@ -128,9 +152,16 @@ optimization. Forcing the existing fused gate/up cache for the complete MXFP4
 expert bank regressed decode to 9.46 tok/s and prefill to 3.79 seconds because
 the wider gather destroyed weight locality.
 
-The next material optimization is the checkpoint's embedded DSpARK speculative
-decoder. The 0731 package contains three `mtp.N` stages, a rank-256 Markov head,
-a confidence head, and a five-token draft block. The published minimal
+The current Metal trace shows roughly 160 command-buffer submissions per
+generated token, low compute occupancy, and CPU-to-GPU scheduling gaps. The
+canonical DS4 runtime batches a token's operations into long-lived command
+buffers and synchronizes only where routing/readback requires it. AFM's next
+material native optimization is therefore broader graph/command-buffer
+coarsening while retaining explicit mutable hybrid-cache boundaries.
+
+The checkpoint's embedded DSpARK speculative decoder is a separate possible
+optimization. The 0731 package contains three `mtp.N` stages, a rank-256 Markov
+head, a confidence head, and a five-token draft block. The published minimal
 `generate.py` does not execute that path, but DeepSeek's DeepSpec runtime and
 the independent ds4 implementation establish the required contract:
 
