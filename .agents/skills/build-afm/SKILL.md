@@ -21,6 +21,10 @@ explicit-module state, exports the canonical
 `Sources/AFMKitMLX/Resources/default.metallib`, and stages `mlx.metallib` for
 XCTest. Do not work around metallib failures with one-off environment values.
 
+It also fingerprints `vendor/mlx-swift-lm` and invalidates compiled products
+when those sources change. This prevents Xcode 27 Beta 3 from reporting a
+successful no-op build after applying an MLX source or Metal-kernel patch.
+
 The comprehensive assertion harness must continue to delegate its Swift tests
 to this wrapper. Local copied XCTest binaries also have a source-checkout
 fallback in `MLXMetalLibrary`; packaged binaries must carry their resource

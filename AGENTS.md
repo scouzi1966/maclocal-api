@@ -12,7 +12,9 @@ Use the project `Makefile` for normal workflows. All direct SwiftPM build and
 test invocations must go through `Scripts/swiftpm-reliable.sh`; do not invoke
 raw `swift build` or `swift test`. The wrapper selects the reliable Xcode 27
 driver, repairs stale explicit-module state once, and stages the canonical MLX
-metallib beside every XCTest executable for MLX's C++ runtime.
+metallib beside every XCTest executable for MLX's C++ runtime. It also
+fingerprints the local `mlx-swift-lm` sources and invalidates stale compiled
+products when Xcode's native driver misses a vendor-patch change.
 This applies to release/coverage harness scripts and copied XCTest reruns too;
 do not replace the wrapper with raw `swift test` or a one-off environment fix.
 

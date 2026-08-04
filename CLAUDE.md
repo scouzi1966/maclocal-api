@@ -107,6 +107,9 @@ All SwiftPM test invocations must use `Scripts/swiftpm-reliable.sh test`. The
 wrapper stages this canonical committed metallib beside every XCTest executable
 before each build/run attempt, which is where MLX's C++ runtime searches. It
 also exports `MACAFM_MLX_METALLIB` for AFMKit's locator.
+The same wrapper fingerprints `vendor/mlx-swift-lm` and removes stale compiled
+products when those sources change; Xcode 27 Beta 3 can otherwise report a
+successful no-op build after applying a Swift or custom-Metal kernel patch.
 Explicit overrides remain supported for metallib qualification.
 The release assertion harness delegates to this wrapper too. Never replace it
 with raw `swift test` or use a one-off metallib override as a workflow fix.

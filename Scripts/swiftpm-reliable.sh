@@ -132,6 +132,25 @@ run_native() {
 
 cd "$ROOT_DIR"
 
+# Xcode 27 Beta 3's native SwiftPM driver can miss source changes inside the
+# local mlx-swift-lm package and report a successful no-op build. Fingerprint
+# that package independently of SwiftPM and discard only compiled products when
+# it changes. Dependency clones and downloaded artifacts remain intact.
+MLX_SOURCE_STAMP="$STATE_DIR/mlx-swift-lm-source.sha256"
+MLX_SOURCE_FINGERPRINT="$({
+    find "$ROOT_DIR/vendor/mlx-swift-lm/Libraries" -type f -print0
+    printf '%s\0' "$ROOT_DIR/vendor/mlx-swift-lm/Package.swift"
+} | sort -z | xargs -0 shasum -a 256 | shasum -a 256 | awk '{print $1}')"
+PREVIOUS_MLX_SOURCE_FINGERPRINT="$(cat "$MLX_SOURCE_STAMP" 2>/dev/null || true)"
+if [[ "$MLX_SOURCE_FINGERPRINT" != "$PREVIOUS_MLX_SOURCE_FINGERPRINT" ]]; then
+    echo "[swiftpm-reliable] MLX source changed; invalidating stale native-driver products." >&2
+    rm -rf \
+        "$ROOT_DIR/.build/arm64-apple-macosx" \
+        "$ROOT_DIR/.build/debug" \
+        "$ROOT_DIR/.build/release"
+    printf '%s\n' "$MLX_SOURCE_FINGERPRINT" > "$MLX_SOURCE_STAMP"
+fi
+
 DRIVER="${AFM_SWIFTPM_DRIVER:-auto}"
 DEVELOPER_DIR="$(xcode-select -p 2>/dev/null || true)"
 if [[ "$DRIVER" == "native" ]] ||

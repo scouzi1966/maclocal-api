@@ -87,6 +87,10 @@ retries native once. Logs live in `.build-reliable-logs/`; persistent driver
 identity lives in `.build-reliable-state/` outside SwiftPM's cleanable tree. Set
 `AFM_SWIFTPM_DRIVER=swiftbuild` only for default-driver diagnosis.
 
+The wrapper fingerprints `vendor/mlx-swift-lm` before every invocation. When a
+Swift or custom-Metal kernel patch changes that local package, it invalidates
+compiled products so Xcode 27 Beta 3 cannot silently reuse a stale binary.
+
 For `test`, the wrapper permanently stages the canonical committed
 `Sources/AFMKitMLX/Resources/default.metallib` as `mlx.metallib` beside every
 XCTest executable before each build/run attempt. It also exports
