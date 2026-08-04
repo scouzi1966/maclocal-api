@@ -1703,6 +1703,7 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
     var mtp: [DeepseekV4DSparkStage]
     @ModuleInfo(key: "lm_head") var lmHead: Linear
     private var cachedLMHeadF32: MLXArray?
+    private var cachedLMHeadQ8: (weight: MLXArray, scales: MLXArray, biases: MLXArray?)?
     private let cachedLMHeadF32Lock = NSLock()
 
     private static let cacheLMHeadF32: Bool = {
@@ -1710,10 +1711,16 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
         return raw != "0" && raw.lowercased() != "false"
     }()
 
+    private static let quantizeLMHeadQ8 = DeepseekV4RuntimeOptions.enabled(
+        "VMLX_DSV4_Q8_LM_HEAD", default: false)
+
     public init(_ config: DeepseekV4Configuration) {
         self.config = config
         if DeepseekV4PerformanceProfile.enabled {
             fputs("[DSV4StageProfile] enabled\n", stderr)
+        }
+        if Self.quantizeLMHeadQ8 {
+            fputs("[DSV4] output head: runtime affine Q8 (group size 32)\n", stderr)
         }
         // Single latent KV head per layer — report kvHeads as [1]*L so
         // the cache allocator sizes per-layer caches correctly.
@@ -1796,7 +1803,27 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
 
     private func projectLogits(_ h: MLXArray) -> MLXArray {
         let logits: MLXArray
-        if Self.cacheLMHeadF32, !(lmHead is QuantizedLinear) {
+        if Self.quantizeLMHeadQ8, !(lmHead is QuantizedLinear) {
+            cachedLMHeadF32Lock.lock()
+            if cachedLMHeadQ8 == nil {
+                let quantized = MLX.quantized(
+                    lmHead.weight, groupSize: 32, bits: 8, mode: .affine)
+                var arrays = [quantized.wq, quantized.scales]
+                if let biases = quantized.biases { arrays.append(biases) }
+                MLX.eval(arrays)
+                cachedLMHeadQ8 = (quantized.wq, quantized.scales, quantized.biases)
+            }
+            let cached = cachedLMHeadQ8!
+            cachedLMHeadF32Lock.unlock()
+            var output = MLX.quantizedMM(
+                h, cached.weight,
+                scales: cached.scales, biases: cached.biases,
+                transpose: true, groupSize: 32, bits: 8, mode: .affine)
+            if let bias = lmHead.bias {
+                output = output + bias.asType(output.dtype)
+            }
+            logits = output.asType(.float32)
+        } else if Self.cacheLMHeadF32, !(lmHead is QuantizedLinear) {
             cachedLMHeadF32Lock.lock()
             if cachedLMHeadF32 == nil {
                 let weight = lmHead.weight.asType(.float32)
