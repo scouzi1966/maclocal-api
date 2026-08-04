@@ -100,6 +100,39 @@ private enum SwitchGLUKernelEngine {
             .lowercased()
         return raw == "ds4"
     }
+
+    static var nativeDeepseekMXFP4Enabled: Bool {
+        let env = ProcessInfo.processInfo.environment
+        let raw = (env["AFM_MLX_KERNELS"] ?? env["VMLX_DSV4_KERNELS"] ?? "native")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let override = (env["VMLX_DSV4_NATIVE_MXFP4"] ?? "1")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return raw == "native" && override != "0" && override != "false"
+    }
+
+    static var specializedDeepseekMXFP4Enabled: Bool {
+        ds4Enabled || nativeDeepseekMXFP4Enabled
+    }
+
+    static var deepseekMXFP4RowsPerSIMD: Int {
+        constrainedInteger("VMLX_DSV4_MXFP4_ROWS_PER_SIMD", allowed: [1, 2, 4], default: 2)
+    }
+
+    static var deepseekMXFP4SIMDGroupsPerThreadgroup: Int {
+        constrainedInteger("VMLX_DSV4_MXFP4_SIMD_GROUPS", allowed: [1, 2, 4, 8], default: 2)
+    }
+
+    private static func constrainedInteger(
+        _ name: String, allowed: Set<Int>, default defaultValue: Int
+    ) -> Int {
+        guard let raw = ProcessInfo.processInfo.environment[name],
+              let value = Int(raw),
+              allowed.contains(value)
+        else { return defaultValue }
+        return value
+    }
 }
 
 private enum DeepseekV4DS4Kernels {
@@ -116,11 +149,19 @@ private enum DeepseekV4DS4Kernels {
         ],
         outputNames: ["activated"],
         source: """
+            constexpr uint ROWS = ROWS_PER_SIMD;
             const uint linear = thread_position_in_grid.x;
             const uint lane = thread_index_in_simdgroup;
+            const uint local = thread_position_in_threadgroup.x;
+            threadgroup float lut[16];
+            if (local < 16u) {
+                lut[local] = dsv4_fp4_lut[local];
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
             const uint simd = linear / 32;
-            const uint hidden = simd % HIDDEN;
-            const uint route = simd / HIDDEN;
+            const uint tile = simd % ((HIDDEN + ROWS - 1u) / ROWS);
+            const uint route = simd / ((HIDDEN + ROWS - 1u) / ROWS);
+            const uint hidden = tile * ROWS;
             if (route >= ROUTES || hidden >= HIDDEN) {
                 return;
             }
@@ -130,66 +171,203 @@ private enum DeepseekV4DS4Kernels {
                 return;
             }
 
-            float gateSum = 0.0f;
-            float upSum = 0.0f;
-            const uint rowBase = (expert * HIDDEN + hidden) * PACKED_IN;
-            const uint scaleBase = (expert * HIDDEN + hidden) * GROUPS;
+            float gateSum[ROWS] = {0.0f};
+            float upSum[ROWS] = {0.0f};
 
-            for (uint group = lane; group < GROUPS; group += 32u) {
-                const float gateScale = dsv4_e8m0(gateS[scaleBase + group]);
-                const float upScale = dsv4_e8m0(upS[scaleBase + group]);
-                const uint wordBase = rowBase + group * WORDS_PER_GROUP;
-                const uint activationBase = group * GROUP_SIZE;
-
-                for (uint word = 0; word < WORDS_PER_GROUP; ++word) {
-                    uint gatePacked = gateW[wordBase + word];
-                    uint upPacked = upW[wordBase + word];
-                    for (uint nib = 0; nib < 8u; ++nib) {
-                        const uint inputOffset = activationBase + word * 8u + nib;
-                        const float xv = static_cast<float>(x[inputOffset]);
-                        gateSum += xv * gateScale * dsv4_fp4_value(gatePacked & 0xfu);
-                        upSum += xv * upScale * dsv4_fp4_value(upPacked & 0xfu);
-                        gatePacked >>= 4;
-                        upPacked >>= 4;
-                    }
+            const uint ix = lane >> 1u;
+            const uint halfLane = lane & 1u;
+            for (uint group = ix; group < GROUPS; group += 16u) {
+                const uint activationBase = group * GROUP_SIZE + halfLane * 16u;
+                const float4 x0(
+                    static_cast<float>(x[activationBase]),
+                    static_cast<float>(x[activationBase + 1u]),
+                    static_cast<float>(x[activationBase + 2u]),
+                    static_cast<float>(x[activationBase + 3u]));
+                const float4 x1(
+                    static_cast<float>(x[activationBase + 4u]),
+                    static_cast<float>(x[activationBase + 5u]),
+                    static_cast<float>(x[activationBase + 6u]),
+                    static_cast<float>(x[activationBase + 7u]));
+                const float4 x2(
+                    static_cast<float>(x[activationBase + 8u]),
+                    static_cast<float>(x[activationBase + 9u]),
+                    static_cast<float>(x[activationBase + 10u]),
+                    static_cast<float>(x[activationBase + 11u]));
+                const float4 x3(
+                    static_cast<float>(x[activationBase + 12u]),
+                    static_cast<float>(x[activationBase + 13u]),
+                    static_cast<float>(x[activationBase + 14u]),
+                    static_cast<float>(x[activationBase + 15u]));
+                for (uint row = 0u; row < ROWS && hidden + row < HIDDEN; ++row) {
+                    const uint output = hidden + row;
+                    const uint rowBase = (expert * HIDDEN + output) * PACKED_IN;
+                    const uint scaleBase = (expert * HIDDEN + output) * GROUPS;
+                    const float gateScale = dsv4_e8m0(gateS[scaleBase + group]);
+                    const float upScale = dsv4_e8m0(upS[scaleBase + group]);
+                    const uint wordBase = rowBase + group * WORDS_PER_GROUP + halfLane * 2u;
+                    const uint gate0 = gateW[wordBase];
+                    const uint gate1 = gateW[wordBase + 1u];
+                    const uint up0 = upW[wordBase];
+                    const uint up1 = upW[wordBase + 1u];
+                    const float gateDot =
+                        dot(x0, dsv4_fp4x4(gate0, lut))
+                        + dot(x1, dsv4_fp4x4(gate0 >> 16, lut))
+                        + dot(x2, dsv4_fp4x4(gate1, lut))
+                        + dot(x3, dsv4_fp4x4(gate1 >> 16, lut));
+                    const float upDot =
+                        dot(x0, dsv4_fp4x4(up0, lut))
+                        + dot(x1, dsv4_fp4x4(up0 >> 16, lut))
+                        + dot(x2, dsv4_fp4x4(up1, lut))
+                        + dot(x3, dsv4_fp4x4(up1 >> 16, lut));
+                    gateSum[row] += gateScale * gateDot;
+                    upSum[row] += upScale * upDot;
                 }
             }
 
-            gateSum = simd_sum(gateSum);
-            upSum = simd_sum(upSum);
+            for (uint row = 0u; row < ROWS; ++row) {
+                gateSum[row] = simd_sum(gateSum[row]);
+                upSum[row] = simd_sum(upSum[row]);
+            }
 
             if (lane == 0) {
                 const float activationLimit = static_cast<float>(LIMIT);
-                const float limitedGate = metal::min(gateSum, activationLimit);
-                const float siluGate = limitedGate / (1.0f + metal::fast::exp(-limitedGate));
-                const float clippedUp = metal::clamp(upSum, -activationLimit, activationLimit);
-                const float routed = siluGate * clippedUp * static_cast<float>(scores[route]);
-                activated[route * HIDDEN + hidden] = static_cast<outT>(routed);
+                for (uint row = 0u; row < ROWS && hidden + row < HIDDEN; ++row) {
+                    const float gate = gateSum[row];
+                    const float up = upSum[row];
+                    const float limitedGate = metal::min(gate, activationLimit);
+                    const float siluGate = limitedGate / (1.0f + metal::fast::exp(-limitedGate));
+                    const float clippedUp = metal::clamp(up, -activationLimit, activationLimit);
+                    const float routed = siluGate * clippedUp * static_cast<float>(scores[route]);
+                    activated[route * HIDDEN + hidden + row] = static_cast<outT>(routed);
+                }
             }
         """,
         header: """
+            constant float dsv4_fp4_lut[16] = {
+                0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f,
+                -0.0f, -0.5f, -1.0f, -1.5f, -2.0f, -3.0f, -4.0f, -6.0f
+            };
+
             static inline float dsv4_fp4_value(uint nibble) {
-                switch (nibble & 0xfu) {
-                case 0u: return 0.0f;
-                case 1u: return 0.5f;
-                case 2u: return 1.0f;
-                case 3u: return 1.5f;
-                case 4u: return 2.0f;
-                case 5u: return 3.0f;
-                case 6u: return 4.0f;
-                case 7u: return 6.0f;
-                case 8u: return -0.0f;
-                case 9u: return -0.5f;
-                case 10u: return -1.0f;
-                case 11u: return -1.5f;
-                case 12u: return -2.0f;
-                case 13u: return -3.0f;
-                case 14u: return -4.0f;
-                default: return -6.0f;
-                }
+                return dsv4_fp4_lut[nibble & 0xfu];
+            }
+
+            static inline float4 dsv4_fp4x4(
+                    uint packed, threadgroup const float *lut) {
+                return float4(
+                    lut[packed & 0xfu],
+                    lut[(packed >> 4) & 0xfu],
+                    lut[(packed >> 8) & 0xfu],
+                    lut[(packed >> 12) & 0xfu]);
             }
 
             static inline float dsv4_e8m0(uchar exponent) {
+                const uint bits = exponent == 0
+                    ? 0x00400000u
+                    : (uint(exponent) << 23);
+                return as_type<float>(bits);
+            }
+        """)
+
+    private static let fusedDownSum6Kernel = MLXFast.metalKernel(
+        name: "deepseek_v4_native_mxfp4_down_sum6",
+        inputNames: ["activated", "downW", "downS", "indices"],
+        outputNames: ["reduced"],
+        source: """
+            constexpr uint ROWS = ROWS_PER_SIMD;
+            const uint linear = thread_position_in_grid.x;
+            const uint lane = thread_index_in_simdgroup;
+            const uint local = thread_position_in_threadgroup.x;
+            threadgroup float lut[16];
+            if (local < 16u) {
+                lut[local] = dsv4_down_fp4_lut[local];
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            const uint simd = linear / 32u;
+            const uint hidden = simd * ROWS;
+            if (hidden >= OUTPUT) {
+                return;
+            }
+
+            float total[ROWS] = {0.0f};
+            for (uint route = 0u; route < ROUTES; ++route) {
+                const uint expert = static_cast<uint>(indices[route]);
+                if (expert >= EXPERTS) {
+                    continue;
+                }
+                float routeSum[ROWS] = {0.0f};
+                const uint ix = lane >> 1u;
+                const uint halfLane = lane & 1u;
+                for (uint group = ix; group < GROUPS; group += 16u) {
+                    const uint activationBase =
+                        route * INPUT + group * GROUP_SIZE + halfLane * 16u;
+                    const float4 x0(
+                            static_cast<float>(activated[activationBase]),
+                            static_cast<float>(activated[activationBase + 1u]),
+                            static_cast<float>(activated[activationBase + 2u]),
+                            static_cast<float>(activated[activationBase + 3u]));
+                    const float4 x1(
+                            static_cast<float>(activated[activationBase + 4u]),
+                            static_cast<float>(activated[activationBase + 5u]),
+                            static_cast<float>(activated[activationBase + 6u]),
+                            static_cast<float>(activated[activationBase + 7u]));
+                    const float4 x2(
+                            static_cast<float>(activated[activationBase + 8u]),
+                            static_cast<float>(activated[activationBase + 9u]),
+                            static_cast<float>(activated[activationBase + 10u]),
+                            static_cast<float>(activated[activationBase + 11u]));
+                    const float4 x3(
+                            static_cast<float>(activated[activationBase + 12u]),
+                            static_cast<float>(activated[activationBase + 13u]),
+                            static_cast<float>(activated[activationBase + 14u]),
+                            static_cast<float>(activated[activationBase + 15u]));
+
+                    for (uint row = 0u; row < ROWS && hidden + row < OUTPUT; ++row) {
+                        const uint output = hidden + row;
+                        const uint rowBase = (expert * OUTPUT + output) * PACKED_IN;
+                        const uint scaleBase = (expert * OUTPUT + output) * GROUPS;
+                        const float scale = dsv4_down_e8m0(downS[scaleBase + group]);
+                        const uint wordBase =
+                            rowBase + group * WORDS_PER_GROUP + halfLane * 2u;
+                        const uint packed0 = downW[wordBase];
+                        const uint packed1 = downW[wordBase + 1u];
+                        const float value =
+                            dot(x0, dsv4_down_fp4x4(packed0, lut))
+                            + dot(x1, dsv4_down_fp4x4(packed0 >> 16, lut))
+                            + dot(x2, dsv4_down_fp4x4(packed1, lut))
+                            + dot(x3, dsv4_down_fp4x4(packed1 >> 16, lut));
+                        routeSum[row] += scale * value;
+                    }
+                }
+
+                for (uint row = 0u; row < ROWS; ++row) {
+                    const float projected = simd_sum(routeSum[row]);
+                    total[row] += static_cast<float>(static_cast<outT>(projected));
+                }
+            }
+
+            if (lane == 0u) {
+                for (uint row = 0u; row < ROWS && hidden + row < OUTPUT; ++row) {
+                    reduced[hidden + row] = total[row];
+                }
+            }
+        """,
+        header: """
+            constant float dsv4_down_fp4_lut[16] = {
+                0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f,
+                -0.0f, -0.5f, -1.0f, -1.5f, -2.0f, -3.0f, -4.0f, -6.0f
+            };
+
+            static inline float4 dsv4_down_fp4x4(
+                    uint packed, threadgroup const float *lut) {
+                return float4(
+                    lut[packed & 0xfu],
+                    lut[(packed >> 4) & 0xfu],
+                    lut[(packed >> 8) & 0xfu],
+                    lut[(packed >> 12) & 0xfu]);
+            }
+
+            static inline float dsv4_down_e8m0(uchar exponent) {
                 const uint bits = exponent == 0
                     ? 0x00400000u
                     : (uint(exponent) << 23);
@@ -205,7 +383,7 @@ private enum DeepseekV4DS4Kernels {
         up: QuantizedSwitchLinear,
         limit: Float
     ) -> MLXArray? {
-        guard SwitchGLUKernelEngine.ds4Enabled,
+        guard SwitchGLUKernelEngine.specializedDeepseekMXFP4Enabled,
               input.dim(-1) == supportedInputDims,
               gate.inputDims == supportedInputDims,
               gate.outputDims == supportedHiddenDims,
@@ -239,6 +417,8 @@ private enum DeepseekV4DS4Kernels {
         let flatIndices = contiguous(indices.flattened())
         let flatScores = contiguous(scores.flattened())
         let outputShape = indices.shape + [1, supportedHiddenDims]
+        let rowsPerSIMD = SwitchGLUKernelEngine.deepseekMXFP4RowsPerSIMD
+        let simdGroups = SwitchGLUKernelEngine.deepseekMXFP4SIMDGroupsPerThreadgroup
         let output = fusedGateUpScoredKernel(
             [
                 flatActivation,
@@ -251,6 +431,7 @@ private enum DeepseekV4DS4Kernels {
             ],
             template: [
                 ("outT", input.dtype),
+                ("ROWS_PER_SIMD", rowsPerSIMD),
                 ("ROUTES", routeLimit),
                 ("EXPERTS", supportedExperts),
                 ("HIDDEN", supportedHiddenDims),
@@ -260,12 +441,71 @@ private enum DeepseekV4DS4Kernels {
                 ("PACKED_IN", supportedInputDims / 8),
                 ("LIMIT", Int(limit)),
             ],
-            grid: (32 * routeLimit * supportedHiddenDims, 1, 1),
-            threadGroup: (256, 1, 1),
+            grid: (
+                32 * routeLimit * ((supportedHiddenDims + rowsPerSIMD - 1) / rowsPerSIMD),
+                1, 1),
+            threadGroup: (32 * simdGroups, 1, 1),
             outputShapes: [outputShape],
             outputDTypes: [input.dtype]
         )[0]
         return output
+    }
+
+    static func fusedDownSum6(
+        activated: MLXArray,
+        indices: MLXArray,
+        down: QuantizedSwitchLinear
+    ) -> MLXArray? {
+        guard SwitchGLUKernelEngine.specializedDeepseekMXFP4Enabled,
+              down.inputDims == supportedHiddenDims,
+              down.outputDims == supportedInputDims,
+              down.numExperts == supportedExperts,
+              indices.size == routeLimit,
+              down.groupSize == supportedGroupSize,
+              down.bits == 4,
+              down.mode == .mxfp4,
+              down.weight.dtype == .uint32,
+              down.scales.dtype == .uint8,
+              down.bias == nil,
+              down.biases == nil
+        else {
+            return nil
+        }
+
+        let prepared = DeepseekV4ActivationQuant.e4m3RoundTripIfNeeded(
+            activated, mode: down.mode)
+        let flatActivated = contiguous(prepared.flattened())
+        let flatIndices = contiguous(indices.flattened())
+        // This kernel has already reduced all six routes. Return the same rank
+        // as the input activation so DeepSeek V4 can skip the generic
+        // route-axis reduction instead of summing a synthetic size-one axis.
+        let outputShape = Array(indices.shape.dropLast()) + [1, supportedInputDims]
+        let rowsPerSIMD = SwitchGLUKernelEngine.deepseekMXFP4RowsPerSIMD
+        let simdGroups = SwitchGLUKernelEngine.deepseekMXFP4SIMDGroupsPerThreadgroup
+        return fusedDownSum6Kernel(
+            [
+                flatActivated,
+                contiguous(down.weight),
+                contiguous(down.scales),
+                flatIndices,
+            ],
+            template: [
+                ("outT", activated.dtype),
+                ("ROWS_PER_SIMD", rowsPerSIMD),
+                ("ROUTES", routeLimit),
+                ("EXPERTS", supportedExperts),
+                ("INPUT", supportedHiddenDims),
+                ("OUTPUT", supportedInputDims),
+                ("GROUP_SIZE", supportedGroupSize),
+                ("GROUPS", supportedHiddenDims / supportedGroupSize),
+                ("WORDS_PER_GROUP", supportedGroupSize / 8),
+                ("PACKED_IN", supportedHiddenDims / 8),
+            ],
+            grid: (32 * ((supportedInputDims + rowsPerSIMD - 1) / rowsPerSIMD), 1, 1),
+            threadGroup: (32 * simdGroups, 1, 1),
+            outputShapes: [outputShape],
+            outputDTypes: [.float32]
+        )[0]
     }
 }
 
@@ -334,6 +574,11 @@ public class SwitchGLU: Module, SwitchGLULayer {
 
     private static var profileStages: Bool {
         ProcessInfo.processInfo.environment["VMLX_DSV4_STAGE_PROFILE"] == "1"
+    }
+
+    private static var sharedGateUpActivationEnabled: Bool {
+        let raw = ProcessInfo.processInfo.environment["VMLX_SHARED_GATE_UP_ACTIVATION"] ?? "1"
+        return raw != "0" && raw.lowercased() != "false"
     }
 
     public init(
@@ -562,10 +807,31 @@ public class SwitchGLU: Module, SwitchGLULayer {
             // FALLBACK — original two-call path for non-quantized models,
             // prefill batches (indices.size > threshold), or when the
             // feature flag is off.
-            let xUp = upProj(x, idx, sortedIndices: doSort)
-            finishStage("up", [xUp])
-            let xGate = gateProj(x, idx, sortedIndices: doSort)
-            finishStage("gate", [xGate])
+            let xUp: MLXArray
+            let xGate: MLXArray
+            if Self.sharedGateUpActivationEnabled,
+               let gate = gateProj as? QuantizedSwitchLinear,
+               let up = upProj as? QuantizedSwitchLinear,
+               gate.groupSize == up.groupSize,
+               gate.bits == up.bits,
+               gate.mode == up.mode,
+               DeepseekV4ActivationQuant.isMXFP(gate.mode)
+            {
+                let prepared = DeepseekV4ActivationQuant.e4m3RoundTripIfNeeded(
+                    x, mode: gate.mode)
+                finishStage("gate_up_activation", [prepared])
+                xUp = up.projectPreparedActivation(
+                    prepared, idx, sortedIndices: doSort)
+                finishStage("up", [xUp])
+                xGate = gate.projectPreparedActivation(
+                    prepared, idx, sortedIndices: doSort)
+                finishStage("gate", [xGate])
+            } else {
+                xUp = upProj(x, idx, sortedIndices: doSort)
+                finishStage("up", [xUp])
+                xGate = gateProj(x, idx, sortedIndices: doSort)
+                finishStage("gate", [xGate])
+            }
             activated = activate(xGate, xUp)
         }
 
@@ -579,6 +845,17 @@ public class SwitchGLU: Module, SwitchGLULayer {
                 activated.asType(.float32)
                     * scores.asType(.float32)[.ellipsis, .newAxis, .newAxis]
             ).asType(inputDType)
+        }
+
+        if !doSort,
+           let down = downProj as? QuantizedSwitchLinear,
+           let reduced = DeepseekV4DS4Kernels.fusedDownSum6(
+               activated: activated,
+               indices: idx,
+               down: down)
+        {
+            finishStage("native_mxfp4_down_sum6", [reduced])
+            return MLX.squeezed(reduced, axis: -2)
         }
 
         x = downProj(activated, idx, sortedIndices: doSort)
@@ -717,6 +994,15 @@ public class QuantizedSwitchLinear: SwitchLinear, Quantized {
         _ x: MLXArray, _ indices: MLXArray, sortedIndices: Bool = false
     ) -> MLXArray {
         let activation = DeepseekV4ActivationQuant.e4m3RoundTripIfNeeded(x, mode: mode)
+        return projectPreparedActivation(activation, indices, sortedIndices: sortedIndices)
+    }
+
+    /// Projects an activation that has already passed through the checkpoint's
+    /// MXFP activation preparation. This lets compatible gate/up projections
+    /// share that work without combining or duplicating their weight banks.
+    public func projectPreparedActivation(
+        _ activation: MLXArray, _ indices: MLXArray, sortedIndices: Bool = false
+    ) -> MLXArray {
         var result = MLX.gatherQuantizedMM(
             activation,
             self.weight,

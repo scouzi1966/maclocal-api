@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import AFMKitCore
 import AFMOpenAICompat
 import CoreImage
@@ -532,19 +533,27 @@ public final class MLXModelService: @unchecked Sendable {
         guard let duration = gpuTraceDuration else { return false }
         gpuTraceDuration = nil  // trace first request only
         let pid = ProcessInfo.processInfo.processIdentifier
-        let outputPath = "/tmp/afm-metal.trace"
+        let outputPath = ProcessInfo.processInfo.environment["AFM_GPU_TRACE_OUTPUT"]
+            ?? "/tmp/afm-metal.trace"
+        try? FileManager.default.createDirectory(
+            at: URL(fileURLWithPath: outputPath).deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         // Remove existing trace
         try? FileManager.default.removeItem(atPath: outputPath)
-        // Prefer custom shader-enabled template if available (has per-kernel names)
+        // Shader profiling is intentionally opt-in: it can create multi-GB traces and
+        // Xcode betas have failed to honor its time limit. Routine comparisons use the
+        // bounded Metal System Trace template.
         let shaderTemplate = NSString(string: "~/Library/Developer/Xcode/UserData/Instruments/Templates/Metal Shader Profile.tracetemplate").expandingTildeInPath
         let templateArg: String
-        if FileManager.default.fileExists(atPath: shaderTemplate) {
+        if ProcessInfo.processInfo.environment["AFM_GPU_TRACE_TEMPLATE"] == "shader",
+           FileManager.default.fileExists(atPath: shaderTemplate) {
             templateArg = shaderTemplate
             print("[\(ts())] [GPU-TRACE] Using Metal Shader Profile template (per-kernel shader names enabled)")
         } else {
             templateArg = "Metal System Trace"
-            print("[\(ts())] [GPU-TRACE] Using default Metal System Trace (no per-kernel names)")
-            print("[\(ts())] [GPU-TRACE]   For shader names: python3 Scripts/create-shader-template.py")
+            print("[\(ts())] [GPU-TRACE] Using bounded Metal System Trace")
+            print("[\(ts())] [GPU-TRACE]   Set AFM_GPU_TRACE_TEMPLATE=shader for explicit shader profiling")
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
@@ -577,9 +586,27 @@ public final class MLXModelService: @unchecked Sendable {
     /// Stop xctrace recording (sends SIGINT for graceful stop, then waits).
     private func endGPUTrace() {
         guard let process = xctraceProcess else { return }
-        let outputPath = xctraceOutputPath ?? "/tmp/afm-metal.trace"
+        let outputPath = xctraceOutputPath
+            ?? ProcessInfo.processInfo.environment["AFM_GPU_TRACE_OUTPUT"]
+            ?? "/tmp/afm-metal.trace"
         if process.isRunning {
             process.interrupt()  // SIGINT = graceful stop
+            let gracefulDeadline = Date().addingTimeInterval(5)
+            while process.isRunning, Date() < gracefulDeadline {
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+            if process.isRunning {
+                print("[\(ts())] [GPU-TRACE] xctrace ignored SIGINT; terminating")
+                process.terminate()
+                let terminateDeadline = Date().addingTimeInterval(2)
+                while process.isRunning, Date() < terminateDeadline {
+                    Thread.sleep(forTimeInterval: 0.1)
+                }
+            }
+            if process.isRunning {
+                print("[\(ts())] [GPU-TRACE] xctrace ignored SIGTERM; killing")
+                Darwin.kill(process.processIdentifier, SIGKILL)
+            }
             process.waitUntilExit()
         }
         xctraceProcess = nil

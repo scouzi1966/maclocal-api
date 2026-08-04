@@ -18,7 +18,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 CACHE_DIR="${MACAFM_MLX_MODEL_CACHE:-/Volumes/edata/models/vesta-test-cache}"
-TRACE_DIR="/tmp"
+TRACE_DIR="${AFM_GPU_PROFILE_DIR:-$PROJECT_DIR/Research/GPUProfiles}"
+mkdir -p "$TRACE_DIR"
 
 usage() {
     cat <<'EOF'
@@ -41,7 +42,7 @@ Commands:
                              Requires sudo. Default interval: 200ms.
 
   trace-pid <pid>            Attach Instruments Metal System Trace to a running process.
-                             Output: /tmp/afm-metal.trace (open in Instruments)
+                             Output: Research/GPUProfiles/afm-metal.trace by default.
 
   power [interval_ms]        Monitor GPU power, frequency, and active residency
                              Requires sudo. Default interval: 500ms.
@@ -117,6 +118,8 @@ cmd_trace() {
     echo "Duration: ${duration}s"
     echo ""
 
+    local trace_path="${TRACE_DIR}/afm-metal.trace"
+    AFM_GPU_TRACE_OUTPUT="$trace_path" \
     MACAFM_MLX_MODEL_CACHE="$CACHE_DIR" \
         "$PROJECT_DIR/.build/release/afm" mlx \
         -m "$model" \
@@ -125,8 +128,8 @@ cmd_trace() {
         --temperature 0.7
 
     echo ""
-    if [ -e "/tmp/afm-metal.trace" ]; then
-        echo "Open in Instruments: open /tmp/afm-metal.trace"
+    if [ -e "$trace_path" ]; then
+        echo "Open in Instruments: open $trace_path"
     fi
 }
 

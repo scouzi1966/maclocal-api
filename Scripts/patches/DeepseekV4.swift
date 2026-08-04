@@ -43,6 +43,16 @@ private enum DeepseekV4PerformanceProfile {
     }
 }
 
+private enum DeepseekV4RuntimeOptions {
+    static func enabled(_ name: String, default defaultValue: Bool) -> Bool {
+        guard let raw = ProcessInfo.processInfo.environment[name] else {
+            return defaultValue
+        }
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return value != "0" && value != "false" && value != "off"
+    }
+}
+
 private enum DeepseekV4NumericTrace {
     static let enabled =
         ProcessInfo.processInfo.environment["VMLX_DSV4_NUMERIC_TRACE"] == "1"
@@ -160,6 +170,17 @@ class DeepseekV4Attention: Module {
         return raw != "0" && raw.lowercased() != "false"
     }()
 
+    private static let compileAttentionPostDecode = DeepseekV4RuntimeOptions.enabled(
+        "VMLX_DSV4_COMPILE_ATTN_POST", default: true)
+
+    private lazy var compiledAttentionPostDecode: @Sendable ([MLXArray]) -> [MLXArray] = {
+        let body: ([MLXArray]) -> [MLXArray] = { [unowned self] args in
+            [self.projectAttentionOutput(
+                args[0], cos: args[1], sin: args[2], groupedWeight: args[3])]
+        }
+        return compile(shapeless: false, body)
+    }()
+
     let rope: DeepseekV4RoPE
 
     // Compressor + Indexer (instantiated only when compressRatio > 0).
@@ -243,6 +264,57 @@ class DeepseekV4Attention: Module {
                     config: config, compressRatio: compressRatio)
             }
         }
+    }
+
+    private func groupedOutputWeight(dtype: DType) -> MLXArray {
+        let groupFeatures = (numHeads * headDim) / oGroups
+        guard let quantized = woA as? QuantizedLinear else {
+            return woA.weight.reshaped(oGroups, oLoraRank, groupFeatures)
+        }
+
+        if Self.cacheDequantizedWoA {
+            dequantizedWoALock.lock()
+            defer { dequantizedWoALock.unlock() }
+            if let cachedDequantizedWoA {
+                return cachedDequantizedWoA
+            }
+            let value = MLX.dequantized(
+                quantized.weight, scales: quantized.scales,
+                biases: quantized.biases, groupSize: quantized.groupSize,
+                bits: quantized.bits, mode: quantized.mode, dtype: dtype
+            ).reshaped(oGroups, oLoraRank, groupFeatures)
+            MLX.eval(value)
+            cachedDequantizedWoA = value
+            return value
+        }
+
+        return MLX.dequantized(
+            quantized.weight, scales: quantized.scales,
+            biases: quantized.biases, groupSize: quantized.groupSize,
+            bits: quantized.bits, mode: quantized.mode, dtype: dtype
+        ).reshaped(oGroups, oLoraRank, groupFeatures)
+    }
+
+    private func projectAttentionOutput(
+        _ attention: MLXArray,
+        cos: MLXArray,
+        sin: MLXArray,
+        groupedWeight: MLXArray
+    ) -> MLXArray {
+        let batch = attention.dim(0)
+        let length = attention.dim(2)
+        let groupFeatures = (numHeads * headDim) / oGroups
+        let derotated = DeepseekV4Math.applyPartialRoPE(
+            attention,
+            cos: cos.expandedDimensions(axes: [0, 1]),
+            sin: sin.expandedDimensions(axes: [0, 1]),
+            ropeDim: ropeDim,
+            inverse: true)
+        let grouped = derotated.transposed(0, 2, 1, 3)
+            .reshaped(batch, length, oGroups, groupFeatures)
+        let projectedA = einsum("bsgd,grd->bsgr", grouped, groupedWeight)
+            .reshaped(batch, length, oGroups * oLoraRank)
+        return woB(projectedA)
     }
 
     func callAsFunction(
@@ -466,7 +538,7 @@ class DeepseekV4Attention: Module {
         }
 
         // --- SDPA with attention sinks ---
-        var output = MLXFast.scaledDotProductAttention(
+        let output = MLXFast.scaledDotProductAttention(
             queries: q, keys: fullKV, values: fullKV,
             scale: scale, mask: adjustedMask,
             sinks: config.useAttnSink ? attnSink.asType(q.dtype) : nil)
@@ -475,72 +547,32 @@ class DeepseekV4Attention: Module {
         }
         // output shape: (B, numHeads, L, headDim)
 
-        // --- Inverse RoPE on the output's head-major layout ---
-        let cosI = cosT.expandedDimensions(axes: [0, 1])
-        let sinI = sinT.expandedDimensions(axes: [0, 1])
-        output = DeepseekV4Math.applyPartialRoPE(
-            output, cos: cosI, sin: sinI, ropeDim: ropeDim, inverse: true)
-        if layerIdx == 0 {
-            DeepseekV4NumericTrace.tensor("layer.0.attention.derotated", output)
+        // Keep dequantization and its evaluated cache outside the compiled
+        // graph. Only the stateless inverse-RoPE and grouped projection tail
+        // is compiled, so mutable KV cache state remains explicit above.
+        let groupedWeight = groupedOutputWeight(dtype: output.dtype)
+        if Self.compileAttentionPostDecode,
+            L == 1,
+            Device.defaultDevice().deviceType == .gpu,
+            !DeepseekV4NumericTrace.enabled
+        {
+            return compiledAttentionPostDecode([output, cosT, sinT, groupedWeight])[0]
         }
-        output = output.transposed(0, 2, 1, 3)  // (B, L, numHeads, headDim)
-            .reshaped(B, L, numHeads * headDim)
 
-        // --- Grouped low-rank O projection ---
-        // Reshape to (B, L, oGroups, groupFeat) then per-group matmul
-        // through `wo_a`, producing (B, L, oGroups, oLoraRank) → concat
-        // groups → wo_b. Mirrors Python `_grouped_output_projection`
-        // (mlx_model.py:700) — separate dispatch for QuantizedLinear vs
-        // plain Linear because the quantized packed weight cannot be
-        // reshaped element-wise.
-        let groupFeat = (numHeads * headDim) / oGroups
-        let oReshape = output.reshaped(B, L, oGroups, groupFeat)
-        let oA: MLXArray
-        if let qwo = woA as? QuantizedLinear {
-            // Python ref (`_oproj`) dequantizes `wo_a` once and uses an
-            // einsum instead of `quantized_matmul`:
-            //   wo_a = mx.dequantize(...).reshape(oGroups, oLoraRank, -1)
-            //   out = mx.einsum("bsgd,grd->bsgr", out, wo_a)
-            // Keep that path here because the official 0731 implementation
-            // intentionally bypasses QuantLinear.__call__ for this grouped
-            // projection.
-            let woaW: MLXArray
-            if Self.cacheDequantizedWoA {
-                dequantizedWoALock.lock()
-                if let cachedDequantizedWoA {
-                    woaW = cachedDequantizedWoA
-                } else {
-                    let dequantized = MLX.dequantized(
-                        qwo.weight, scales: qwo.scales, biases: qwo.biases,
-                        groupSize: qwo.groupSize, bits: qwo.bits, mode: qwo.mode,
-                        dtype: output.dtype
-                    ).reshaped(oGroups, oLoraRank, groupFeat)
-                    MLX.eval(dequantized)
-                    cachedDequantizedWoA = dequantized
-                    woaW = dequantized
-                }
-                dequantizedWoALock.unlock()
-            } else {
-                woaW = MLX.dequantized(
-                    qwo.weight, scales: qwo.scales, biases: qwo.biases,
-                    groupSize: qwo.groupSize, bits: qwo.bits, mode: qwo.mode,
-                    dtype: output.dtype
-                ).reshaped(oGroups, oLoraRank, groupFeat)
-            }
-            oA = einsum("bsgd,grd->bsgr", oReshape, woaW)
-                .reshaped(B, L, oGroups * oLoraRank)
-        } else {
-            // Non-quantized path: keep the einsum.
-            // wo_a.weight has shape (oGroups*oLoraRank, groupFeat) per
-            // MLX Linear convention (out, in).
-            let woaW = woA.weight.reshaped(oGroups, oLoraRank, groupFeat)
-            oA = einsum("bsgd,grd->bsgr", oReshape, woaW)
-                .reshaped(B, L, oGroups * oLoraRank)
-        }
         if layerIdx == 0 {
-            DeepseekV4NumericTrace.tensor("layer.0.attention.oproj_a", oA)
+            let derotated = DeepseekV4Math.applyPartialRoPE(
+                output,
+                cos: cosT.expandedDimensions(axes: [0, 1]),
+                sin: sinT.expandedDimensions(axes: [0, 1]),
+                ropeDim: ropeDim,
+                inverse: true)
+            DeepseekV4NumericTrace.tensor("layer.0.attention.derotated", derotated)
         }
-        let projected = woB(oA)
+        let projected = projectAttentionOutput(
+            output,
+            cos: cosT,
+            sin: sinT,
+            groupedWeight: groupedWeight)
         if layerIdx == 0 {
             DeepseekV4NumericTrace.tensor("layer.0.attention.oproj_b", projected)
         }
@@ -864,6 +896,9 @@ private enum DeepseekV4CompiledSelectorCache {
         }
         let compiled = compile(body)
         let nestedSafe: Selector = { args in
+            if CompiledDecodeTrace.isActive {
+                return body(args)
+            }
             let result = compiled(args)
             return result.count == 2 ? result : body(args)
         }
@@ -881,6 +916,8 @@ class DeepseekV4MoEGate: Module {
     let isHashLayer: Bool
     fileprivate let compiledSelector: DeepseekV4CompiledSelectorCache.Selector
     let scalingFactorArray: MLXArray
+    private static let fusedRouterEnabled = DeepseekV4RuntimeOptions.enabled(
+        "VMLX_DSV4_FUSED_ROUTER", default: true)
     /// Gate projection weight: (nRoutedExperts, hiddenSize). Stored as a
     /// raw parameter (loaded via sanitize) rather than a Linear to allow
     /// the matmul to run in fp32 per the authoritative reference.
@@ -927,22 +964,18 @@ class DeepseekV4MoEGate: Module {
     /// information the gate matmul + sqrtsoftplus produced and
     /// flattening the routing geometry the model was trained with.
     func callAsFunction(_ x: MLXArray, inputIds: MLXArray?) -> (MLXArray, MLXArray) {
-        // Compute the gate logits in fp32 even on hash layers — the
-        // hash path needs them to score the (deterministic) selected
-        // experts.
-        let xF32 = x.asType(.float32)
-        let wF32 = weight.asType(.float32)
-        let logits = xF32.matmul(wF32.transposed())
         if isHashLayer, let ids = inputIds {
-            let scores = DeepseekV4Math.sqrtSoftplus(logits)
             // Hash routing: tid2eid is (vocab, topK) — pre-stamped at
             // convert time with which topK experts each token id
             // routes to. `tid2eid[ids]` for ids shape (B, L) returns
             // (B, L, topK) directly via fancy index.
             let indices = tid2eid[ids].asType(.int32)  // (B, L, topK)
-            // Gate the experts using their actual sqrtsoftplus score
-            // (mirror Python `mx.take_along_axis(scores, inds, axis=-1)`).
-            var weights = takeAlong(scores, indices, axis: -1)
+            let logits = x.asType(.float32).matmul(
+                weight.asType(.float32).transposed())
+            let selectedLogits = takeAlong(logits, indices, axis: -1)
+            // Gate the experts using their actual sqrtsoftplus score. This is
+            // algebraically identical to scoring all experts then gathering.
+            var weights = DeepseekV4Math.sqrtSoftplus(selectedLogits)
             if normTopkProb {
                 let denom = weights.sum(axis: -1, keepDims: true) + 1e-20
                 weights = weights / denom
@@ -953,6 +986,18 @@ class DeepseekV4MoEGate: Module {
 
         // Non-hash: the same stateless compiled sqrtsoftplus + noaux-biased
         // top-k microfunction used by the authoritative affine runtime.
+        let logits = x.asType(.float32).matmul(weight.asType(.float32).transposed())
+        if Self.fusedRouterEnabled,
+           x.dim(1) == 1,
+           let selected = DeepseekV4Math.fusedSqrtSoftplusSelect(
+               logits: logits,
+               bias: bias,
+               k: topK,
+               normalize: normTopkProb,
+               scalingFactor: scalingFactorArray)
+        {
+            return (selected.indices.asType(.uint32), selected.weights)
+        }
         let selected = compiledSelector([logits, bias, scalingFactorArray])
         let indices = selected[0]
         let weights = selected[1]
@@ -973,6 +1018,16 @@ class DeepseekV4MoE: Module, UnaryLayer {
     /// layer is hash-routed. Set by the outer model before each layer
     /// call when hash routing applies.
     var currentInputIds: MLXArray? = nil
+    private static let compileMoEDecode =
+        ProcessInfo.processInfo.environment["VMLX_DSV4_COMPILE_MOE"] == "1"
+    private lazy var compiledDecode: @Sendable (MLXArray, MLXArray) -> MLXArray = {
+        let body: (MLXArray, MLXArray) -> MLXArray = { [unowned self] x, ids in
+            CompiledDecodeTrace.withActive {
+                self.forward(x, inputIds: ids)
+            }
+        }
+        return compile(shapeless: false, body)
+    }()
     init(config: DeepseekV4Configuration, layerIdx: Int) {
         self.config = config
         self.layerIdx = layerIdx
@@ -1008,8 +1063,17 @@ class DeepseekV4MoE: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
+        if Self.compileMoEDecode && x.dim(1) == 1 {
+            let ids = currentInputIds
+                ?? MLXArray.zeros([x.dim(0), x.dim(1)], dtype: .uint32)
+            return compiledDecode(x, ids)
+        }
+        return forward(x, inputIds: currentInputIds)
+    }
+
+    fileprivate func forward(_ x: MLXArray, inputIds: MLXArray?) -> MLXArray {
         let profileStages =
-            DeepseekV4PerformanceProfile.enabled
+            DeepseekV4PerformanceProfile.enabled && !CompiledDecodeTrace.isActive
         var stageStart = profileStages ? CFAbsoluteTimeGetCurrent() : 0
         func finishStage(_ name: String, _ arrays: [MLXArray]) {
             guard profileStages else { return }
@@ -1021,10 +1085,12 @@ class DeepseekV4MoE: Module, UnaryLayer {
             stageStart = now
         }
 
-        let (indices, scores) = gate(x, inputIds: currentInputIds)
+        let (indices, scores) = gate(x, inputIds: inputIds)
         finishStage("gate", [indices, scores])
         let routed = switchMLP(x, indices, preDownScores: scores)
-        var y = DeepseekV4Math.reduceRoutedExpertsFP32(routed)
+        var y = routed.ndim == x.ndim
+            ? routed.asType(.float32)
+            : DeepseekV4Math.reduceRoutedExpertsFP32(routed)
         finishStage("routed", [y])
         finishStage("route_reduce", [y])
         let shared = sharedExperts(x)
@@ -1108,6 +1174,23 @@ class DeepseekV4HyperConnection: Module {
             (xFlat * xFlat).mean(axis: -1, keepDims: true) + hcEps)
         let mixes = xFlat.matmul(fn.asType(.float32).transposed()) * reciprocalRMS
 
+        if DeepseekV4Math.fusedHC4Enabled && hcMult == 4 && L == 1
+            && Device.defaultDevice().deviceType == .gpu
+        {
+            let fused = DeepseekV4Math.hcSplitSinkhornCollapse4(
+                mixes: mixes,
+                scale: scale,
+                base: base,
+                residual: xFlat.reshaped(B, L, hcMult, hiddenSize),
+                hiddenSize: hiddenSize,
+                iters: hcIters,
+                eps: hcEps)
+            return (
+                x: fused.collapsed.asType(dtype),
+                post: fused.post,
+                comb: fused.comb)
+        }
+
         let (pre, post, comb) = DeepseekV4Math.hcSplitSinkhorn(
             mixes: mixes, scale: scale, base: base,
             hcMult: hcMult, iters: hcIters, eps: hcEps)
@@ -1116,6 +1199,52 @@ class DeepseekV4HyperConnection: Module {
         let xReshape = xFlat.reshaped(B, L, hcMult, hiddenSize)
         let y = (pre.expandedDimensions(axis: -1) * xReshape).sum(axis: -2)
         return (x: y.asType(dtype), post: post, comb: comb)
+    }
+
+    /// Decode-only collapse plus the immediately following RMSNorm. The
+    /// optimized kernel is deliberately gated while parity and throughput are
+    /// qualified; all other shapes retain the ordinary MLX implementation.
+    func collapseNormalized(
+        _ h: MLXArray, normalization: RMSNorm
+    ) -> (x: MLXArray, normalized: MLXArray, post: MLXArray, comb: MLXArray) {
+        let dtype = h.dtype
+        let B = h.dim(0)
+        let L = h.dim(1)
+
+        guard DeepseekV4Math.fusedHCNormEnabled,
+            DeepseekV4Math.fusedHC4Enabled,
+            hcMult == 4,
+            L == 1,
+            Device.defaultDevice().deviceType == .gpu,
+            !DeepseekV4NumericTrace.enabled
+        else {
+            let ordinary = collapse(h)
+            return (
+                x: ordinary.x,
+                normalized: normalization(ordinary.x),
+                post: ordinary.post,
+                comb: ordinary.comb)
+        }
+
+        let xFlat = h.reshaped(B, L, hcMult * hiddenSize).asType(.float32)
+        let reciprocalRMS = rsqrt(
+            (xFlat * xFlat).mean(axis: -1, keepDims: true) + hcEps)
+        let mixes = xFlat.matmul(fn.asType(.float32).transposed()) * reciprocalRMS
+        let fused = DeepseekV4Math.hcSplitSinkhornCollapseNorm4(
+            mixes: mixes,
+            scale: scale,
+            base: base,
+            residual: xFlat.reshaped(B, L, hcMult, hiddenSize),
+            normWeight: normalization.weight,
+            normEps: normalization.eps,
+            hiddenSize: hiddenSize,
+            iters: hcIters,
+            hcEps: hcEps)
+        return (
+            x: fused.collapsed.asType(dtype),
+            normalized: fused.normalized.asType(dtype),
+            post: fused.post,
+            comb: fused.comb)
     }
 
     /// Expand: given attn/ffn output `blockOut` (B, L, hiddenSize),
@@ -1128,6 +1257,16 @@ class DeepseekV4HyperConnection: Module {
         blockOut: MLXArray, residual: MLXArray, post: MLXArray, comb: MLXArray
     ) -> MLXArray {
         let dtype = blockOut.dtype
+        if DeepseekV4Math.fusedHC4Enabled && hcMult == 4 && residual.dim(1) == 1
+            && Device.defaultDevice().deviceType == .gpu
+        {
+            return DeepseekV4Math.hcExpand4(
+                blockOut: blockOut,
+                residual: residual,
+                post: post,
+                comb: comb,
+                hiddenSize: hiddenSize).asType(dtype)
+        }
         // Match the 0731 MLX reference's broadcast/reduction axes exactly.
         let combResid = DeepseekV4Math.hcExpandResidual(
             comb: comb, residual: residual)
@@ -1204,6 +1343,46 @@ class DeepseekV4DecoderLayer: Module {
     @ModuleInfo(key: "ffn_hc") var ffnHC: DeepseekV4HyperConnection
 
     let layerIdx: Int
+    private static let compileAttentionHCDecode = DeepseekV4RuntimeOptions.enabled(
+        "VMLX_DSV4_COMPILE_ATTN_HC", default: true)
+    private lazy var compiledAttentionHCDecode: @Sendable ([MLXArray]) -> [MLXArray] = {
+        let body: ([MLXArray]) -> [MLXArray] = { [unowned self] args in
+            CompiledDecodeTrace.withActive {
+                let collapsed = self.attnHC.collapseNormalized(
+                    args[0], normalization: self.inputLayerNorm)
+                return [
+                    collapsed.x,
+                    collapsed.normalized,
+                    collapsed.post,
+                    collapsed.comb,
+                ]
+            }
+        }
+        return compile(shapeless: false, body)
+    }()
+    private static let compileFFNDecode = DeepseekV4RuntimeOptions.enabled(
+        "VMLX_DSV4_COMPILE_FFN", default: true)
+    private lazy var compiledLayerTailDecode: @Sendable ([MLXArray]) -> [MLXArray] = {
+        let body: ([MLXArray]) -> [MLXArray] = { [unowned self] args in
+            CompiledDecodeTrace.withActive {
+                let hA = self.attnHC.expand(
+                    blockOut: args[0],
+                    residual: args[1],
+                    post: args[2],
+                    comb: args[3])
+                let residual = hA
+                let collapsed = self.ffnHC.collapseNormalized(
+                    hA, normalization: self.postAttentionLayerNorm)
+                let output = self.mlp.forward(collapsed.normalized, inputIds: args[4])
+                return [self.ffnHC.expand(
+                    blockOut: output,
+                    residual: residual,
+                    post: collapsed.post,
+                    comb: collapsed.comb)]
+            }
+        }
+        return compile(shapeless: false, body)
+    }()
 
     init(config: DeepseekV4Configuration, layerIdx: Int) {
         self.layerIdx = layerIdx
@@ -1244,14 +1423,32 @@ class DeepseekV4DecoderLayer: Module {
         }
         // ---- Attention HC ----
         let residualA = h
-        let (xA, postA, combA) = attnHC.collapse(h)
+        let xA: MLXArray
+        let normedA: MLXArray
+        let postA: MLXArray
+        let combA: MLXArray
+        if Self.compileAttentionHCDecode && h.dim(1) == 1
+            && !profileStages && !DeepseekV4NumericTrace.enabled
+        {
+            let collapsed = compiledAttentionHCDecode([h])
+            xA = collapsed[0]
+            normedA = collapsed[1]
+            postA = collapsed[2]
+            combA = collapsed[3]
+        } else {
+            let collapsed = attnHC.collapseNormalized(
+                h, normalization: inputLayerNorm)
+            xA = collapsed.x
+            normedA = collapsed.normalized
+            postA = collapsed.post
+            combA = collapsed.comb
+        }
         if layerIdx == 0 {
             DeepseekV4NumericTrace.tensor("layer.0.attn_hc_pre.x", xA)
             DeepseekV4NumericTrace.tensor("layer.0.attn_hc_pre.post", postA)
             DeepseekV4NumericTrace.tensor("layer.0.attn_hc_pre.comb", combA)
         }
         finishStage("attn_hc_pre", [xA, postA, combA])
-        let normedA = inputLayerNorm(xA)
         if layerIdx == 0 {
             DeepseekV4NumericTrace.tensor("layer.0.attn_norm", normedA)
         }
@@ -1261,6 +1458,15 @@ class DeepseekV4DecoderLayer: Module {
             DeepseekV4NumericTrace.tensor("layer.0.attention", attnOut)
         }
         finishStage("attention", [attnOut])
+        if Self.compileFFNDecode && h.dim(1) == 1
+            && !profileStages && !DeepseekV4NumericTrace.enabled
+        {
+            let ids = inputIds
+                ?? MLXArray.zeros([h.dim(0), h.dim(1)], dtype: .uint32)
+            return compiledLayerTailDecode([
+                attnOut, residualA, postA, combA, ids,
+            ])[0]
+        }
         let hA = attnHC.expand(
             blockOut: attnOut, residual: residualA, post: postA, comb: combA)
         if layerIdx == 0 {
@@ -1270,14 +1476,18 @@ class DeepseekV4DecoderLayer: Module {
 
         // ---- FFN HC ----
         let residualF = hA
-        let (xF, postF, combF) = ffnHC.collapse(hA)
+        let collapsedF = ffnHC.collapseNormalized(
+            hA, normalization: postAttentionLayerNorm)
+        let xF = collapsedF.x
+        let postF = collapsedF.post
+        let combF = collapsedF.comb
         if layerIdx == 0 {
             DeepseekV4NumericTrace.tensor("layer.0.ffn_hc_pre.x", xF)
             DeepseekV4NumericTrace.tensor("layer.0.ffn_hc_pre.post", postF)
             DeepseekV4NumericTrace.tensor("layer.0.ffn_hc_pre.comb", combF)
         }
         finishStage("ffn_hc_pre", [xF, postF, combF])
-        let normedF = postAttentionLayerNorm(xF)
+        let normedF = collapsedF.normalized
         if layerIdx == 0 {
             DeepseekV4NumericTrace.tensor("layer.0.ffn_norm", normedF)
         }

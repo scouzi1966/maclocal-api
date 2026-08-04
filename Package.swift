@@ -64,7 +64,7 @@ let package = Package(
         // ("mlx-swift-lm") matches every `.product(package: "mlx-swift-lm")` reference below.
         .package(
             url: "https://github.com/scouzi1966/mlx-swift-lm.git",
-            revision: "e1852869ce61ded0d23b76df3757e9b75c77c1f5"
+            revision: "8cbfef5566781832e355e5b247051bb91188fdde"
         ),
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
         .package(url: "https://github.com/huggingface/swift-huggingface.git", from: "0.8.1"),

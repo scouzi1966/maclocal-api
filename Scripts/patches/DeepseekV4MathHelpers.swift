@@ -78,6 +78,69 @@ private let _compiledDeepseekV4ScoredSwiGLUUnclamped =
     compile(shapeless: true, _deepseekV4ScoredSwiGLUUnclampedArrayBody)
 
 public enum DeepseekV4Math {
+    public static let fusedHC4Enabled =
+        ProcessInfo.processInfo.environment["VMLX_DSV4_FUSED_HC4"] != "0"
+    public static let fusedHCNormEnabled =
+        ProcessInfo.processInfo.environment["VMLX_DSV4_FUSED_HC_NORM"] == "1"
+
+    private static let fusedSqrtSoftplusTopKKernel = MLXFast.metalKernel(
+        name: "deepseek_v4_sqrtsoftplus_topk",
+        inputNames: ["logits", "bias", "scale"],
+        outputNames: ["indices", "weights"],
+        source: """
+            const uint lane = thread_position_in_threadgroup.x;
+            const uint row = threadgroup_position_in_grid.x;
+            threadgroup float original[NEXPERTS];
+            threadgroup float ranked[NEXPERTS];
+
+            if (lane < NEXPERTS) {
+                const uint offset = row * NEXPERTS + lane;
+                const float value = static_cast<float>(logits[offset]);
+                const float magnitude = metal::abs(value);
+                const float softplus = metal::max(value, 0.0f)
+                    + metal::fast::log(1.0f + metal::fast::exp(-magnitude));
+                const float score = metal::sqrt(softplus);
+                original[lane] = score;
+                ranked[lane] = score + static_cast<float>(bias[lane]);
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+
+            if (lane == 0) {
+                float selected_scores[TOPK];
+                int selected_indices[TOPK];
+                for (int slot = 0; slot < TOPK; ++slot) {
+                    float best = -INFINITY;
+                    int best_index = 0;
+                    for (int expert = 0; expert < NEXPERTS; ++expert) {
+                        const float candidate = ranked[expert];
+                        if (candidate > best) {
+                            best = candidate;
+                            best_index = expert;
+                        }
+                    }
+                    selected_indices[slot] = best_index;
+                    selected_scores[slot] = original[best_index];
+                    ranked[best_index] = -INFINITY;
+                }
+
+                float denominator = 0.0f;
+                if (NORMALIZE != 0) {
+                    for (int slot = 0; slot < TOPK; ++slot) {
+                        denominator += selected_scores[slot];
+                    }
+                    denominator += 1.0e-20f;
+                }
+                const float route_scale = static_cast<float>(scale[0]);
+                const uint output_base = row * TOPK;
+                for (int slot = 0; slot < TOPK; ++slot) {
+                    indices[output_base + slot] = selected_indices[slot];
+                    const float normalized = NORMALIZE != 0
+                        ? selected_scores[slot] / denominator
+                        : selected_scores[slot];
+                    weights[output_base + slot] = normalized * route_scale;
+                }
+            }
+        """)
 
     private static let e4m3KVActivationRoundTripKernel = MLXFast.metalKernel(
         name: "deepseek_v4_e4m3_kv_activation_roundtrip",
@@ -287,13 +350,13 @@ public enum DeepseekV4Math {
 
     /// Official 0731 hyper-connection expansion. Keep the broadcast and
     /// reduction axes identical to the working MLX reference:
-    /// `(comb[..., None] * residual[..., None, :, :]).sum(axis: -3)`.
+    /// `(comb[..., None] * residual[..., :, None, :]).sum(axis: -3)`.
     public static func hcExpandResidual(
         comb: MLXArray, residual: MLXArray
     ) -> MLXArray {
         (
             comb.asType(.float32).expandedDimensions(axis: -1)
-                * residual.asType(.float32).expandedDimensions(axis: -3)
+                * residual.asType(.float32).expandedDimensions(axis: -2)
         ).sum(axis: -3)
     }
 
@@ -398,6 +461,292 @@ public enum DeepseekV4Math {
             }
         """)
 
+    /// Decode-oriented HC=4 fusion used by the native MLX path. One
+    /// threadgroup computes a token's Sinkhorn coefficients and immediately
+    /// consumes the pre weights to collapse its four residual streams. This
+    /// avoids materializing `pre` and removes the broadcast/multiply/reduce
+    /// graph that otherwise follows every HC split.
+    private static let hcSplitSinkhornCollapse4Kernel = MLXFast.metalKernel(
+        name: "deepseek_v4_hc_split_sinkhorn_collapse4",
+        inputNames: ["mixes", "scale", "base", "residual", "eps"],
+        outputNames: ["post", "comb", "collapsed"],
+        source: """
+            uint row = threadgroup_position_in_grid.x;
+            uint tid = thread_position_in_threadgroup.x;
+            uint ntg = threads_per_threadgroup.x;
+            threadgroup float pre_shared[4];
+
+            auto mix = mixes + row * 24;
+            auto post_out = post + row * 4;
+            auto comb_out = comb + row * 16;
+            float epsv = static_cast<float>(eps[0]);
+
+            if (tid == 0) {
+                float pre_scale = static_cast<float>(scale[0]);
+                float post_scale = static_cast<float>(scale[1]);
+                float comb_scale = static_cast<float>(scale[2]);
+
+                for (int i = 0; i < 4; ++i) {
+                    float z = static_cast<float>(mix[i]) * pre_scale
+                        + static_cast<float>(base[i]);
+                    pre_shared[i] = 1.0f / (1.0f + metal::fast::exp(-z)) + epsv;
+                }
+                for (int i = 0; i < 4; ++i) {
+                    int off = 4 + i;
+                    float z = static_cast<float>(mix[off]) * post_scale
+                        + static_cast<float>(base[off]);
+                    post_out[i] = 2.0f / (1.0f + metal::fast::exp(-z));
+                }
+
+                float c[16];
+                for (int i = 0; i < 4; ++i) {
+                    float row_max = -INFINITY;
+                    for (int j = 0; j < 4; ++j) {
+                        int cidx = i * 4 + j;
+                        int off = 8 + cidx;
+                        float v = static_cast<float>(mix[off]) * comb_scale
+                            + static_cast<float>(base[off]);
+                        c[cidx] = v;
+                        row_max = metal::max(row_max, v);
+                    }
+                    float row_sum = 0.0f;
+                    for (int j = 0; j < 4; ++j) {
+                        int cidx = i * 4 + j;
+                        float v = metal::fast::exp(c[cidx] - row_max);
+                        c[cidx] = v;
+                        row_sum += v;
+                    }
+                    float inv_sum = 1.0f / row_sum;
+                    for (int j = 0; j < 4; ++j) {
+                        int cidx = i * 4 + j;
+                        c[cidx] = c[cidx] * inv_sum + epsv;
+                    }
+                }
+
+                for (int j = 0; j < 4; ++j) {
+                    float col_sum = 0.0f;
+                    for (int i = 0; i < 4; ++i) {
+                        col_sum += c[i * 4 + j];
+                    }
+                    float inv_denom = 1.0f / (col_sum + epsv);
+                    for (int i = 0; i < 4; ++i) {
+                        c[i * 4 + j] *= inv_denom;
+                    }
+                }
+
+                for (int iter = 1; iter < ITERS; ++iter) {
+                    for (int i = 0; i < 4; ++i) {
+                        float row_sum = 0.0f;
+                        for (int j = 0; j < 4; ++j) {
+                            row_sum += c[i * 4 + j];
+                        }
+                        float inv_denom = 1.0f / (row_sum + epsv);
+                        for (int j = 0; j < 4; ++j) {
+                            c[i * 4 + j] *= inv_denom;
+                        }
+                    }
+                    for (int j = 0; j < 4; ++j) {
+                        float col_sum = 0.0f;
+                        for (int i = 0; i < 4; ++i) {
+                            col_sum += c[i * 4 + j];
+                        }
+                        float inv_denom = 1.0f / (col_sum + epsv);
+                        for (int i = 0; i < 4; ++i) {
+                            c[i * 4 + j] *= inv_denom;
+                        }
+                    }
+                }
+                for (int i = 0; i < 16; ++i) {
+                    comb_out[i] = c[i];
+                }
+            }
+
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            auto x = residual + row * 4 * D;
+            auto y = collapsed + row * D;
+            for (uint d = tid; d < D; d += ntg) {
+                float value = static_cast<float>(x[d]) * pre_shared[0];
+                value += static_cast<float>(x[D + d]) * pre_shared[1];
+                value += static_cast<float>(x[2 * D + d]) * pre_shared[2];
+                value += static_cast<float>(x[3 * D + d]) * pre_shared[3];
+                y[d] = value;
+            }
+        """)
+
+    /// Decode-only HC=4 collapse followed by weighted RMSNorm. This mirrors
+    /// DeepSeek's operation order while retaining the collapsed row for
+    /// numerical diagnostics. The row stays in threadgroup memory between
+    /// collapse and normalization, removing a device round-trip and a second
+    /// Metal dispatch.
+    private static let hcSplitSinkhornCollapseNorm4Kernel = MLXFast.metalKernel(
+        name: "deepseek_v4_hc_split_sinkhorn_collapse_norm4",
+        inputNames: [
+            "mixes", "scale", "base", "residual", "norm_weight",
+            "hc_eps", "norm_eps",
+        ],
+        outputNames: ["post", "comb", "collapsed", "normalized"],
+        source: """
+            uint row = threadgroup_position_in_grid.x;
+            uint tid = thread_position_in_threadgroup.x;
+            uint ntg = threads_per_threadgroup.x;
+            uint simd_index = simdgroup_index_in_threadgroup;
+            uint simd_lane = thread_index_in_simdgroup;
+            threadgroup float row_shared[D];
+            threadgroup float pre_shared[4];
+            threadgroup float simd_sums[32];
+            threadgroup float inv_rms_shared[1];
+
+            auto mix = mixes + row * 24;
+            auto post_out = post + row * 4;
+            auto comb_out = comb + row * 16;
+            float epsv = static_cast<float>(hc_eps[0]);
+
+            if (tid == 0) {
+                float pre_scale = static_cast<float>(scale[0]);
+                float post_scale = static_cast<float>(scale[1]);
+                float comb_scale = static_cast<float>(scale[2]);
+
+                for (int i = 0; i < 4; ++i) {
+                    float z = static_cast<float>(mix[i]) * pre_scale
+                        + static_cast<float>(base[i]);
+                    pre_shared[i] = 1.0f / (1.0f + metal::fast::exp(-z)) + epsv;
+                }
+                for (int i = 0; i < 4; ++i) {
+                    int off = 4 + i;
+                    float z = static_cast<float>(mix[off]) * post_scale
+                        + static_cast<float>(base[off]);
+                    post_out[i] = 2.0f / (1.0f + metal::fast::exp(-z));
+                }
+
+                float c[16];
+                for (int i = 0; i < 4; ++i) {
+                    float row_max = -INFINITY;
+                    for (int j = 0; j < 4; ++j) {
+                        int cidx = i * 4 + j;
+                        int off = 8 + cidx;
+                        float v = static_cast<float>(mix[off]) * comb_scale
+                            + static_cast<float>(base[off]);
+                        c[cidx] = v;
+                        row_max = metal::max(row_max, v);
+                    }
+                    float row_sum = 0.0f;
+                    for (int j = 0; j < 4; ++j) {
+                        int cidx = i * 4 + j;
+                        float v = metal::fast::exp(c[cidx] - row_max);
+                        c[cidx] = v;
+                        row_sum += v;
+                    }
+                    float inv_sum = 1.0f / row_sum;
+                    for (int j = 0; j < 4; ++j) {
+                        int cidx = i * 4 + j;
+                        c[cidx] = c[cidx] * inv_sum + epsv;
+                    }
+                }
+
+                for (int j = 0; j < 4; ++j) {
+                    float col_sum = 0.0f;
+                    for (int i = 0; i < 4; ++i) {
+                        col_sum += c[i * 4 + j];
+                    }
+                    float inv_denom = 1.0f / (col_sum + epsv);
+                    for (int i = 0; i < 4; ++i) {
+                        c[i * 4 + j] *= inv_denom;
+                    }
+                }
+
+                for (int iter = 1; iter < ITERS; ++iter) {
+                    for (int i = 0; i < 4; ++i) {
+                        float row_sum = 0.0f;
+                        for (int j = 0; j < 4; ++j) {
+                            row_sum += c[i * 4 + j];
+                        }
+                        float inv_denom = 1.0f / (row_sum + epsv);
+                        for (int j = 0; j < 4; ++j) {
+                            c[i * 4 + j] *= inv_denom;
+                        }
+                    }
+                    for (int j = 0; j < 4; ++j) {
+                        float col_sum = 0.0f;
+                        for (int i = 0; i < 4; ++i) {
+                            col_sum += c[i * 4 + j];
+                        }
+                        float inv_denom = 1.0f / (col_sum + epsv);
+                        for (int i = 0; i < 4; ++i) {
+                            c[i * 4 + j] *= inv_denom;
+                        }
+                    }
+                }
+                for (int i = 0; i < 16; ++i) {
+                    comb_out[i] = c[i];
+                }
+            }
+
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            auto x = residual + row * 4 * D;
+            float sum_squares = 0.0f;
+            for (uint d = tid; d < D; d += ntg) {
+                float value = static_cast<float>(x[d]) * pre_shared[0];
+                value += static_cast<float>(x[D + d]) * pre_shared[1];
+                value += static_cast<float>(x[2 * D + d]) * pre_shared[2];
+                value += static_cast<float>(x[3 * D + d]) * pre_shared[3];
+                row_shared[d] = value;
+                collapsed[row * D + d] = value;
+                sum_squares += value * value;
+            }
+
+            sum_squares = simd_sum(sum_squares);
+            if (simd_lane == 0) {
+                simd_sums[simd_index] = sum_squares;
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+
+            uint simd_count = (ntg + 31) / 32;
+            float total = tid < simd_count ? simd_sums[tid] : 0.0f;
+            total = simd_sum(total);
+            if (tid == 0) {
+                float arg = total / static_cast<float>(D)
+                    + static_cast<float>(norm_eps[0]);
+                inv_rms_shared[0] = metal::precise::rsqrt(arg);
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+
+            float inv_rms = inv_rms_shared[0];
+            for (uint d = tid; d < D; d += ntg) {
+                normalized[row * D + d] = row_shared[d] * inv_rms
+                    * static_cast<float>(norm_weight[d]);
+            }
+        """)
+
+    /// HC=4 expansion fusion. One thread handles one embedding coordinate and
+    /// emits all four output streams, reusing the residual and block values.
+    private static let hcExpand4Kernel = MLXFast.metalKernel(
+        name: "deepseek_v4_hc_expand4_v2",
+        inputNames: ["block", "residual", "post", "comb"],
+        outputNames: ["expanded"],
+        source: """
+            uint gid = thread_position_in_grid.x;
+            uint row = gid / D;
+            uint d = gid - row * D;
+            float block_value = static_cast<float>(block[row * D + d]);
+            auto x = residual + row * 4 * D;
+            float r0 = static_cast<float>(x[d]);
+            float r1 = static_cast<float>(x[D + d]);
+            float r2 = static_cast<float>(x[2 * D + d]);
+            float r3 = static_cast<float>(x[3 * D + d]);
+            auto p = post + row * 4;
+            auto c = comb + row * 16;
+            auto y = expanded + row * 4 * D;
+
+            for (int dst = 0; dst < 4; ++dst) {
+                float value = block_value * static_cast<float>(p[dst]);
+                value += static_cast<float>(c[dst]) * r0;
+                value += static_cast<float>(c[4 + dst]) * r1;
+                value += static_cast<float>(c[8 + dst]) * r2;
+                value += static_cast<float>(c[12 + dst]) * r3;
+                y[dst * D + d] = value;
+            }
+        """)
+
     private static let scalarArrayLock = NSLock()
     nonisolated(unsafe) private static var scalarArrays: [Float: MLXArray] = [:]
 
@@ -489,6 +838,99 @@ public enum DeepseekV4Math {
             hcMult: hcMult,
             iters: iters,
             eps: eps)
+    }
+
+    public static func hcSplitSinkhornCollapse4(
+        mixes: MLXArray,
+        scale: MLXArray,
+        base: MLXArray,
+        residual: MLXArray,
+        hiddenSize: Int,
+        iters: Int = 20,
+        eps: Float = 1e-6
+    ) -> (collapsed: MLXArray, post: MLXArray, comb: MLXArray) {
+        let leadShape = Array(mixes.shape.dropLast())
+        let rows = mixes.size / 24
+        let outputs = hcSplitSinkhornCollapse4Kernel(
+            [
+                mixes.asType(.float32),
+                scale.asType(.float32),
+                base.asType(.float32),
+                residual.asType(.float32),
+                scalarArray(eps),
+            ],
+            template: [("D", hiddenSize), ("ITERS", iters)],
+            grid: (rows * 256, 1, 1),
+            threadGroup: (256, 1, 1),
+            outputShapes: [
+                leadShape + [4],
+                leadShape + [4, 4],
+                leadShape + [hiddenSize],
+            ],
+            outputDTypes: [.float32, .float32, .float32])
+        return (collapsed: outputs[2], post: outputs[0], comb: outputs[1])
+    }
+
+    public static func hcSplitSinkhornCollapseNorm4(
+        mixes: MLXArray,
+        scale: MLXArray,
+        base: MLXArray,
+        residual: MLXArray,
+        normWeight: MLXArray,
+        normEps: Float,
+        hiddenSize: Int,
+        iters: Int = 20,
+        hcEps: Float = 1e-6
+    ) -> (collapsed: MLXArray, normalized: MLXArray, post: MLXArray, comb: MLXArray) {
+        let leadShape = Array(mixes.shape.dropLast())
+        let rows = mixes.size / 24
+        let outputs = hcSplitSinkhornCollapseNorm4Kernel(
+            [
+                mixes.asType(.float32),
+                scale.asType(.float32),
+                base.asType(.float32),
+                residual.asType(.float32),
+                normWeight.asType(.float32),
+                scalarArray(hcEps),
+                scalarArray(normEps),
+            ],
+            template: [("D", hiddenSize), ("ITERS", iters)],
+            grid: (rows * 256, 1, 1),
+            threadGroup: (256, 1, 1),
+            outputShapes: [
+                leadShape + [4],
+                leadShape + [4, 4],
+                leadShape + [hiddenSize],
+                leadShape + [hiddenSize],
+            ],
+            outputDTypes: [.float32, .float32, .float32, .float32])
+        return (
+            collapsed: outputs[2],
+            normalized: outputs[3],
+            post: outputs[0],
+            comb: outputs[1])
+    }
+
+    public static func hcExpand4(
+        blockOut: MLXArray,
+        residual: MLXArray,
+        post: MLXArray,
+        comb: MLXArray,
+        hiddenSize: Int
+    ) -> MLXArray {
+        let rows = blockOut.size / hiddenSize
+        return hcExpand4Kernel(
+            [
+                contiguous(blockOut.asType(.float32)),
+                contiguous(residual.asType(.float32)),
+                contiguous(post.asType(.float32)),
+                contiguous(comb.asType(.float32)),
+            ],
+            template: [("D", hiddenSize)],
+            grid: (rows * hiddenSize, 1, 1),
+            threadGroup: (256, 1, 1),
+            outputShapes: [residual.shape],
+            outputDTypes: [.float32])[0]
     }
 
     /// Pure-op reference and non-Metal fallback for the fused kernel above.
@@ -639,10 +1081,16 @@ public enum DeepseekV4Math {
         up: MLXArray,
         limit: Float
     ) -> MLXArray {
+        let body = limit > 0
+            ? _deepseekV4SwiGLUClampedBody
+            : _deepseekV4SwiGLUUnclampedBody
+        let limitArray = scalarArray(limit)
+        if CompiledDecodeTrace.isActive {
+            return body(gate, up, limitArray)
+        }
         let compiled = limit > 0
             ? _compiledDeepseekV4SwiGLUClamped
             : _compiledDeepseekV4SwiGLUUnclamped
-        let limitArray = scalarArray(limit)
         return compiled(gate, up, limitArray)
     }
 
@@ -678,6 +1126,66 @@ public enum DeepseekV4Math {
     // it directly and handles the overflow branch for large x.
     public static func sqrtSoftplus(_ logits: MLXArray) -> MLXArray {
         sqrt(logAddExp(logits, MLXArray(0.0)))
+    }
+
+    /// Decode-only fused selector for the released DSV4 routing contract.
+    /// The caller owns metadata gating; unsupported shapes keep using the
+    /// compiled MLX implementation below.
+    public static func fusedSqrtSoftplusSelect(
+        logits: MLXArray,
+        bias: MLXArray,
+        k: Int,
+        normalize: Bool,
+        scalingFactor: MLXArray
+    ) -> (indices: MLXArray, weights: MLXArray)? {
+        guard Device.defaultDevice().deviceType == .gpu,
+              logits.dim(-1) > 0,
+              logits.dim(-1) <= 256,
+              bias.size == logits.dim(-1),
+              scalingFactor.size == 1,
+              k > 0,
+              k <= logits.dim(-1)
+        else { return nil }
+
+        let experts = logits.dim(-1)
+        let rows = logits.size / experts
+        let outputShape = Array(logits.shape.dropLast()) + [k]
+        let result = fusedSqrtSoftplusTopKKernel(
+            [
+                contiguous(logits.asType(.float32)),
+                contiguous(bias.asType(.float32)),
+                contiguous(scalingFactor.asType(.float32)),
+            ],
+            template: [
+                ("NEXPERTS", experts),
+                ("TOPK", k),
+                ("NORMALIZE", normalize ? 1 : 0),
+            ],
+            grid: (rows * 256, 1, 1),
+            threadGroup: (256, 1, 1),
+            outputShapes: [outputShape, outputShape],
+            outputDTypes: [.int32, .float32])
+        return (indices: result[0], weights: result[1])
+    }
+
+    /// Projects one decode token against only the experts already selected by
+    /// a hash-routing table. The official graph needs the selected FP32 logits,
+    /// not the other expert outputs, so a gathered matrix multiply avoids
+    /// computing the full expert-width gate before discarding almost all of it.
+    public static func selectedExpertLogits(
+        input: MLXArray,
+        weight: MLXArray,
+        indices: MLXArray
+    ) -> MLXArray {
+        let hiddenSize = input.dim(-1)
+        precondition(input.size == hiddenSize, "selected gate projection is decode-only")
+        let inputMatrix = input.asType(.float32).reshaped(1, hiddenSize)
+        let expertMatrices = weight.asType(.float32).expandedDimensions(axis: -1)
+        return gatherMM(
+            inputMatrix,
+            expertMatrices,
+            rhsIndices: indices.flattened()
+        ).reshaped(indices.shape)
     }
 
     // MARK: - Top-k over sqrtsoftplus with bias + norm
