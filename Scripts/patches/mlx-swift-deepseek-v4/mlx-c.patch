@@ -1,0 +1,224 @@
+diff --git a/mlx/c/fast.cpp b/mlx/c/fast.cpp
+index ac17d54..3efb08d 100644
+--- a/mlx/c/fast.cpp
++++ b/mlx/c/fast.cpp
+@@ -520,6 +520,150 @@ extern "C" int mlx_fast_metal_kernel_apply(
+   return 0;
+ }
+ 
++extern "C" int mlx_fast_deepseek_v4_mxfp4_moe(
++    mlx_array* result,
++    const mlx_array x,
++    const mlx_array gate_weight,
++    const mlx_array gate_scales,
++    const mlx_array up_weight,
++    const mlx_array up_scales,
++    const mlx_array down_weight,
++    const mlx_array down_scales,
++    const mlx_array indices,
++    const mlx_array scores,
++    float activation_limit,
++    const mlx_stream stream) {
++  try {
++    mlx_array_set_(
++        *result,
++        mlx::core::fast::deepseek_v4_mxfp4_moe(
++            mlx_array_get_(x),
++            mlx_array_get_(gate_weight),
++            mlx_array_get_(gate_scales),
++            mlx_array_get_(up_weight),
++            mlx_array_get_(up_scales),
++            mlx_array_get_(down_weight),
++            mlx_array_get_(down_scales),
++            mlx_array_get_(indices),
++            mlx_array_get_(scores),
++            activation_limit,
++            mlx_stream_get_(stream)));
++  } catch (std::exception& e) {
++    mlx_error(e.what());
++    return 1;
++  }
++  return 0;
++}
++
++extern "C" int mlx_fast_deepseek_v4_mxfp4_moe_select(
++    mlx_array* result,
++    const mlx_array x,
++    const mlx_array gate_weight,
++    const mlx_array gate_scales,
++    const mlx_array up_weight,
++    const mlx_array up_scales,
++    const mlx_array down_weight,
++    const mlx_array down_scales,
++    const mlx_array logits,
++    const mlx_array bias,
++    const mlx_array route_scale,
++    float activation_limit,
++    const mlx_stream stream) {
++  try {
++    mlx_array_set_(
++        *result,
++        mlx::core::fast::deepseek_v4_mxfp4_moe_select(
++            mlx_array_get_(x),
++            mlx_array_get_(gate_weight),
++            mlx_array_get_(gate_scales),
++            mlx_array_get_(up_weight),
++            mlx_array_get_(up_scales),
++            mlx_array_get_(down_weight),
++            mlx_array_get_(down_scales),
++            mlx_array_get_(logits),
++            mlx_array_get_(bias),
++            mlx_array_get_(route_scale),
++            activation_limit,
++            mlx_stream_get_(stream)));
++  } catch (std::exception& e) {
++    mlx_error(e.what());
++    return 1;
++  }
++  return 0;
++}
++
++extern "C" int mlx_fast_deepseek_v4_mxfp4_moe_select_shared_q8(
++    mlx_array* result,
++    const mlx_array x,
++    const mlx_array gate_weight,
++    const mlx_array gate_scales,
++    const mlx_array up_weight,
++    const mlx_array up_scales,
++    const mlx_array down_weight,
++    const mlx_array down_scales,
++    const mlx_array logits,
++    const mlx_array bias,
++    const mlx_array route_scale,
++    const mlx_array shared_gate_weight,
++    const mlx_array shared_gate_scales,
++    const mlx_array shared_up_weight,
++    const mlx_array shared_up_scales,
++    const mlx_array shared_down_weight,
++    const mlx_array shared_down_scales,
++    float activation_limit,
++    const mlx_stream stream) {
++  try {
++    mlx_array_set_(
++        *result,
++        mlx::core::fast::deepseek_v4_mxfp4_moe_select_shared_q8(
++            mlx_array_get_(x),
++            mlx_array_get_(gate_weight),
++            mlx_array_get_(gate_scales),
++            mlx_array_get_(up_weight),
++            mlx_array_get_(up_scales),
++            mlx_array_get_(down_weight),
++            mlx_array_get_(down_scales),
++            mlx_array_get_(logits),
++            mlx_array_get_(bias),
++            mlx_array_get_(route_scale),
++            mlx_array_get_(shared_gate_weight),
++            mlx_array_get_(shared_gate_scales),
++            mlx_array_get_(shared_up_weight),
++            mlx_array_get_(shared_up_scales),
++            mlx_array_get_(shared_down_weight),
++            mlx_array_get_(shared_down_scales),
++            activation_limit,
++            mlx_stream_get_(stream)));
++  } catch (std::exception& e) {
++    mlx_error(e.what());
++    return 1;
++  }
++  return 0;
++}
++
++extern "C" int mlx_fast_deepseek_v4_symmetric_q8_matvec(
++    mlx_array* result,
++    const mlx_array x,
++    const mlx_array weight,
++    const mlx_array scales,
++    int output_groups,
++    const mlx_stream stream) {
++  try {
++    mlx_array_set_(
++        *result,
++        mlx::core::fast::deepseek_v4_symmetric_q8_matvec(
++            mlx_array_get_(x),
++            mlx_array_get_(weight),
++            mlx_array_get_(scales),
++            output_groups,
++            mlx_stream_get_(stream)));
++  } catch (std::exception& e) {
++    mlx_error(e.what());
++    return 1;
++  }
++  return 0;
++}
++
+ extern "C" int mlx_fast_rms_norm(
+     mlx_array* res,
+     const mlx_array x,
+diff --git a/mlx/c/fast.h b/mlx/c/fast.h
+index c825d00..2f44ac9 100644
+--- a/mlx/c/fast.h
++++ b/mlx/c/fast.h
+@@ -160,6 +160,64 @@ int mlx_fast_metal_kernel_apply(
+     const mlx_fast_metal_kernel_config config,
+     const mlx_stream stream);
+ 
++int mlx_fast_deepseek_v4_mxfp4_moe(
++    mlx_array* result,
++    const mlx_array x,
++    const mlx_array gate_weight,
++    const mlx_array gate_scales,
++    const mlx_array up_weight,
++    const mlx_array up_scales,
++    const mlx_array down_weight,
++    const mlx_array down_scales,
++    const mlx_array indices,
++    const mlx_array scores,
++    float activation_limit,
++    const mlx_stream stream);
++
++int mlx_fast_deepseek_v4_mxfp4_moe_select(
++    mlx_array* result,
++    const mlx_array x,
++    const mlx_array gate_weight,
++    const mlx_array gate_scales,
++    const mlx_array up_weight,
++    const mlx_array up_scales,
++    const mlx_array down_weight,
++    const mlx_array down_scales,
++    const mlx_array logits,
++    const mlx_array bias,
++    const mlx_array route_scale,
++    float activation_limit,
++    const mlx_stream stream);
++
++int mlx_fast_deepseek_v4_mxfp4_moe_select_shared_q8(
++    mlx_array* result,
++    const mlx_array x,
++    const mlx_array gate_weight,
++    const mlx_array gate_scales,
++    const mlx_array up_weight,
++    const mlx_array up_scales,
++    const mlx_array down_weight,
++    const mlx_array down_scales,
++    const mlx_array logits,
++    const mlx_array bias,
++    const mlx_array route_scale,
++    const mlx_array shared_gate_weight,
++    const mlx_array shared_gate_scales,
++    const mlx_array shared_up_weight,
++    const mlx_array shared_up_scales,
++    const mlx_array shared_down_weight,
++    const mlx_array shared_down_scales,
++    float activation_limit,
++    const mlx_stream stream);
++
++int mlx_fast_deepseek_v4_symmetric_q8_matvec(
++    mlx_array* result,
++    const mlx_array x,
++    const mlx_array weight,
++    const mlx_array scales,
++    int output_groups,
++    const mlx_stream stream);
++
+ int mlx_fast_rms_norm(
+     mlx_array* res,
+     const mlx_array x,

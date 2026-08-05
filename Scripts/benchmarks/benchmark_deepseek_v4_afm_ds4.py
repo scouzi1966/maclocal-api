@@ -28,6 +28,7 @@ DEFAULT_PROMPT = (
 STATS_RE = re.compile(
     r"\[STATS\].*?tg:\s*(\d+)\s+tok,\s*([0-9.]+)s\s*\(([0-9.]+)\s+tok/s\)"
 )
+PROVENANCE_ENV_PREFIXES = ("AFM_MLX_", "VMLX_DSV4_", "BENCH_")
 
 
 def parse_args() -> argparse.Namespace:
@@ -47,11 +48,23 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--afm-kernels", default="native")
     parser.add_argument(
+        "--afm-prefill-step-size",
+        type=int,
+        help="Optional AFM prompt chunk size (use 1 to validate decode-only layouts).",
+    )
+    parser.add_argument(
         "--afm-env",
         action="append",
         default=[],
         metavar="KEY=VALUE",
         help="Additional AFM environment entry; may be repeated.",
+    )
+    parser.add_argument(
+        "--ds4-env",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Additional DwarfStar environment entry; may be repeated.",
     )
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--tokens", type=int, default=256)
@@ -71,6 +84,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("provide --afm-model, --ds4-model, or both")
     if args.runs < 1 or args.tokens < 1 or args.warmup_tokens < 0:
         parser.error("runs and tokens must be positive; warmup tokens cannot be negative")
+    if args.afm_prefill_step_size is not None and args.afm_prefill_step_size < 1:
+        parser.error("--afm-prefill-step-size must be positive")
     return args
 
 
@@ -98,6 +113,88 @@ def parse_environment(entries: list[str]) -> dict[str, str]:
             raise RuntimeError(f"invalid --afm-env value: {entry!r}")
         result[key] = value
     return result
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def git_output(root: Path, *arguments: str) -> str | None:
+    result = subprocess.run(
+        ["git", *arguments], cwd=root, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def source_provenance(root: Path) -> dict[str, Any]:
+    paths = [
+        root / "Scripts/patches/DeepseekV4.swift",
+        root / "Scripts/patches/DeepseekV4ActivationQuant.swift",
+        root / "Scripts/patches/SwitchLayers.swift",
+        root / "vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift",
+        root / "vendor/mlx-swift-lm/Libraries/MLXLMCommon/DeepseekV4ActivationQuant.swift",
+        root / "vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift",
+        root / ".build/checkouts/mlx-swift/Source/MLX/MLXFast.swift",
+        root / ".build/checkouts/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/custom_kernel.cpp",
+        root / ".build/checkouts/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp",
+        root / ".build/checkouts/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/quantized.h",
+    ]
+    return {
+        "git_commit": git_output(root, "rev-parse", "HEAD"),
+        "git_status_porcelain": git_output(root, "status", "--short"),
+        "files": {
+            str(path.relative_to(root)): sha256_file(path)
+            for path in paths if path.is_file()
+        },
+    }
+
+
+def binary_provenance(path: Path) -> dict[str, Any]:
+    stat = path.stat()
+    return {
+        "path": str(path),
+        "sha256": sha256_file(path),
+        "size_bytes": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+    }
+
+
+def recorded_environment(environment: dict[str, str]) -> dict[str, str]:
+    return {
+        key: value for key, value in sorted(environment.items())
+        if key.startswith(PROVENANCE_ENV_PREFIXES)
+    }
+
+
+def required_afm_markers(environment: dict[str, str]) -> list[str]:
+    enabled = lambda name: environment.get(name, "0").strip().lower() in {
+        "1", "true", "on",
+    }
+    markers: list[str] = []
+    if enabled("VMLX_DSV4_SHARED_Q8_STAGE"):
+        markers.append("[DSV4Path] staged-shared-q8 active")
+    elif enabled("VMLX_DSV4_STAGED_SELECTOR"):
+        markers.append("[DSV4Path] staged-selector active")
+    elif enabled("VMLX_DSV4_STAGED_MOE"):
+        markers.append("[DSV4Path] staged-moe active")
+    if enabled("VMLX_DSV4_Q8_LM_HEAD"):
+        markers.append("[DSV4] output head: runtime affine Q8")
+    if enabled("VMLX_DSV4_DWARFSTAR_AFFINE_Q8"):
+        markers.append("[DSV4Path] dwarfstar-affine-q8 active")
+    if enabled("VMLX_DSV4_SYMMETRIC_Q8"):
+        markers.append("[DSV4Path] symmetric-q8 active")
+    if enabled("VMLX_DSV4_THREADGROUP_LUT"):
+        markers.append("[DSV4Path] threadgroup-fp4-lut active")
+    if enabled("VMLX_DSV4_INTERLEAVED_MXFP4"):
+        markers.append("[DSV4Path] dwarfstar-mxfp4-layout active")
+    if enabled("VMLX_DSV4_ALIGNED_MXFP4"):
+        markers.append("[DSV4Path] aligned-mxfp4-superblocks active")
+    return markers
 
 
 def http_json(url: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -176,6 +273,8 @@ def run_backend(
     port: int,
     args: argparse.Namespace,
     output_dir: Path,
+    working_directory: Path | None = None,
+    required_log_markers: list[str] | None = None,
 ) -> dict[str, Any]:
     backend_dir = output_dir / name
     backend_dir.mkdir(parents=True, exist_ok=True)
@@ -188,6 +287,7 @@ def run_backend(
             stdout=log,
             stderr=subprocess.STDOUT,
             env=environment,
+            cwd=working_directory,
             start_new_session=True,
         )
         try:
@@ -216,6 +316,15 @@ def run_backend(
             stop_process(process)
 
     log_text = log_path.read_text(errors="replace")
+    missing_markers = [
+        marker for marker in (required_log_markers or []) if marker not in log_text
+    ]
+    if missing_markers:
+        raise RuntimeError(
+            f"{name} did not activate requested runtime path(s): "
+            + ", ".join(missing_markers)
+            + f"; inspect {log_path}"
+        )
     server_stats = [
         {
             "completion_tokens": int(match.group(1)),
@@ -228,6 +337,11 @@ def run_backend(
     return {
         "name": name,
         "command": command,
+        "working_directory": (
+            str(working_directory) if working_directory is not None else None
+        ),
+        "environment": recorded_environment(environment),
+        "required_log_markers": required_log_markers or [],
         "startup_seconds": startup_seconds,
         "warmup_seconds": warmup_seconds,
         "runs": records,
@@ -238,6 +352,7 @@ def run_backend(
 
 def main() -> int:
     args = parse_args()
+    root = Path(__file__).resolve().parents[2]
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     output_dir = args.output_dir.expanduser().resolve() / timestamp
     output_dir.mkdir(parents=True)
@@ -249,6 +364,7 @@ def main() -> int:
         "warmup_tokens": args.warmup_tokens,
         "context": args.context,
         "backends": [],
+        "source_provenance": source_provenance(root),
     }
 
     if args.afm_model:
@@ -263,20 +379,38 @@ def main() -> int:
             "-p", str(args.afm_port), "--no-think", "-t", "0",
             "--mlx-kernels", args.afm_kernels,
         ]
+        if args.afm_prefill_step_size is not None:
+            command.extend([
+                "--prefill-step-size", str(args.afm_prefill_step_size),
+            ])
         results["backends"].append(
-            run_backend("afm", command, environment, args.afm_port, args, output_dir)
+            run_backend(
+                "afm", command, environment, args.afm_port, args, output_dir,
+                required_log_markers=required_afm_markers(environment),
+            )
         )
+        results["backends"][-1]["binary"] = binary_provenance(afm_binary)
 
     if args.ds4_model:
         ds4_binary = require_file(args.ds4_binary, "canonical ds4-server", executable=True)
         ds4_model = require_file(args.ds4_model, "DS4 GGUF")
+        environment = os.environ.copy()
+        environment.update(parse_environment(args.ds4_env))
         command = [
             str(ds4_binary), "-m", str(ds4_model), "--metal",
             "--host", "127.0.0.1", "--port", str(args.ds4_port),
             "--ctx", str(args.context), "--tokens", str(args.tokens),
         ]
         results["backends"].append(
-            run_backend("ds4", command, os.environ.copy(), args.ds4_port, args, output_dir)
+            run_backend(
+                "ds4",
+                command,
+                environment,
+                args.ds4_port,
+                args,
+                output_dir,
+                working_directory=ds4_binary.parent,
+            )
         )
 
     summary_path = output_dir / "summary.json"

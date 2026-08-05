@@ -20,6 +20,22 @@ import MLXLMCommon
 /// Every field is decoded from `config.json` (via `CodingKeys`) and
 /// has a sensible default matching DSV4-Flash (284B / 21B active).
 public struct DeepseekV4Configuration: Codable, Sendable {
+    /// AFM's converter has already normalized tensor names, packed dtypes,
+    /// scale layouts, and expert stacks. The loader can skip the expensive
+    /// checkpoint sanitizer when this marker is present.
+    public var afmNativeCheckpoint: Bool = false
+
+    /// Dense projections use AFM's signed symmetric Q8/group-32 storage.
+    /// This is an explicit checkpoint capability, never inferred from a path
+    /// or repository identifier.
+    public var afmSymmetricQ8: Bool = false
+
+    /// Routed MXFP4 blocks use DwarfStar's lane-oriented nibble ordering.
+    public var afmDwarfstarMXFP4Layout: Bool = false
+
+    /// Routed MXFP4 groups use AFM's scale-prefixed aligned superblocks.
+    public var afmAlignedMXFP4Layout: Bool = false
+
     // MARK: - Core transformer
 
     public var vocabSize: Int = 129_280
@@ -143,6 +159,10 @@ public struct DeepseekV4Configuration: Codable, Sendable {
     // MARK: - CodingKeys
 
     enum CodingKeys: String, CodingKey {
+        case afmNativeCheckpoint = "afm_native_checkpoint"
+        case afmSymmetricQ8 = "afm_symmetric_q8"
+        case afmDwarfstarMXFP4Layout = "afm_dwarfstar_mxfp4_layout"
+        case afmAlignedMXFP4Layout = "afm_aligned_mxfp4_layout"
         case vocabSize = "vocab_size"
         case hiddenSize = "hidden_size"
         case numHiddenLayers = "num_hidden_layers"
@@ -193,6 +213,10 @@ public struct DeepseekV4Configuration: Codable, Sendable {
             (try? c.decode(T.self, forKey: k)) ?? fallback
         }
 
+        self.afmNativeCheckpoint = req(.afmNativeCheckpoint, false)
+        self.afmSymmetricQ8 = req(.afmSymmetricQ8, false)
+        self.afmDwarfstarMXFP4Layout = req(.afmDwarfstarMXFP4Layout, false)
+        self.afmAlignedMXFP4Layout = req(.afmAlignedMXFP4Layout, false)
         self.vocabSize = req(.vocabSize, 129_280)
         self.hiddenSize = req(.hiddenSize, 4096)
         self.numHiddenLayers = req(.numHiddenLayers, 43)
@@ -239,6 +263,10 @@ public struct DeepseekV4Configuration: Codable, Sendable {
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(afmNativeCheckpoint, forKey: .afmNativeCheckpoint)
+        try c.encode(afmSymmetricQ8, forKey: .afmSymmetricQ8)
+        try c.encode(afmDwarfstarMXFP4Layout, forKey: .afmDwarfstarMXFP4Layout)
+        try c.encode(afmAlignedMXFP4Layout, forKey: .afmAlignedMXFP4Layout)
         try c.encode(vocabSize, forKey: .vocabSize)
         try c.encode(hiddenSize, forKey: .hiddenSize)
         try c.encode(numHiddenLayers, forKey: .numHiddenLayers)

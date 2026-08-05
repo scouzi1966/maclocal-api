@@ -280,6 +280,13 @@ fi
 log_step "Resolving Swift packages"
 swift package resolve
 
+if $DO_PATCHES; then
+  log_step "Applying persistent DeepSeek V4 MLX primitive"
+  "$SCRIPTS_DIR/apply-mlx-official-fp8-loader.sh"
+  "$SCRIPTS_DIR/apply-mlx-deepseek-v4-kernels.sh"
+  "$SCRIPTS_DIR/apply-mlx-deepseek-v4-kernels.sh" --check
+fi
+
 # ---------------------------------------------------------------------------
 # Step 4a: Apply MLX C++ / Metal-kernel patches to the resolved mlx-swift checkout
 # ---------------------------------------------------------------------------

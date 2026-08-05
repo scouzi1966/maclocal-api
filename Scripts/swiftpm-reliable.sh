@@ -142,6 +142,8 @@ if [[ ! -f "$MLX_SAFETENSORS_SOURCE" ]]; then
     swift package resolve
 fi
 "$ROOT_DIR/Scripts/apply-mlx-official-fp8-loader.sh"
+"$ROOT_DIR/Scripts/apply-mlx-deepseek-v4-kernels.sh"
+"$ROOT_DIR/Scripts/apply-mlx-deepseek-v4-kernels.sh" --check
 
 # Xcode 27 Beta 3's native SwiftPM driver can miss source changes inside the
 # local mlx-swift-lm package and report a successful no-op build. Fingerprint
@@ -152,6 +154,7 @@ MLX_SOURCE_FINGERPRINT="$({
     find "$ROOT_DIR/vendor/mlx-swift-lm/Libraries" -type f -print0
     printf '%s\0' "$ROOT_DIR/vendor/mlx-swift-lm/Package.swift"
     printf '%s\0' "$MLX_SAFETENSORS_SOURCE"
+    find "$ROOT_DIR/Scripts/patches/mlx-swift-deepseek-v4" -type f -print0
 } | sort -z | xargs -0 shasum -a 256 | shasum -a 256 | awk '{print $1}')"
 PREVIOUS_MLX_SOURCE_FINGERPRINT="$(cat "$MLX_SOURCE_STAMP" 2>/dev/null || true)"
 if [[ "$MLX_SOURCE_FINGERPRINT" != "$PREVIOUS_MLX_SOURCE_FINGERPRINT" ]]; then

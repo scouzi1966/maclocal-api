@@ -650,10 +650,11 @@ struct MlxCommand: ParsableCommand {
             resolvedMedia.append(resolved)
         }
 
-        // Backward compatibility: support piped input in mlx mode too
-        if let stdinContent = try readFromStdin() {
+        // An explicit prompt must win over redirected stdin. Profilers and
+        // automation runners commonly attach a pipe that remains open.
+        if let prompt = singlePrompt {
             try runSinglePrompt(
-                stdinContent,
+                prompt,
                 modelID: selectedModel,
                 mediaPaths: resolvedMedia,
                 chatTemplateKwargs: parsedKwargs
@@ -661,9 +662,10 @@ struct MlxCommand: ParsableCommand {
             return
         }
 
-        if let prompt = singlePrompt {
+        // Backward compatibility: support piped input in mlx mode too.
+        if let stdinContent = try readFromStdin() {
             try runSinglePrompt(
-                prompt,
+                stdinContent,
                 modelID: selectedModel,
                 mediaPaths: resolvedMedia,
                 chatTemplateKwargs: parsedKwargs
@@ -1463,7 +1465,10 @@ struct RootCommand: ParsableCommand {
         GitHub: https://github.com/scouzi1966/maclocal-api
         """,
         version: MacLocalAPI.buildVersion,
-        subcommands: [MlxCommand.self, VisionCommand.self, SpeechCommand.self, EmbeddingsCommand.self]
+        subcommands: [
+            MlxCommand.self, MLXConvertCommand.self, VisionCommand.self,
+            SpeechCommand.self, EmbeddingsCommand.self,
+        ]
     )
 
     @Option(name: [.customShort("s"), .long], help: "Run a single prompt without starting the server")

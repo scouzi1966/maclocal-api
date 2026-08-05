@@ -393,6 +393,28 @@ class DeepseekV4Attention: Module {
         return woB(projectedA)
     }
 
+    private func projectAttentionOutputSymmetricQ8(
+        _ attention: MLXArray,
+        cos: MLXArray,
+        sin: MLXArray,
+        quantized: DeepseekV4QuantizedLinear
+    ) -> MLXArray {
+        let batch = attention.dim(0)
+        let length = attention.dim(2)
+        let groupFeatures = (numHeads * headDim) / oGroups
+        let derotated = DeepseekV4Math.applyPartialRoPE(
+            attention,
+            cos: cos.expandedDimensions(axes: [0, 1]),
+            sin: sin.expandedDimensions(axes: [0, 1]),
+            ropeDim: ropeDim,
+            inverse: true)
+        let grouped = derotated.transposed(0, 2, 1, 3)
+            .reshaped(batch, length, oGroups, groupFeatures)
+        let projectedA = quantized.symmetricQ8Grouped(grouped, outputGroups: oGroups)
+            .reshaped(batch, length, oGroups * oLoraRank)
+        return woB(projectedA)
+    }
+
     private func projectAttentionInputs(
         _ x: MLXArray,
         cos: MLXArray,
@@ -458,7 +480,7 @@ class DeepseekV4Attention: Module {
         let qA = wqA(x)
         let qResidual = qNorm(qA)
         var q = wqB(qResidual)
-        if layerIdx == 0 {
+        if layerIdx == 0 && DeepseekV4NumericTrace.enabled {
             if let quantized = wqA as? QuantizedLinear {
                 let activation = DeepseekV4ActivationQuant.e4m3RoundTripIfNeeded(
                     x, mode: quantized.mode)
@@ -698,6 +720,14 @@ class DeepseekV4Attention: Module {
             DeepseekV4NumericTrace.tensor("layer.0.attention.raw", output)
         }
         // output shape: (B, numHeads, L, headDim)
+
+        if Self.quantizedGroupedWoA,
+            let quantized = woA as? DeepseekV4QuantizedLinear,
+            quantized.usesSymmetricQ8Storage
+        {
+            return projectAttentionOutputSymmetricQ8(
+                output, cos: cosT, sin: sinT, quantized: quantized)
+        }
 
         if Self.quantizedGroupedWoA,
             let quantized = woA as? QuantizedLinear,
@@ -1209,6 +1239,8 @@ class DeepseekV4MoE: Module, UnaryLayer {
     var currentInputIds: MLXArray? = nil
     private static let compileMoEDecode =
         ProcessInfo.processInfo.environment["VMLX_DSV4_COMPILE_MOE"] == "1"
+    private static let stagedSelectorDecode = DeepseekV4RuntimeOptions.enabled(
+        "VMLX_DSV4_STAGED_SELECTOR", default: false)
     private lazy var compiledDecode: @Sendable (MLXArray, MLXArray) -> MLXArray = {
         let body: (MLXArray, MLXArray) -> MLXArray = { [unowned self] x, ids in
             CompiledDecodeTrace.withActive {
@@ -1272,6 +1304,41 @@ class DeepseekV4MoE: Module, UnaryLayer {
                 "[DSV4MoEProfile] layer=%d stage=%@ ms=%.3f\n",
                 layerIdx, name, (now - stageStart) * 1_000).utf8))
             stageStart = now
+        }
+
+        if Self.stagedSelectorDecode && !gate.isHashLayer && x.size == config.hiddenSize {
+            let logits = x.asType(.float32).matmul(
+                gate.weight.asType(.float32).transposed())
+            let sharedGate = sharedExperts.gateProj as? DeepseekV4QuantizedLinear
+            let sharedUp = sharedExperts.upProj as? DeepseekV4QuantizedLinear
+            let sharedDown = sharedExperts.downProj as? DeepseekV4QuantizedLinear
+            if let sharedGate, let sharedUp, let sharedDown,
+               let output = switchMLP.deepseekV4FusedSelectingMoEWithSharedQ8(
+                   x,
+                   logits: logits,
+                   bias: gate.bias.asType(.float32),
+                   routeScale: gate.scalingFactorArray.asType(.float32),
+                   sharedGate: sharedGate,
+                   sharedUp: sharedUp,
+                   sharedDown: sharedDown)
+            {
+                finishStage("router_routed_and_shared", [output])
+                return output
+            }
+            if let routed = switchMLP.deepseekV4FusedSelectingMoE(
+                x,
+                logits: logits,
+                bias: gate.bias.asType(.float32),
+                routeScale: gate.scalingFactorArray.asType(.float32))
+            {
+                finishStage("router_and_routed", [routed])
+                let shared = sharedExperts(x)
+                finishStage("shared", [shared])
+                let output = DeepseekV4Math.addSharedExpertFP32(
+                    routed, shared: shared, outputDType: x.dtype)
+                finishStage("add", [output])
+                return output
+            }
         }
 
         let (indices, scores) = gate(x, inputIds: inputIds)
@@ -1799,7 +1866,10 @@ public class DeepseekV4ModelInner: Module {
 
 // MARK: - Outer model
 
-public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAModel {
+public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAModel,
+    DeepseekV4SymmetricQ8Model
+{
+    public var usesDeepseekV4SymmetricQ8: Bool { config.afmSymmetricQ8 }
     public var kvHeads: [Int]
     var config: DeepseekV4Configuration
     public var model: DeepseekV4ModelInner
@@ -2026,6 +2096,10 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
     ///   head.weight                   → lm_head.weight
     ///   ffn.experts.{E}.{w1|w2|w3}.*  → mlp.switch_mlp.{gate|down|up}_proj.* (stacked)
     public func sanitize(weights: [String: MLXArray]) -> [String: MLXArray] {
+        if config.afmNativeCheckpoint {
+            return weights
+        }
+
         var out: [String: MLXArray] = [:]
         let officialQuantizedBases = Set(weights.keys.compactMap { key -> String? in
             guard key.hasSuffix(".scale") else { return nil }

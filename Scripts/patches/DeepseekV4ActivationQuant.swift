@@ -3,6 +3,12 @@ import MLX
 import MLXFast
 import MLXNN
 
+/// Capability exposed by model configurations whose affine-Q8 metadata maps
+/// to AFM's signed symmetric Q8 storage rather than MLX's affine encoding.
+public protocol DeepseekV4SymmetricQ8Model {
+    var usesDeepseekV4SymmetricQ8: Bool { get }
+}
+
 /// Activation fake-quantization used by the official DeepSeek-V4 0731 MXFP
 /// inference path before every MXFP quantized matmul.
 public enum DeepseekV4ActivationQuant {
@@ -114,10 +120,152 @@ open class DeepseekV4QuantizedLinear: QuantizedLinear {
         return raw != "0" && raw.lowercased() != "false"
     }()
 
+    private static let symmetricQ8ActivationLog: Void = {
+        fputs("[DSV4Path] symmetric-q8 active\n", stderr)
+    }()
+
+    private static let symmetricQ8Kernel = MLXFast.metalKernel(
+        name: "deepseek_v4_symmetric_q8_matvec",
+        inputNames: ["x", "weight", "scales"],
+        outputNames: ["y"],
+        source: """
+            const uint lane = thread_index_in_simdgroup;
+            const uint simd = simdgroup_index_in_threadgroup;
+            const uint rowBase = threadgroup_position_in_grid.x * 2u;
+            const uint inputRow = threadgroup_position_in_grid.y;
+            const uint laneGroup = lane >> 2u;
+            const uint laneOffset = (lane & 3u) * 8u;
+            const device char *packed =
+                reinterpret_cast<const device char *>(weight);
+            const device inT *input = x + inputRow * INPUT;
+
+            float rowSum[2] = {0.0f, 0.0f};
+            for (uint group = simd * 8u + laneGroup;
+                 group < GROUPS;
+                 group += 32u) {
+                const uint inputBase = group * 32u + laneOffset;
+                float values[8];
+                for (uint i = 0u; i < 8u; ++i) {
+                    values[i] = static_cast<float>(input[inputBase + i]);
+                }
+
+                for (uint row = 0u; row < 2u && rowBase + row < OUTPUT; ++row) {
+                    const uint outputRow = rowBase + row;
+                    const uint weightBase = outputRow * INPUT + inputBase;
+                    float dot = 0.0f;
+                    for (uint i = 0u; i < 8u; ++i) {
+                        dot += static_cast<float>(packed[weightBase + i]) * values[i];
+                    }
+                    rowSum[row] += dot * static_cast<float>(
+                        scales[outputRow * GROUPS + group]);
+                }
+            }
+
+            threadgroup float partial[8];
+            for (uint row = 0u; row < 2u; ++row) {
+                const float reduced = simd_sum(rowSum[row]);
+                if (lane == 0u) partial[row * 4u + simd] = reduced;
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+
+            if (simd == 0u && lane < 2u && rowBase + lane < OUTPUT) {
+                const uint offset = lane * 4u;
+                const float total = partial[offset] + partial[offset + 1u]
+                    + partial[offset + 2u] + partial[offset + 3u];
+                y[inputRow * OUTPUT + rowBase + lane] = static_cast<outT>(total);
+            }
+        """,
+        ensureRowContiguous: false)
+
+    private static let symmetricQ8GroupedKernel = MLXFast.metalKernel(
+        name: "deepseek_v4_symmetric_q8_grouped_matvec",
+        inputNames: ["x", "weight", "scales"],
+        outputNames: ["y"],
+        source: """
+            const uint lane = thread_index_in_simdgroup;
+            const uint simd = simdgroup_index_in_threadgroup;
+            const uint localRowBase = threadgroup_position_in_grid.x * 2u;
+            const uint inputRow = threadgroup_position_in_grid.y;
+            const uint outputGroup = inputRow % OUTPUT_GROUPS;
+            const uint weightRowBase = outputGroup * OUTPUT_PER_GROUP + localRowBase;
+            const uint laneGroup = lane >> 2u;
+            const uint laneOffset = (lane & 3u) * 8u;
+            const device char *packed =
+                reinterpret_cast<const device char *>(weight);
+            const device inT *input = x + inputRow * INPUT;
+
+            float rowSum[2] = {0.0f, 0.0f};
+            for (uint group = simd * 8u + laneGroup;
+                 group < GROUPS;
+                 group += 32u) {
+                const uint inputBase = group * 32u + laneOffset;
+                float values[8];
+                for (uint i = 0u; i < 8u; ++i) {
+                    values[i] = static_cast<float>(input[inputBase + i]);
+                }
+
+                for (uint row = 0u; row < 2u && localRowBase + row < OUTPUT_PER_GROUP;
+                     ++row) {
+                    const uint weightRow = weightRowBase + row;
+                    const uint weightBase = weightRow * INPUT + inputBase;
+                    float dot = 0.0f;
+                    for (uint i = 0u; i < 8u; ++i) {
+                        dot += static_cast<float>(packed[weightBase + i]) * values[i];
+                    }
+                    rowSum[row] += dot * static_cast<float>(
+                        scales[weightRow * GROUPS + group]);
+                }
+            }
+
+            threadgroup float partial[8];
+            for (uint row = 0u; row < 2u; ++row) {
+                const float reduced = simd_sum(rowSum[row]);
+                if (lane == 0u) partial[row * 4u + simd] = reduced;
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+
+            if (simd == 0u && lane < 2u && localRowBase + lane < OUTPUT_PER_GROUP) {
+                const uint offset = lane * 4u;
+                const float total = partial[offset] + partial[offset + 1u]
+                    + partial[offset + 2u] + partial[offset + 3u];
+                y[inputRow * OUTPUT_PER_GROUP + localRowBase + lane] =
+                    static_cast<outT>(total);
+            }
+        """,
+        ensureRowContiguous: false)
+
+    public var usesSymmetricQ8Storage: Bool {
+        mode == .affine && bits == 8 && groupSize == 32 && biases == nil
+            && weight.dtype == .uint32
+    }
+
+    public func symmetricQ8Grouped(_ x: MLXArray, outputGroups: Int) -> MLXArray {
+        precondition(usesSymmetricQ8Storage)
+        let input = contiguous(x)
+        let inputDims = input.dim(-1)
+        let groups = inputDims / groupSize
+        let totalOutputDims = scales.size / groups
+        precondition(totalOutputDims % outputGroups == 0)
+        precondition(input.dim(-2) == outputGroups)
+        return MLXFast.deepseekV4SymmetricQ8Matvec(
+            input,
+            weight: contiguous(weight),
+            scales: contiguous(scales),
+            outputGroups: outputGroups)
+    }
+
     open override func callAsFunction(_ x: MLXArray) -> MLXArray {
         let activation = DeepseekV4ActivationQuant.e4m3RoundTripIfNeeded(x, mode: mode)
         let y: MLXArray
-        if mode == .mxfp8 && !Self.nativeMXFP8Enabled {
+        if usesSymmetricQ8Storage,
+           activation.dim(-1) == weight.dim(-1) * 4
+        {
+            _ = Self.symmetricQ8ActivationLog
+            y = MLXFast.deepseekV4SymmetricQ8Matvec(
+                contiguous(activation),
+                weight: contiguous(weight),
+                scales: contiguous(scales))
+        } else if mode == .mxfp8 && !Self.nativeMXFP8Enabled {
             // Diagnostic fallback for comparing the former BF16-expanded path
             // against mlx-swift 0.31.x's native MXFP8 implementation.
             dequantizedWeightLock.lock()

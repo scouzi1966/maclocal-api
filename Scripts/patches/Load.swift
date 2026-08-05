@@ -102,6 +102,8 @@ public func loadWeights(
 
     // per-model cleanup
     weights = model.sanitize(weights: weights)
+    let usesSymmetricQ8 =
+        (model as? DeepseekV4SymmetricQ8Model)?.usesDeepseekV4SymmetricQ8 == true
 
     // quantize if needed
     if quantization != nil || perLayerQuantization != nil || hasOfficialBlockScaledWeights {
@@ -130,11 +132,15 @@ public func loadWeights(
             // MLX.quantized() without passing mode, producing non-nil biases
             // for MXFP modes (which require biases=nil). Use the direct init
             // for both MXFP4 and MXFP8 checkpoint layers.
-            if (mode == .mxfp4 || mode == .mxfp8), let linear = module as? Linear {
-                let (qw, scales, _) = MLX.quantized(
+            if (mode == .mxfp4 || mode == .mxfp8 ||
+                (usesSymmetricQ8 && mode == .affine && bits == 8 && groupSize == 32)),
+                let linear = module as? Linear
+            {
+                let (qw, scales, biases) = MLX.quantized(
                     linear.weight, groupSize: groupSize, bits: bits, mode: mode)
                 return DeepseekV4QuantizedLinear(
-                    weight: qw, bias: linear.bias, scales: scales, biases: nil,
+                    weight: qw, bias: linear.bias, scales: scales,
+                    biases: usesSymmetricQ8 && mode == .affine ? nil : biases,
                     groupSize: groupSize, bits: bits, mode: mode)
             }
             return quantizeSingle(layer: module, groupSize: groupSize, bits: bits, mode: mode)

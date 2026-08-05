@@ -1,12 +1,132 @@
 # DeepSeek V4 Flash 0731 Performance
 
+The authoritative negative-results ledger is
+[`deepseek-v4-0731-rejected-experiments.md`](deepseek-v4-0731-rejected-experiments.md).
+Read it before starting a new kernel, graph, scheduler, or quantization
+experiment so rejected variants are not repeated.
+
 This note records the Release-build performance work for
 `Vontra/DeepSeek-V4-Flash-0731-MXFP4-MLX` on an Apple M3 Ultra with 512 GB of
 unified memory. Measurements use the native `deepseek_v4` architecture path,
 greedy decoding, and one warm server process. Model loading is excluded from
 request wall time.
 
+## Reusable Official-Checkpoint Conversion
+
+The Release CLI includes `afm mlx-convert` for converting the official
+DeepSeek V4 checkpoint to AFM's native MLX checkpoint layout. It reuses the
+runtime's Swift `DeepseekV4Model.sanitize(weights:)` implementation instead of
+duplicating architecture mapping in Python. Conversion is shard-streaming,
+atomic per shard, and resumable through `.afm-mlx-conversion.json` in the
+output directory.
+
+```bash
+afm mlx-convert \
+  --source /path/to/DeepSeek-V4-Flash-0731 \
+  --output /path/to/DeepSeek-V4-Flash-0731-AFM-MLX
+```
+
+The converted config records `afm_native_checkpoint: true` and explicit mixed
+MXFP4/MXFP8 quantization metadata. That marker tells the loader not to run the
+official-checkpoint sanitizer again. It changes model loading and deployment,
+not the steady-state decode kernels; the conversion is therefore not expected
+to close the remaining generation-throughput gap by itself.
+
+An alternating Release one-shot A/B on the same machine measured 37.73 and
+36.07 seconds directly from the official source checkpoint versus 26.50 and
+26.56 seconds from the converted checkpoint. All four runs returned the exact
+requested text. The conversion removed about 10 seconds, or 27%, from this
+load-plus-short-generation path. An immediate post-conversion run was excluded
+because its filesystem cache state was not comparable. These measurements are
+not a claim of a steady-state decode improvement.
+
+## Canonical DwarfStar Runtime Boundary
+
+The canonical `antirez/ds4` Release server provides a hardware control for the
+35-37 tok/s objective. On the same M3 Ultra, its published Q2 GGUF produced
+38.11, 38.19, and 38.14 tok/s for three forced 256-token counting runs. A
+natural-language Rayleigh-scattering prompt produced 37.79, 37.68, and 37.70
+tok/s with byte-identical output across all three runs. Model loading was
+excluded and no speculative decoder was active.
+
+Artifacts:
+
+- `/Volumes/edata/afm-captures/deepseek-v4-ds4-q2-format-boundary-20260804/20260804-195812`
+- `/Volumes/edata/afm-captures/deepseek-v4-ds4-q2-natural-20260804/20260804-195900`
+
+This proves the throughput target is real and not a counting-prompt artifact.
+DwarfStar's Q2 package uses IQ2_XXS routed gate/up weights and Q2_K routed down
+weights, so a second control used DwarfStar's published MXFP4 GGUF. The MXFP4
+control reached 35.87, 35.96, and 36.20 tok/s for counting and 35.98, 36.01,
+and 36.01 tok/s for natural language. All runs within each workload produced
+byte-identical output.
+
+Artifacts:
+
+- `/Volumes/edata/afm-captures/deepseek-v4-ds4-mxfp4-format-boundary-20260804/20260804-202506`
+- `/Volumes/edata/afm-captures/deepseek-v4-ds4-mxfp4-natural-20260804/20260804-202543`
+
+The MXFP4 result proves that routed-expert MXFP4 can reach the target, but it
+does not isolate the full gap to runtime alone. DwarfStar's package uses MXFP4
+routed experts with Q8 attention, shared-expert, and output tensors, whereas
+AFM's official conversion uses MXFP8 for most of those non-routed projections.
+That difference selects different kernels and remains a controlled variable.
+AFM's reusable `mlx-convert --profile dwarfstar-q8` control converted eligible
+attention and shared-expert projections to generic MLX affine Q8 while retaining
+the routed MXFP4 experts. With the same Release binary, staged MoE path, runtime
+Q8 output head, prompt, and output hash, that checkpoint reached 24.37 tok/s
+versus 29.97 tok/s for the MXFP8 checkpoint. Generic MLX affine Q8 is therefore
+not the source of DwarfStar's advantage; its custom Q8 runtime remains a distinct
+variable. Artifacts are in
+`/Volumes/edata/afm-captures/deepseek-v4-dwarfstar-q8-control-benchmark/20260804-215709`
+and
+`/Volumes/edata/afm-captures/deepseek-v4-mxfp8-control-contemporary-baseline/20260804-215816`.
+
+The paired `mlx-convert --profile dwarfstar-symmetric-q8` control stores the
+same dense subset as signed symmetric Q8 blocks. The initial 28.32 tok/s run
+was incorrectly compared with a promoted checkpoint using a different staged-
+MoE policy. With staging synchronized it reached 29.15, 29.07, and 29.08 tok/s.
+A later same-binary comparison measured 28.64 tok/s for symmetric Q8 against
+28.18 tok/s for the promoted checkpoint. The typed C++ symmetric-Q8 primitive
+then reduced Swift/MLX graph construction from 6.387 to 5.541 ms/token, but GPU
+evaluation variance left end-to-end throughput effectively unchanged. The
+profile remains an explicit research control because it has not produced a
+material win, not because it is 6% slower. Artifacts are in
+`/Volumes/edata/afm-captures/deepseek-v4-dwarfstar-symmetric-q8-staged-20260805/20260805-000619`,
+`/Volumes/edata/afm-captures/deepseek-v4-symmetric-q8-cpp-primitive-20260805/20260805-002714`,
+and
+`/Volumes/edata/afm-captures/deepseek-v4-symmetric-q8-cpp-perf-20260805/20260805-002835`.
+
+The next graph-boundary experiment kept the existing FP32 router GEMV but moved
+top-6 route selection into the staged routed-MoE primitive. An activation-
+asserted, same-binary comparison measured 29.49 tok/s against 30.10 tok/s for
+the staged-MoE control, with identical output hashes. The 2.1% difference is
+inside the agreed 3% neutral band, so selector fusion is not promoted. These
+artifacts are the first benchmark pair to embed the Release binary SHA-256,
+effective optimization environment, relevant source hashes, and required
+runtime markers:
+
+- `/Volumes/edata/afm-captures/deepseek-v4-staged-selector/20260804-223535`
+- `/Volumes/edata/afm-captures/deepseek-v4-staged-selector-control/20260804-223623`
+
+With GPU busy profiling enabled, DwarfStar committed approximately two command buffers
+per generated token. AFM's Xcode trace measured roughly thirteen. Copying
+DwarfStar's isolated MXFP4 arithmetic into MLX did not improve throughput; the
+next native optimization must reduce graph/runtime boundaries or fuse broader
+DeepSeek layer work while preserving MLX cache semantics.
+
+The reusable benchmark harness is
+`Scripts/benchmarks/benchmark_deepseek_v4_afm_ds4.py`. It launches DwarfStar
+from its own source directory so runtime Metal sources resolve correctly, and
+accepts repeatable `--ds4-env KEY=VALUE` diagnostics. Large models and captures
+must stay on `/Volumes/edata`, never `/tmp` or the internal disk.
+
 ## Optimization
+
+A runtime MXFP8 output-head experiment measured 29.3-29.5 server tok/s and
+28.64-28.77 wall-clock tok/s, effectively identical to the retained affine-Q8
+head baseline. It was removed rather than adding another unsupported runtime
+switch.
 
 Two immutable weight conversions were being rebuilt in every decode step:
 

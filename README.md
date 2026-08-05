@@ -133,6 +133,31 @@ MACAFM_MLX_MODEL_CACHE=/path/to/models afm mlx -w
 afm -w
 ```
 
+### Convert an official DeepSeek V4 checkpoint
+
+AFM can convert an official `deepseek_v4` checkpoint into its native MLX
+layout without a Python environment or an intermediate in-memory copy of the
+whole model. The converter uses the same Swift model sanitizer and MXFP
+metadata inference as the runtime, processes one safetensors shard at a time,
+and writes a resumable manifest after every completed shard.
+
+```bash
+afm mlx-convert \
+  --source /path/to/DeepSeek-V4-Flash-0731 \
+  --output /path/to/DeepSeek-V4-Flash-0731-AFM-MLX
+```
+
+If conversion is interrupted, run the same command again to resume. Existing
+shards are reused only when their source size and modification time and their
+converted output size still match the manifest. Use `--overwrite` to discard a
+previous conversion and start again. The source directory is never modified.
+
+Run the converted model through the normal MLX backend:
+
+```bash
+afm mlx -m /path/to/DeepSeek-V4-Flash-0731-AFM-MLX --mlx-kernels native
+```
+
 ## ⚡ Speculative Decoding
 
 afm can decode **up to +52% faster** while **preserving greedy-decode quality** — output is bit-exact to normal greedy decoding on short generations and stays greedy-quality on longer ones (it may differ token-for-token there). There are **two** options, one per model family. Each needs a **specific checkpoint/drafter** (a plain 4-bit conversion won't work):
