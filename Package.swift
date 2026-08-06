@@ -131,10 +131,10 @@ let package = Package(
             ],
             publicHeadersPath: "include",
             cSettings: [
-                .unsafeFlags(
-                    ["-O3", "-ffast-math", "-mcpu=native"],
-                    .when(configuration: .release)
-                )
+                // Canonical DS4 uses -O3 for every configuration. Besides
+                // performance, this removes compile-time-impossible CUDA/TP
+                // branches before a macOS Metal link.
+                .unsafeFlags(["-O3", "-ffast-math", "-mcpu=native"])
             ],
             linkerSettings: [
                 .linkedFramework("Foundation"),
@@ -262,8 +262,12 @@ let package = Package(
                 "Info.plist"
             ],
             swiftSettings: [
-                .unsafeFlags(["-cross-module-optimization"], .when(configuration: .release)),
-                .unsafeFlags(["-O"], .when(configuration: .release)),
+                // Xcode 27 Beta 3 reports a false circular reference when this
+                // two-file CLI target is compiled with whole-module/Cross-
+                // module optimization. Runtime libraries retain their Release
+                // optimization; only the thin command parser is isolated.
+                .unsafeFlags(["-no-whole-module-optimization"], .when(configuration: .release)),
+                .unsafeFlags(["-Onone"], .when(configuration: .release)),
                 .unsafeFlags(["-file-prefix-map", "\(packageDir)/="], .when(configuration: .release))
             ],
             linkerSettings: [
@@ -301,6 +305,12 @@ let package = Package(
                 .product(name: "MLXVLM", package: "mlx-swift-lm"),
                 // EAGLE3 P0 validation needs the Gemma4 drafter (MLXLLM module).
                 .product(name: "MLXLLM", package: "mlx-swift-lm")
+            ]
+        ),
+        .testTarget(
+            name: "AFMKitDwarfStarTests",
+            dependencies: [
+                "AFMKitDwarfStar",
             ]
         )
     ],

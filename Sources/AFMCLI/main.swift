@@ -860,17 +860,15 @@ struct MlxCommand: ParsableCommand {
         if !media.isEmpty || vlm {
             throw ValidationError("The DwarfStar runtime currently supports text input only")
         }
-        if kvBits != nil || mtp || eagle3 != nil || enablePrefixCaching {
+        if kvBits != nil || mtp || eagle3 != nil {
             throw ValidationError(
-                "KV quantization, speculative decoding, and MLX prefix caching are unavailable in the DwarfStar runtime")
+                "KV quantization and speculative decoding are unavailable in the DwarfStar runtime")
         }
         if repetitionPenalty != nil || presencePenalty != nil || guidedJson != nil {
             throw ValidationError(
                 "Repetition/presence penalties and guided JSON are unavailable in the DwarfStar runtime")
         }
-        if let concurrent, concurrent > 1 {
-            throw ValidationError("The DwarfStar runtime currently supports one generation at a time")
-        }
+        let residentSessions = max(1, concurrent ?? 1)
 
         let modelID = URL(fileURLWithPath: checkpointPath).lastPathComponent
         if openclawConfig {
@@ -929,7 +927,9 @@ struct MlxCommand: ParsableCommand {
         let model = AnyAFMModel(AFMDwarfStarModel(
             modelID: AFMModelID(rawValue: modelID),
             modelPath: checkpointPath,
-            contextWindow: 32_768))
+            contextWindow: 32_768,
+            enablePrefixCaching: enablePrefixCaching,
+            maxConcurrent: residentSessions))
         _ = Task {
             do {
                 _ = try await model.load(progress: nil)

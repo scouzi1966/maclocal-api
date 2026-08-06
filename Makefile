@@ -1,10 +1,11 @@
 # AFM - Apple Foundation Models API
 # Makefile for building and distributing the portable CLI
 
-.PHONY: build clean install uninstall portable dist test help submodules submodule-status webui build-with-webui patch patch-check
+.PHONY: build clean install uninstall portable dist test help submodules submodule-status webui build-with-webui patch patch-check ds4-patch
 
-PATCH_SH  := Scripts/apply-mlx-patches.sh
+PATCH_SH := Scripts/apply-mlx-patches.sh
 PATCH_STAMP := vendor/mlx-swift-lm/.patches-applied
+DS4_PATCH_SH := Scripts/apply-ds4-patches.sh
 
 # Default target
 all: build
@@ -15,13 +16,18 @@ $(PATCH_STAMP): $(PATCH_SH) $(wildcard Scripts/patches/*)
 	@bash $(PATCH_SH)
 	@touch $(PATCH_STAMP)
 
-patch: $(PATCH_STAMP)
+ds4-patch:
+	@echo "🩹 Applying DwarfStar integration patches..."
+	@bash $(DS4_PATCH_SH)
+
+patch: $(PATCH_STAMP) ds4-patch
 
 patch-check:
 	@bash $(PATCH_SH) --check
+	@bash $(DS4_PATCH_SH) --check
 
 # Build the release binary (portable by default)
-build: $(PATCH_STAMP)
+build: $(PATCH_STAMP) ds4-patch
 	@echo "🔨 Building AFM..."
 	@Scripts/swiftpm-reliable.sh build -c release \
 		--product afm \
@@ -68,6 +74,7 @@ build-with-webui: webui build
 clean:
 	@echo "🧹 Cleaning build artifacts..."
 	@if [ -f $(PATCH_STAMP) ]; then bash $(PATCH_SH) --revert; rm -f $(PATCH_STAMP); fi
+	@if [ -f vendor/ds4/ds4.c ]; then bash $(DS4_PATCH_SH) --revert; fi
 	@swift package clean
 	@rm -rf .build
 	@rm -f dist/*.tar.gz

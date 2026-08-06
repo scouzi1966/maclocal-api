@@ -10,13 +10,15 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
     private let fixedModel: AnyAFMModel?
     private let fixedModelID: String?
     private let slotLock = NSLock()
-    private var fixedSlotReserved = false
+    private let fixedMaxConcurrent: Int
+    private var fixedSlotsReserved = 0
 
     init(service: MLXModelService, resolver: MLXCacheResolver = .init()) {
         self.service = service
         self.resolver = resolver
         fixedModel = nil
         fixedModelID = nil
+        fixedMaxConcurrent = 1
     }
 
     init(model: AnyAFMModel, modelID: String) {
@@ -24,9 +26,14 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         resolver = .init()
         fixedModel = model
         fixedModelID = modelID
+        if case .integer(let value) = model.descriptor.metadata["maxConcurrent"] {
+            fixedMaxConcurrent = max(1, value)
+        } else {
+            fixedMaxConcurrent = 1
+        }
     }
 
-    var maxConcurrent: Int { service?.maxConcurrent ?? 1 }
+    var maxConcurrent: Int { service?.maxConcurrent ?? fixedMaxConcurrent }
     var servingConfiguration: AFMMLXServingConfiguration {
         service?.servingConfiguration ?? .init()
     }
@@ -48,8 +55,8 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         if let service { return service.tryReserveSlot() }
         slotLock.lock()
         defer { slotLock.unlock() }
-        guard !fixedSlotReserved else { return false }
-        fixedSlotReserved = true
+        guard fixedSlotsReserved < fixedMaxConcurrent else { return false }
+        fixedSlotsReserved += 1
         return true
     }
 
@@ -71,7 +78,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
             return
         }
         slotLock.lock()
-        fixedSlotReserved = false
+        fixedSlotsReserved = max(0, fixedSlotsReserved - 1)
         slotLock.unlock()
     }
 
@@ -89,7 +96,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
     func ensureBatchMode(concurrency: Int) async throws {
         if let service {
             try await service.ensureBatchMode(concurrency: concurrency)
-        } else if concurrency > 1 {
+        } else if concurrency > fixedMaxConcurrent {
             throw AFMError.unsupportedCapability("concurrent batch generation for this provider")
         }
     }
@@ -352,6 +359,11 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
 
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             let task = Task {
+                defer {
+                    if self.service == nil {
+                        self.releaseSlot()
+                    }
+                }
                 var promptTokens = 0
                 var completionTokens = 0
                 var cachedTokens = 0

@@ -4,14 +4,16 @@ import ArgumentParser
 import CryptoKit
 import Foundation
 
+private let dwarfStarCanonicalPrompt =
+    "Count upward from 1, separated only by commas. Continue until stopped."
+
 struct DwarfStarBenchmarkCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "dwarfstar-bench",
         abstract: "Benchmark AFMKit's in-process fixed-schedule DwarfStar runtime"
     )
 
-    static let canonicalPrompt =
-        "Count upward from 1, separated only by commas. Continue until stopped."
+    static let canonicalPrompt = dwarfStarCanonicalPrompt
 
     @Option(name: [.customShort("m"), .long], help: "DwarfStar GGUF or executor-ready AFM checkpoint")
     var model: String
@@ -26,7 +28,7 @@ struct DwarfStarBenchmarkCommand: AsyncParsableCommand {
     var externalMapGGUF = false
 
     @Option(name: .long, help: "Prompt sent as one user message")
-    var prompt = Self.canonicalPrompt
+    var prompt = dwarfStarCanonicalPrompt
 
     @Option(name: .long, help: "Generated tokens per measured run")
     var tokens = 256

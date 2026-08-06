@@ -10,6 +10,8 @@ final class AFMDwarfStarProviderTests: XCTestCase {
         XCTAssertEqual(descriptor.metadata["runtime"], .string("in-process-ds4"))
         XCTAssertEqual(descriptor.metadata["execution"], .string("fixed-metal-schedule"))
         XCTAssertTrue(descriptor.configurationKeys.contains("modelPath"))
+        XCTAssertTrue(descriptor.configurationKeys.contains("enablePrefixCaching"))
+        XCTAssertTrue(descriptor.configurationKeys.contains("maxConcurrent"))
     }
 
     func testBundledMetalRuntimeContainsEveryRequiredSource() throws {
@@ -43,4 +45,34 @@ final class AFMDwarfStarProviderTests: XCTestCase {
         XCTAssertFalse(model.descriptor.capabilities.contains(.reasoning))
         XCTAssertTrue(model.descriptor.capabilities.contains(.streaming))
     }
+
+    func testModelDescriptorPublishesResidentSessionConfiguration() {
+        let model = AFMDwarfStarModel(
+            modelID: "configured",
+            modelPath: "/missing.gguf",
+            enablePrefixCaching: true,
+            maxConcurrent: 4,
+            runtime: AFMDwarfStarRuntimeCoordinator()
+        )
+
+        XCTAssertEqual(model.descriptor.metadata["enablePrefixCaching"], .bool(true))
+        XCTAssertEqual(model.descriptor.metadata["maxConcurrent"], .integer(4))
+    }
+
+    func testSlotPolicyUsesFirstAvailableSlotWithoutPrefixCaching() {
+        XCTAssertEqual(
+            AFMDwarfStarSlotPolicy.bestSlot(
+                commonPrefixes: [nil, 12, 30],
+                prefixCachingEnabled: false),
+            1)
+    }
+
+    func testSlotPolicyPrefersLongestReusablePrefixWithStableTieBreak() {
+        XCTAssertEqual(
+            AFMDwarfStarSlotPolicy.bestSlot(
+                commonPrefixes: [12, nil, 30, 30],
+                prefixCachingEnabled: true),
+            2)
+    }
+
 }

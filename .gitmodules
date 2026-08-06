@@ -9,5 +9,4 @@
 	url = https://github.com/mlc-ai/xgrammar.git
 [submodule "vendor/ds4"]
 	path = vendor/ds4
-	url = https://github.com/scouzi1966/ds4.git
-	branch = codex/afm-external-mapping
+	url = https://github.com/antirez/ds4.git

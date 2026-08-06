@@ -132,6 +132,27 @@ run_native() {
 
 cd "$ROOT_DIR"
 
+# DwarfStar is pinned to canonical upstream. AFM-specific integration remains
+# owned by this repository and is applied idempotently, matching the existing
+# vendored MLX patch workflow. Never require a fork branch or upstream PR just
+# to reproduce an AFM build.
+run_required_patch_step() {
+    local label="$1"
+    shift
+    if ! "$@"; then
+        echo "[swiftpm-reliable] Required patch step failed: $label" >&2
+        echo "[swiftpm-reliable] Refusing to compile a partially patched dependency." >&2
+        exit 1
+    fi
+}
+
+run_required_patch_step \
+    "DwarfStar integration" \
+    "$ROOT_DIR/Scripts/apply-ds4-patches.sh"
+run_required_patch_step \
+    "DwarfStar integration verification" \
+    "$ROOT_DIR/Scripts/apply-ds4-patches.sh" --check
+
 # The official DeepSeek V4 checkpoint uses F8_E8M0 safetensor metadata for
 # byte-packed block scales. The pinned mlx-swift release predates that tag.
 # Resolve once on a fresh clone, then apply the idempotent source patch before
@@ -141,16 +162,6 @@ if [[ ! -f "$MLX_SAFETENSORS_SOURCE" ]]; then
     echo "[swiftpm-reliable] Resolving mlx-swift before applying official FP8 loader support." >&2
     swift package resolve
 fi
-run_required_patch_step() {
-    local label="$1"
-    shift
-    if ! "$@"; then
-        echo "[swiftpm-reliable] Required patch step failed: $label" >&2
-        echo "[swiftpm-reliable] Refusing to compile a partially patched MLX checkout." >&2
-        exit 1
-    fi
-}
-
 run_required_patch_step \
     "official FP8 loader" \
     "$ROOT_DIR/Scripts/apply-mlx-official-fp8-loader.sh"
@@ -170,6 +181,27 @@ run_required_patch_step \
 run_required_patch_step \
     "vendored MLX Swift source verification" \
     "$ROOT_DIR/Scripts/apply-mlx-patches.sh" --check
+
+# Xcode 27's native driver can also miss changes in the C sources included by
+# CDwarfStar. Fingerprint both the pinned revision and AFM-owned patch payload;
+# invalidate compiled products only when that effective source changes.
+DS4_SOURCE_STAMP="$STATE_DIR/ds4-source.sha256"
+DS4_SOURCE_FINGERPRINT="$({
+    git -C "$ROOT_DIR/vendor/ds4" rev-parse HEAD
+    find "$ROOT_DIR/Scripts/patches/ds4" -type f -print0 \
+        | sort -z \
+        | xargs -0 shasum -a 256
+    shasum -a 256 "$ROOT_DIR/Scripts/apply-ds4-patches.sh"
+} | shasum -a 256 | awk '{print $1}')"
+PREVIOUS_DS4_SOURCE_FINGERPRINT="$(cat "$DS4_SOURCE_STAMP" 2>/dev/null || true)"
+if [[ "$DS4_SOURCE_FINGERPRINT" != "$PREVIOUS_DS4_SOURCE_FINGERPRINT" ]]; then
+    echo "[swiftpm-reliable] DwarfStar source changed; invalidating stale native-driver products." >&2
+    rm -rf \
+        "$ROOT_DIR/.build/arm64-apple-macosx" \
+        "$ROOT_DIR/.build/debug" \
+        "$ROOT_DIR/.build/release"
+    printf '%s\n' "$DS4_SOURCE_FINGERPRINT" > "$DS4_SOURCE_STAMP"
+fi
 
 # Xcode 27 Beta 3's native SwiftPM driver can miss source changes inside the
 # local mlx-swift-lm package and report a successful no-op build. Fingerprint
