@@ -7,7 +7,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CHECKOUT="$ROOT_DIR/.build/checkouts/mlx-swift"
+CHECKOUT="${MLX_SWIFT_CHECKOUT:-$ROOT_DIR/.build/checkouts/mlx-swift}"
 PATCH_DIR="$ROOT_DIR/Scripts/patches/mlx-swift-deepseek-v4"
 MODE="${1:-apply}"
 
@@ -62,4 +62,3 @@ apply_one \
     "MLX C API" \
     "$CHECKOUT/Source/Cmlx/mlx-c" \
     "$PATCH_DIR/mlx-c.patch"
-

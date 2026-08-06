@@ -7,7 +7,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TARGET="$ROOT_DIR/.build/checkouts/mlx-swift/Source/Cmlx/mlx/mlx/io/safetensors.cpp"
+CHECKOUT="${MLX_SWIFT_CHECKOUT:-$ROOT_DIR/.build/checkouts/mlx-swift}"
+TARGET="$CHECKOUT/Source/Cmlx/mlx/mlx/io/safetensors.cpp"
 MARKER="AFM_PATCH_F8_E8M0_SAFETENSORS"
 
 if [[ ! -f "$TARGET" ]]; then
