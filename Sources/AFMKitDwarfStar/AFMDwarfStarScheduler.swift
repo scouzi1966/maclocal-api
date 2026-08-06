@@ -2,6 +2,69 @@ import Foundation
 import AFMKitCore
 import CDwarfStar
 
+enum AFMDwarfStarReasoningMode: String, Equatable, Sendable {
+    case chat
+    case low
+    case high
+    case max
+
+    static func resolve(metadata: [String: AFMJSONValue]) -> Self {
+        guard case .object(let kwargs)? = metadata["chatTemplateKwargs"] else {
+            return .chat
+        }
+        if case .bool(false)? = kwargs["enable_thinking"] {
+            return .chat
+        }
+        let rawEffort: String?
+        if case .string(let value)? = kwargs["reasoning_effort"] {
+            rawEffort = value
+        } else if case .string(let value)? = kwargs["thinking_budget"] {
+            rawEffort = value
+        } else {
+            rawEffort = nil
+        }
+        if let rawEffort, let effort = Self(rawValue: rawEffort.lowercased()) {
+            return effort
+        }
+        if case .bool(true)? = kwargs["enable_thinking"] {
+            return .low
+        }
+        return .chat
+    }
+
+    var thinkMode: ds4_think_mode {
+        self == .chat ? DS4_THINK_NONE : DS4_THINK_HIGH
+    }
+
+    var promptPrefix: String? {
+        switch self {
+        case .chat, .low:
+            return nil
+        case .high:
+            return Self.highPrefix
+        case .max:
+            return Self.maxPrefix
+        }
+    }
+
+    // Verbatim DeepSeek-V4-Flash-0731 prompt contract.
+    private static let highPrefix = """
+        Reasoning Effort: Absolute maximum with no shortcuts permitted.
+        You MUST be very thorough in your thinking and comprehensively decompose the problem to resolve the root cause, rigorously stress-testing your logic against all potential paths, edge cases, and adversarial scenarios.
+        Explicitly write out your entire deliberation process, documenting every intermediate step, considered alternative, and rejected hypothesis to ensure absolutely no assumption is left unchecked.
+
+
+        """
+
+    private static let maxPrefix = """
+        Reasoning Effort: Beyond maximum — exhaustive, relentless, and uncompromising.
+        You MUST reason with the utmost depth and rigor, leaving absolutely nothing to chance: exhaustively decompose the problem into its most fundamental components, trace every causal chain to its root, and resolve the underlying cause rather than any surface symptom.
+        Do not stop reasoning until you have independently verified the solution from multiple angles and are certain that no assumption remains unchecked and no error remains undiscovered.
+
+
+        """
+}
+
 enum AFMDwarfStarSlotPolicy {
     static func bestSlot(
         commonPrefixes: [Int?],
@@ -37,6 +100,9 @@ public actor AFMDwarfStarRuntimeCoordinator {
         var outputTokens = 0
         var randomState: UInt64
         var peakBatchSize = 1
+        let reasoningMode: AFMDwarfStarReasoningMode
+        var speculativeCycles = 0
+        var speculativeAcceptedTokens = 0
 
         init(
             id: UUID,
@@ -51,6 +117,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
             self.onText = onText
             self.continuation = continuation
             randomState = UInt64(bitPattern: Int64(request.options.seed ?? 0x5eed))
+            reasoningMode = .resolve(metadata: request.metadata)
         }
 
         var maximumTokens: Int {
@@ -79,6 +146,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
     private var loadedContextWindow = 0
     private var loadedMaxConcurrent = 0
     private var prefixCachingEnabled = false
+    private var dsparkEnabled = false
 
     public init() {}
 
@@ -100,6 +168,10 @@ public actor AFMDwarfStarRuntimeCoordinator {
         contextWindow: Int,
         prefillChunk: Int,
         powerPercent: Int,
+        dsparkSupportPath: String? = nil,
+        dsparkDraftTokens: Int = 5,
+        dsparkConfidenceThreshold: Double = 0.7,
+        dsparkStrict: Bool = false,
         enablePrefixCaching: Bool,
         maxConcurrent: Int
     ) throws {
@@ -108,6 +180,10 @@ public actor AFMDwarfStarRuntimeCoordinator {
             externalMapGGUF ? "external-gguf" : "normal",
             templateGGUF ?? "",
             projectionMetadataPath ?? "",
+            dsparkSupportPath ?? "",
+            String(dsparkDraftTokens),
+            String(dsparkConfidenceThreshold),
+            String(dsparkStrict),
         ].joined(separator: "|")
         if engine != nil,
            slots.count == residentSessions,
@@ -126,6 +202,11 @@ public actor AFMDwarfStarRuntimeCoordinator {
         }
         guard FileManager.default.fileExists(atPath: modelPath) else {
             throw AFMError.loadingFailed("Model or checkpoint does not exist at \(modelPath)")
+        }
+        if let dsparkSupportPath,
+           !FileManager.default.fileExists(atPath: dsparkSupportPath) {
+            throw AFMError.loadingFailed(
+                "DSpark support checkpoint does not exist at \(dsparkSupportPath)")
         }
 
         var openedEngine: OpaquePointer?
@@ -168,37 +249,59 @@ public actor AFMDwarfStarRuntimeCoordinator {
                     file_offset: region.fileOffset,
                     length: region.length)
             }
-            status = projection.metadataPath.withCString { metadataPointer in
-                sourceRoot.withCString { sourceRootPointer in
-                    regions.withUnsafeBufferPointer { regionBuffer in
-                        afm_ds4_engine_open_mapped(
+            let openMapped: (UnsafePointer<CChar>?) -> Int32 = { supportPointer in
+                projection.metadataPath.withCString { metadataPointer in
+                    sourceRoot.withCString { sourceRootPointer in
+                        regions.withUnsafeBufferPointer { regionBuffer in
+                            afm_ds4_engine_open_mapped(
+                                &openedEngine,
+                                metadataPointer,
+                                projection.virtualSize,
+                                regionBuffer.baseAddress,
+                                regionBuffer.count,
+                                Int32(contextWindow),
+                                UInt32(clamping: prefillChunk),
+                                Int32(powerPercent),
+                                supportPointer,
+                                Int32(clamping: dsparkDraftTokens),
+                                Float(dsparkConfidenceThreshold),
+                                dsparkStrict ? 1 : 0,
+                                sourceRootPointer,
+                                &error,
+                                error.count)
+                        }
+                    }
+                }
+            }
+            status = if let dsparkSupportPath {
+                dsparkSupportPath.withCString(openMapped)
+            } else {
+                openMapped(nil)
+            }
+        } else {
+            let openModel: (UnsafePointer<CChar>?) -> Int32 = { supportPointer in
+                modelPath.withCString { modelPathPointer in
+                    sourceRoot.withCString { sourceRootPointer in
+                        afm_ds4_engine_open(
                             &openedEngine,
-                            metadataPointer,
-                            projection.virtualSize,
-                            regionBuffer.baseAddress,
-                            regionBuffer.count,
+                            modelPathPointer,
                             Int32(contextWindow),
                             UInt32(clamping: prefillChunk),
                             Int32(powerPercent),
+                            supportPointer,
+                            Int32(clamping: dsparkDraftTokens),
+                            Float(dsparkConfidenceThreshold),
+                            dsparkStrict ? 1 : 0,
                             sourceRootPointer,
                             &error,
                             error.count)
                     }
                 }
             }
-        } else {
-            status = modelPath.withCString { modelPathPointer in
-                sourceRoot.withCString { sourceRootPointer in
-                    afm_ds4_engine_open(
-                        &openedEngine,
-                        modelPathPointer,
-                        Int32(contextWindow),
-                        UInt32(clamping: prefillChunk),
-                        Int32(powerPercent),
-                        sourceRootPointer,
-                        &error,
-                        error.count)
-                }
+            status = if let dsparkSupportPath {
+                dsparkSupportPath.withCString(openModel)
+            } else {
+                openModel(nil)
             }
         }
         guard status == 0, let openedEngine else {
@@ -228,6 +331,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
         loadedContextWindow = contextWindow
         loadedMaxConcurrent = residentSessions
         prefixCachingEnabled = enablePrefixCaching
+        dsparkEnabled = dsparkSupportPath != nil && ds4_engine_has_mtp(openedEngine)
     }
 
     public func unload(modelPath: String) {
@@ -388,37 +492,48 @@ public actor AFMDwarfStarRuntimeCoordinator {
                     Float(job.request.options.topP ?? 1),
                     Float(job.request.options.minP ?? 0.05),
                     &job.randomState)
-            if ds4_token_is_stop_for_think_mode(engine, token, DS4_THINK_NONE) {
+
+            if ds4_token_is_stop_for_think_mode(engine, token, job.reasoningMode.thinkMode) {
                 finish(slotIndex: slotIndex, reason: .stop)
                 continue
             }
 
-            var byteCount = 0
-            guard let bytes = ds4_token_text(engine, token, &byteCount) else {
-                finish(
-                    slotIndex: slotIndex,
-                    throwing: AFMError.generationFailed(
-                        "DwarfStar returned an invalid token piece."))
-                continue
-            }
-            job.pendingUTF8.append(
-                UnsafeRawPointer(bytes).assumingMemoryBound(to: UInt8.self),
-                count: byteCount)
-            afm_ds4_free(bytes)
-            job.outputTokens += 1
-
-            if let piece = String(data: job.pendingUTF8, encoding: .utf8) {
-                job.pendingUTF8.removeAll(keepingCapacity: true)
-                job.generatedText += piece
-                job.onText(piece, job.outputTokens)
-                if job.request.options.stopSequences.contains(where: job.generatedText.hasSuffix) {
-                    finish(slotIndex: slotIndex, reason: .stop)
+            if dsparkEnabled, temperature <= 0, ds4_engine_has_mtp(engine) {
+                let remaining = job.maximumTokens - job.outputTokens
+                let capacity = max(1, min(16, remaining))
+                var accepted = [Int32](repeating: 0, count: capacity)
+                var error = [CChar](repeating: 0, count: 512)
+                let acceptedCount = accepted.withUnsafeMutableBufferPointer { buffer in
+                    ds4_session_eval_speculative_argmax(
+                        slots[slotIndex].session,
+                        token,
+                        Int32(remaining),
+                        ds4_token_eos(engine),
+                        buffer.baseAddress,
+                        Int32(buffer.count),
+                        &error,
+                        error.count)
+                }
+                guard acceptedCount >= 0 else {
+                    ds4_session_invalidate(slots[slotIndex].session)
+                    finish(
+                        slotIndex: slotIndex,
+                        throwing: AFMError.generationFailed(Self.errorText(error)))
+                    continue
+                }
+                if acceptedCount > 0 {
+                    job.speculativeCycles += 1
+                    job.speculativeAcceptedTokens += max(0, Int(acceptedCount) - 1)
+                    for acceptedToken in accepted.prefix(Int(acceptedCount)) {
+                        guard slots[slotIndex].job != nil else { break }
+                        emit(token: acceptedToken, engine: engine, slotIndex: slotIndex)
+                    }
                     continue
                 }
             }
 
-            if job.outputTokens >= job.maximumTokens {
-                finish(slotIndex: slotIndex, reason: .length)
+            emit(token: token, engine: engine, slotIndex: slotIndex)
+            guard slots[slotIndex].job != nil else {
                 continue
             }
 
@@ -454,6 +569,42 @@ public actor AFMDwarfStarRuntimeCoordinator {
         }
     }
 
+    private func emit(token: Int32, engine: OpaquePointer, slotIndex: Int) {
+        guard let job = slots[slotIndex].job else { return }
+        if ds4_token_is_stop_for_think_mode(engine, token, job.reasoningMode.thinkMode) {
+            finish(slotIndex: slotIndex, reason: .stop)
+            return
+        }
+
+        var byteCount = 0
+        guard let bytes = ds4_token_text(engine, token, &byteCount) else {
+            finish(
+                slotIndex: slotIndex,
+                throwing: AFMError.generationFailed(
+                    "DwarfStar returned an invalid token piece."))
+            return
+        }
+        job.pendingUTF8.append(
+            UnsafeRawPointer(bytes).assumingMemoryBound(to: UInt8.self),
+            count: byteCount)
+        afm_ds4_free(bytes)
+        job.outputTokens += 1
+
+        if let piece = String(data: job.pendingUTF8, encoding: .utf8) {
+            job.pendingUTF8.removeAll(keepingCapacity: true)
+            job.generatedText += piece
+            job.onText(piece, job.outputTokens)
+            if job.request.options.stopSequences.contains(where: job.generatedText.hasSuffix) {
+                finish(slotIndex: slotIndex, reason: .stop)
+                return
+            }
+        }
+
+        if job.outputTokens >= job.maximumTokens {
+            finish(slotIndex: slotIndex, reason: .length)
+        }
+    }
+
     private func finish(slotIndex: Int, reason: AFMFinishReason) {
         guard let job = slots[slotIndex].job else { return }
         flushPendingUTF8(job)
@@ -475,6 +626,10 @@ public actor AFMDwarfStarRuntimeCoordinator {
                 "modelPath": .string(loadedModelPath ?? ""),
                 "cachedInputTokens": .integer(job.cachedInputTokens),
                 "peakBatchSize": .integer(job.peakBatchSize),
+                "reasoningEffort": .string(job.reasoningMode.rawValue),
+                "dsparkEnabled": .bool(dsparkEnabled),
+                "speculativeCycles": .integer(job.speculativeCycles),
+                "speculativeAcceptedTokens": .integer(job.speculativeAcceptedTokens),
             ])
         slots[slotIndex].job = nil
         job.releasePrompt()
@@ -533,6 +688,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
         loadedContextWindow = 0
         loadedMaxConcurrent = 0
         prefixCachingEnabled = false
+        dsparkEnabled = false
     }
 
     private static func makePrompt(
@@ -543,6 +699,10 @@ public actor AFMDwarfStarRuntimeCoordinator {
         afm_ds4_tokens_init(&prompt)
         ds4_chat_begin(engine, &prompt)
         do {
+            let reasoningMode = AFMDwarfStarReasoningMode.resolve(metadata: request.metadata)
+            if let prefix = reasoningMode.promptPrefix {
+                prefix.withCString { ds4_tokenize_text(engine, $0, &prompt) }
+            }
             for message in request.messages {
                 let text = try textContent(of: message)
                 message.role.rawValue.withCString { rolePointer in
@@ -551,7 +711,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
                     }
                 }
             }
-            ds4_chat_append_assistant_prefix(engine, &prompt, DS4_THINK_NONE)
+            ds4_chat_append_assistant_prefix(engine, &prompt, reasoningMode.thinkMode)
             return prompt
         } catch {
             ds4_tokens_free(&prompt)

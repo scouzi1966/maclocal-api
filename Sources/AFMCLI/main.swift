@@ -451,6 +451,18 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "MTP draft depth (accepted for compatibility; the loop currently uses the fixed depth-2-bonus structure from mlx-lm PR #990 — ~+50% decode vs AR on M4 Pro — so this value is not used).")
     var mtpDepth: Int = 1
 
+    @Option(name: .customLong("dspark-support"), help: "DwarfStar DSpark support GGUF. Supplying it enables greedy speculative decoding.")
+    var dsparkSupportPath: String?
+
+    @Option(name: .customLong("dspark-draft-tokens"), help: "Maximum DSpark speculative tokens per cycle (1...16, default: 5).")
+    var dsparkDraftTokens: Int = 5
+
+    @Option(name: .customLong("dspark-confidence"), help: "DSpark confidence-pruning threshold (0...1, default: 0.7).")
+    var dsparkConfidenceThreshold: Double = 0.7
+
+    @Flag(name: .customLong("dspark-strict"), help: "Load DSpark support but keep target-only decoding for correctness comparisons.")
+    var dsparkStrict: Bool = false
+
     @Option(name: .long, help: "Enable EAGLE3 speculative decoding for a dense Gemma4 verifier. Pass the drafter directory (config.json + safetensors). Faster decode, quality-preserving (near-greedy output). No-op if the verifier is not a dense Gemma4 text model.")
     var eagle3: String?
 
@@ -460,8 +472,14 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Enable grammar-constrained decoding engine. When active, API requests with strict: true on tools or response_format.json_schema use xgrammar for token-level enforcement. Without this flag, strict: true is silently downgraded to best-effort.")
     var enableGrammarConstraints: Bool = false
 
-    @Flag(name: .long, help: "Disable thinking/reasoning (sets enable_thinking=false in chat template)")
+    @Flag(name: [.customLong("no-think"), .customLong("no-thinking")], help: "Disable thinking/reasoning. Overrides --reasoning-effort, --thinking-budget, and chat-template kwargs.")
     var noThink: Bool = false
+
+    @Option(
+        name: [.customLong("reasoning-effort"), .customLong("thinking-budget")],
+        help: "DeepSeek thinking effort: low, high, or max. --thinking-budget is an alias."
+    )
+    var reasoningEffort: String?
 
     @Option(name: .long, help: "Max concurrent requests (enables batch mode; 0 or 1 reverts to serial)")
     var concurrent: Int?
@@ -538,11 +556,9 @@ struct MlxCommand: ParsableCommand {
         let resolver = MLXCacheResolver()
         let modelStore = AFMMLXModelStore(resolver: resolver)
 
-        // Parse --default-chat-template-kwargs and --no-think into defaultChatTemplateKwargs
+        // Parse template controls first, then apply typed CLI controls. The explicit
+        // no-thinking flag is deliberately last so it cannot be undone by JSON.
         var parsedKwargs: [String: Any] = [:]
-        if noThink {
-            parsedKwargs["enable_thinking"] = false
-        }
         if let jsonStr = defaultChatTemplateKwargs {
             guard let data = jsonStr.data(using: .utf8) else {
                 fputs("Error: --default-chat-template-kwargs must be valid UTF-8\n", stderr)
@@ -555,12 +571,35 @@ struct MlxCommand: ParsableCommand {
                     throw ExitCode.failure
                 }
                 for (key, value) in dict {
-                    parsedKwargs[key] = value  // explicit kwargs override --no-think
+                    parsedKwargs[key] = value
                 }
             } catch let error where !(error is ExitCode) {
                 fputs("Error: Failed to parse --default-chat-template-kwargs as JSON: \(error)\n", stderr)
                 throw ExitCode.failure
             }
+        }
+        let normalizedReasoningEffort = reasoningEffort?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if let normalizedReasoningEffort {
+            guard ["low", "high", "max"].contains(normalizedReasoningEffort) else {
+                fputs("Error: --reasoning-effort/--thinking-budget must be low, high, or max\n", stderr)
+                throw ExitCode.failure
+            }
+            parsedKwargs["reasoning_effort"] = normalizedReasoningEffort
+            parsedKwargs["enable_thinking"] = true
+        }
+        if noThink {
+            let configuredEffort = normalizedReasoningEffort != nil
+                || parsedKwargs["reasoning_effort"] != nil
+                || parsedKwargs["thinking_budget"] != nil
+                || (parsedKwargs["enable_thinking"] as? Bool) == true
+            if configuredEffort {
+                fputs("Note: --no-thinking overrides the configured DeepSeek reasoning effort.\n", stderr)
+            }
+            parsedKwargs["enable_thinking"] = false
+            parsedKwargs.removeValue(forKey: "reasoning_effort")
+            parsedKwargs.removeValue(forKey: "thinking_budget")
         }
 
         var defaultGuidedJsonSchema: ResponseFormat?
@@ -597,11 +636,15 @@ struct MlxCommand: ParsableCommand {
         }
 
         let runtimeBackend = try resolveRuntimeBackend(model: rawModel)
+        if runtimeBackend != .dwarfstar, dsparkSupportPath != nil {
+            throw ValidationError("--dspark-support requires --mlx-runtime dwarfstar or a DwarfStar executor checkpoint")
+        }
         if runtimeBackend == .dwarfstar {
             try runDwarfStar(
                 checkpointPath: localModelPath(rawModel),
                 modelStore: modelStore,
                 chatTemplateKwargs: parsedKwargs,
+                forceDisableThinking: noThink,
                 defaultGuidedJsonSchema: defaultGuidedJsonSchema)
             return
         }
@@ -629,6 +672,7 @@ struct MlxCommand: ParsableCommand {
             defaultChatTemplateKwargs: parsedKwargs.isEmpty
                 ? nil
                 : try parsedKwargs.mapValues { try Self.afmJSONValue(from: $0) },
+            forceDisableThinking: noThink,
             defaultGuidedJsonSchema: defaultGuidedJsonSchema
         )
         let runtime = AFMMLXRuntime(
@@ -855,6 +899,7 @@ struct MlxCommand: ParsableCommand {
         checkpointPath: String,
         modelStore: AFMMLXModelStore,
         chatTemplateKwargs: [String: Any],
+        forceDisableThinking: Bool,
         defaultGuidedJsonSchema: ResponseFormat?
     ) throws {
         if !media.isEmpty || vlm {
@@ -868,7 +913,14 @@ struct MlxCommand: ParsableCommand {
             throw ValidationError(
                 "Repetition/presence penalties and guided JSON are unavailable in the DwarfStar runtime")
         }
+        guard (1...16).contains(dsparkDraftTokens) else {
+            throw ValidationError("--dspark-draft-tokens must be between 1 and 16")
+        }
+        guard (0...1).contains(dsparkConfidenceThreshold) else {
+            throw ValidationError("--dspark-confidence must be between 0 and 1")
+        }
         let residentSessions = max(1, concurrent ?? 1)
+        let resolvedDSparkPath = dsparkSupportPath.map(localModelPath)
 
         let modelID = URL(fileURLWithPath: checkpointPath).lastPathComponent
         if openclawConfig {
@@ -882,6 +934,9 @@ struct MlxCommand: ParsableCommand {
         if verbose {
             print("Selected inference runtime: dwarfstar (fixed Metal schedule)")
             print("AFM checkpoint: \(checkpointPath)")
+            if let resolvedDSparkPath {
+                print("DSpark support: \(resolvedDSparkPath) (draft=\(dsparkDraftTokens), confidence=\(dsparkConfidenceThreshold), strict=\(dsparkStrict))")
+            }
         }
 
         if let prompt = singlePrompt {
@@ -928,8 +983,15 @@ struct MlxCommand: ParsableCommand {
             modelID: AFMModelID(rawValue: modelID),
             modelPath: checkpointPath,
             contextWindow: 32_768,
+            dsparkSupportPath: resolvedDSparkPath,
+            dsparkDraftTokens: dsparkDraftTokens,
+            dsparkConfidenceThreshold: dsparkConfidenceThreshold,
+            dsparkStrict: dsparkStrict,
             enablePrefixCaching: enablePrefixCaching,
             maxConcurrent: residentSessions))
+        let defaultChatTemplateKwargs = chatTemplateKwargs.isEmpty
+            ? nil
+            : chatTemplateKwargs.mapValues { AnyCodable($0) }
         _ = Task {
             do {
                 _ = try await model.load(progress: nil)
@@ -948,6 +1010,8 @@ struct MlxCommand: ParsableCommand {
                     prewarmEnabled: false,
                     telegramConfiguration: telegramConfiguration,
                     defaultGuidedJsonSchema: defaultGuidedJsonSchema,
+                    defaultChatTemplateKwargs: defaultChatTemplateKwargs,
+                    forceDisableThinking: forceDisableThinking,
                     mlxModelID: modelID,
                     afmModel: model,
                     mlxTopP: topP,
@@ -1020,7 +1084,14 @@ struct MlxCommand: ParsableCommand {
                         modelID: AFMModelID(rawValue: modelID),
                         configuration: AFMProviderConfiguration(values: [
                             "modelPath": .string(modelPath ?? modelID),
-                            "contextWindow": .integer(32_768)
+                            "contextWindow": .integer(32_768),
+                            "dsparkSupportPath": self.dsparkSupportPath
+                                .map { .string(self.localModelPath($0)) } ?? .null,
+                            "dsparkDraftTokens": .integer(self.dsparkDraftTokens),
+                            "dsparkConfidenceThreshold": .number(self.dsparkConfidenceThreshold),
+                            "dsparkStrict": .bool(self.dsparkStrict),
+                            "enablePrefixCaching": .bool(self.enablePrefixCaching),
+                            "maxConcurrent": .integer(max(1, self.concurrent ?? 1))
                         ]),
                         registry: registry)
                 } else {

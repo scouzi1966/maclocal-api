@@ -262,7 +262,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     parallelToolCalls: chatRequest.parallelToolCalls,
                     stop: effectiveStop,
                     responseFormat: effectiveResponseFormat,
-                    chatTemplateKwargs: chatRequest.chatTemplateKwargs,
+                    chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
                     preserveStructuralTags: !extractThinking,
                     requestId: reqId
                 )
@@ -376,7 +376,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     parallelToolCalls: chatRequest.parallelToolCalls,
                     stop: effectiveStop,
                     responseFormat: effectiveResponseFormat,
-                    chatTemplateKwargs: chatRequest.chatTemplateKwargs
+                    chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs
                 )
             }
             let completionTok = result.completionTokens
@@ -604,7 +604,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     parallelToolCalls: chatRequest.parallelToolCalls,
                     stop: effectiveStop,
                     responseFormat: effectiveResponseFormat,
-                    chatTemplateKwargs: chatRequest.chatTemplateKwargs,
+                    chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
                     preserveStructuralTags: !extractThinking,
                     requestId: streamReqId
                 )

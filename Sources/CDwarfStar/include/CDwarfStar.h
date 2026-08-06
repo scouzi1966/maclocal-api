@@ -9,6 +9,10 @@ int afm_ds4_engine_open(
     int context_size,
     uint32_t prefill_chunk,
     int power_percent,
+    const char *dspark_support_path,
+    int dspark_draft_tokens,
+    float dspark_confidence_threshold,
+    int dspark_strict,
     const char *metal_source_root,
     char *error,
     size_t error_capacity
@@ -23,6 +27,10 @@ int afm_ds4_engine_open_mapped(
     int context_size,
     uint32_t prefill_chunk,
     int power_percent,
+    const char *dspark_support_path,
+    int dspark_draft_tokens,
+    float dspark_confidence_threshold,
+    int dspark_strict,
     const char *metal_source_root,
     char *error,
     size_t error_capacity

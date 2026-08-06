@@ -20,6 +20,10 @@ public struct AFMDwarfStarProviderFactory: AFMProviderFactory {
                 "contextWindow",
                 "prefillChunk",
                 "powerPercent",
+                "dsparkSupportPath",
+                "dsparkDraftTokens",
+                "dsparkConfidenceThreshold",
+                "dsparkStrict",
                 "enablePrefixCaching",
                 "maxConcurrent"
             ],
@@ -52,6 +56,10 @@ public struct AFMDwarfStarProviderFactory: AFMProviderFactory {
                 contextWindow: configuration.integer("contextWindow") ?? 32_768,
                 prefillChunk: configuration.integer("prefillChunk") ?? 0,
                 powerPercent: configuration.integer("powerPercent") ?? 100,
+                dsparkSupportPath: configuration.string("dsparkSupportPath"),
+                dsparkDraftTokens: configuration.integer("dsparkDraftTokens") ?? 5,
+                dsparkConfidenceThreshold: configuration.number("dsparkConfidenceThreshold") ?? 0.7,
+                dsparkStrict: configuration.boolean("dsparkStrict") ?? false,
                 enablePrefixCaching: configuration.boolean("enablePrefixCaching") ?? false,
                 maxConcurrent: configuration.integer("maxConcurrent") ?? 1
             )
@@ -69,6 +77,10 @@ public final class AFMDwarfStarModel: AFMModel, @unchecked Sendable {
     private let contextWindow: Int
     private let prefillChunk: Int
     private let powerPercent: Int
+    private let dsparkSupportPath: String?
+    private let dsparkDraftTokens: Int
+    private let dsparkConfidenceThreshold: Double
+    private let dsparkStrict: Bool
     private let enablePrefixCaching: Bool
     private let maxConcurrent: Int
     private let runtime: AFMDwarfStarRuntimeCoordinator
@@ -82,6 +94,10 @@ public final class AFMDwarfStarModel: AFMModel, @unchecked Sendable {
         contextWindow: Int = 32_768,
         prefillChunk: Int = 0,
         powerPercent: Int = 100,
+        dsparkSupportPath: String? = nil,
+        dsparkDraftTokens: Int = 5,
+        dsparkConfidenceThreshold: Double = 0.7,
+        dsparkStrict: Bool = false,
         enablePrefixCaching: Bool = false,
         maxConcurrent: Int = 1,
         runtime: AFMDwarfStarRuntimeCoordinator = .shared
@@ -100,6 +116,10 @@ public final class AFMDwarfStarModel: AFMModel, @unchecked Sendable {
         self.contextWindow = contextWindow
         self.prefillChunk = prefillChunk
         self.powerPercent = powerPercent
+        self.dsparkSupportPath = dsparkSupportPath
+        self.dsparkDraftTokens = max(1, min(16, dsparkDraftTokens))
+        self.dsparkConfidenceThreshold = max(0, min(1, dsparkConfidenceThreshold))
+        self.dsparkStrict = dsparkStrict
         self.enablePrefixCaching = enablePrefixCaching
         self.maxConcurrent = max(1, maxConcurrent)
         self.runtime = runtime
@@ -115,6 +135,10 @@ public final class AFMDwarfStarModel: AFMModel, @unchecked Sendable {
                 "runtime": .string("dwarfstar"),
                 "backend": .string("metal"),
                 "modelPath": .string(modelPath),
+                "dsparkEnabled": .bool(dsparkSupportPath != nil),
+                "dsparkDraftTokens": .integer(max(1, min(16, dsparkDraftTokens))),
+                "dsparkConfidenceThreshold": .number(max(0, min(1, dsparkConfidenceThreshold))),
+                "dsparkStrict": .bool(dsparkStrict),
                 "enablePrefixCaching": .bool(enablePrefixCaching),
                 "maxConcurrent": .integer(max(1, maxConcurrent))
             ]
@@ -139,6 +163,10 @@ public final class AFMDwarfStarModel: AFMModel, @unchecked Sendable {
             contextWindow: contextWindow,
             prefillChunk: prefillChunk,
             powerPercent: powerPercent,
+            dsparkSupportPath: dsparkSupportPath,
+            dsparkDraftTokens: dsparkDraftTokens,
+            dsparkConfidenceThreshold: dsparkConfidenceThreshold,
+            dsparkStrict: dsparkStrict,
             enablePrefixCaching: enablePrefixCaching,
             maxConcurrent: maxConcurrent
         )
@@ -198,5 +226,13 @@ private extension AFMProviderConfiguration {
     func boolean(_ key: String) -> Bool? {
         guard case .bool(let value) = values[key] else { return nil }
         return value
+    }
+
+    func number(_ key: String) -> Double? {
+        switch values[key] {
+        case .number(let value): return value
+        case .integer(let value): return Double(value)
+        default: return nil
+        }
     }
 }

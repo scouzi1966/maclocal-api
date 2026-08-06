@@ -45,6 +45,7 @@ final class AFMMLXRuntimeTests: XCTestCase {
                 "enable_thinking": .bool(false),
                 "top_k": .integer(20)
             ],
+            forceDisableThinking: true,
             defaultGuidedJsonSchema: guidedSchema
         ).apply(to: service)
 
@@ -72,6 +73,7 @@ final class AFMMLXRuntimeTests: XCTestCase {
         let topK = templateKwargs?["top_k"] as? Int
         XCTAssertEqual(enableThinking, false)
         XCTAssertEqual(topK, 20)
+        XCTAssertTrue(service.forceDisableThinking)
         XCTAssertEqual(service.defaultGuidedJsonSchema?.type, "json_schema")
     }
 

@@ -26,6 +26,10 @@ public struct ChatCompletionRequest: Codable, Sendable {
     public let parallelToolCalls: Bool?
     public let responseFormat: ResponseFormat?
     public let chatTemplateKwargs: [String: AnyCodable]?
+    /// Official DeepSeek 0731 reasoning control: low, high, or max.
+    public let reasoningEffort: String?
+    /// Friendly alias accepted by AFM for clients that call this a thinking budget.
+    public let thinkingBudget: String?
 
     public enum CodingKeys: String, CodingKey {
         case model
@@ -52,6 +56,8 @@ public struct ChatCompletionRequest: Codable, Sendable {
         case parallelToolCalls = "parallel_tool_calls"
         case responseFormat = "response_format"
         case chatTemplateKwargs = "chat_template_kwargs"
+        case reasoningEffort = "reasoning_effort"
+        case thinkingBudget = "thinking_budget"
     }
 
     /// Whether the final SSE chunk should carry a `usage` block. Mirrors OpenAI's
@@ -67,7 +73,18 @@ public struct ChatCompletionRequest: Codable, Sendable {
     public var effectiveRepetitionPenalty: Double? {
         repetitionPenalty ?? repeatPenalty
     }
-    public init(model: String?, messages: [Message], temperature: Double?, maxTokens: Int?, maxCompletionTokens: Int?, topP: Double?, repetitionPenalty: Double?, repeatPenalty: Double?, frequencyPenalty: Double?, presencePenalty: Double?, topK: Int?, minP: Double?, seed: Int?, logprobs: Bool?, topLogprobs: Int?, stop: [String]?, stream: Bool?, streamOptions: StreamOptions?, user: String?, tools: [RequestTool]?, toolChoice: ToolChoice?, parallelToolCalls: Bool?, responseFormat: ResponseFormat?, chatTemplateKwargs: [String: AnyCodable]?) {
+
+    /// Template kwargs with top-level reasoning controls normalized for every backend.
+    /// An explicit `enable_thinking=false` remains authoritative in the model encoder.
+    public var effectiveChatTemplateKwargs: [String: AnyCodable]? {
+        var result = chatTemplateKwargs ?? [:]
+        if let effort = reasoningEffort ?? thinkingBudget {
+            result["reasoning_effort"] = AnyCodable(effort)
+        }
+        return result.isEmpty ? nil : result
+    }
+
+    public init(model: String?, messages: [Message], temperature: Double?, maxTokens: Int?, maxCompletionTokens: Int?, topP: Double?, repetitionPenalty: Double?, repeatPenalty: Double?, frequencyPenalty: Double?, presencePenalty: Double?, topK: Int?, minP: Double?, seed: Int?, logprobs: Bool?, topLogprobs: Int?, stop: [String]?, stream: Bool?, streamOptions: StreamOptions?, user: String?, tools: [RequestTool]?, toolChoice: ToolChoice?, parallelToolCalls: Bool?, responseFormat: ResponseFormat?, chatTemplateKwargs: [String: AnyCodable]?, reasoningEffort: String? = nil, thinkingBudget: String? = nil) {
         self.model = model
         self.messages = messages
         self.temperature = temperature
@@ -92,6 +109,8 @@ public struct ChatCompletionRequest: Codable, Sendable {
         self.parallelToolCalls = parallelToolCalls
         self.responseFormat = responseFormat
         self.chatTemplateKwargs = chatTemplateKwargs
+        self.reasoningEffort = reasoningEffort
+        self.thinkingBudget = thinkingBudget
     }
 }
 

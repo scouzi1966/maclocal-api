@@ -9,23 +9,39 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
     private let resolver: MLXCacheResolver
     private let fixedModel: AnyAFMModel?
     private let fixedModelID: String?
+    private let defaultChatTemplateKwargs: [String: AnyCodable]?
+    private let forceDisableThinking: Bool
     private let slotLock = NSLock()
     private let fixedMaxConcurrent: Int
     private var fixedSlotsReserved = 0
 
-    init(service: MLXModelService, resolver: MLXCacheResolver = .init()) {
+    init(
+        service: MLXModelService,
+        resolver: MLXCacheResolver = .init(),
+        defaultChatTemplateKwargs: [String: AnyCodable]? = nil,
+        forceDisableThinking: Bool = false
+    ) {
         self.service = service
         self.resolver = resolver
         fixedModel = nil
         fixedModelID = nil
+        self.defaultChatTemplateKwargs = defaultChatTemplateKwargs
+        self.forceDisableThinking = forceDisableThinking
         fixedMaxConcurrent = 1
     }
 
-    init(model: AnyAFMModel, modelID: String) {
+    init(
+        model: AnyAFMModel,
+        modelID: String,
+        defaultChatTemplateKwargs: [String: AnyCodable]? = nil,
+        forceDisableThinking: Bool = false
+    ) {
         service = nil
         resolver = .init()
         fixedModel = model
         fixedModelID = modelID
+        self.defaultChatTemplateKwargs = defaultChatTemplateKwargs
+        self.forceDisableThinking = forceDisableThinking
         if case .integer(let value) = model.descriptor.metadata["maxConcurrent"] {
             fixedMaxConcurrent = max(1, value)
         } else {
@@ -520,7 +536,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         if let parallelToolCalls {
             metadata["parallelToolCalls"] = .bool(parallelToolCalls)
         }
-        if let chatTemplateKwargs {
+        if let chatTemplateKwargs = mergedChatTemplateKwargs(request: chatTemplateKwargs) {
             metadata["chatTemplateKwargs"] = .object(
                 chatTemplateKwargs.mapValues(\.afmJSONValue)
             )
@@ -541,6 +557,21 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
             responseFormat: responseFormat,
             metadata: metadata
         )
+    }
+
+    private func mergedChatTemplateKwargs(
+        request: [String: AnyCodable]?
+    ) -> [String: AnyCodable]? {
+        var merged = defaultChatTemplateKwargs ?? [:]
+        if let request {
+            merged.merge(request) { _, requestValue in requestValue }
+        }
+        if forceDisableThinking {
+            merged["enable_thinking"] = AnyCodable(false)
+            merged.removeValue(forKey: "reasoning_effort")
+            merged.removeValue(forKey: "thinking_budget")
+        }
+        return merged.isEmpty ? nil : merged
     }
 
     private func rawContent(

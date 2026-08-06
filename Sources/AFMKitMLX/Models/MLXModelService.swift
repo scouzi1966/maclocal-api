@@ -404,6 +404,7 @@ public final class MLXModelService: @unchecked Sendable {
     /// Also sample DRAM bandwidth via mactop (adds ~5s). Requires `brew install mactop`.
     public var gpuProfileBandwidth: Bool = false
     public var defaultChatTemplateKwargs: [String: Any]?
+    public var forceDisableThinking: Bool = false
     public var cacheProfilePath: String?
     /// Detected think start/end tags from the tokenizer vocabulary (e.g., "<think>"/"</think>").
     /// Set after model load. nil if the model doesn't have think tokens.
@@ -5803,6 +5804,11 @@ public final class MLXModelService: @unchecked Sendable {
                 }
                 resolvedKwargs[key] = value.value.toAny()
             }
+        }
+        if forceDisableThinking {
+            resolvedKwargs["enable_thinking"] = false
+            resolvedKwargs.removeValue(forKey: "reasoning_effort")
+            resolvedKwargs.removeValue(forKey: "thinking_budget")
         }
         if responseFormat?.type == "json_schema",
            thinkStartTag != nil, thinkEndTag != nil,

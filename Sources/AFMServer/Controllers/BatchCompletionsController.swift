@@ -208,7 +208,7 @@ struct BatchCompletionsController: RouteCollection {
                 parallelToolCalls: chatReq.parallelToolCalls,
                 stop: chatReq.stop,
                 responseFormat: effectiveResponseFormat,
-                chatTemplateKwargs: chatReq.chatTemplateKwargs
+                chatTemplateKwargs: chatReq.effectiveChatTemplateKwargs
             )
             reservationTransferred = true
 

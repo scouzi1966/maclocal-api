@@ -35,6 +35,7 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
     public var gpuProfile: Bool
     public var gpuProfileBandwidth: Bool
     public var defaultChatTemplateKwargs: [String: AFMJSONValue]?
+    public var forceDisableThinking: Bool
     public var defaultGuidedJsonSchema: ResponseFormat?
 
     public init(
@@ -58,6 +59,7 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         gpuProfile: Bool = false,
         gpuProfileBandwidth: Bool = false,
         defaultChatTemplateKwargs: [String: AFMJSONValue]? = nil,
+        forceDisableThinking: Bool = false,
         defaultGuidedJsonSchema: ResponseFormat? = nil
     ) {
         self.kvBits = kvBits
@@ -80,6 +82,7 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         self.gpuProfile = gpuProfile
         self.gpuProfileBandwidth = gpuProfileBandwidth
         self.defaultChatTemplateKwargs = defaultChatTemplateKwargs
+        self.forceDisableThinking = forceDisableThinking
         self.defaultGuidedJsonSchema = defaultGuidedJsonSchema
     }
 
@@ -146,6 +149,9 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         if let value = configuration.bool("gpuProfileBandwidth") {
             gpuProfileBandwidth = value
         }
+        if let value = configuration.bool("forceDisableThinking") ?? configuration.bool("noThinking") {
+            forceDisableThinking = value
+        }
     }
 
     public func apply(to service: MLXModelService) {
@@ -170,6 +176,7 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         service.gpuProfileBandwidth = gpuProfileBandwidth
         service.defaultChatTemplateKwargs =
             defaultChatTemplateKwargs?.mapValues(Self.anyValue)
+        service.forceDisableThinking = forceDisableThinking
         service.defaultGuidedJsonSchema = defaultGuidedJsonSchema
     }
 
@@ -231,7 +238,9 @@ public final class AFMMLXRuntime: @unchecked Sendable {
             enablePrefixCaching: service.enablePrefixCaching,
             kernelEngine: service.kernelEngine,
             maxConcurrent: service.maxConcurrent,
-            enableGrammarConstraints: service.enableGrammarConstraints
+            enableGrammarConstraints: service.enableGrammarConstraints,
+            forceDisableThinking: service.forceDisableThinking,
+            defaultGuidedJsonSchema: service.defaultGuidedJsonSchema
         )
         self.initializesSchedulerOnLoad = false
         self.service = service

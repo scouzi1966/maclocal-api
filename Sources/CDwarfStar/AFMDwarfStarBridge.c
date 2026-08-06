@@ -64,6 +64,10 @@ int afm_ds4_engine_open(
         int context_size,
         uint32_t prefill_chunk,
         int power_percent,
+        const char *dspark_support_path,
+        int dspark_draft_tokens,
+        float dspark_confidence_threshold,
+        int dspark_strict,
         const char *metal_source_root,
         char *error,
         size_t error_capacity) {
@@ -81,8 +85,13 @@ int afm_ds4_engine_open(
     options.context_size = context_size;
     options.prefill_chunk = prefill_chunk;
     options.power_percent = power_percent;
-    options.mtp_draft_tokens = 1;
+    options.mtp_path = dspark_support_path;
+    options.mtp_draft_tokens = dspark_draft_tokens > 0 ? dspark_draft_tokens : 5;
     options.mtp_margin = 3.0f;
+    options.dspark = dspark_support_path && dspark_support_path[0];
+    options.dspark_strict = dspark_strict != 0;
+    options.dspark_confidence_threshold = dspark_confidence_threshold;
+    options.dspark_confidence_threshold_set = options.dspark;
 
     if (ds4_engine_open(out, &options) != 0) {
         snprintf(error, error_capacity, "DwarfStar failed to open model %s", model_path);
@@ -100,6 +109,10 @@ int afm_ds4_engine_open_mapped(
         int context_size,
         uint32_t prefill_chunk,
         int power_percent,
+        const char *dspark_support_path,
+        int dspark_draft_tokens,
+        float dspark_confidence_threshold,
+        int dspark_strict,
         const char *metal_source_root,
         char *error,
         size_t error_capacity) {
@@ -123,8 +136,13 @@ int afm_ds4_engine_open_mapped(
     options.context_size = context_size;
     options.prefill_chunk = prefill_chunk;
     options.power_percent = power_percent;
-    options.mtp_draft_tokens = 1;
+    options.mtp_path = dspark_support_path;
+    options.mtp_draft_tokens = dspark_draft_tokens > 0 ? dspark_draft_tokens : 5;
     options.mtp_margin = 3.0f;
+    options.dspark = dspark_support_path && dspark_support_path[0];
+    options.dspark_strict = dspark_strict != 0;
+    options.dspark_confidence_threshold = dspark_confidence_threshold;
+    options.dspark_confidence_threshold_set = options.dspark;
 
     if (ds4_engine_open(out, &options) != 0) {
         snprintf(error, error_capacity, "DwarfStar failed to open AFM projection %s", metadata_path);
