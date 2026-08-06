@@ -5808,7 +5808,6 @@ public final class MLXModelService: @unchecked Sendable {
         if forceDisableThinking {
             resolvedKwargs["enable_thinking"] = false
             resolvedKwargs.removeValue(forKey: "reasoning_effort")
-            resolvedKwargs.removeValue(forKey: "thinking_budget")
         }
         if responseFormat?.type == "json_schema",
            thinkStartTag != nil, thinkEndTag != nil,

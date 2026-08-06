@@ -230,16 +230,27 @@ struct MlxCommand: ParsableCommand {
           --media: Image/video paths for VLM single-prompt mode (implies --vlm)
           --kv-bits: Quantize KV cache (4 or 8 bits) to reduce memory
           --prefill-step-size: Prompt tokens per GPU pass (default: 1024)
-          --mlx-kernels: MLX kernel engine: native or ds4 (default: native)
+          --mlx-runtime: Runtime backend: auto, mlx, or dwarfstar (default: auto)
           --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
+          --mtp: Enable MTP self-speculative decoding for compatible Qwen3.6 models
+          --mtp-depth: MTP draft depth compatibility setting
+          --dspark-support: DwarfStar DSpark support GGUF for speculative decoding
+          --dspark-draft-tokens: Maximum DSpark speculative tokens per cycle (default: 5)
+          --dspark-confidence: DSpark confidence-pruning threshold (default: 0.7)
+          --dspark-strict: Load DSpark support but use target-only decoding
+          --eagle3: EAGLE3 drafter directory for compatible dense Gemma4 models
           --tool-call-parser: Override tool call format (none, afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml). Omit for default native mode and MLX Python-style parity; use "none" for raw output; use "afm_adaptive_xml" for opt-in repair mode.
           --fix-tool-args: Opt-in repair-mode helper that post-processes tool call arg names to match original tool schema
           --enable-grammar-constraints: Enable grammar-constrained decoding engine. When active, API requests with strict: true on tools or response_format.json_schema use xgrammar for token-level enforcement. Without this flag, strict: true is silently downgraded to best-effort.
           --no-think: Disable thinking/reasoning (sets enable_thinking=false)
+          --reasoning-effort: Default DeepSeek reasoning effort: low, high, or max
+          --concurrent: Maximum concurrent requests; values greater than one enable batch mode
           --default-chat-template-kwargs: JSON object merged into chat template context
+          --cache-profile-path: Write cache timing profile records as JSONL
           --gpu-capture <path>: Capture Metal GPU trace to .gputrace file for Xcode analysis (auto-limits to 5 tokens)
           --gpu-trace <seconds>: Record Metal System Trace via xctrace for N seconds (lightweight per-kernel timing)
           --gpu-profile: Print per-request GPU profiling stats (device info, memory, bandwidth estimates)
+          --gpu-profile-bw: Also sample DRAM bandwidth with mactop
           --openclaw-config: Print OpenClaw provider config JSON and exit
           --help-json: Print machine-readable JSON capability card for AI agents and exit
         sampling_parameters: [temperature, top_p, top_k, min_p, presence_penalty, repetition_penalty, seed, max_tokens, logprobs, top_logprobs]
@@ -249,6 +260,7 @@ struct MlxCommand: ParsableCommand {
           top_k: int (not in OpenAI spec)
           min_p: float (not in OpenAI spec)
           repetition_penalty: float (also accepts repeat_penalty, not in OpenAI spec)
+          reasoning_effort: DeepSeek reasoning level: low, high, or max
           chat_template_kwargs: object e.g. {"enable_thinking": false} (AFM-specific)
         extra_response_fields:
           choices[].message.reasoning_content: Extracted <think> reasoning (AFM-specific)
@@ -391,7 +403,7 @@ struct MlxCommand: ParsableCommand {
     var kvBits: Int?
     @Option(name: .long, help: "Prefill step size — number of prompt tokens processed per GPU pass (default: 2048)")
     var prefillStepSize: Int?
-    @Option(name: .long, help: "MLX kernel engine: native or ds4. ds4 enables experimental DeepSeek V4 selected-expert kernels when available.")
+    @Option(name: .long, help: .hidden)
     var mlxKernels: String = "native"
     @Option(name: .long, help: "Runtime backend: auto, mlx, or dwarfstar. auto selects the fixed-schedule DwarfStar executor for compatible self-contained AFM checkpoints.")
     var mlxRuntime: String = "auto"
@@ -472,12 +484,12 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Enable grammar-constrained decoding engine. When active, API requests with strict: true on tools or response_format.json_schema use xgrammar for token-level enforcement. Without this flag, strict: true is silently downgraded to best-effort.")
     var enableGrammarConstraints: Bool = false
 
-    @Flag(name: [.customLong("no-think"), .customLong("no-thinking")], help: "Disable thinking/reasoning. Overrides --reasoning-effort, --thinking-budget, and chat-template kwargs.")
+    @Flag(name: [.customLong("no-think"), .customLong("no-thinking")], help: "Disable thinking/reasoning. Overrides --reasoning-effort and chat-template kwargs.")
     var noThink: Bool = false
 
     @Option(
-        name: [.customLong("reasoning-effort"), .customLong("thinking-budget")],
-        help: "DeepSeek thinking effort: low, high, or max. --thinking-budget is an alias."
+        name: .customLong("reasoning-effort"),
+        help: "DeepSeek thinking effort: low, high, or max."
     )
     var reasoningEffort: String?
 
@@ -583,7 +595,7 @@ struct MlxCommand: ParsableCommand {
             .lowercased()
         if let normalizedReasoningEffort {
             guard ["low", "high", "max"].contains(normalizedReasoningEffort) else {
-                fputs("Error: --reasoning-effort/--thinking-budget must be low, high, or max\n", stderr)
+                fputs("Error: --reasoning-effort must be low, high, or max\n", stderr)
                 throw ExitCode.failure
             }
             parsedKwargs["reasoning_effort"] = normalizedReasoningEffort
@@ -592,14 +604,12 @@ struct MlxCommand: ParsableCommand {
         if noThink {
             let configuredEffort = normalizedReasoningEffort != nil
                 || parsedKwargs["reasoning_effort"] != nil
-                || parsedKwargs["thinking_budget"] != nil
                 || (parsedKwargs["enable_thinking"] as? Bool) == true
             if configuredEffort {
                 fputs("Note: --no-thinking overrides the configured DeepSeek reasoning effort.\n", stderr)
             }
             parsedKwargs["enable_thinking"] = false
             parsedKwargs.removeValue(forKey: "reasoning_effort")
-            parsedKwargs.removeValue(forKey: "thinking_budget")
         }
 
         var defaultGuidedJsonSchema: ResponseFormat?

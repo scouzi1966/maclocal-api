@@ -155,7 +155,7 @@ previous conversion and start again. The source directory is never modified.
 Run the converted model through the normal MLX backend:
 
 ```bash
-afm mlx -m /path/to/DeepSeek-V4-Flash-0731-AFM-MLX --mlx-kernels native
+afm mlx -m /path/to/DeepSeek-V4-Flash-0731-AFM-MLX
 ```
 
 ## ⚡ Speculative Decoding

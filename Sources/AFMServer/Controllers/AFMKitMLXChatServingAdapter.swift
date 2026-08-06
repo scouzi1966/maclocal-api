@@ -569,7 +569,6 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         if forceDisableThinking {
             merged["enable_thinking"] = AnyCodable(false)
             merged.removeValue(forKey: "reasoning_effort")
-            merged.removeValue(forKey: "thinking_budget")
         }
         return merged.isEmpty ? nil : merged
     }

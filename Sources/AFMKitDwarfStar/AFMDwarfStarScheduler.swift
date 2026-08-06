@@ -18,8 +18,6 @@ enum AFMDwarfStarReasoningMode: String, Equatable, Sendable {
         let rawEffort: String?
         if case .string(let value)? = kwargs["reasoning_effort"] {
             rawEffort = value
-        } else if case .string(let value)? = kwargs["thinking_budget"] {
-            rawEffort = value
         } else {
             rawEffort = nil
         }

@@ -14,7 +14,23 @@ final class OpenAIThinkingControlsTests: XCTestCase {
         XCTAssertEqual(stringValue(request.effectiveChatTemplateKwargs?["reasoning_effort"]), "high")
     }
 
-    func testThinkingBudgetAliasIsNormalizedIntoChatTemplateKwargs() throws {
+    func testAllOfficialReasoningEffortLevelsAreNormalized() throws {
+        for effort in ["low", "high", "max"] {
+            let request = try decode("""
+            {
+              "model": "deepseek",
+              "messages": [{"role": "user", "content": "hi"}],
+              "reasoning_effort": "\(effort)"
+            }
+            """)
+
+            XCTAssertEqual(
+                stringValue(request.effectiveChatTemplateKwargs?["reasoning_effort"]),
+                effort)
+        }
+    }
+
+    func testLegacyThinkingBudgetIsNotAnAlias() throws {
         let request = try decode("""
         {
           "model": "deepseek",
@@ -23,7 +39,7 @@ final class OpenAIThinkingControlsTests: XCTestCase {
         }
         """)
 
-        XCTAssertEqual(stringValue(request.effectiveChatTemplateKwargs?["reasoning_effort"]), "max")
+        XCTAssertNil(request.effectiveChatTemplateKwargs)
     }
 
     func testTopLevelReasoningEffortOverridesNestedKwarg() throws {
