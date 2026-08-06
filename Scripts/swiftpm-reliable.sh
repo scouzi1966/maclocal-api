@@ -163,14 +163,14 @@ if [[ ! -f "$MLX_SAFETENSORS_SOURCE" ]]; then
     swift package resolve
 fi
 run_required_patch_step \
-    "official FP8 loader" \
-    "$ROOT_DIR/Scripts/apply-mlx-official-fp8-loader.sh"
-run_required_patch_step \
     "DeepSeek V4 kernels" \
     "$ROOT_DIR/Scripts/apply-mlx-deepseek-v4-kernels.sh"
 run_required_patch_step \
     "DeepSeek V4 kernel verification" \
     "$ROOT_DIR/Scripts/apply-mlx-deepseek-v4-kernels.sh" --check
+run_required_patch_step \
+    "official FP8 loader verification" \
+    "$ROOT_DIR/Scripts/apply-mlx-official-fp8-loader.sh"
 # Keep the persistent vendor checkout synchronized with the authoritative
 # Swift sources under Scripts/patches before SwiftPM evaluates dependencies.
 # Without this, a Release build can succeed while compiling stale vendored
