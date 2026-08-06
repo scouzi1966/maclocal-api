@@ -1,7 +1,11 @@
 import Foundation
 import Testing
+import Vapor
+import XCTest
+import XCTVapor
 
-@testable import MacLocalAPI
+@testable import AFMKit
+@testable import AFMServer
 
 /// Tests for T1.6 (tokenize / count_tokens request decoding) and T1.7
 /// (`/openapi.json` integrity).
@@ -106,5 +110,70 @@ struct TokenizeAndOpenAPITests {
         let html = OpenAPIController.docsHTML
         #expect(html.contains("/openapi.json"))
         #expect(html.contains("scalar"))
+    }
+}
+
+final class TokenizeControllerIntegrationTests: XCTestCase {
+    private var app: Application!
+
+    override func setUp() async throws {
+        app = try await Application.make(.testing)
+    }
+
+    override func tearDown() async throws {
+        try await app.asyncShutdown()
+    }
+
+    func testTokenizeUsesPortableAFMKitCapability() async throws {
+        try TokenizeController(
+            mlxModelID: "test/model",
+            tokenizer: FixedTokenizer(tokens: [11, 22, 33]),
+            contextWindow: 8_192
+        ).boot(routes: app)
+
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+        let body = ByteBuffer(string: #"{"model":"test/model","text":"hello"}"#)
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/tokenize",
+            headers: headers,
+            body: body
+        ) { response async in
+            XCTAssertEqual(response.status, .ok)
+            XCTAssertContains(response.body.string, #""tokens":[11,22,33]"#)
+            XCTAssertContains(response.body.string, #""count":3"#)
+            XCTAssertContains(response.body.string, #""max_model_len":8192"#)
+        }
+    }
+
+    func testTokenizeWithoutCapabilityReturnsUnprocessableEntity() async throws {
+        try TokenizeController(
+            mlxModelID: nil,
+            tokenizer: nil,
+            contextWindow: nil
+        ).boot(routes: app)
+
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+        let body = ByteBuffer(string: #"{"text":"hello"}"#)
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/tokenize",
+            headers: headers,
+            body: body
+        ) { response async in
+            XCTAssertEqual(response.status, .unprocessableEntity)
+        }
+    }
+}
+
+private struct FixedTokenizer: AFMTextTokenizing {
+    let tokens: [Int]
+
+    func tokenize(text: String) async throws -> [Int] {
+        tokens
     }
 }

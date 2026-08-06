@@ -5,7 +5,9 @@ import MLXNN
 import Testing
 @testable import MLXVLM
 
-@testable import MacLocalAPI
+@testable import AFMKit
+@testable import AFMKitMLX
+@testable import AFMServer
 
 /// P1 gate for the MTP Swift port — the make-or-break test.
 ///

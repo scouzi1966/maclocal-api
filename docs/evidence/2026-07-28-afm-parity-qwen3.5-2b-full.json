@@ -1,0 +1,70 @@
+{
+  "binaryPath" : "\/Volumes\/edata\/dev\/git\/CODEX\/vesta-mac\/.worktrees\/maclocal-api-afmkit\/.build\/release\/afm",
+  "enabledCases" : [
+    "greedy-text",
+    "logprobs",
+    "stop-sequence",
+    "streaming-concat",
+    "strict-json-schema",
+    "structured-json-object",
+    "tool-call"
+  ],
+  "failed" : 0,
+  "generatedAt" : "2026-07-28T14:06:58Z",
+  "grammarConstraints" : true,
+  "missingRequiredCases" : [
+
+  ],
+  "models" : [
+    "mlx-community\/Qwen3.5-2B-bf16"
+  ],
+  "noThink" : true,
+  "passed" : 7,
+  "records" : [
+    {
+      "caseID" : "greedy-text",
+      "model" : "mlx-community\/Qwen3.5-2B-bf16",
+      "status" : "passed"
+    },
+    {
+      "caseID" : "streaming-concat",
+      "model" : "mlx-community\/Qwen3.5-2B-bf16",
+      "status" : "passed"
+    },
+    {
+      "caseID" : "logprobs",
+      "model" : "mlx-community\/Qwen3.5-2B-bf16",
+      "status" : "passed"
+    },
+    {
+      "caseID" : "structured-json-object",
+      "model" : "mlx-community\/Qwen3.5-2B-bf16",
+      "status" : "passed"
+    },
+    {
+      "caseID" : "tool-call",
+      "model" : "mlx-community\/Qwen3.5-2B-bf16",
+      "status" : "passed"
+    },
+    {
+      "caseID" : "stop-sequence",
+      "model" : "mlx-community\/Qwen3.5-2B-bf16",
+      "status" : "passed"
+    },
+    {
+      "caseID" : "strict-json-schema",
+      "model" : "mlx-community\/Qwen3.5-2B-bf16",
+      "status" : "passed"
+    }
+  ],
+  "requiredCases" : [
+    "greedy-text",
+    "logprobs",
+    "stop-sequence",
+    "streaming-concat",
+    "strict-json-schema",
+    "structured-json-object",
+    "tool-call"
+  ],
+  "skipped" : 0
+}

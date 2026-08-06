@@ -2,7 +2,8 @@ import Foundation
 import Testing
 import Jinja
 
-@testable import MacLocalAPI
+@testable import AFMKit
+@testable import AFMServer
 
 /// Proves that toJinjaCompatible() fixes the Jinja crash on nullable tool schemas (Issue #32).
 ///

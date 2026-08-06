@@ -3,7 +3,9 @@ import MLX
 import MLXLMCommon
 import Testing
 
-@testable import MacLocalAPI
+@testable import AFMKit
+@testable import AFMKitMLX
+@testable import AFMServer
 
 struct KVCacheTruncateTests {
 // dimensions: cache_type=KVCacheSimple/MambaCache, prefix_caching=on
