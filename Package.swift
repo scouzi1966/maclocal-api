@@ -305,12 +305,24 @@ let package = Package(
                 .product(name: "MLXVLM", package: "mlx-swift-lm"),
                 // EAGLE3 P0 validation needs the Gemma4 drafter (MLXLLM module).
                 .product(name: "MLXLLM", package: "mlx-swift-lm")
+            ],
+            swiftSettings: [
+                // Xcode 27 Beta 3 reports a false circular reference while
+                // optimizing the combined release test module. Product targets
+                // remain fully optimized.
+                .unsafeFlags(["-no-whole-module-optimization"], .when(configuration: .release)),
+                .unsafeFlags(["-Onone"], .when(configuration: .release))
             ]
         ),
         .testTarget(
             name: "AFMKitDwarfStarTests",
             dependencies: [
                 "AFMKitDwarfStar",
+            ],
+            swiftSettings: [
+                // Match the Xcode 27 Beta 3 workaround used by the main test target.
+                .unsafeFlags(["-no-whole-module-optimization"], .when(configuration: .release)),
+                .unsafeFlags(["-Onone"], .when(configuration: .release))
             ]
         )
     ],

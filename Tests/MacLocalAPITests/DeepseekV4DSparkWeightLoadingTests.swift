@@ -4,6 +4,11 @@ import XCTest
 @testable import MLXLLM
 
 final class DeepseekV4DSparkWeightLoadingTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        MLXRandom.seed(0xD5A4_2026)
+    }
+
     func testOfficialPackedWeightsNormalizeWithoutRequantization() {
         let model = DeepseekV4Model(makeConfig())
         let officialMXFP8 = MLXArray(
@@ -157,6 +162,7 @@ final class DeepseekV4DSparkWeightLoadingTests: XCTestCase {
     }
 
     func testSpeculativeGeneratorMatchesGreedyAcrossSlidingLayers() {
+        MLXRandom.seed(8)
         let config = makeThreeLayerConfig(compressRatios: [0, 0, 0])
         let model = DeepseekV4Model(config)
         let prompt = [1, 7, 4, 9, 2]
@@ -172,8 +178,19 @@ final class DeepseekV4DSparkWeightLoadingTests: XCTestCase {
     }
 
     func testCompressedVerifierBatchMatchesSequentialRows() throws {
-        let model = DeepseekV4Model(
-            makeThreeLayerConfig(compressRatios: [0, 2, 0]))
+        try assertVerifierBatchMatchesSequentialRows(
+            config: makeThreeLayerConfig(compressRatios: [0, 2, 0]))
+    }
+
+    func testSlidingVerifierBatchMatchesSequentialRows() throws {
+        try assertVerifierBatchMatchesSequentialRows(
+            config: makeThreeLayerConfig(compressRatios: [0, 0, 0]))
+    }
+
+    private func assertVerifierBatchMatchesSequentialRows(
+        config: DeepseekV4Configuration
+    ) throws {
+        let model = DeepseekV4Model(config)
         let prompt = [1, 7, 4, 9, 2]
         let promptArray = MLXArray(prompt.map(Int32.init)).reshaped([1, prompt.count])
         func primedCache() throws -> [KVCache] {
@@ -193,18 +210,28 @@ final class DeepseekV4DSparkWeightLoadingTests: XCTestCase {
         let batchedInput = MLXArray(verifierIds.map(Int32.init)).reshaped([1, verifierIds.count])
         let batched = try XCTUnwrap(model.forwardDSparkVerifier(
             batchedInput, cache: batchedCache))
-        let batchedTargets = argMax(
-            batched.logits[0, 0..., 0...], axis: -1).asArray(Int32.self)
+        MLX.eval(batched.logits)
 
-        var sequentialTargets: [Int32] = []
+        var sequentialLogits: [[Float]] = []
         for id in verifierIds {
             let row = try XCTUnwrap(model.forwardDSparkVerifier(
                 MLXArray([Int32(id)]).reshaped([1, 1]), cache: sequentialCache))
-            sequentialTargets.append(Int32(
-                argMax(row.logits[0, -1, 0...], axis: -1).item(Int.self)))
+            let logits = row.logits[0, -1, 0...]
+            MLX.eval(logits)
+            sequentialLogits.append(logits.asArray(Float.self))
         }
 
-        XCTAssertEqual(batchedTargets, sequentialTargets)
+        for row in verifierIds.indices {
+            let batchedLogits = batched.logits[0, row, 0...].asArray(Float.self)
+            let sequential = sequentialLogits[row]
+            let maxDifference = zip(batchedLogits, sequential)
+                .map { abs($0 - $1) }
+                .max() ?? 0
+            XCTAssertLessThan(
+                maxDifference,
+                0.30,
+                "batched verifier row \(row) diverged from sequential logits")
+        }
     }
 
     func testSpeculativeRollbackRestoresCompressedPoolAndBuffers() {

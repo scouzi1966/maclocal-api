@@ -1939,7 +1939,10 @@ public class DeepseekV4ModelInner: Module {
 
         let firstCache = cache?.first
         let hFlat2 = h.reshaped(h.dim(0), h.dim(1), -1)  // for createAttentionMask
-        let mask = createAttentionMask(h: hFlat2, cache: firstCache)
+        let mask = createAttentionMask(
+            h: hFlat2,
+            cache: firstCache,
+            returnArray: inputs.dim(1) > 1 && (firstCache?.offset ?? 0) > 0)
 
         for (i, layer) in layers.enumerated() {
             h = layer(
@@ -1979,7 +1982,14 @@ public class DeepseekV4ModelInner: Module {
 
         let firstCache = cache?.first
         let hFlat2 = h.reshaped(h.dim(0), h.dim(1), -1)
-        let mask = createAttentionMask(h: hFlat2, cache: firstCache)
+        // A cached multi-token verifier block needs its absolute query offset
+        // encoded in the mask. The symbolic causal sentinel only describes a
+        // square sequence and can make batched verification differ from the
+        // equivalent autoregressive forwards when the key cache is longer.
+        let mask = createAttentionMask(
+            h: hFlat2,
+            cache: firstCache,
+            returnArray: inputs.dim(1) > 1 && (firstCache?.offset ?? 0) > 0)
         var capturedByLayer: [Int: MLXArray] = [:]
 
         for (i, layer) in layers.enumerated() {
@@ -2640,6 +2650,13 @@ public final class DeepseekV4DSparkGenerator {
         argMax(logits[0, -1, 0...], axis: -1).item(Int.self)
     }
 
+    private func materializeVerifierState(
+        captured: MLXArray,
+        cache: [KVCache]
+    ) {
+        MLX.eval([captured] + cache.flatMap { $0.innerState() })
+    }
+
     public func generate(
         promptIds: [Int],
         maxTokens: Int,
@@ -2655,6 +2672,8 @@ public final class DeepseekV4DSparkGenerator {
         else { return [] }
 
         var pending = argmaxLast(prefill.logits)
+        materializeVerifierState(
+            captured: prefill.captured, cache: verifierCache)
         guard model.prefillDSpark(
             anchorTokenIds: token(pending),
             capturedHidden: prefill.captured,
@@ -2683,6 +2702,8 @@ public final class DeepseekV4DSparkGenerator {
             token(pending), cache: verifierCache)
         else { return output }
         pending = argmaxLast(warmup.logits)
+        materializeVerifierState(
+            captured: warmup.captured, cache: verifierCache)
         var contextForDrafter = warmup.captured
         if !emit(pending) { return output }
 
@@ -2708,6 +2729,8 @@ public final class DeepseekV4DSparkGenerator {
             let targetArray = argMax(
                 verified.logits[0, 0..., 0...], axis: -1).asType(.int32)
             MLX.eval(draftArray, targetArray)
+            materializeVerifierState(
+                captured: verified.captured, cache: verifierCache)
             let drafts = draftArray.reshaped([count]).asArray(Int32.self).map(Int.init)
             let targets = targetArray.reshaped([count + 1]).asArray(Int32.self).map(Int.init)
 
@@ -2719,28 +2742,36 @@ public final class DeepseekV4DSparkGenerator {
             var committedCapture = verified.captured[
                 0..., 0..<(accepted + 1), 0...]
             if rejected > 0 {
-                // The compressed pool and local KV must be restored to the
-                // same logical point. Restoring only the pre-verify pool while
-                // retaining accepted local rows creates a hybrid history and
-                // makes the next target token diverge from greedy decoding.
-                // Rewind the complete verifier block, then replay only the
-                // committed prefix. Rejects pay one short target forward;
-                // fully accepted blocks remain single-forward.
-                for (index, cache) in verifierCache.enumerated() {
-                    if let deepseekCache = cache as? DeepseekV4Cache,
-                       let snapshot = snapshots[index]
-                    {
-                        deepseekCache.rollbackSpeculative(
-                            rejected: count + 1, to: snapshot)
-                    } else {
-                        _ = cache.trim(count + 1)
+                if snapshots.contains(where: { $0 != nil }) {
+                    // Compressed pools cannot retain only part of a verifier
+                    // append. Restore the complete pre-verify snapshot, then
+                    // replay the target-authoritative committed prefix.
+                    for (index, cache) in verifierCache.enumerated() {
+                        if let deepseekCache = cache as? DeepseekV4Cache,
+                           let snapshot = snapshots[index]
+                        {
+                            deepseekCache.rollbackSpeculative(
+                                rejected: count + 1, to: snapshot)
+                        } else {
+                            _ = cache.trim(count + 1)
+                        }
+                    }
+                    let replayIds = [pending] + Array(drafts.prefix(accepted))
+                    guard let replay = model.forwardDSparkVerifier(
+                        tokens(replayIds), cache: verifierCache)
+                    else { break }
+                    materializeVerifierState(
+                        captured: replay.captured, cache: verifierCache)
+                    committedCapture = replay.captured
+                } else {
+                    // A plain rotating cache already contains the pending row
+                    // and accepted draft rows. Preserve them and remove only
+                    // the unaccepted suffix, matching standard speculative KV
+                    // rollback and avoiding a lossy rewind/replay cycle.
+                    for cache in verifierCache {
+                        _ = cache.trim(rejected)
                     }
                 }
-                let replayIds = [pending] + Array(drafts.prefix(accepted))
-                guard let replay = model.forwardDSparkVerifier(
-                    tokens(replayIds), cache: verifierCache)
-                else { break }
-                committedCapture = replay.captured
             }
 
             rounds += 1
