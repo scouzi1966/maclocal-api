@@ -9,7 +9,7 @@
 # Steps:
 #   0) Verify / install toolchain dependencies (git, Swift/Xcode CLT, Node + npm)
 #   1) Initialize git submodules (mlx-swift-lm, llama.cpp, ...)
-#   2) Apply the MLX + xgrammar patch sets (Scripts/patches)
+#   2) Apply the DwarfStar, MLX, and xgrammar patch sets (Scripts/patches)
 #   3) Build the llama.cpp webui assets and embed them
 #   4) Clean + resolve Swift packages
 #   4b) Rebuild the MLX Metal shader library (default.metallib) from the kernel sources
@@ -60,7 +60,7 @@ Options:
   --stable             Build a stable binary without a commit suffix
   --no-clean           Skip clean step before build
   --skip-submodules    Skip git submodule init/update
-  --skip-patches       Skip MLX + xgrammar patch application
+  --skip-patches       Skip DwarfStar, MLX, and xgrammar patch application
   --skip-webui         Skip llama.cpp webui build
   --skip-metallib      Skip rebuilding default.metallib (use the committed prebuilt one)
   --yes, -y            Assume "yes" for dependency-install prompts (non-interactive)
@@ -220,8 +220,19 @@ fi
 # ---------------------------------------------------------------------------
 # Step 2: Patches
 # ---------------------------------------------------------------------------
+MLX_SWIFT_USES_LEGACY_BACKPORTS=false
+if grep -qF 'exact: "0.30.3"' "$ROOT_DIR/Package.swift"; then
+  MLX_SWIFT_USES_LEGACY_BACKPORTS=true
+fi
+
 if $DO_PATCHES; then
-  log_step "Applying MLX patch set"
+  log_step "Applying vendored dependency patch sets"
+  if [ ! -x "$SCRIPTS_DIR/apply-ds4-patches.sh" ]; then
+    log_error "Missing patch script: $SCRIPTS_DIR/apply-ds4-patches.sh"
+    exit 1
+  fi
+  "$SCRIPTS_DIR/apply-ds4-patches.sh"
+  "$SCRIPTS_DIR/apply-ds4-patches.sh" --check
   if [ ! -x "$SCRIPTS_DIR/apply-mlx-patches.sh" ]; then
     log_error "Missing patch script: $SCRIPTS_DIR/apply-mlx-patches.sh"
     exit 1
@@ -230,7 +241,7 @@ if $DO_PATCHES; then
   "$SCRIPTS_DIR/apply-mlx-patches.sh" --check
   "$SCRIPTS_DIR/patches/apply-xgrammar-patches.sh"
 else
-  log_warn "Skipping MLX patch application"
+  log_warn "Skipping vendored dependency patch application"
 fi
 
 # ---------------------------------------------------------------------------
@@ -275,6 +286,13 @@ fi
 log_step "Resolving Swift packages"
 swift package resolve
 
+if $DO_PATCHES; then
+  log_step "Applying persistent DeepSeek V4 MLX primitive"
+  "$SCRIPTS_DIR/apply-mlx-official-fp8-loader.sh"
+  "$SCRIPTS_DIR/apply-mlx-deepseek-v4-kernels.sh"
+  "$SCRIPTS_DIR/apply-mlx-deepseek-v4-kernels.sh" --check
+fi
+
 # ---------------------------------------------------------------------------
 # Step 4a: Apply MLX C++ / Metal-kernel patches to the resolved mlx-swift checkout
 # ---------------------------------------------------------------------------
@@ -286,7 +304,7 @@ swift package resolve
 #                                      apply-mlx-cpp-patches.sh, which edits the same files.
 #   - apply-mlx-cpp-patches.sh    : qmv_fast_wide quantized matvec kernels
 #   - apply-mlx-sdpa-backport.sh  : 0.31.3 adaptive-block SDPA (decode@16k ~+10%, correct)
-if $DO_PATCHES; then
+if $DO_PATCHES && $MLX_SWIFT_USES_LEGACY_BACKPORTS; then
   if [ -x "$SCRIPTS_DIR/apply-mlx-qmv-wide-backport.sh" ]; then
     log_step "Applying MLX qmv_wide backport (mlx#3764)"
     "$SCRIPTS_DIR/apply-mlx-qmv-wide-backport.sh"
@@ -299,6 +317,8 @@ if $DO_PATCHES; then
     log_step "Applying MLX SDPA 0.31.3 adaptive-block backport"
     "$SCRIPTS_DIR/apply-mlx-sdpa-backport.sh"
   fi
+elif $DO_PATCHES; then
+  log_info "Skipping legacy MLX 0.30.3 kernel backports for the active MLX runtime"
 else
   log_warn "Skipping MLX C++ / SDPA patches (--skip-patches)"
 fi
@@ -350,24 +370,17 @@ log_step "Building afm ($BUILD_CONFIG)"
 # Disable MemberImportVisibility — async-kit (transitive from Vapor) is missing
 # explicit imports for DequeModule/OrderedCollections, which Swift 6 enforces.
 if [ "$BUILD_CONFIG" = "release" ]; then
-  swift build -c release \
+  "$SCRIPTS_DIR/swiftpm-reliable.sh" build -c release \
     --product afm \
     -Xswiftc -disable-upcoming-feature \
     -Xswiftc MemberImportVisibility
 else
-  swift build -c "$BUILD_CONFIG" \
+  "$SCRIPTS_DIR/swiftpm-reliable.sh" build -c "$BUILD_CONFIG" \
     -Xswiftc -disable-upcoming-feature \
     -Xswiftc MemberImportVisibility
 fi
 
-BIN_PATH_1="$ROOT_DIR/.build/arm64-apple-macosx/$BUILD_CONFIG/afm"
-BIN_PATH_2="$ROOT_DIR/.build/$BUILD_CONFIG/afm"
-
-if [ -x "$BIN_PATH_1" ]; then
-  FINAL_BIN="$BIN_PATH_1"
-elif [ -x "$BIN_PATH_2" ]; then
-  FINAL_BIN="$BIN_PATH_2"
-else
+if ! FINAL_BIN="$($SCRIPTS_DIR/find-afm-binary.sh "$BUILD_CONFIG")"; then
   log_error "Build finished but afm binary was not found"
   exit 1
 fi

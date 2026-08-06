@@ -27,6 +27,7 @@ public struct EngineConfig: Sendable {
     // MLX runtime knobs (ignored by the Foundation Models backend)
     public var kvBits: Int?
     public var enablePrefixCaching: Bool
+    public var mlxKernels: String
     public var mtpEnabled: Bool
     public var mtpDepth: Int
     public var eagle3DrafterPath: String?
@@ -50,6 +51,7 @@ public struct EngineConfig: Sendable {
         permissiveGuardrails: Bool = false,
         kvBits: Int? = nil,
         enablePrefixCaching: Bool = false,
+        mlxKernels: String = "native",
         mtpEnabled: Bool = false,
         mtpDepth: Int = 3,
         eagle3DrafterPath: String? = nil,
@@ -72,6 +74,7 @@ public struct EngineConfig: Sendable {
         self.permissiveGuardrails = permissiveGuardrails
         self.kvBits = kvBits
         self.enablePrefixCaching = enablePrefixCaching
+        self.mlxKernels = mlxKernels
         self.mtpEnabled = mtpEnabled
         self.mtpDepth = mtpDepth
         self.eagle3DrafterPath = eagle3DrafterPath
@@ -95,6 +98,7 @@ private extension EngineConfig {
     var mlxProviderConfiguration: AFMProviderConfiguration {
         var values: [String: AFMJSONValue] = [
             "enablePrefixCaching": .bool(enablePrefixCaching),
+            "mlxKernels": .string(mlxKernels),
             "mtpEnabled": .bool(mtpEnabled),
             "mtpDepth": .integer(mtpDepth),
             "enableGrammarConstraints": .bool(enableGrammarConstraints),

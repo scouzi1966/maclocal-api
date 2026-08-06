@@ -198,20 +198,6 @@ if should_run_section U && min_tier unit && [[ "${MACAFM_SWIFT_TEST_SKIP:-0}" !=
   CURRENT_TIER="unit"
   echo "🧪 Section U: Swift Unit Tests"
 
-  # Ensure MLX metallib is findable by swift test (debug build may not have it after clean release build)
-  if [ -z "${MACAFM_MLX_METALLIB:-}" ]; then
-    for candidate in \
-      "$PROJECT_ROOT/.build/arm64-apple-macosx/release/MacLocalAPI_AFMKitMLX.bundle/default.metallib" \
-      "$PROJECT_ROOT/.build/arm64-apple-macosx/debug/MacLocalAPI_AFMKitMLX.bundle/default.metallib" \
-      "$PROJECT_ROOT/.build/out/Products/Release/MacLocalAPI_AFMKitMLX.bundle/Contents/Resources/default.metallib" \
-      "$PROJECT_ROOT/.build/out/Products/Debug/MacLocalAPI_AFMKitMLX.bundle/Contents/Resources/default.metallib"; do
-      if [ -f "$candidate" ]; then
-        export MACAFM_MLX_METALLIB="$candidate"
-        break
-      fi
-    done
-  fi
-
   t0=$(now_ms)
   swift_test_args=(test)
   if [[ -n "${MACAFM_SWIFT_TEST_SCRATCH_PATH:-}" ]]; then
@@ -223,7 +209,9 @@ if should_run_section U && min_tier unit && [[ "${MACAFM_SWIFT_TEST_SKIP:-0}" !=
   if [[ "${MACAFM_SWIFT_TEST_SKIP_BUILD:-0}" == "1" ]]; then
     swift_test_args+=(--skip-build)
   fi
-  swift_test_output=$(cd "$PROJECT_ROOT" && swift "${swift_test_args[@]}" 2>&1) || true
+  # Mandatory on Xcode 27: selects the reliable SwiftPM driver and stages the
+  # canonical MLX metallib for every XCTest layout.
+  swift_test_output=$(cd "$PROJECT_ROOT" && Scripts/swiftpm-reliable.sh "${swift_test_args[@]}" 2>&1) || true
   swift_test_dur=$(( $(now_ms) - t0 ))
 
   # Parse swift test console output into a temp file.

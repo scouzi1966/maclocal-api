@@ -4,6 +4,13 @@ import Foundation
 
 // Strip absolute build paths from __FILE__ macros in C++ warnings (privacy: don't leak dev machine paths)
 let packageDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
+let vendoredMLXSwiftLMPath = "\(packageDir)/vendor/mlx-swift-lm"
+let mlxSwiftLMDependency: Package.Dependency = FileManager.default.fileExists(
+    atPath: "\(vendoredMLXSwiftLMPath)/Package.swift"
+) ? .package(path: vendoredMLXSwiftLMPath) : .package(
+    url: "https://github.com/scouzi1966/mlx-swift-lm.git",
+    revision: "d283c11e190fc463746f6f4fbee0523e6a2a5c1b"
+)
 
 let package = Package(
     name: "MacLocalAPI",
@@ -23,6 +30,10 @@ let package = Package(
         .library(
             name: "AFMKitMLX",
             targets: ["AFMKitMLX"]
+        ),
+        .library(
+            name: "AFMKitDwarfStar",
+            targets: ["AFMKitDwarfStar"]
         ),
         .library(
             name: "AFMKitFoundationModels",
@@ -57,12 +68,10 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.99.3"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
-        // Pre-patched fork (afm's patch set already applied, mlx-swift pinned 0.30.3) so the
-        // dependency resolves by URL with NO git submodules — a plain `git clone` + `swift build`
-        // works for downstream consumers. The fork is regenerated from the vendor/mlx-swift-lm
-        // submodule + Scripts/patches/ by Scripts/build-mlx-swift-lm-fork.sh. URL identity
-        // ("mlx-swift-lm") matches every `.product(package: "mlx-swift-lm")` reference below.
-        .package(url: "https://github.com/scouzi1966/mlx-swift-lm.git", revision: "239dce1652786482698877c8efe697a6c9f52096"),
+        // Development checkouts compile the patched vendor directly so local source edits
+        // cannot be mistaken for successful stale builds. A plain downstream clone without
+        // initialized submodules falls back to the pre-patched URL fork and remains portable.
+        mlxSwiftLMDependency,
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
         .package(url: "https://github.com/huggingface/swift-huggingface.git", from: "0.8.1"),
         // Share the official XGrammar product with host applications such as Vesta.
@@ -72,11 +81,10 @@ let package = Package(
             url: "https://github.com/mlc-ai/xgrammar",
             revision: "c1570cdb4f8c867a4dbd07b7ff90581f4a2a432b"
         ),
-        // Pin mlx-swift to 0.30.3 — 0.30.4+ has SDPA regression (PR #3023 "Faster two pass sdpa")
-        // causing NaN/garbage at ~1500 tokens. Post-0.30.6 fixes (PRs #3119, #3121) don't fully
-        // resolve it. RECONFIRMED 2026-05-31: 0.31.3 still produces garbage/empty at >1500 tok
-        // (afm decode@16k deficit vs newer-MLX engines is the price of correct long-context output).
-        .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.30.3"),
+        // DeepSeek V4 uses both MXFP4 and MXFP8 weights. Native MXFP8 kernels
+        // require mlx-swift 0.31.x; older releases treated the floating-point
+        // quantized path as four-bit-only and forced a BF16 expansion fallback.
+        .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.31.6"),
         // Jinja (transitive via swift-transformers) — exposed for test target.
         // 2.4.0 broke swift-transformers ≤1.3.3 (ObjectKey change in Hub/Config.swift);
         // 2.4.1 restored source compatibility upstream, so no cap is needed.
@@ -107,6 +115,50 @@ let package = Package(
             name: "AFMKitServices",
             dependencies: [
                 "AFMKitCore"
+            ]
+        ),
+        .target(
+            name: "CDwarfStar",
+            path: "Sources/CDwarfStar",
+            sources: [
+                "AFMDwarfStarBridge.c",
+                "CDwarfStarEngine.c",
+                "CDwarfStarDistributed.c",
+                "CDwarfStarTensorParallel.c",
+                "CDwarfStarSSD.c",
+                "CDwarfStarMetal.m",
+                "CDwarfStarLayerPack.c"
+            ],
+            publicHeadersPath: "include",
+            cSettings: [
+                // Canonical DS4 uses -O3 for every configuration. Besides
+                // performance, this removes compile-time-impossible CUDA/TP
+                // branches before a macOS Metal link.
+                .unsafeFlags(["-O3", "-ffast-math", "-mcpu=native"])
+            ],
+            linkerSettings: [
+                .linkedFramework("Foundation"),
+                .linkedFramework("Metal")
+            ]
+        ),
+        .target(
+            name: "AFMKitDwarfStar",
+            dependencies: [
+                "AFMKitCore",
+                "CDwarfStar"
+            ],
+            resources: [
+                // `.process` dereferences the source-tree link into the product
+                // bundle. `.copy` preserved the relative symlink, which became
+                // broken once the resource moved under `.build` or an app bundle.
+                .process("Resources/metal")
+            ],
+            swiftSettings: [
+                .unsafeFlags(["-O"], .when(configuration: .release)),
+                .unsafeFlags(
+                    ["-file-prefix-map", "\(packageDir)/="],
+                    .when(configuration: .release)
+                )
             ]
         ),
         .target(
@@ -196,6 +248,7 @@ let package = Package(
             name: "AFMCLI",
             dependencies: [
                 "AFMKit",
+                "AFMKitDwarfStar",
                 "AFMKitMLX",
                 "AFMServer",
                 .product(name: "Vapor", package: "vapor"),
@@ -209,8 +262,12 @@ let package = Package(
                 "Info.plist"
             ],
             swiftSettings: [
-                .unsafeFlags(["-cross-module-optimization"], .when(configuration: .release)),
-                .unsafeFlags(["-O"], .when(configuration: .release)),
+                // Xcode 27 Beta 3 reports a false circular reference when this
+                // two-file CLI target is compiled with whole-module/Cross-
+                // module optimization. Runtime libraries retain their Release
+                // optimization; only the thin command parser is isolated.
+                .unsafeFlags(["-no-whole-module-optimization"], .when(configuration: .release)),
+                .unsafeFlags(["-Onone"], .when(configuration: .release)),
                 .unsafeFlags(["-file-prefix-map", "\(packageDir)/="], .when(configuration: .release))
             ],
             linkerSettings: [
@@ -235,6 +292,8 @@ let package = Package(
             name: "MacLocalAPITests",
             dependencies: [
                 "AFMKit",
+                "AFMKitDwarfStar",
+                "AFMKitMLX",
                 "AFMKitFoundationModels",
                 "AFMKitFoundationModels27",
                 "AFMKitServices",
@@ -246,6 +305,24 @@ let package = Package(
                 .product(name: "MLXVLM", package: "mlx-swift-lm"),
                 // EAGLE3 P0 validation needs the Gemma4 drafter (MLXLLM module).
                 .product(name: "MLXLLM", package: "mlx-swift-lm")
+            ],
+            swiftSettings: [
+                // Xcode 27 Beta 3 reports a false circular reference while
+                // optimizing the combined release test module. Product targets
+                // remain fully optimized.
+                .unsafeFlags(["-no-whole-module-optimization"], .when(configuration: .release)),
+                .unsafeFlags(["-Onone"], .when(configuration: .release))
+            ]
+        ),
+        .testTarget(
+            name: "AFMKitDwarfStarTests",
+            dependencies: [
+                "AFMKitDwarfStar",
+            ],
+            swiftSettings: [
+                // Match the Xcode 27 Beta 3 workaround used by the main test target.
+                .unsafeFlags(["-no-whole-module-optimization"], .when(configuration: .release)),
+                .unsafeFlags(["-Onone"], .when(configuration: .release))
             ]
         )
     ],

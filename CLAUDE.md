@@ -40,9 +40,11 @@ docs/wwdc26-migration.md                # WWDC26 Foundation Models adoption seam
 vendor/
 ├── mlx-swift-lm/                       # Git submodule — DO NOT modify directly
 ├── llama.cpp/                          # Git submodule
+├── ds4/                                # Canonical antirez/ds4 submodule
 Scripts/
 ├── patches/                            # Our patches to vendor code (copied over originals)
 ├── apply-mlx-patches.sh                # Applies patches from Scripts/patches/ to vendor/
+├── apply-ds4-patches.sh                # Applies AFM integration patches to canonical ds4
 ├── build-from-scratch.sh               # Full build: submodules + patches + webui + build
 ```
 
@@ -56,6 +58,18 @@ The patch script (`Scripts/apply-mlx-patches.sh`) copies complete Swift files fr
 - `NEW_FILES=()` — files that don't exist upstream
 
 Commands: `--check` (verify), `--revert` (restore originals), no flag (apply).
+
+### DwarfStar patches
+
+`vendor/ds4` is pinned directly to canonical `https://github.com/antirez/ds4.git`.
+Do not point the submodule at an AFM fork or require a DS4 pull request for AFM
+integration. AFM-specific public mapping adaptations are stored as ordered Git
+patches under `Scripts/patches/ds4/` and managed by
+`Scripts/apply-ds4-patches.sh`. The script supports the same no-flag,
+`--check`, and `--revert` workflow and rejects an unexpected upstream revision.
+`Scripts/swiftpm-reliable.sh` always applies and verifies the patches before
+compiling `CDwarfStar`, and fingerprints their effective source to prevent
+Xcode's native driver from reusing stale C objects.
 
 ### MLX C++ / Metal-kernel patches (separate from the Swift patch set)
 
@@ -102,6 +116,21 @@ copies into the app bundle. The kernel *sources* live in the resolved `mlx-swift
 has **zero effect** until the metallib is regenerated. (Editing the dispatch C++ in
 `scaled_dot_product_attention.cpp` *does* recompile — so a kernel/dispatch mismatch silently
 produces garbage at every context length.)
+
+All SwiftPM test invocations must use `Scripts/swiftpm-reliable.sh test`. The
+wrapper stages this canonical committed metallib beside every XCTest executable
+before each build/run attempt, which is where MLX's C++ runtime searches. It
+also exports `MACAFM_MLX_METALLIB` for AFMKit's locator.
+The same wrapper fingerprints `vendor/mlx-swift-lm` and removes stale compiled
+products when those sources change; Xcode 27 Beta 3 can otherwise report a
+successful no-op build after applying a Swift or custom-Metal kernel patch.
+The package manifest compiles that vendor directly whenever its submodule is
+initialized; only submodule-free downstream clones resolve the pinned URL fork.
+Use `Scripts/check-mlx-source-selection.sh` to enforce this invariant after
+dependency or manifest changes.
+Explicit overrides remain supported for metallib qualification.
+The release assertion harness delegates to this wrapper too. Never replace it
+with raw `swift test` or use a one-off metallib override as a workflow fix.
 
 `./build.sh` regenerates the metallib from source as step 4b via `Scripts/rebuild-metallib.sh`
 (compiles the pinned kernel set, links with `metal -o`, verifies kernel-symbol parity, installs).

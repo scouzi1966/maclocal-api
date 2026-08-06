@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import AFMKitCore
 import AFMOpenAICompat
 import CoreImage
@@ -146,6 +147,13 @@ public enum MLXServiceError: Error, LocalizedError {
 private let debugLogging = ProcessInfo.processInfo.environment["AFM_DEBUG"].map { $0 == "1" } ?? false
 private let clearGPUCachePerRequest = ProcessInfo.processInfo.environment["AFM_CLEAR_GPU_CACHE"].map { $0 == "1" } ?? false
 
+func afmDSparkEnabled(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+    guard let rawValue = environment["AFM_DSPARK"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+        return false
+    }
+    return ["1", "true", "on", "yes"].contains(rawValue)
+}
+
 private let _tsFormatter: DateFormatter = {
     let f = DateFormatter()
     f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
@@ -219,6 +227,7 @@ public final class MLXModelService: @unchecked Sendable {
     private let registry = MLXModelRegistry()
     private let stateLock = NSLock()
     private var currentModelID: String?
+    private var currentModelArchitecture: AFMMLXModelArchitecturePreflight?
     private var currentContainer: ModelContainer?
     private var activeOperations: Int = 0
     private var isShuttingDown = false
@@ -230,6 +239,7 @@ public final class MLXModelService: @unchecked Sendable {
     public var fixToolArgs: Bool = false
     public var forceVLM: Bool = false
     public var kvBits: Int?
+    public var kernelEngine: AFMMLXKernelEngine = .native
     public var kvEvictionPolicy: String = "none"  // "none" or "streaming"
     public var enablePrefixCaching: Bool = false
     /// MTP self-speculative decoding (--mtp). Activates only when the loaded model has an
@@ -394,6 +404,7 @@ public final class MLXModelService: @unchecked Sendable {
     /// Also sample DRAM bandwidth via mactop (adds ~5s). Requires `brew install mactop`.
     public var gpuProfileBandwidth: Bool = false
     public var defaultChatTemplateKwargs: [String: Any]?
+    public var forceDisableThinking: Bool = false
     public var cacheProfilePath: String?
     /// Detected think start/end tags from the tokenizer vocabulary (e.g., "<think>"/"</think>").
     /// Set after model load. nil if the model doesn't have think tokens.
@@ -460,18 +471,32 @@ public final class MLXModelService: @unchecked Sendable {
 
     /// Configure MLX GPU settings once, before first model load.
     /// Must be called after Metal is available (not during early init).
-    private func ensureGPUConfigured() throws {
+    private func ensureGPUConfigured(
+        for architecture: AFMMLXModelArchitecturePreflight
+    ) throws {
         guard !gpuInitialized else { return }
+        let schedulingLimits = AFMMLXMetalSchedulingPolicy.applyIfRecommended(
+            canonicalModelType: architecture.canonicalModelType)
         guard AFMMLXRuntimeMemoryController.hasMetalDevice else {
             throw MLXServiceError.noMetalDevice
         }
         gpuInitialized = true
+
+        setenv("AFM_MLX_KERNELS", kernelEngine.rawValue, 1)
 
         let defaults = AFMMLXRuntimeMemoryController.applyDefaults(compileEnabled: nil)
         let cacheMB = defaults.cacheLimitBytes / AFMMLXRuntimeMemoryController.bytesPerMB
         let wiredMB = defaults.wiredLimitBytes / AFMMLXRuntimeMemoryController.bytesPerMB
 
         print("[\(ts())] MLX GPU: cache=\(cacheMB)MB wired=\(wiredMB)MB (system \(defaults.totalMemoryGB)GB)")
+        print("[\(ts())] MLX kernels: \(kernelEngine.rawValue)")
+        if let schedulingLimits {
+            print(
+                "[\(ts())] MLX scheduling: architecture=\(architecture.canonicalModelType) "
+                    + "ops=\(schedulingLimits.maxOperationsPerBuffer) "
+                    + "mb=\(schedulingLimits.maxMegabytesPerBuffer)"
+            )
+        }
     }
 
     // MARK: - GPU Capture & Profiling
@@ -513,6 +538,7 @@ public final class MLXModelService: @unchecked Sendable {
     /// Active xctrace Process (launched by beginGPUTrace, stopped by endGPUTrace).
     private var xctraceProcess: Process?
     private var xctraceOutputPath: String?
+    private var xctraceNaturalExitDeadline: Date?
 
     /// Launch xctrace Metal System Trace in background, attaching to our PID.
     /// Returns true if xctrace was launched.
@@ -520,19 +546,27 @@ public final class MLXModelService: @unchecked Sendable {
         guard let duration = gpuTraceDuration else { return false }
         gpuTraceDuration = nil  // trace first request only
         let pid = ProcessInfo.processInfo.processIdentifier
-        let outputPath = "/tmp/afm-metal.trace"
+        let outputPath = ProcessInfo.processInfo.environment["AFM_GPU_TRACE_OUTPUT"]
+            ?? "/tmp/afm-metal.trace"
+        try? FileManager.default.createDirectory(
+            at: URL(fileURLWithPath: outputPath).deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         // Remove existing trace
         try? FileManager.default.removeItem(atPath: outputPath)
-        // Prefer custom shader-enabled template if available (has per-kernel names)
+        // Shader profiling is intentionally opt-in: it can create multi-GB traces and
+        // Xcode betas have failed to honor its time limit. Routine comparisons use the
+        // bounded Metal System Trace template.
         let shaderTemplate = NSString(string: "~/Library/Developer/Xcode/UserData/Instruments/Templates/Metal Shader Profile.tracetemplate").expandingTildeInPath
         let templateArg: String
-        if FileManager.default.fileExists(atPath: shaderTemplate) {
+        if ProcessInfo.processInfo.environment["AFM_GPU_TRACE_TEMPLATE"] == "shader",
+           FileManager.default.fileExists(atPath: shaderTemplate) {
             templateArg = shaderTemplate
             print("[\(ts())] [GPU-TRACE] Using Metal Shader Profile template (per-kernel shader names enabled)")
         } else {
             templateArg = "Metal System Trace"
-            print("[\(ts())] [GPU-TRACE] Using default Metal System Trace (no per-kernel names)")
-            print("[\(ts())] [GPU-TRACE]   For shader names: python3 Scripts/create-shader-template.py")
+            print("[\(ts())] [GPU-TRACE] Using bounded Metal System Trace")
+            print("[\(ts())] [GPU-TRACE]   Set AFM_GPU_TRACE_TEMPLATE=shader for explicit shader profiling")
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
@@ -550,6 +584,17 @@ public final class MLXModelService: @unchecked Sendable {
             try process.run()
             xctraceProcess = process
             xctraceOutputPath = outputPath
+            // Let xctrace reach --time-limit and finalize its trace package.
+            // Interrupting an attached Metal System Trace early is unreliable
+            // on Xcode 27 and can leave a large trace without template metadata.
+            // Xcode 27 can spend well over five seconds attaching and can take
+            // more than 30 seconds to finalize a short, dispatch-heavy trace.
+            // Keep the wait bounded while allowing diagnostic users to tune it.
+            let finalizeGrace = Int(
+                ProcessInfo.processInfo.environment["AFM_GPU_TRACE_FINALIZE_GRACE_SECONDS"]
+                    ?? "120") ?? 120
+            xctraceNaturalExitDeadline = Date().addingTimeInterval(
+                TimeInterval(duration + max(5, finalizeGrace)))
             print("[\(ts())] [GPU-TRACE] Recording for \(duration)s (PID \(pid))")
             print("[\(ts())] [GPU-TRACE] Output: \(outputPath)")
             // Give xctrace time to attach before we start inference
@@ -565,13 +610,31 @@ public final class MLXModelService: @unchecked Sendable {
     /// Stop xctrace recording (sends SIGINT for graceful stop, then waits).
     private func endGPUTrace() {
         guard let process = xctraceProcess else { return }
-        let outputPath = xctraceOutputPath ?? "/tmp/afm-metal.trace"
+        let outputPath = xctraceOutputPath
+            ?? ProcessInfo.processInfo.environment["AFM_GPU_TRACE_OUTPUT"]
+            ?? "/tmp/afm-metal.trace"
         if process.isRunning {
-            process.interrupt()  // SIGINT = graceful stop
+            let naturalDeadline = xctraceNaturalExitDeadline ?? Date().addingTimeInterval(5)
+            while process.isRunning, Date() < naturalDeadline {
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+            if process.isRunning {
+                print("[\(ts())] [GPU-TRACE] xctrace exceeded its time limit; terminating")
+                process.terminate()
+                let terminateDeadline = Date().addingTimeInterval(2)
+                while process.isRunning, Date() < terminateDeadline {
+                    Thread.sleep(forTimeInterval: 0.1)
+                }
+            }
+            if process.isRunning {
+                print("[\(ts())] [GPU-TRACE] xctrace ignored SIGTERM; killing")
+                Darwin.kill(process.processIdentifier, SIGKILL)
+            }
             process.waitUntilExit()
         }
         xctraceProcess = nil
         xctraceOutputPath = nil
+        xctraceNaturalExitDeadline = nil
         let fm = FileManager.default
         if fm.fileExists(atPath: outputPath) {
             print("[\(ts())] [GPU-TRACE] Trace saved: \(outputPath)")
@@ -1271,8 +1334,6 @@ public final class MLXModelService: @unchecked Sendable {
             return cached.0
         }
 
-        try ensureGPUConfigured()
-
         // Loading priority:
         // 1. Absolute/relative path — use directly (no cache or download)
         // 2. Any complete local cache snapshot (AFM or Hugging Face)
@@ -1302,6 +1363,12 @@ public final class MLXModelService: @unchecked Sendable {
             directory = resolved
         }
         print("Model path: \(directory.path)")
+
+        let modelArchitecture = try AFMMLXModelArchitecture.preflightConfiguration(
+            in: directory,
+            modelID: modelID
+        )
+        try ensureGPUConfigured(for: modelArchitecture)
 
         var config = ModelConfiguration(directory: directory)
         // Auto-detect tool call format from model type (vendor LLMModelFactory lost this code)
@@ -1343,6 +1410,13 @@ public final class MLXModelService: @unchecked Sendable {
         // (num_attention_heads, head_dim), the LLM model will use wrong defaults
         // and crash (e.g. gemma-3 VLM). Skip LLM and go straight to VLM.
         let vlmOnly = isVLMOnlyConfig(directory: directory)
+        let selectedFactory = (forceVLM || vlmOnly) ? "VLM" : "LLM"
+        print(
+            "[\(ts())] [ModelArchitecture] declared=\(modelArchitecture.modelType) "
+                + "canonical=\(modelArchitecture.canonicalModelType) "
+                + "vision=\(modelArchitecture.isVisionConfiguration) "
+                + "factory=\(selectedFactory)"
+        )
         do {
             let loaded: ModelContainer
             if forceVLM || vlmOnly {
@@ -1350,17 +1424,21 @@ public final class MLXModelService: @unchecked Sendable {
             } else {
                 do {
                     loaded = try await LLMModelFactory.shared.loadContainer(configuration: config)
-                } catch {
-                    if debugLogging {
-                        print("[\(ts())] [MLX] LLM factory load failed for \(modelID): \(error)")
-                    }
+                } catch let llmError {
+                    print("[\(ts())] [MLX] LLM factory load failed for \(modelID): \(llmError)")
                     // LLM factory failed — try VLM factory as fallback
-                    loaded = try await VLMModelFactory.shared.loadContainer(configuration: config)
+                    do {
+                        loaded = try await VLMModelFactory.shared.loadContainer(configuration: config)
+                    } catch let vlmError {
+                        print("[\(ts())] [MLX] VLM fallback also failed for \(modelID): \(vlmError)")
+                        throw llmError
+                    }
                 }
             }
             withStateLock {
                 currentContainer = loaded
                 currentModelID = modelID
+                currentModelArchitecture = modelArchitecture
                 currentToolCallFormat = detectedFormat
             }
             // MTP: if requested and the model ships an mtp.safetensors sidecar, load the head
@@ -1807,6 +1885,48 @@ public final class MLXModelService: @unchecked Sendable {
         let capturing = beginGPUCaptureIfNeeded()
         let tracing = beginGPUTraceIfNeeded()
         if gpuProfile { printGPUProfileHeader() }
+        // ---- Embedded DSpARK fast path (greedy, text-only, no tools/grammar/logprobs) ----
+        // DeepSeek V4 checkpoints advertise this capability through metadata and carry the
+        // drafter weights themselves; no model-id allowlist or separately loaded package.
+        let dsparkEligible = afmDSparkEnabled()
+            && (temperature ?? 0) <= 0.0
+            && (tools?.isEmpty ?? true)
+            && responseFormat == nil
+            && !wantLogprobs
+        if dsparkEligible {
+            if let result = try await container.perform({ context -> (String, Int, Int)? in
+                guard let model = context.model as? DeepseekV4Model,
+                      model.supportsEmbeddedDSpark else { return nil }
+                let lmInput = try await context.processor.prepare(input: scratch.userInput)
+                if self.isMultimodalInput(lmInput) { return nil }
+                let promptIds = self.extractTokenArray(lmInput)
+                guard !promptIds.isEmpty else { return nil }
+                let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+                let limit = ProcessInfo.processInfo.environment["AFM_DSPARK_DRAFT"]
+                    .flatMap(Int.init)
+                let t0 = Date.timeIntervalSinceReferenceDate
+                let ids = DeepseekV4DSparkGenerator(
+                    model: model, draftLimit: limit
+                ).generate(
+                    promptIds: promptIds,
+                    maxTokens: effectiveMaxTokens,
+                    eosIds: eos)
+                let elapsed = Date.timeIntervalSinceReferenceDate - t0
+                let textIds = (ids.last.map { eos.contains($0) } ?? false)
+                    ? Array(ids.dropLast()) : ids
+                if debugLogging {
+                    let tps = elapsed > 0 ? Double(ids.count) / elapsed : 0
+                    print("[\(ts())] [DSpARK] generated \(ids.count) tok in \(String(format: "%.2f", elapsed))s (\(String(format: "%.1f", tps)) tok/s)")
+                }
+                return (context.tokenizer.decode(tokens: textIds), promptIds.count, ids.count)
+            }) {
+                serialRequestRecorded = true
+                StatsAggregator.shared.requestSucceeded(reason: "stop")
+                StatsAggregator.shared.requestCompleted()
+                return (modelID, result.0, result.1, result.2, nil, nil, 0, 0, 0, false)
+            }
+        }
+
         // ---- MTP self-speculative fast path (greedy, text-only, no tools/grammar/logprobs) ----
         // Eligible when an MTP head is installed and the request is plain greedy generation.
         // Produces output identical to greedy AR (validated P2) but with fewer trunk forwards.
@@ -2846,9 +2966,18 @@ public final class MLXModelService: @unchecked Sendable {
         // those deltas (we return the think tags). Output matches the non-streaming fast path.
         let specGreedyStream = (temperature ?? 0) <= 0.0 && (tools?.isEmpty ?? true)
             && responseFormat == nil && !wantLogprobs && (stop?.isEmpty ?? true)
+        let loadedSupportsDSpark: Bool
+        if specGreedyStream && afmDSparkEnabled() {
+            loadedSupportsDSpark = await container.perform { context in
+                (context.model as? DeepseekV4Model)?.supportsEmbeddedDSpark == true
+            }
+        } else {
+            loadedSupportsDSpark = false
+        }
+        let dsparkStreamEligible = specGreedyStream && loadedSupportsDSpark
         let eagle3StreamEligible = specGreedyStream && Eagle3Runtime.shared.active != nil
         let mtpStreamEligible = specGreedyStream && MTPRuntime.shared.active != nil
-        if eagle3StreamEligible || mtpStreamEligible {
+        if dsparkStreamEligible || eagle3StreamEligible || mtpStreamEligible {
             // Prep prompt ids under the lock; nil => multimodal/empty/wrong-model => fall back to AR.
             // Also detect a template-opened think block (last prompt tokens contain thinkStart): for
             // thinking models whose chat template begins reasoning in the prompt, the generated
@@ -2857,6 +2986,9 @@ public final class MLXModelService: @unchecked Sendable {
             let prep: (ids: [Int], openedThink: Bool)? = try await container.perform { context -> (ids: [Int], openedThink: Bool)? in
                 let lmInput = try await context.processor.prepare(input: userInput)
                 if self.isMultimodalInput(lmInput) { return nil }
+                if dsparkStreamEligible
+                    && !((context.model as? DeepseekV4Model)?.supportsEmbeddedDSpark == true)
+                { return nil }
                 if eagle3StreamEligible && !(context.model is Gemma4Model) { return nil }
                 let ids = self.extractTokenArray(lmInput)
                 if ids.isEmpty { return nil }
@@ -2869,7 +3001,8 @@ public final class MLXModelService: @unchecked Sendable {
             if let prep {
                 let promptIds = prep.ids
                 let openedThink = prep.openedThink
-                let useEagle3 = eagle3StreamEligible
+                let useDSpark = dsparkStreamEligible
+                let useEagle3 = !useDSpark && eagle3StreamEligible
                 let maxTok = effectiveMaxTokens
                 let dbg = debugLogging
                 let thinkStartTag = self.thinkStartTag
@@ -2896,7 +3029,15 @@ public final class MLXModelService: @unchecked Sendable {
                                     }
                                     return true
                                 }
-                                if useEagle3, let drafter = Eagle3Runtime.shared.active,
+                                if useDSpark, let model = context.model as? DeepseekV4Model {
+                                    let limit = ProcessInfo.processInfo.environment["AFM_DSPARK_DRAFT"]
+                                        .flatMap(Int.init)
+                                    let generator = DeepseekV4DSparkGenerator(
+                                        model: model, draftLimit: limit)
+                                    _ = generator.generate(
+                                        promptIds: promptIds, maxTokens: maxTok,
+                                        eosIds: eos, onToken: emit)
+                                } else if useEagle3, let drafter = Eagle3Runtime.shared.active,
                                    let model = context.model as? Gemma4Model {
                                     let block = ProcessInfo.processInfo.environment["AFM_EAGLE3_BLOCK"].flatMap { Int($0) } ?? 2
                                     let g = Gemma4Eagle3Generator(drafter: drafter)
@@ -2912,7 +3053,8 @@ public final class MLXModelService: @unchecked Sendable {
                             let gt = Date.timeIntervalSinceReferenceDate - t0
                             if dbg {
                                 let tps = gt > 0 ? Double(outCount) / gt : 0
-                                print("[\(ts())] [\(useEagle3 ? "EAGLE3" : "MTP")] streamed \(outCount) tok in \(String(format: "%.2f", gt))s (\(String(format: "%.1f", tps)) tok/s)")
+                                let engine = useDSpark ? "DSpARK" : (useEagle3 ? "EAGLE3" : "MTP")
+                                print("[\(ts())] [\(engine)] streamed \(outCount) tok in \(String(format: "%.2f", gt))s (\(String(format: "%.1f", tps)) tok/s)")
                             }
                             continuation.yield(StreamChunk(text: "", promptTokens: promptIds.count,
                                                            completionTokens: outCount, promptTime: 0, generateTime: gt))
@@ -3501,6 +3643,7 @@ public final class MLXModelService: @unchecked Sendable {
             withStateLock {
                 currentContainer = nil
                 currentModelID = nil
+                currentModelArchitecture = nil
             }
         }
 
@@ -3759,6 +3902,10 @@ public final class MLXModelService: @unchecked Sendable {
     static func asSendableJSON(_ value: Any) -> any Sendable {
         switch value {
         case let s as String: return s
+        case let b as Bool: return b
+        case let i as Int: return i
+        case let d as Double: return d
+        case let f as Float: return Double(f)
         case let arr as [Any]: return arr.map { asSendableJSON($0) }
         case let dict as [String: Any]: return dict.mapValues { asSendableJSON($0) }
         case let n as NSNumber: return n
@@ -5658,12 +5805,48 @@ public final class MLXModelService: @unchecked Sendable {
                 resolvedKwargs[key] = value.value.toAny()
             }
         }
+        if forceDisableThinking {
+            resolvedKwargs["enable_thinking"] = false
+            resolvedKwargs.removeValue(forKey: "reasoning_effort")
+        }
         if responseFormat?.type == "json_schema",
            thinkStartTag != nil, thinkEndTag != nil,
            (resolvedKwargs["enable_thinking"] as? Bool) != false {
             resolvedKwargs["enable_thinking"] = false
             print("[\(ts())] [StructuredOutput] Disabling thinking for guided JSON on reasoning-capable model")
         }
+
+        let promptArchitecture = withStateLock {
+            currentModelArchitecture?.canonicalModelType
+        }
+        let usesDeepseekV4Encoder = promptArchitecture == "deepseek_v4"
+        print(
+            "[\(ts())] [ChatTemplate] architecture=\(promptArchitecture ?? "unavailable") "
+                + "encoder=\(usesDeepseekV4Encoder ? "native-deepseek-v4-0731" : "model-template")"
+        )
+
+        if usesDeepseekV4Encoder {
+            var additionalContext = input.additionalContext ?? [:]
+            for (key, value) in resolvedKwargs {
+                additionalContext[key] = value
+            }
+            let prompt = try DeepseekV4ChatEncoder.renderOpenAIChat(
+                messages: try Self.deepseekV4OpenAIMessages(from: chatMessages),
+                tools: tools,
+                additionalContext: additionalContext,
+                addGenerationPrompt: true
+            )
+            return (
+                UserInput(
+                    prompt: .text(prompt),
+                    processing: .init(resize: .init(width: 1024, height: 1024)),
+                    tools: tools,
+                    additionalContext: additionalContext.isEmpty ? nil : additionalContext
+                ),
+                tempFiles: allTempFiles
+            )
+        }
+
         if !resolvedKwargs.isEmpty {
             if input.additionalContext == nil { input.additionalContext = [:] }
             for (key, value) in resolvedKwargs {
@@ -5675,6 +5858,36 @@ public final class MLXModelService: @unchecked Sendable {
         }
 
         return (input, tempFiles: allTempFiles)
+    }
+
+    private static func deepseekV4OpenAIMessages(from chatMessages: [Chat.Message]) throws -> [[String: any Sendable]] {
+        try chatMessages.map { message in
+            if !message.images.isEmpty || !message.videos.isEmpty {
+                throw MLXServiceError.invalidModel("deepseek_v4 does not support media inputs in the MLX text runtime")
+            }
+            var raw: [String: any Sendable] = [
+                "role": message.role.rawValue,
+                "content": message.content
+            ]
+            if let name = message.name {
+                raw["name"] = name
+            }
+            if let toolCalls = message.toolCalls {
+                raw["tool_calls"] = toolCalls.map { Self.sendableJSONDictionary($0) }
+                raw["_vmlx_raw_tool_arguments_json"] = toolCalls.compactMap { call -> String? in
+                    guard let function = call["function"] as? [String: Any] else { return nil }
+                    return function["arguments"] as? String
+                }
+            }
+            if let toolResponses = message.toolResponses {
+                raw["tool_responses"] = toolResponses.map { Self.sendableJSONDictionary($0) }
+            }
+            return raw
+        }
+    }
+
+    private static func sendableJSONDictionary(_ value: [String: Any]) -> [String: any Sendable] {
+        value.mapValues { asSendableJSON($0) }
     }
 
     /// Remove temp files created during media extraction.

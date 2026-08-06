@@ -100,6 +100,10 @@ vendor/llama.cpp/tools/server/public/
 /default.metallib
 
 # Generated local artifacts
+/.build-*/
+/.build-reliable-logs/
+/.build-reliable-state/
+/.venv-*/
 __pycache__/
 *.pyc
 /.claude/scheduled_tasks.lock

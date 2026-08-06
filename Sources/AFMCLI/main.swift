@@ -1,4 +1,5 @@
 import AFMKit
+import AFMKitDwarfStar
 import AFMServer
 import ArgumentParser
 import Foundation
@@ -178,6 +179,12 @@ struct ServeCommand: ParsableCommand {
     }
 }
 
+private enum MLXRuntimeBackend: String, CaseIterable {
+    case auto
+    case mlx
+    case dwarfstar
+}
+
 struct MlxCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "mlx",
@@ -223,15 +230,27 @@ struct MlxCommand: ParsableCommand {
           --media: Image/video paths for VLM single-prompt mode (implies --vlm)
           --kv-bits: Quantize KV cache (4 or 8 bits) to reduce memory
           --prefill-step-size: Prompt tokens per GPU pass (default: 1024)
+          --mlx-runtime: Runtime backend: auto, mlx, or dwarfstar (default: auto)
           --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
+          --mtp: Enable MTP self-speculative decoding for compatible Qwen3.6 models
+          --mtp-depth: MTP draft depth compatibility setting
+          --dspark-support: DwarfStar DSpark support GGUF for speculative decoding
+          --dspark-draft-tokens: Maximum DSpark speculative tokens per cycle (default: 5)
+          --dspark-confidence: DSpark confidence-pruning threshold (default: 0.7)
+          --dspark-strict: Load DSpark support but use target-only decoding
+          --eagle3: EAGLE3 drafter directory for compatible dense Gemma4 models
           --tool-call-parser: Override tool call format (none, afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml). Omit for default native mode and MLX Python-style parity; use "none" for raw output; use "afm_adaptive_xml" for opt-in repair mode.
           --fix-tool-args: Opt-in repair-mode helper that post-processes tool call arg names to match original tool schema
           --enable-grammar-constraints: Enable grammar-constrained decoding engine. When active, API requests with strict: true on tools or response_format.json_schema use xgrammar for token-level enforcement. Without this flag, strict: true is silently downgraded to best-effort.
           --no-think: Disable thinking/reasoning (sets enable_thinking=false)
+          --reasoning-effort: Default DeepSeek reasoning effort: low, high, or max
+          --concurrent: Maximum concurrent requests; values greater than one enable batch mode
           --default-chat-template-kwargs: JSON object merged into chat template context
+          --cache-profile-path: Write cache timing profile records as JSONL
           --gpu-capture <path>: Capture Metal GPU trace to .gputrace file for Xcode analysis (auto-limits to 5 tokens)
           --gpu-trace <seconds>: Record Metal System Trace via xctrace for N seconds (lightweight per-kernel timing)
           --gpu-profile: Print per-request GPU profiling stats (device info, memory, bandwidth estimates)
+          --gpu-profile-bw: Also sample DRAM bandwidth with mactop
           --openclaw-config: Print OpenClaw provider config JSON and exit
           --help-json: Print machine-readable JSON capability card for AI agents and exit
         sampling_parameters: [temperature, top_p, top_k, min_p, presence_penalty, repetition_penalty, seed, max_tokens, logprobs, top_logprobs]
@@ -241,6 +260,7 @@ struct MlxCommand: ParsableCommand {
           top_k: int (not in OpenAI spec)
           min_p: float (not in OpenAI spec)
           repetition_penalty: float (also accepts repeat_penalty, not in OpenAI spec)
+          reasoning_effort: DeepSeek reasoning level: low, high, or max
           chat_template_kwargs: object e.g. {"enable_thinking": false} (AFM-specific)
         extra_response_fields:
           choices[].message.reasoning_content: Extracted <think> reasoning (AFM-specific)
@@ -249,7 +269,7 @@ struct MlxCommand: ParsableCommand {
           - frequency_penalty is parsed but silently ignored
           - developer role is mapped to system
           - max_completion_tokens is accepted alongside max_tokens
-        supported_model_types: [llama, qwen2, qwen3, qwen3_moe, qwen3_5, qwen3_5_moe, gemma, gemma2, phi3, starcoder2, openelm, cohere2, deepseek_v3, glm4, glm4_moe, lfm2, lfm2_moe, nemotron_h, minimax_m2, kimi_k2]
+        supported_model_types: [llama, qwen2, qwen3, qwen3_moe, qwen3_5, qwen3_5_moe, gemma, gemma2, phi3, starcoder2, openelm, cohere2, deepseek_v3, deepseek_v4, glm4, glm4_moe, lfm2, lfm2_moe, nemotron_h, minimax_m2, kimi_k2]
         tool_calling:
           auto_detection: Tool call format is auto-detected from model_type in config.json. Qwen XML models use the narrow qwen3_xml parser by default. Omit --tool-call-parser for default native mode and benchmark parity checks.
           parser_overrides:
@@ -383,6 +403,10 @@ struct MlxCommand: ParsableCommand {
     var kvBits: Int?
     @Option(name: .long, help: "Prefill step size — number of prompt tokens processed per GPU pass (default: 2048)")
     var prefillStepSize: Int?
+    @Option(name: .long, help: .hidden)
+    var mlxKernels: String = "native"
+    @Option(name: .long, help: "Runtime backend: auto, mlx, or dwarfstar. auto selects the fixed-schedule DwarfStar executor for compatible self-contained AFM checkpoints.")
+    var mlxRuntime: String = "auto"
     @Option(name: .long, help: "Pre-warm MLX kernels on startup for faster first response/TTFT (y/n, default: y)")
     var prewarm: String = "y"
     @Flag(name: .long, help: "Trust remote code (compatibility)")
@@ -439,6 +463,18 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "MTP draft depth (accepted for compatibility; the loop currently uses the fixed depth-2-bonus structure from mlx-lm PR #990 — ~+50% decode vs AR on M4 Pro — so this value is not used).")
     var mtpDepth: Int = 1
 
+    @Option(name: .customLong("dspark-support"), help: "DwarfStar DSpark support GGUF. Supplying it enables greedy speculative decoding.")
+    var dsparkSupportPath: String?
+
+    @Option(name: .customLong("dspark-draft-tokens"), help: "Maximum DSpark speculative tokens per cycle (1...16, default: 5).")
+    var dsparkDraftTokens: Int = 5
+
+    @Option(name: .customLong("dspark-confidence"), help: "DSpark confidence-pruning threshold (0...1, default: 0.7).")
+    var dsparkConfidenceThreshold: Double = 0.7
+
+    @Flag(name: .customLong("dspark-strict"), help: "Load DSpark support but keep target-only decoding for correctness comparisons.")
+    var dsparkStrict: Bool = false
+
     @Option(name: .long, help: "Enable EAGLE3 speculative decoding for a dense Gemma4 verifier. Pass the drafter directory (config.json + safetensors). Faster decode, quality-preserving (near-greedy output). No-op if the verifier is not a dense Gemma4 text model.")
     var eagle3: String?
 
@@ -448,8 +484,14 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Enable grammar-constrained decoding engine. When active, API requests with strict: true on tools or response_format.json_schema use xgrammar for token-level enforcement. Without this flag, strict: true is silently downgraded to best-effort.")
     var enableGrammarConstraints: Bool = false
 
-    @Flag(name: .long, help: "Disable thinking/reasoning (sets enable_thinking=false in chat template)")
+    @Flag(name: [.customLong("no-think"), .customLong("no-thinking")], help: "Disable thinking/reasoning. Overrides --reasoning-effort and chat-template kwargs.")
     var noThink: Bool = false
+
+    @Option(
+        name: .customLong("reasoning-effort"),
+        help: "DeepSeek thinking effort: low, high, or max."
+    )
+    var reasoningEffort: String?
 
     @Option(name: .long, help: "Max concurrent requests (enables batch mode; 0 or 1 reverts to serial)")
     var concurrent: Int?
@@ -509,14 +551,26 @@ struct MlxCommand: ParsableCommand {
 
         emitCompatibilityWarnings()
 
+        let kernelEngine = AFMMLXKernelEngine(configuredValue: mlxKernels)
+        if kernelEngine.rawValue != mlxKernels.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            let valid = AFMMLXKernelEngine.allCases.map(\.rawValue).joined(separator: ", ")
+            fputs("Error: --mlx-kernels must be one of: \(valid)\n", stderr)
+            throw ExitCode.failure
+        }
+        // Publish the engine before any MLX object can initialize. The runtime
+        // also applies this typed value to MLXModelService; the environment is
+        // the stable boundary consumed by the patched mlx-swift-lm package.
+        setenv("AFM_MLX_KERNELS", kernelEngine.rawValue, 1)
+        if verbose {
+            print("Selected MLX kernel engine: \(kernelEngine.rawValue)")
+        }
+
         let resolver = MLXCacheResolver()
         let modelStore = AFMMLXModelStore(resolver: resolver)
 
-        // Parse --default-chat-template-kwargs and --no-think into defaultChatTemplateKwargs
+        // Parse template controls first, then apply typed CLI controls. The explicit
+        // no-thinking flag is deliberately last so it cannot be undone by JSON.
         var parsedKwargs: [String: Any] = [:]
-        if noThink {
-            parsedKwargs["enable_thinking"] = false
-        }
         if let jsonStr = defaultChatTemplateKwargs {
             guard let data = jsonStr.data(using: .utf8) else {
                 fputs("Error: --default-chat-template-kwargs must be valid UTF-8\n", stderr)
@@ -529,12 +583,33 @@ struct MlxCommand: ParsableCommand {
                     throw ExitCode.failure
                 }
                 for (key, value) in dict {
-                    parsedKwargs[key] = value  // explicit kwargs override --no-think
+                    parsedKwargs[key] = value
                 }
             } catch let error where !(error is ExitCode) {
                 fputs("Error: Failed to parse --default-chat-template-kwargs as JSON: \(error)\n", stderr)
                 throw ExitCode.failure
             }
+        }
+        let normalizedReasoningEffort = reasoningEffort?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if let normalizedReasoningEffort {
+            guard ["low", "high", "max"].contains(normalizedReasoningEffort) else {
+                fputs("Error: --reasoning-effort must be low, high, or max\n", stderr)
+                throw ExitCode.failure
+            }
+            parsedKwargs["reasoning_effort"] = normalizedReasoningEffort
+            parsedKwargs["enable_thinking"] = true
+        }
+        if noThink {
+            let configuredEffort = normalizedReasoningEffort != nil
+                || parsedKwargs["reasoning_effort"] != nil
+                || (parsedKwargs["enable_thinking"] as? Bool) == true
+            if configuredEffort {
+                fputs("Note: --no-thinking overrides the configured DeepSeek reasoning effort.\n", stderr)
+            }
+            parsedKwargs["enable_thinking"] = false
+            parsedKwargs.removeValue(forKey: "reasoning_effort")
         }
 
         var defaultGuidedJsonSchema: ResponseFormat?
@@ -570,9 +645,24 @@ struct MlxCommand: ParsableCommand {
             throw ExitCode.failure
         }
 
+        let runtimeBackend = try resolveRuntimeBackend(model: rawModel)
+        if runtimeBackend != .dwarfstar, dsparkSupportPath != nil {
+            throw ValidationError("--dspark-support requires --mlx-runtime dwarfstar or a DwarfStar executor checkpoint")
+        }
+        if runtimeBackend == .dwarfstar {
+            try runDwarfStar(
+                checkpointPath: localModelPath(rawModel),
+                modelStore: modelStore,
+                chatTemplateKwargs: parsedKwargs,
+                forceDisableThinking: noThink,
+                defaultGuidedJsonSchema: defaultGuidedJsonSchema)
+            return
+        }
+
         let runtimeConfiguration = AFMMLXRuntimeConfiguration(
             kvBits: kvBits,
             enablePrefixCaching: enablePrefixCaching,
+            kernelEngine: kernelEngine,
             mtpEnabled: mtp,
             mtpDepth: mtpDepth,
             eagle3DrafterPath: eagle3,
@@ -592,6 +682,7 @@ struct MlxCommand: ParsableCommand {
             defaultChatTemplateKwargs: parsedKwargs.isEmpty
                 ? nil
                 : try parsedKwargs.mapValues { try Self.afmJSONValue(from: $0) },
+            forceDisableThinking: noThink,
             defaultGuidedJsonSchema: defaultGuidedJsonSchema
         )
         let runtime = AFMMLXRuntime(
@@ -601,6 +692,7 @@ struct MlxCommand: ParsableCommand {
         )
         let selectedModel = runtime.modelID
         let service = runtime.service
+        service.kernelEngine = kernelEngine
 
         if openclawConfig {
             let chosenPort = port ?? 9999
@@ -631,10 +723,11 @@ struct MlxCommand: ParsableCommand {
             resolvedMedia.append(resolved)
         }
 
-        // Backward compatibility: support piped input in mlx mode too
-        if let stdinContent = try readFromStdin() {
+        // An explicit prompt must win over redirected stdin. Profilers and
+        // automation runners commonly attach a pipe that remains open.
+        if let prompt = singlePrompt {
             try runSinglePrompt(
-                stdinContent,
+                prompt,
                 modelID: selectedModel,
                 mediaPaths: resolvedMedia,
                 chatTemplateKwargs: parsedKwargs
@@ -642,9 +735,10 @@ struct MlxCommand: ParsableCommand {
             return
         }
 
-        if let prompt = singlePrompt {
+        // Backward compatibility: support piped input in mlx mode too.
+        if let stdinContent = try readFromStdin() {
             try runSinglePrompt(
-                prompt,
+                stdinContent,
                 modelID: selectedModel,
                 mediaPaths: resolvedMedia,
                 chatTemplateKwargs: parsedKwargs
@@ -757,11 +851,212 @@ struct MlxCommand: ParsableCommand {
         print("Server shutdown complete.")
     }
 
+    private func resolveRuntimeBackend(model: String) throws -> MLXRuntimeBackend {
+        let normalized = mlxRuntime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard let requested = MLXRuntimeBackend(rawValue: normalized) else {
+            throw ValidationError(
+                "--mlx-runtime must be one of: \(MLXRuntimeBackend.allCases.map(\.rawValue).joined(separator: ", "))")
+        }
+        guard requested != .mlx else { return .mlx }
+
+        let path = localModelPath(model)
+        let modelURL = URL(fileURLWithPath: path, isDirectory: true)
+        let isDirectory = (try? modelURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory)
+            == true
+        guard isDirectory else {
+            if requested == .dwarfstar {
+                throw ValidationError(
+                    "--mlx-runtime dwarfstar requires a local self-contained AFM checkpoint directory")
+            }
+            return .mlx
+        }
+
+        let catalog: AFMDwarfStarCheckpointCatalog
+        do {
+            catalog = try AFMDwarfStarCheckpointCatalog(checkpointURL: modelURL)
+        } catch {
+            if requested == .dwarfstar {
+                throw ValidationError("Checkpoint is not DwarfStar-compatible: \(error.localizedDescription)")
+            }
+            return .mlx
+        }
+        guard catalog.layout.isExecutorReady else {
+            if requested == .dwarfstar {
+                throw ValidationError("Checkpoint does not contain the DwarfStar executor layout")
+            }
+            return .mlx
+        }
+        guard catalog.isSelfContainedExecutorReady else {
+            throw ValidationError(
+                "DwarfStar executor checkpoint is missing \(AFMDwarfStarCheckpointCatalog.bundledTemplateFilename). Re-run mlx-convert --profile dwarfstar-executor --template-gguf <reference.gguf>.")
+        }
+        return .dwarfstar
+    }
+
+    private func localModelPath(_ model: String) -> String {
+        let expanded = NSString(string: model).expandingTildeInPath
+        if expanded.hasPrefix("/") {
+            return URL(fileURLWithPath: expanded).standardizedFileURL.path
+        }
+        let cwd = ProcessInfo.processInfo.environment["PWD"]
+            ?? FileManager.default.currentDirectoryPath
+        return URL(fileURLWithPath: cwd, isDirectory: true)
+            .appendingPathComponent(expanded)
+            .standardizedFileURL.path
+    }
+
+    private func runDwarfStar(
+        checkpointPath: String,
+        modelStore: AFMMLXModelStore,
+        chatTemplateKwargs: [String: Any],
+        forceDisableThinking: Bool,
+        defaultGuidedJsonSchema: ResponseFormat?
+    ) throws {
+        if !media.isEmpty || vlm {
+            throw ValidationError("The DwarfStar runtime currently supports text input only")
+        }
+        if kvBits != nil || mtp || eagle3 != nil {
+            throw ValidationError(
+                "KV quantization and speculative decoding are unavailable in the DwarfStar runtime")
+        }
+        if repetitionPenalty != nil || presencePenalty != nil || guidedJson != nil {
+            throw ValidationError(
+                "Repetition/presence penalties and guided JSON are unavailable in the DwarfStar runtime")
+        }
+        guard (1...16).contains(dsparkDraftTokens) else {
+            throw ValidationError("--dspark-draft-tokens must be between 1 and 16")
+        }
+        guard (0...1).contains(dsparkConfidenceThreshold) else {
+            throw ValidationError("--dspark-confidence must be between 0 and 1")
+        }
+        let residentSessions = max(1, concurrent ?? 1)
+        let resolvedDSparkPath = dsparkSupportPath.map(localModelPath)
+
+        let modelID = URL(fileURLWithPath: checkpointPath).lastPathComponent
+        if openclawConfig {
+            printOpenClawConfig(
+                model: modelID,
+                hostname: hostname,
+                port: port ?? 9999,
+                modelStore: modelStore)
+            return
+        }
+        if verbose {
+            print("Selected inference runtime: dwarfstar (fixed Metal schedule)")
+            print("AFM checkpoint: \(checkpointPath)")
+            if let resolvedDSparkPath {
+                print("DSpark support: \(resolvedDSparkPath) (draft=\(dsparkDraftTokens), confidence=\(dsparkConfidenceThreshold), strict=\(dsparkStrict))")
+            }
+        }
+
+        if let prompt = singlePrompt {
+            try runSinglePrompt(
+                prompt,
+                modelID: modelID,
+                chatTemplateKwargs: chatTemplateKwargs,
+                runtimeBackend: .dwarfstar,
+                modelPath: checkpointPath)
+            return
+        }
+        if let stdinContent = try readFromStdin() {
+            try runSinglePrompt(
+                stdinContent,
+                modelID: modelID,
+                chatTemplateKwargs: chatTemplateKwargs,
+                runtimeBackend: .dwarfstar,
+                modelPath: checkpointPath)
+            return
+        }
+
+        let explicitPort = port != nil
+        let chosenPort: Int
+        if let port {
+            chosenPort = port
+        } else if isPortAvailable(9999) {
+            chosenPort = 9999
+        } else {
+            chosenPort = try findEphemeralPort()
+            print("Port 9999 is busy, using ephemeral port \(chosenPort)")
+        }
+        let telegramConfiguration = try makeTelegramConfiguration(
+            rawBotToken: telegramBotToken,
+            rawAllowlist: telegramAllow,
+            hostname: hostname,
+            port: chosenPort,
+            modelID: modelID,
+            instructions: instructions,
+            verbose: verbose || veryVerbose || vv,
+            replyFormat: telegramFormat,
+            requirePrefix: telegramRequirePrefix)
+
+        let model = AnyAFMModel(AFMDwarfStarModel(
+            modelID: AFMModelID(rawValue: modelID),
+            modelPath: checkpointPath,
+            contextWindow: 32_768,
+            dsparkSupportPath: resolvedDSparkPath,
+            dsparkDraftTokens: dsparkDraftTokens,
+            dsparkConfidenceThreshold: dsparkConfidenceThreshold,
+            dsparkStrict: dsparkStrict,
+            enablePrefixCaching: enablePrefixCaching,
+            maxConcurrent: residentSessions))
+        let defaultChatTemplateKwargs = chatTemplateKwargs.isEmpty
+            ? nil
+            : chatTemplateKwargs.mapValues { AnyCodable($0) }
+        _ = Task {
+            do {
+                _ = try await model.load(progress: nil)
+                let server = try await Server(
+                    port: chosenPort,
+                    hostname: hostname,
+                    verbose: verbose,
+                    veryVerbose: veryVerbose || vv,
+                    trace: vv,
+                    streamingEnabled: !noStreaming,
+                    instructions: instructions,
+                    temperature: temperature,
+                    stop: stop,
+                    webuiEnabled: webui,
+                    gatewayEnabled: false,
+                    prewarmEnabled: false,
+                    telegramConfiguration: telegramConfiguration,
+                    defaultGuidedJsonSchema: defaultGuidedJsonSchema,
+                    defaultChatTemplateKwargs: defaultChatTemplateKwargs,
+                    forceDisableThinking: forceDisableThinking,
+                    mlxModelID: modelID,
+                    afmModel: model,
+                    mlxTopP: topP,
+                    mlxMaxTokens: maxTokens,
+                    mlxRawOutput: raw,
+                    mlxTopK: topK,
+                    mlxMinP: minP,
+                    mlxSeed: seed,
+                    mlxMaxLogprobs: maxLogprobs,
+                    contextWindow: 32_768)
+                globalServer = server
+                if !explicitPort && chosenPort != 9999 {
+                    print("DwarfStar API URL: http://\(hostname):\(chosenPort)")
+                }
+                try await server.start()
+            } catch {
+                print("Error starting DwarfStar server. CTRL-C to stop: \(error)")
+                shouldKeepRunning = false
+            }
+        }
+
+        let runLoop = RunLoop.current
+        signal(SIGINT, handleShutdown)
+        signal(SIGTERM, handleShutdown)
+        while shouldKeepRunning && runLoop.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) {}
+        print("Server shutdown complete.")
+    }
+
     private func runSinglePrompt(
         _ prompt: String,
         modelID: String,
         mediaPaths: [String] = [],
-        chatTemplateKwargs: [String: Any] = [:]
+        chatTemplateKwargs: [String: Any] = [:],
+        runtimeBackend: MLXRuntimeBackend = .mlx,
+        modelPath: String? = nil
     ) throws {
         let group = DispatchGroup()
         let output = SendableBox<Result<AFMResponse, Error>?>(nil)
@@ -789,12 +1084,34 @@ struct MlxCommand: ParsableCommand {
             : try Self.afmJSONValue(from: chatTemplateKwargs)
         group.enter()
         Task {
-            let engine = AFMEngine(
-                backend: .mlx(modelID: modelID),
-                config: EngineConfig(
+            let engine: AFMEngine
+            do {
+                if runtimeBackend == .dwarfstar {
+                    let registry = AFMProviderRegistry()
+                    try registry.register(AFMDwarfStarProviderFactory())
+                    engine = try AFMEngine(
+                        providerID: AFMDwarfStarProviderFactory.providerID,
+                        modelID: AFMModelID(rawValue: modelID),
+                        configuration: AFMProviderConfiguration(values: [
+                            "modelPath": .string(modelPath ?? modelID),
+                            "contextWindow": .integer(32_768),
+                            "dsparkSupportPath": self.dsparkSupportPath
+                                .map { .string(self.localModelPath($0)) } ?? .null,
+                            "dsparkDraftTokens": .integer(self.dsparkDraftTokens),
+                            "dsparkConfidenceThreshold": .number(self.dsparkConfidenceThreshold),
+                            "dsparkStrict": .bool(self.dsparkStrict),
+                            "enablePrefixCaching": .bool(self.enablePrefixCaching),
+                            "maxConcurrent": .integer(max(1, self.concurrent ?? 1))
+                        ]),
+                        registry: registry)
+                } else {
+                    engine = AFMEngine(
+                        backend: .mlx(modelID: modelID),
+                        config: EngineConfig(
                     instructions: self.instructions,
                     kvBits: self.kvBits,
                     enablePrefixCaching: self.enablePrefixCaching,
+                    mlxKernels: self.mlxKernels,
                     mtpEnabled: self.mtp,
                     mtpDepth: self.mtpDepth,
                     eagle3DrafterPath: self.eagle3,
@@ -810,8 +1127,13 @@ struct MlxCommand: ParsableCommand {
                     gpuTraceDuration: self.gpuTrace,
                     gpuProfile: self.gpuProfile || self.gpuProfileBw,
                     gpuProfileBandwidth: self.gpuProfileBw
-                )
-            )
+                        ))
+                }
+            } catch {
+                output.value = .failure(error)
+                group.leave()
+                return
+            }
             do {
                 // Pre-load with progress bar (downloads if needed)
                 let loadReporter = MLXLoadReporter(modelID: modelID)
@@ -826,7 +1148,9 @@ struct MlxCommand: ParsableCommand {
                 loadReporter.finish(success: true)
 
                 var messages = [Message]()
-                messages.append(Message(role: "system", content: self.instructions))
+                if !self.instructions.isEmpty {
+                    messages.append(Message(role: "system", content: self.instructions))
+                }
 
                 if mediaPaths.isEmpty {
                     messages.append(Message(role: "user", content: prompt))
@@ -1443,7 +1767,12 @@ struct RootCommand: ParsableCommand {
         GitHub: https://github.com/scouzi1966/maclocal-api
         """,
         version: MacLocalAPI.buildVersion,
-        subcommands: [MlxCommand.self, VisionCommand.self, SpeechCommand.self, EmbeddingsCommand.self]
+        subcommands: [
+            MlxCommand.self, MLXConvertCommand.self, MLXAlignExecutorCommand.self,
+            DwarfStarBenchmarkCommand.self,
+            VisionCommand.self,
+            SpeechCommand.self, EmbeddingsCommand.self,
+        ]
     )
 
     @Option(name: [.customShort("s"), .long], help: "Run a single prompt without starting the server")
@@ -1574,7 +1903,29 @@ struct RootCommand: ParsableCommand {
 
 // Manual dispatch for subcommands to avoid flag conflicts between root and subcommands.
 // Subcommands are still registered in RootCommand.configuration so they appear in -h.
-if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
+if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "dwarfstar-bench" {
+    let args = Array(CommandLine.arguments.dropFirst(2))
+    do {
+        var cmd = try DwarfStarBenchmarkCommand.parse(args)
+        let group = DispatchGroup()
+        let errorBox = SendableBox<Error?>(nil)
+        group.enter()
+        Task.detached {
+            do {
+                try await cmd.run()
+            } catch {
+                errorBox.value = error
+            }
+            group.leave()
+        }
+        group.wait()
+        if let error = errorBox.value {
+            throw error
+        }
+    } catch {
+        DwarfStarBenchmarkCommand.exit(withError: error)
+    }
+} else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
     let args = Array(CommandLine.arguments.dropFirst(2))
     do {
         var cmd = try MlxCommand.parseAsRoot(args)

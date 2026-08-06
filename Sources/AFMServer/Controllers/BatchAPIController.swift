@@ -297,7 +297,7 @@ struct BatchAPIController: RouteCollection {
                 parallelToolCalls: chatReq.parallelToolCalls,
                 stop: chatReq.stop,
                 responseFormat: chatReq.responseFormat,
-                chatTemplateKwargs: chatReq.chatTemplateKwargs
+                chatTemplateKwargs: chatReq.effectiveChatTemplateKwargs
             )
             reservationTransferred = true
 

@@ -5,17 +5,31 @@ See `CLAUDE.md` for additional project-specific build, architecture, and workflo
 ## Project Structure & Module Organization
 `Sources/MacLocalAPI/` contains the Swift CLI and server code, with `Controllers/`, `Models/`, `Services/`, and `Utils/` split by responsibility. `Sources/CXGrammar/` holds the C++ grammar bridge used by the Swift package. Tests live in `Tests/MacLocalAPITests/` as `XCTest` cases such as `XMLToolCallParsingTests.swift`. Automation and regression scripts are in `Scripts/`, design notes in `docs/`, and generated artifacts in `test-reports/` and `archive/`.
 
-`vendor/` contains pinned submodules (`mlx-swift-lm`, `llama.cpp`). Do not edit vendor files directly; patch them through `Scripts/patches/` and `Scripts/apply-mlx-patches.sh`.
+`vendor/` contains pinned submodules (`mlx-swift-lm`, `llama.cpp`, `xgrammar`, and canonical `antirez/ds4`). Do not edit vendor files directly. Keep AFM-owned adaptations under `Scripts/patches/` and apply them through the corresponding idempotent patch script (`apply-mlx-patches.sh` or `apply-ds4-patches.sh`).
 
 ## Build, Test, and Development Commands
-Use the project `Makefile` for normal workflows:
+Use the project `Makefile` for normal workflows. All direct SwiftPM build and
+test invocations must go through `Scripts/swiftpm-reliable.sh`; do not invoke
+raw `swift build` or `swift test`. The wrapper selects the reliable Xcode 27
+driver, repairs stale explicit-module state once, and stages the canonical MLX
+metallib beside every XCTest executable for MLX's C++ runtime. It also
+fingerprints the local `mlx-swift-lm` sources and invalidates stale compiled
+products when Xcode's native driver misses a vendor-patch change.
+`Package.swift` selects `vendor/mlx-swift-lm` whenever that submodule is
+initialized, so this fingerprint is the source actually compiled. Clones
+without the submodule use the pinned pre-patched URL fork instead.
+Run `Scripts/check-mlx-source-selection.sh` after dependency changes to verify
+that an initialized development checkout still resolves the vendor package.
+This applies to release/coverage harness scripts and copied XCTest reruns too;
+do not replace the wrapper with raw `swift test` or a one-off environment fix.
 
 - `make build` builds the release `afm` binary and applies vendor patches first.
 - `make debug` builds a debug binary at `.build/debug/afm`.
 - `make run` starts the debug server on port `9999`.
 - `make test` performs the basic binary and portability checks.
 - `./Scripts/build-from-scratch.sh` runs the full clean build flow, including submodules, patches, and web UI assets.
-- `swift test` runs the Swift unit test suite directly.
+- `Scripts/swiftpm-reliable.sh build -c release --product afm` builds AFM directly.
+- `Scripts/swiftpm-reliable.sh test -c release` runs the Swift unit test suite directly.
 - `./Scripts/test-assertions.sh --tier smoke --model <model>` runs the broader assertion and integration harness.
 
 ## Coding Style & Naming Conventions

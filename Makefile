@@ -1,10 +1,11 @@
 # AFM - Apple Foundation Models API
 # Makefile for building and distributing the portable CLI
 
-.PHONY: build clean install uninstall portable dist test help submodules submodule-status webui build-with-webui patch patch-check
+.PHONY: build clean install uninstall portable dist test help submodules submodule-status webui build-with-webui patch patch-check ds4-patch
 
-PATCH_SH  := Scripts/apply-mlx-patches.sh
+PATCH_SH := Scripts/apply-mlx-patches.sh
 PATCH_STAMP := vendor/mlx-swift-lm/.patches-applied
+DS4_PATCH_SH := Scripts/apply-ds4-patches.sh
 
 # Default target
 all: build
@@ -15,21 +16,27 @@ $(PATCH_STAMP): $(PATCH_SH) $(wildcard Scripts/patches/*)
 	@bash $(PATCH_SH)
 	@touch $(PATCH_STAMP)
 
-patch: $(PATCH_STAMP)
+ds4-patch:
+	@echo "🩹 Applying DwarfStar integration patches..."
+	@bash $(DS4_PATCH_SH)
+
+patch: $(PATCH_STAMP) ds4-patch
 
 patch-check:
 	@bash $(PATCH_SH) --check
+	@bash $(DS4_PATCH_SH) --check
 
 # Build the release binary (portable by default)
-build: $(PATCH_STAMP)
+build: $(PATCH_STAMP) ds4-patch
 	@echo "🔨 Building AFM..."
-	@swift build -c release \
+	@Scripts/swiftpm-reliable.sh build -c release \
 		--product afm \
 		-Xswiftc -disable-upcoming-feature \
 		-Xswiftc MemberImportVisibility
-	@strip .build/release/afm
-	@echo "✅ Build complete: .build/release/afm"
-	@echo "📊 Size: $$(ls -lh .build/release/afm | awk '{print $$5}')"
+	@AFM_BIN="$$(Scripts/find-afm-binary.sh release)"; \
+		strip "$$AFM_BIN"; \
+		echo "✅ Build complete: $$AFM_BIN"; \
+		echo "📊 Size: $$(ls -lh "$$AFM_BIN" | awk '{print $$5}')"
 
 # Build with enhanced portability optimizations
 portable:
@@ -67,6 +74,7 @@ build-with-webui: webui build
 clean:
 	@echo "🧹 Cleaning build artifacts..."
 	@if [ -f $(PATCH_STAMP) ]; then bash $(PATCH_SH) --revert; rm -f $(PATCH_STAMP); fi
+	@if [ -f vendor/ds4/ds4.c ]; then bash $(DS4_PATCH_SH) --revert; fi
 	@swift package clean
 	@rm -rf .build
 	@rm -f dist/*.tar.gz
@@ -75,7 +83,7 @@ clean:
 # Install to system (requires sudo)
 install: build
 	@echo "📦 Installing AFM to /usr/local/bin..."
-	@sudo cp .build/release/afm /usr/local/bin/afm
+	@sudo cp "$$(Scripts/find-afm-binary.sh release)" /usr/local/bin/afm
 	@sudo chmod +x /usr/local/bin/afm
 	@echo "✅ AFM installed to /usr/local/bin/afm"
 
@@ -92,22 +100,24 @@ dist: portable
 # Test the binary
 test: build
 	@echo "🧪 Testing AFM binary..."
-	@./.build/release/afm --help > /dev/null && echo "✅ Binary test passed" || echo "❌ Binary test failed"
-	@cp .build/release/afm /tmp/afm-test-$$$$ && \
-		/tmp/afm-test-$$$$ --version > /dev/null 2>&1 && \
+	@AFM_BIN="$$(Scripts/find-afm-binary.sh release)"; \
+		"$$AFM_BIN" --help > /dev/null && echo "✅ Binary test passed" || echo "❌ Binary test failed"
+	@AFM_BIN="$$(Scripts/find-afm-binary.sh release)"; TEST_BIN=".build/afm-portability-test-$$$$"; \
+		cp "$$AFM_BIN" "$$TEST_BIN" && \
+		"$$TEST_BIN" --version > /dev/null 2>&1 && \
 		echo "✅ Portability test passed" || echo "⚠️  Portability test failed"; \
-		rm -f /tmp/afm-test-$$$$
+		rm -f "$$TEST_BIN"
 
 # Development build (debug)
 debug: $(PATCH_STAMP)
 	@echo "🐛 Building debug version..."
-	@swift build
-	@echo "✅ Debug build complete: .build/debug/afm"
+	@Scripts/swiftpm-reliable.sh build
+	@echo "✅ Debug build complete: $$(Scripts/find-afm-binary.sh debug)"
 
 # Run the server (development)
 run: debug
 	@echo "🚀 Starting AFM server..."
-	@./.build/debug/afm --port 9999
+	@"$$(Scripts/find-afm-binary.sh debug)" --port 9999
 
 # Show help
 help:
@@ -138,4 +148,4 @@ help:
 	@echo "  make dist               # Create distribution package"
 	@echo "  make test               # Test binary works"
 	@echo ""
-	@echo "Output: .build/release/afm (portable executable)"
+	@echo "Output: $$(Scripts/find-afm-binary.sh release 2>/dev/null || echo '.build/<toolchain release path>/afm')"

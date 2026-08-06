@@ -3,7 +3,6 @@ import AFMKit
 import AFMKitCore
 import AFMKitMLX
 import Foundation
-import MLX
 import MLXLMCommon
 
 struct FinalizedAssistantTurn {
@@ -196,7 +195,7 @@ struct MLXChatCompletionsController: RouteCollection {
 
             // Reset peak memory before each request so usage.peak_memory_gib
             // reflects this request only (matches mlx_lm's mx.reset_peak_memory())
-            GPU.resetPeakMemory()
+            service.resetRequestPeakMemory()
 
             let isWebUI = req.headers.first(name: .origin) != nil
             let extractThinking = !rawOutput || isWebUI
@@ -263,7 +262,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     parallelToolCalls: chatRequest.parallelToolCalls,
                     stop: effectiveStop,
                     responseFormat: effectiveResponseFormat,
-                    chatTemplateKwargs: chatRequest.chatTemplateKwargs,
+                    chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
                     preserveStructuralTags: !extractThinking,
                     requestId: reqId
                 )
@@ -377,7 +376,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     parallelToolCalls: chatRequest.parallelToolCalls,
                     stop: effectiveStop,
                     responseFormat: effectiveResponseFormat,
-                    chatTemplateKwargs: chatRequest.chatTemplateKwargs
+                    chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs
                 )
             }
             let completionTok = result.completionTokens
@@ -431,7 +430,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     cachedTokens: result.cachedTokens,
                     completionTime: generateTime,
                     promptTime: promptTime,
-                    peakMemoryGib: Self.currentPeakMemoryGib(),
+                    peakMemoryGib: service.currentRequestPeakMemoryGib(),
                     timings: timings,
                     afmProfile: profile,
                     afmProfileExtended: extended
@@ -477,7 +476,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 cachedTokens: result.cachedTokens,
                 completionTime: generateTime,
                 promptTime: promptTime,
-                peakMemoryGib: Self.currentPeakMemoryGib(),
+                peakMemoryGib: service.currentRequestPeakMemoryGib(),
                 timings: timings,
                 afmProfile: profile,
                 afmProfileExtended: extended
@@ -605,7 +604,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     parallelToolCalls: chatRequest.parallelToolCalls,
                     stop: effectiveStop,
                     responseFormat: effectiveResponseFormat,
-                    chatTemplateKwargs: chatRequest.chatTemplateKwargs,
+                    chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
                     preserveStructuralTags: !extractThinking,
                     requestId: streamReqId
                 )
@@ -1497,11 +1496,6 @@ struct MLXChatCompletionsController: RouteCollection {
         guard cachedTokens > 0 else { return " | cache: MISS suffix=\(suffix)" }
         let ratio = total > 0 ? Int(Double(cachedTokens) / Double(total) * 100) : 0
         return " | cache: HIT \(cachedTokens)/\(total) (\(ratio)%) suffix=\(suffix)"
-    }
-
-    private static func currentPeakMemoryGib() -> Double {
-        let gib = 1024.0 * 1024.0 * 1024.0
-        return (Double(Memory.snapshot().peakMemory) / gib * 10).rounded() / 10
     }
 
     /// ANSI color codes

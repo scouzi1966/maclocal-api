@@ -47,9 +47,29 @@ public struct AFMMLXRuntimeAdapter: Sendable {
 
     @MainActor public func makeUserInput(
         chat: [Chat.Message],
-        additionalContext: [String: any Sendable]?
-    ) -> UserInput {
-        UserInput(
+        additionalContext: [String: any Sendable]?,
+        modelType: String? = nil
+    ) throws -> UserInput {
+        if modelType == "deepseek_v4" {
+            let prompt = try DeepseekV4ChatEncoder.renderOpenAIChat(
+                messages: Self.openAIMessages(from: chat),
+                tools: nil,
+                additionalContext: additionalContext,
+                addGenerationPrompt: true
+            )
+            return UserInput(
+                prompt: .text(prompt),
+                processing: .init(
+                    resize: .init(
+                        width: Self.imageProcessingSize,
+                        height: Self.imageProcessingSize
+                    )
+                ),
+                additionalContext: additionalContext
+            )
+        }
+
+        return UserInput(
             chat: chat,
             processing: .init(
                 resize: .init(
@@ -61,16 +81,72 @@ public struct AFMMLXRuntimeAdapter: Sendable {
         )
     }
 
+    private static func openAIMessages(
+        from chat: [Chat.Message]
+    ) -> [[String: any Sendable]] {
+        chat.map { message in
+            var raw: [String: any Sendable] = [
+                "role": message.role.rawValue,
+                "content": message.content,
+            ]
+            if let name = message.name {
+                raw["name"] = name
+            }
+            if let toolCalls = message.toolCalls {
+                raw["tool_calls"] = toolCalls.map { Self.sendableJSONDictionary($0) }
+            }
+            if let toolResponses = message.toolResponses {
+                raw["tool_responses"] = toolResponses.map { Self.sendableJSONDictionary($0) }
+            }
+            return raw
+        }
+    }
+
+    private static func sendableJSONDictionary(
+        _ dictionary: [String: Any]
+    ) -> [String: any Sendable] {
+        var result: [String: any Sendable] = [:]
+        for (key, value) in dictionary {
+            if let sendable = sendableJSONValue(value) {
+                result[key] = sendable
+            }
+        }
+        return result
+    }
+
+    private static func sendableJSONValue(_ value: Any) -> (any Sendable)? {
+        switch value {
+        case let value as String:
+            return value
+        case let value as Bool:
+            return value
+        case let value as Int:
+            return value
+        case let value as Double:
+            return value
+        case let value as Float:
+            return Double(value)
+        case let value as [Any]:
+            return value.compactMap(sendableJSONValue)
+        case let value as [String: Any]:
+            return sendableJSONDictionary(value)
+        default:
+            return nil
+        }
+    }
+
     @MainActor public func runGeneration(
         container: ModelContainer,
         chat: [Chat.Message],
         additionalContext: [String: any Sendable]?,
+        modelType: String? = nil,
         parameters parameterRequest: AFMMLXGenerationParameterRequest,
         onEvent: (RuntimeEvent) async throws -> Bool
     ) async throws {
-        let userInput = makeUserInput(
+        let userInput = try makeUserInput(
             chat: chat,
-            additionalContext: additionalContext
+            additionalContext: additionalContext,
+            modelType: modelType
         )
         let input = try await container.prepare(input: userInput)
         let parameters = AFMMLXGenerationParameterFactory.make(parameterRequest)

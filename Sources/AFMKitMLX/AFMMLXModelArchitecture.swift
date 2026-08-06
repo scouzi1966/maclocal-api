@@ -151,6 +151,7 @@ public enum AFMMLXModelArchitecture {
         "openelm",
         "internlm2",
         "deepseek_v3",
+        "deepseek_v4",
         "kimi_k2",
         "kimi_k25",
         "joyai_llm_flash",
@@ -279,6 +280,18 @@ public enum AFMMLXModelArchitecture {
             isVisionConfiguration: AFMMLXModelDescriptor.isVisionModelConfiguration(config),
             requiresVisionModelFactory: AFMMLXModelDescriptor.requiresVisionModelFactory(config)
         )
+    }
+
+    public static func preflightConfiguration(
+        in modelDirectory: URL,
+        modelID: String
+    ) throws -> AFMMLXModelArchitecturePreflight {
+        let configURL = modelDirectory.appendingPathComponent("config.json")
+        guard let data = try? Data(contentsOf: configURL),
+              let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw AFMMLXModelArchitecturePreflightError.invalidConfiguration(modelID)
+        }
+        return try preflightConfiguration(config, modelID: modelID)
     }
 
     public static let supportedNamePatterns: [String] = [
